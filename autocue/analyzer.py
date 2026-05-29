@@ -27,8 +27,11 @@ def analyze_track(content: DjmdContent, db: MasterDatabase) -> list[CuePoint]:
     analysis for the given track. Returns an empty list if analysis data is
     unavailable.
     """
-    anlz_ext = db.read_anlz_file(content, "EXT")
-    anlz_dat = db.read_anlz_file(content, "DAT")
+    try:
+        anlz_ext = db.read_anlz_file(content, "EXT")
+        anlz_dat = db.read_anlz_file(content, "DAT")
+    except Exception:
+        return []
 
     if anlz_ext is None or anlz_dat is None:
         return []
@@ -36,7 +39,7 @@ def analyze_track(content: DjmdContent, db: MasterDatabase) -> list[CuePoint]:
     try:
         pssi = anlz_ext.get_tag("PSSI")
         pqtz = anlz_dat.get_tag("PQTZ")
-    except (IndexError, KeyError):
+    except Exception:
         return []
 
     if pssi is None or pqtz is None:
