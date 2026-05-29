@@ -1,0 +1,796 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AutoCue — Auto-place hot cues in Rekordbox</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:        #0d0d0f;
+      --surface:   #16161a;
+      --surface2:  #1e1e24;
+      --border:    #2a2a35;
+      --green:     #28e214;
+      --green-dim: #1a9a0d;
+      --text:      #e8e8f0;
+      --muted:     #6b6b80;
+      --cue-a: #28e214; --cue-b: #305aff; --cue-c: #00e0ff;
+      --cue-d: #ffa000; --cue-e: #ff6400; --cue-f: #e0301e;
+      --cue-g: #f51e8c; --cue-h: #e600ff;
+      --font: 'Inter', system-ui, sans-serif;
+      --mono: 'JetBrains Mono', 'Fira Code', monospace;
+    }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--font);
+      font-size: 15px;
+      line-height: 1.6;
+      min-height: 100vh;
+    }
+
+    /* ── Header ── */
+    header {
+      border-bottom: 1px solid var(--border);
+      padding: 20px 40px;
+      display: flex;
+      align-items: center;
+      gap: 16px;
+    }
+    .logo {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      text-decoration: none;
+    }
+    .logo-icon {
+      width: 36px; height: 36px;
+      background: var(--green);
+      border-radius: 8px;
+      display: flex; align-items: center; justify-content: center;
+    }
+    .logo-icon svg { width: 20px; height: 20px; }
+    .logo-text {
+      font-size: 20px;
+      font-weight: 700;
+      color: var(--text);
+      letter-spacing: -0.5px;
+    }
+    header nav {
+      margin-left: auto;
+    }
+    header a {
+      color: var(--muted);
+      text-decoration: none;
+      font-size: 14px;
+      transition: color .15s;
+    }
+    header a:hover { color: var(--text); }
+
+    /* ── Main layout ── */
+    main {
+      max-width: 900px;
+      margin: 0 auto;
+      padding: 48px 24px 80px;
+    }
+
+    /* ── Steps ── */
+    .steps {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 40px;
+    }
+    .step {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 13px;
+      color: var(--muted);
+    }
+    .step.active { color: var(--text); }
+    .step.done   { color: var(--green); }
+    .step-num {
+      width: 24px; height: 24px;
+      border-radius: 50%;
+      border: 1.5px solid currentColor;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 11px;
+      font-weight: 600;
+      flex-shrink: 0;
+    }
+    .step.done .step-num {
+      background: var(--green);
+      border-color: var(--green);
+      color: #000;
+    }
+    .step-sep {
+      flex: 1;
+      height: 1px;
+      background: var(--border);
+      margin: 0 4px;
+      align-self: center;
+      min-width: 20px;
+    }
+
+    /* ── Upload zone ── */
+    #upload-section { margin-bottom: 40px; }
+    #drop-zone {
+      border: 2px dashed var(--border);
+      border-radius: 12px;
+      padding: 56px 32px;
+      text-align: center;
+      cursor: pointer;
+      transition: border-color .2s, background .2s;
+      position: relative;
+    }
+    #drop-zone:hover,
+    #drop-zone.drag-over {
+      border-color: var(--green);
+      background: rgba(40, 226, 20, 0.04);
+    }
+    #drop-zone input[type=file] {
+      position: absolute; inset: 0;
+      opacity: 0; cursor: pointer; width: 100%; height: 100%;
+    }
+    .drop-icon {
+      width: 48px; height: 48px;
+      margin: 0 auto 16px;
+      color: var(--muted);
+    }
+    .drop-title {
+      font-size: 16px;
+      font-weight: 600;
+      margin-bottom: 6px;
+    }
+    .drop-sub {
+      color: var(--muted);
+      font-size: 13px;
+    }
+    .drop-sub a {
+      color: var(--green);
+      text-decoration: none;
+    }
+
+    /* ── Settings ── */
+    #settings-section {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 24px;
+      margin-bottom: 32px;
+      display: none;
+    }
+    #settings-section.visible { display: block; }
+    .settings-title {
+      font-size: 13px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: .08em;
+      color: var(--muted);
+      margin-bottom: 20px;
+    }
+    .settings-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+      gap: 20px;
+    }
+    .field label {
+      display: block;
+      font-size: 12px;
+      color: var(--muted);
+      margin-bottom: 6px;
+      font-weight: 500;
+    }
+    .field input[type=number],
+    .field select {
+      width: 100%;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      color: var(--text);
+      font-size: 14px;
+      padding: 8px 12px;
+      outline: none;
+      transition: border-color .15s;
+      font-family: var(--font);
+    }
+    .field input:focus,
+    .field select:focus { border-color: var(--green); }
+
+    /* ── Track list ── */
+    #tracks-section { display: none; }
+    #tracks-section.visible { display: block; }
+    .tracks-header {
+      display: flex;
+      align-items: baseline;
+      gap: 12px;
+      margin-bottom: 20px;
+    }
+    .tracks-title { font-size: 18px; font-weight: 700; }
+    .tracks-count {
+      font-size: 13px;
+      color: var(--muted);
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      padding: 2px 10px;
+    }
+
+    .track-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 16px 20px;
+      margin-bottom: 10px;
+      transition: border-color .15s;
+    }
+    .track-card:hover { border-color: #3a3a48; }
+
+    .track-meta {
+      display: flex;
+      align-items: baseline;
+      gap: 10px;
+      margin-bottom: 12px;
+      flex-wrap: wrap;
+    }
+    .track-name {
+      font-size: 14px;
+      font-weight: 600;
+      flex: 1;
+      min-width: 0;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .track-artist {
+      font-size: 13px;
+      color: var(--muted);
+      white-space: nowrap;
+    }
+    .track-bpm {
+      font-family: var(--mono);
+      font-size: 12px;
+      color: var(--green);
+      background: rgba(40,226,20,.08);
+      border: 1px solid rgba(40,226,20,.2);
+      border-radius: 4px;
+      padding: 2px 7px;
+      white-space: nowrap;
+    }
+    .track-time {
+      font-family: var(--mono);
+      font-size: 12px;
+      color: var(--muted);
+      white-space: nowrap;
+    }
+
+    .cue-slots {
+      display: flex;
+      gap: 5px;
+      margin-bottom: 12px;
+      flex-wrap: wrap;
+    }
+    .cue-badge {
+      font-family: var(--mono);
+      font-size: 11px;
+      font-weight: 700;
+      padding: 2px 7px;
+      border-radius: 4px;
+      border: 1.5px solid;
+    }
+
+    /* per-slot colors */
+    .cue-badge[data-slot="0"] { color: var(--cue-a); border-color: var(--cue-a); background: rgba(40,226,20,.08); }
+    .cue-badge[data-slot="1"] { color: var(--cue-b); border-color: var(--cue-b); background: rgba(48,90,255,.08); }
+    .cue-badge[data-slot="2"] { color: var(--cue-c); border-color: var(--cue-c); background: rgba(0,224,255,.08); }
+    .cue-badge[data-slot="3"] { color: var(--cue-d); border-color: var(--cue-d); background: rgba(255,160,0,.08); }
+    .cue-badge[data-slot="4"] { color: var(--cue-e); border-color: var(--cue-e); background: rgba(255,100,0,.08); }
+    .cue-badge[data-slot="5"] { color: var(--cue-f); border-color: var(--cue-f); background: rgba(224,48,30,.08); }
+    .cue-badge[data-slot="6"] { color: var(--cue-g); border-color: var(--cue-g); background: rgba(245,30,140,.08); }
+    .cue-badge[data-slot="7"] { color: var(--cue-h); border-color: var(--cue-h); background: rgba(230,0,255,.08); }
+
+    /* timeline */
+    .timeline {
+      position: relative;
+      height: 6px;
+      background: var(--surface2);
+      border-radius: 3px;
+      overflow: visible;
+    }
+    .timeline-marker {
+      position: absolute;
+      top: 50%;
+      width: 10px; height: 10px;
+      border-radius: 50%;
+      transform: translate(-50%, -50%);
+      box-shadow: 0 0 6px currentColor;
+    }
+
+    /* ── Download bar ── */
+    #download-bar {
+      position: sticky;
+      bottom: 0;
+      background: rgba(13,13,15,.92);
+      backdrop-filter: blur(12px);
+      border-top: 1px solid var(--border);
+      padding: 16px 40px;
+      display: none;
+      align-items: center;
+      gap: 16px;
+    }
+    #download-bar.visible { display: flex; }
+    .dl-info { flex: 1; font-size: 13px; color: var(--muted); }
+    .dl-info strong { color: var(--text); }
+    button.primary {
+      background: var(--green);
+      color: #000;
+      font-weight: 700;
+      font-size: 14px;
+      padding: 10px 24px;
+      border: none;
+      border-radius: 8px;
+      cursor: pointer;
+      font-family: var(--font);
+      transition: background .15s, transform .1s;
+    }
+    button.primary:hover { background: #33ff18; }
+    button.primary:active { transform: scale(.97); }
+
+    /* ── How to import ── */
+    .how-to {
+      margin-top: 48px;
+      padding-top: 32px;
+      border-top: 1px solid var(--border);
+    }
+    .how-to h2 {
+      font-size: 16px;
+      font-weight: 700;
+      margin-bottom: 16px;
+    }
+    .how-to ol {
+      padding-left: 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      color: var(--muted);
+      font-size: 14px;
+    }
+    .how-to ol strong { color: var(--text); }
+    code {
+      font-family: var(--mono);
+      font-size: 12px;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      padding: 1px 6px;
+    }
+
+    /* ── No tempo warning ── */
+    .warn {
+      font-size: 12px;
+      color: #ffa000;
+      margin-top: 6px;
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <a class="logo" href="#">
+    <div class="logo-icon">
+      <svg viewBox="0 0 20 20" fill="none" stroke="#000" stroke-width="2.2" stroke-linecap="round">
+        <line x1="4"  y1="10" x2="4"  y2="10"/>
+        <line x1="7"  y1="6"  x2="7"  y2="14"/>
+        <line x1="10" y1="3"  x2="10" y2="17"/>
+        <line x1="13" y1="7"  x2="13" y2="13"/>
+        <line x1="16" y1="9"  x2="16" y2="11"/>
+      </svg>
+    </div>
+    <span class="logo-text">AutoCue</span>
+  </a>
+  <nav>
+    <a href="https://github.com/HenriGeorge/AutoCue" target="_blank" rel="noopener">
+      GitHub ↗
+    </a>
+  </nav>
+</header>
+
+<main>
+
+  <!-- Steps indicator -->
+  <div class="steps" id="steps">
+    <div class="step active" id="step-1"><span class="step-num">1</span> Export XML</div>
+    <div class="step-sep"></div>
+    <div class="step" id="step-2"><span class="step-num">2</span> Drop file</div>
+    <div class="step-sep"></div>
+    <div class="step" id="step-3"><span class="step-num">3</span> Preview</div>
+    <div class="step-sep"></div>
+    <div class="step" id="step-4"><span class="step-num">4</span> Download</div>
+  </div>
+
+  <!-- Upload -->
+  <section id="upload-section">
+    <div id="drop-zone">
+      <input type="file" id="file-input" accept=".xml" />
+      <div class="drop-icon">
+        <svg viewBox="0 0 48 48" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M32 32L24 24L16 32"/>
+          <path d="M24 24V44"/>
+          <path d="M40.98 36.96A10 10 0 0 0 34 18h-2.26A16 16 0 1 0 8 33.92"/>
+        </svg>
+      </div>
+      <p class="drop-title">Drop your rekordbox.xml here</p>
+      <p class="drop-sub">
+        or click to browse &nbsp;·&nbsp;
+        <a href="#how-to">How to export from Rekordbox ↓</a>
+      </p>
+    </div>
+  </section>
+
+  <!-- Settings -->
+  <section id="settings-section">
+    <div class="settings-title">Cue settings</div>
+    <div class="settings-grid">
+      <div class="field">
+        <label for="bars-interval">Place a cue every N bars</label>
+        <input type="number" id="bars-interval" value="16" min="1" max="128" />
+      </div>
+      <div class="field">
+        <label for="start-bar">Starting at bar</label>
+        <input type="number" id="start-bar" value="1" min="1" max="512" />
+      </div>
+      <div class="field">
+        <label for="max-cues">Max hot cues per track</label>
+        <input type="number" id="max-cues" value="8" min="1" max="8" />
+      </div>
+    </div>
+  </section>
+
+  <!-- Track list -->
+  <section id="tracks-section">
+    <div class="tracks-header">
+      <h2 class="tracks-title">Tracks</h2>
+      <span class="tracks-count" id="tracks-count">0 tracks</span>
+    </div>
+    <div id="track-list"></div>
+  </section>
+
+  <!-- How to import -->
+  <div class="how-to" id="how-to">
+    <h2>How to use AutoCue</h2>
+    <ol>
+      <li><strong>Export from Rekordbox:</strong> Open Rekordbox → <code>File</code> → <code>Export Collection in rekordbox format</code> → save as <code>rekordbox.xml</code></li>
+      <li><strong>Drop the file</strong> into the zone above and adjust the cue interval to taste.</li>
+      <li><strong>Download</strong> the updated XML file.</li>
+      <li><strong>Import back:</strong> In Rekordbox → <code>File</code> → <code>Import Library</code> → select your downloaded file. Rekordbox will add the hot cues to your tracks.</li>
+    </ol>
+    <p style="margin-top:16px;font-size:13px;color:var(--muted)">
+      AutoCue places hot cues at equal bar intervals using the BPM and beat-grid data
+      already in your Rekordbox XML. Everything runs locally in your browser — no files
+      are ever uploaded anywhere.
+    </p>
+  </div>
+
+</main>
+
+<!-- Download sticky bar -->
+<div id="download-bar">
+  <div class="dl-info">
+    Ready to import: <strong id="dl-summary">— tracks · — cues</strong>
+  </div>
+  <button class="primary" id="download-btn">Download XML</button>
+</div>
+
+<script>
+// ──────────────────────────────────────────────────────────────────────────────
+// Constants
+// ──────────────────────────────────────────────────────────────────────────────
+
+const CUE_COLORS = [
+  { r: 40,  g: 226, b: 20  }, // A green
+  { r: 48,  g: 90,  b: 255 }, // B blue
+  { r: 0,   g: 224, b: 255 }, // C cyan
+  { r: 255, g: 160, b: 0   }, // D yellow
+  { r: 255, g: 100, b: 0   }, // E orange
+  { r: 224, g: 48,  b: 30  }, // F red
+  { r: 245, g: 30,  b: 140 }, // G pink
+  { r: 230, g: 0,   b: 255 }, // H purple
+];
+
+const SLOT_NAMES = ['A','B','C','D','E','F','G','H'];
+
+// ──────────────────────────────────────────────────────────────────────────────
+// State
+// ──────────────────────────────────────────────────────────────────────────────
+
+let parsedDoc = null;     // original DOM document
+let parsedTracks = [];    // parsed track objects
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Parsing
+// ──────────────────────────────────────────────────────────────────────────────
+
+function parseRekordboxXml(xmlString) {
+  const parser = new DOMParser();
+  const doc = parser.parseFromString(xmlString, 'text/xml');
+
+  const trackEls = [...doc.querySelectorAll('COLLECTION > TRACK')];
+  const tracks = trackEls.map(el => {
+    const tempoEl = el.querySelector('TEMPO');
+    let tempo = null;
+    if (tempoEl) {
+      const metro = tempoEl.getAttribute('Metro') || '4/4';
+      const beatsPerBar = parseInt(metro.split('/')[0], 10) || 4;
+      tempo = {
+        bpm:         parseFloat(tempoEl.getAttribute('Bpm'))    || 0,
+        inizio:      parseFloat(tempoEl.getAttribute('Inizio')) || 0,
+        beatsPerBar,
+      };
+    }
+    return {
+      el,
+      id:         el.getAttribute('TrackID'),
+      name:       el.getAttribute('Name')   || '(no title)',
+      artist:     el.getAttribute('Artist') || '',
+      totalTime:  parseFloat(el.getAttribute('TotalTime')) || 0,
+      bpm:        parseFloat(el.getAttribute('AverageBpm')) || (tempo ? tempo.bpm : 0),
+      tempo,
+    };
+  });
+  return { doc, tracks };
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Cue generation
+// ──────────────────────────────────────────────────────────────────────────────
+
+function generateCues(track, barsInterval, startBar, maxCues) {
+  if (!track.tempo || !track.tempo.bpm) return [];
+  const { bpm, inizio, beatsPerBar } = track.tempo;
+  const barDuration = (60.0 / bpm) * beatsPerBar;
+  const cues = [];
+  for (let i = 0; i < maxCues; i++) {
+    const bar = startBar + i * barsInterval;
+    const posSec = inizio + (bar - 1) * barDuration;
+    if (posSec < 0) continue;
+    if (track.totalTime > 0 && posSec >= track.totalTime) break;
+    cues.push({ slot: i, posSec: Math.round(posSec * 1000) / 1000 });
+  }
+  return cues;
+}
+
+function getSettings() {
+  return {
+    barsInterval: Math.max(1, parseInt(document.getElementById('bars-interval').value, 10) || 16),
+    startBar:     Math.max(1, parseInt(document.getElementById('start-bar').value, 10) || 1),
+    maxCues:      Math.min(8, Math.max(1, parseInt(document.getElementById('max-cues').value, 10) || 8)),
+  };
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Rendering
+// ──────────────────────────────────────────────────────────────────────────────
+
+function fmtTime(sec) {
+  const m = Math.floor(sec / 60);
+  const s = Math.floor(sec % 60);
+  return `${m}:${String(s).padStart(2,'0')}`;
+}
+
+function renderTracks() {
+  if (!parsedTracks.length) return;
+  const { barsInterval, startBar, maxCues } = getSettings();
+  const list = document.getElementById('track-list');
+  list.innerHTML = '';
+  let totalCues = 0;
+  let tracksWithCues = 0;
+
+  for (const track of parsedTracks) {
+    const cues = generateCues(track, barsInterval, startBar, maxCues);
+    if (cues.length) { tracksWithCues++; totalCues += cues.length; }
+
+    const card = document.createElement('div');
+    card.className = 'track-card';
+
+    // meta row
+    const meta = document.createElement('div');
+    meta.className = 'track-meta';
+    const nameEl = document.createElement('span');
+    nameEl.className = 'track-name';
+    nameEl.title = track.name;
+    nameEl.textContent = track.name;
+    meta.appendChild(nameEl);
+    if (track.artist) {
+      const a = document.createElement('span');
+      a.className = 'track-artist';
+      a.textContent = track.artist;
+      meta.appendChild(a);
+    }
+    if (track.bpm) {
+      const b = document.createElement('span');
+      b.className = 'track-bpm';
+      b.textContent = track.bpm.toFixed(2) + ' BPM';
+      meta.appendChild(b);
+    }
+    if (track.totalTime) {
+      const t = document.createElement('span');
+      t.className = 'track-time';
+      t.textContent = fmtTime(track.totalTime);
+      meta.appendChild(t);
+    }
+    card.appendChild(meta);
+
+    if (!track.tempo) {
+      const w = document.createElement('p');
+      w.className = 'warn';
+      w.textContent = '⚠ No beat-grid data — analyze this track in Rekordbox first';
+      card.appendChild(w);
+      list.appendChild(card);
+      continue;
+    }
+
+    // cue badges
+    const badges = document.createElement('div');
+    badges.className = 'cue-slots';
+    for (const cue of cues) {
+      const b = document.createElement('span');
+      b.className = 'cue-badge';
+      b.dataset.slot = cue.slot;
+      b.textContent = `${SLOT_NAMES[cue.slot]} ${fmtTime(cue.posSec)}`;
+      badges.appendChild(b);
+    }
+    if (cues.length === 0) {
+      const b = document.createElement('span');
+      b.style.fontSize = '12px';
+      b.style.color = 'var(--muted)';
+      b.textContent = 'No cues fit within track length';
+      badges.appendChild(b);
+    }
+    card.appendChild(badges);
+
+    // timeline
+    if (track.totalTime > 0 && cues.length > 0) {
+      const tl = document.createElement('div');
+      tl.className = 'timeline';
+      for (const cue of cues) {
+        const pct = (cue.posSec / track.totalTime) * 100;
+        const m = document.createElement('div');
+        m.className = 'timeline-marker';
+        m.style.left = `${pct}%`;
+        const c = CUE_COLORS[cue.slot];
+        m.style.background = `rgb(${c.r},${c.g},${c.b})`;
+        m.style.color = `rgb(${c.r},${c.g},${c.b})`;
+        tl.appendChild(m);
+      }
+      card.appendChild(tl);
+    }
+
+    list.appendChild(card);
+  }
+
+  document.getElementById('tracks-count').textContent =
+    `${parsedTracks.length} track${parsedTracks.length !== 1 ? 's' : ''}`;
+  document.getElementById('dl-summary').textContent =
+    `${tracksWithCues} track${tracksWithCues !== 1 ? 's' : ''} · ${totalCues} cue${totalCues !== 1 ? 's' : ''}`;
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// XML export
+// ──────────────────────────────────────────────────────────────────────────────
+
+function buildOutputXml() {
+  const { barsInterval, startBar, maxCues } = getSettings();
+  // Deep clone the original doc
+  const outDoc = parsedDoc.cloneNode(true);
+
+  for (const track of parsedTracks) {
+    const cues = generateCues(track, barsInterval, startBar, maxCues);
+    // Find corresponding element in cloned doc
+    const trackEl = outDoc.querySelector(`COLLECTION > TRACK[TrackID="${track.id}"]`);
+    if (!trackEl) continue;
+
+    // Remove existing hot cues (Num >= 0), keep memory cues (Num == -1)
+    for (const pm of [...trackEl.querySelectorAll('POSITION_MARK')]) {
+      const num = parseInt(pm.getAttribute('Num'), 10);
+      if (num >= 0) pm.remove();
+    }
+
+    // Insert new cues
+    for (const cue of cues) {
+      const pm = outDoc.createElement('POSITION_MARK');
+      pm.setAttribute('Name', '');
+      pm.setAttribute('Type', '0');
+      pm.setAttribute('Start', cue.posSec.toFixed(3));
+      pm.setAttribute('Num', String(cue.slot));
+      const c = CUE_COLORS[cue.slot];
+      pm.setAttribute('Red',   String(c.r));
+      pm.setAttribute('Green', String(c.g));
+      pm.setAttribute('Blue',  String(c.b));
+      trackEl.appendChild(pm);
+    }
+  }
+
+  const serializer = new XMLSerializer();
+  return '<?xml version="1.0" encoding="UTF-8"?>\n' +
+    serializer.serializeToString(outDoc).replace(/^<\?xml[^?]*\?>\n?/, '');
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// File load
+// ──────────────────────────────────────────────────────────────────────────────
+
+function handleFile(file) {
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = e => {
+    const { doc, tracks } = parseRekordboxXml(e.target.result);
+    parsedDoc = doc;
+    parsedTracks = tracks;
+
+    document.getElementById('settings-section').classList.add('visible');
+    document.getElementById('tracks-section').classList.add('visible');
+    document.getElementById('download-bar').classList.add('visible');
+
+    setStep(3);
+    renderTracks();
+  };
+  reader.readAsText(file);
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Steps
+// ──────────────────────────────────────────────────────────────────────────────
+
+function setStep(n) {
+  [1,2,3,4].forEach(i => {
+    const el = document.getElementById(`step-${i}`);
+    el.classList.remove('active', 'done');
+    if (i < n)  el.classList.add('done');
+    if (i === n) el.classList.add('active');
+  });
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Events
+// ──────────────────────────────────────────────────────────────────────────────
+
+const dropZone = document.getElementById('drop-zone');
+const fileInput = document.getElementById('file-input');
+
+fileInput.addEventListener('change', () => handleFile(fileInput.files[0]));
+
+dropZone.addEventListener('dragover', e => {
+  e.preventDefault();
+  dropZone.classList.add('drag-over');
+});
+dropZone.addEventListener('dragleave', () => dropZone.classList.remove('drag-over'));
+dropZone.addEventListener('drop', e => {
+  e.preventDefault();
+  dropZone.classList.remove('drag-over');
+  handleFile(e.dataTransfer.files[0]);
+});
+
+// Re-render on settings change
+['bars-interval', 'start-bar', 'max-cues'].forEach(id => {
+  document.getElementById(id).addEventListener('input', () => {
+    if (parsedTracks.length) renderTracks();
+  });
+});
+
+document.getElementById('download-btn').addEventListener('click', () => {
+  const xml = buildOutputXml();
+  const blob = new Blob([xml], { type: 'text/xml' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'autocue_import.xml';
+  a.click();
+  URL.revokeObjectURL(url);
+  setStep(4);
+});
+</script>
+</body>
+</html>
