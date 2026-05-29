@@ -13,18 +13,6 @@ class PhraseLabel(Enum):
     UNKNOWN = "?"
 
 
-# RGB colors matched to phrase type, used in DB write mode
-PHRASE_COLORS: dict[PhraseLabel, tuple[int, int, int]] = {
-    PhraseLabel.INTRO:  (0x28, 0xe2, 0x14),  # green
-    PhraseLabel.VERSE:  (0x30, 0x5a, 0xff),  # blue
-    PhraseLabel.UP:     (0x30, 0x5a, 0xff),  # blue
-    PhraseLabel.DOWN:   (0xff, 0xa0, 0x00),  # yellow
-    PhraseLabel.BRIDGE: (0xff, 0xa0, 0x00),  # yellow
-    PhraseLabel.CHORUS: (0xe0, 0x30, 0x1e),  # red
-    PhraseLabel.OUTRO:  (0xe6, 0x00, 0xff),  # purple
-    PhraseLabel.UNKNOWN:(0xff, 0xff, 0xff),  # white
-}
-
 # kind integer → PhraseLabel for each Rekordbox mood value
 _KIND_MAP: dict[int, dict[int, PhraseLabel]] = {
     # mood 3 = Low
@@ -72,7 +60,7 @@ def phrase_label(mood: int, kind: int) -> PhraseLabel:
 class CuePoint:
     position_ms: int
     label: PhraseLabel
-    # hot cue slot: 1–8 (A–H), or 0 for memory cue
+    # hot cue slot: 0–7 (A–H), or -1 for memory cue — matches Rekordbox XML Num field directly
     slot: int
 
     @property
@@ -81,4 +69,4 @@ class CuePoint:
 
     @property
     def slot_name(self) -> str:
-        return chr(ord("A") + self.slot - 1) if self.slot > 0 else "Mem"
+        return chr(ord("A") + self.slot) if self.slot >= 0 else "Mem"

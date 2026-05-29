@@ -4,8 +4,8 @@ returning a list of CuePoints ready to be written back to the library.
 """
 from __future__ import annotations
 
-from pyrekordbox import MasterDatabase
-from pyrekordbox.masterdb.models import DjmdContent
+from pyrekordbox import Rekordbox6Database as MasterDatabase
+from pyrekordbox.db6 import DjmdContent
 
 from .models import CuePoint, PhraseLabel, phrase_label
 
@@ -43,37 +43,69 @@ def analyze_track(content: DjmdContent, db: MasterDatabase) -> list[CuePoint]:
     phrases = pssi.content.entries
     mood = pssi.content.mood
 
-    cues: list[CuePoint] = []
-    slot = 1
+    # Two-pass algorithm to ensure rare labels (Intro, Chorus, Outro) always get a slot
+    # even when the track is dominated by repeating "Up"/"Down" phrases.
 
-    for entry in phrases:
-        if slot > MAX_HOT_CUES:
-            break
+    # Pass 1: first occurrence of each unique PhraseLabel
+    seen_labels: set[PhraseLabel] = set()
+    taken_indices: set[int] = set()
+    pass1: list[tuple[int, PhraseLabel]] = []  # (position_ms, label)
 
+    for idx, entry in enumerate(phrases):
         ms = _beat_to_ms(beat_entries, entry.beat)
         if ms is None:
             continue
+        lbl = phrase_label(mood, entry.kind)
+        if lbl not in seen_labels:
+            seen_labels.add(lbl)
+            taken_indices.add(idx)
+            pass1.append((ms, lbl))
 
-        label = phrase_label(mood, entry.kind)
-        cues.append(CuePoint(position_ms=ms, label=label, slot=slot))
-        slot += 1
+    # Pass 2: fill remaining slots with phrases not already taken, in order
+    pass2: list[tuple[int, PhraseLabel]] = []
+    for idx, entry in enumerate(phrases):
+        if len(pass1) + len(pass2) >= MAX_HOT_CUES:
+            break
+        if idx in taken_indices:
+            continue
+        ms = _beat_to_ms(beat_entries, entry.beat)
+        if ms is None:
+            continue
+        lbl = phrase_label(mood, entry.kind)
+        pass2.append((ms, lbl))
 
+    # Combine, sort by position ascending, assign 0-indexed slots
+    combined = sorted(pass1 + pass2, key=lambda x: x[0])
+    cues: list[CuePoint] = [
+        CuePoint(position_ms=ms, label=lbl, slot=slot)
+        for slot, (ms, lbl) in enumerate(combined)
+    ]
     return cues
 
 
 def analyze_by_title(title: str, db: MasterDatabase) -> tuple[DjmdContent, list[CuePoint]] | None:
     """Look up a track by title and return (content, cues). Returns None if not found."""
-    results = db.get_content(Title=title)
-    if results is None:
+    matches = db.get_content(Title=title).all()
+    if len(matches) == 0:
         return None
-    # get_content with no ID returns a Query; with a match it returns the object directly
-    content = results if isinstance(results, DjmdContent) else None
-    if content is None:
-        # Try as a query
-        try:
-            content = results.first()
-        except AttributeError:
-            return None
+    if len(matches) > 1:
+        import sys
+        print(
+            f"Error: {len(matches)} tracks share the title {title!r}. "
+            "Use --track-id instead:",
+            file=sys.stderr,
+        )
+        for c in matches:
+            path = (c.FolderPath or "") + (c.FileNameL or c.FileNameS or "")
+            print(f"  ID={c.ID}  {path}", file=sys.stderr)
+        return None
+    content = matches[0]
+    return content, analyze_track(content, db)
+
+
+def analyze_by_id(track_id: int, db: MasterDatabase) -> tuple[DjmdContent, list[CuePoint]] | None:
+    """Look up a track by its Rekordbox ID and return (content, cues). Returns None if not found."""
+    content = db.get_content(ID=track_id)
     if content is None:
         return None
     return content, analyze_track(content, db)

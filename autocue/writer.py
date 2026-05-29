@@ -11,7 +11,7 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-from pyrekordbox.masterdb.models import DjmdContent
+from pyrekordbox.db6 import DjmdContent
 from pyrekordbox.rbxml import RekordboxXml
 
 from .models import CuePoint
@@ -42,13 +42,12 @@ def write_xml(
             track.set("Artist", content.ArtistName)
 
         for cue in cues:
-            # Num: -1 = memory cue, 0–7 = Hot Cues A–H
-            num = cue.slot - 1 if cue.slot > 0 else -1
+            # Num: -1 = memory cue, 0–7 = Hot Cues A–H (slot already matches wire format)
             track.add_mark(
                 Name=cue.label.value,
                 Type="cue",
                 Start=cue.position_sec,
-                Num=num,
+                Num=cue.slot,
             )
 
     xml.save(str(output_path))
