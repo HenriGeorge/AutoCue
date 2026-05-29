@@ -8,19 +8,38 @@
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
     :root {
-      --bg:        #0d0d0f;
-      --surface:   #16161a;
-      --surface2:  #1e1e24;
-      --border:    #2a2a35;
-      --green:     #28e214;
-      --green-dim: #1a9a0d;
-      --text:      #e8e8f0;
-      --muted:     #6b6b80;
+      /* light theme (default) */
+      --bg:          #ffffff;
+      --surface:     #f5f5f8;
+      --surface2:    #eaeaef;
+      --border:      #e0e0e8;
+      --border-hover:#c4c4d0;
+      --green:       #159a05;
+      --green-dim:   #0f6e03;
+      --text:        #111118;
+      --muted:       #888898;
+      --dl-bg:       rgba(255,255,255,.94);
+      --cue-a: #18a80c; --cue-b: #2246e0; --cue-c: #0099bb;
+      --cue-d: #c07800; --cue-e: #c84800; --cue-f: #c02010;
+      --cue-g: #c8006a; --cue-h: #9900cc;
+      --font: 'Inter', system-ui, sans-serif;
+      --mono: 'JetBrains Mono', 'Fira Code', monospace;
+    }
+
+    html.dark {
+      --bg:          #0d0d0f;
+      --surface:     #16161a;
+      --surface2:    #1e1e24;
+      --border:      #2a2a35;
+      --border-hover:#3a3a48;
+      --green:       #28e214;
+      --green-dim:   #1a9a0d;
+      --text:        #e8e8f0;
+      --muted:       #6b6b80;
+      --dl-bg:       rgba(13,13,15,.92);
       --cue-a: #28e214; --cue-b: #305aff; --cue-c: #00e0ff;
       --cue-d: #ffa000; --cue-e: #ff6400; --cue-f: #e0301e;
       --cue-g: #f51e8c; --cue-h: #e600ff;
-      --font: 'Inter', system-ui, sans-serif;
-      --mono: 'JetBrains Mono', 'Fira Code', monospace;
     }
 
     body {
@@ -30,6 +49,7 @@
       font-size: 15px;
       line-height: 1.6;
       min-height: 100vh;
+      transition: background .2s, color .2s;
     }
 
     /* ── Header ── */
@@ -227,7 +247,7 @@
       margin-bottom: 10px;
       transition: border-color .15s;
     }
-    .track-card:hover { border-color: #3a3a48; }
+    .track-card:hover { border-color: var(--border-hover); }
 
     .track-meta {
       display: flex;
@@ -313,7 +333,7 @@
     #download-bar {
       position: sticky;
       bottom: 0;
-      background: rgba(13,13,15,.92);
+      background: var(--dl-bg);
       backdrop-filter: blur(12px);
       border-top: 1px solid var(--border);
       padding: 16px 40px;
@@ -368,6 +388,25 @@
       padding: 1px 6px;
     }
 
+    /* ── Theme toggle ── */
+    #theme-toggle {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      width: 36px; height: 36px;
+      cursor: pointer;
+      display: flex; align-items: center; justify-content: center;
+      color: var(--muted);
+      transition: background .15s, border-color .15s, color .15s;
+      flex-shrink: 0;
+    }
+    #theme-toggle:hover { border-color: var(--border-hover); color: var(--text); }
+    #theme-toggle svg { width: 18px; height: 18px; }
+    .icon-sun  { display: none; }
+    .icon-moon { display: block; }
+    html.dark .icon-sun  { display: block; }
+    html.dark .icon-moon { display: none; }
+
     /* ── No tempo warning ── */
     .warn {
       font-size: 12px;
@@ -391,10 +430,26 @@
     </div>
     <span class="logo-text">AutoCue</span>
   </a>
-  <nav>
-    <a href="https://github.com/HenriGeorge/AutoCue" target="_blank" rel="noopener">
-      GitHub ↗
-    </a>
+  <nav style="display:flex;align-items:center;gap:16px;">
+    <a href="https://github.com/HenriGeorge/AutoCue" target="_blank" rel="noopener">GitHub ↗</a>
+    <button id="theme-toggle" aria-label="Switch to dark mode">
+      <!-- sun (shown in dark mode) -->
+      <svg class="icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="12" cy="12" r="5"/>
+        <line x1="12" y1="1"  x2="12" y2="3"/>
+        <line x1="12" y1="21" x2="12" y2="23"/>
+        <line x1="4.22" y1="4.22"  x2="5.64" y2="5.64"/>
+        <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/>
+        <line x1="1" y1="12" x2="3" y2="12"/>
+        <line x1="21" y1="12" x2="23" y2="12"/>
+        <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/>
+        <line x1="18.36" y1="5.64"  x2="19.78" y2="4.22"/>
+      </svg>
+      <!-- moon (shown in light mode) -->
+      <svg class="icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
+      </svg>
+    </button>
   </nav>
 </header>
 
@@ -791,6 +846,24 @@ document.getElementById('download-btn').addEventListener('click', () => {
   URL.revokeObjectURL(url);
   setStep(4);
 });
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Theme toggle — always start light; persist preference
+// ──────────────────────────────────────────────────────────────────────────────
+
+const root = document.documentElement;
+const themeBtn = document.getElementById('theme-toggle');
+
+function applyTheme(dark) {
+  root.classList.toggle('dark', dark);
+  themeBtn.setAttribute('aria-label', dark ? 'Switch to light mode' : 'Switch to dark mode');
+  try { localStorage.setItem('autocue-theme', dark ? 'dark' : 'light'); } catch {}
+}
+
+// Always start light (ignore system preference)
+applyTheme(false);
+
+themeBtn.addEventListener('click', () => applyTheme(!root.classList.contains('dark')));
 </script>
 </body>
 </html>
