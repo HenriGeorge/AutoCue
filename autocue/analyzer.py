@@ -33,8 +33,11 @@ def analyze_track(content: DjmdContent, db: MasterDatabase) -> list[CuePoint]:
     if anlz_ext is None or anlz_dat is None:
         return []
 
-    pssi = anlz_ext.get_tag("PSSI")
-    pqtz = anlz_dat.get_tag("PQTZ")
+    try:
+        pssi = anlz_ext.get_tag("PSSI")
+        pqtz = anlz_dat.get_tag("PQTZ")
+    except (IndexError, KeyError):
+        return []
 
     if pssi is None or pqtz is None:
         return []
