@@ -34,7 +34,7 @@ def write_xml(
 
     for content, cues in tracks:
         file_path = _resolve_file_path(content)
-        track = xml.add_track(Location=file_path)
+        track = xml.add_track(file_path)
 
         if content.Title:
             track.set("Name", content.Title)
