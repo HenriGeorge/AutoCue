@@ -148,7 +148,7 @@
     /* ── Audio drop section ── */
     #audio-drop-section { display: none; margin-bottom: 24px; }
     #audio-drop-section.visible { display: block; }
-    #audio-drop-zone {
+    #audio-drop-zone, #anlz-drop-zone {
       border: 2px dashed var(--border);
       border-radius: 10px;
       padding: 16px 20px;
@@ -159,18 +159,19 @@
       transition: border-color .2s, background .2s;
       position: relative;
     }
-    #audio-drop-zone input[type=file] {
+    #audio-drop-zone input[type=file], #anlz-drop-zone input[type=file] {
       position: absolute; inset: 0;
       opacity: 0; cursor: pointer; width: 100%; height: 100%;
     }
-    #audio-drop-zone:hover, #audio-drop-zone.drag-over {
+    #audio-drop-zone:hover, #audio-drop-zone.drag-over,
+    #anlz-drop-zone:hover, #anlz-drop-zone.drag-over {
       border-color: var(--green);
       background: rgba(40,226,20,.04);
     }
     .audio-drop-icon { color: var(--muted); flex-shrink: 0; }
     .audio-drop-title { font-size: 14px; font-weight: 600; }
     .audio-drop-sub { font-size: 12px; color: var(--muted); margin-top: 2px; }
-    #audio-match-count {
+    #audio-match-count, #anlz-match-count {
       margin-left: auto;
       font-size: 12px; font-family: var(--mono);
       color: var(--green);
@@ -468,6 +469,47 @@
     html.dark .icon-sun  { display: block; }
     html.dark .icon-moon { display: none; }
 
+    /* ── Warning banner ── */
+    .warning-banner {
+      background: #fff8e1;
+      border: 1px solid #f9a825;
+      border-radius: 8px;
+      padding: 10px 16px;
+      font-size: 13px;
+      color: var(--text);
+      margin-bottom: 16px;
+      line-height: 1.5;
+    }
+    html.dark .warning-banner { background: #332900; border-color: #f9a825; color: #ffe082; }
+    .secondary-btn {
+      background: var(--surface2); border: 1px solid var(--border);
+      border-radius: 6px; color: var(--text); font-size: 13px;
+      padding: 6px 14px; cursor: pointer; font-family: var(--font);
+      transition: border-color .15s;
+    }
+    .secondary-btn:hover { border-color: var(--border-hover); }
+
+    /* ── Mode buttons ── */
+    .mode-btn {
+      background: var(--surface2); border: 1px solid var(--border);
+      border-radius: 6px; color: var(--muted); font-size: 13px;
+      padding: 5px 14px; cursor: pointer; font-family: var(--font);
+      transition: background .15s, border-color .15s, color .15s;
+      margin-right: 4px;
+    }
+    .mode-btn:hover { border-color: var(--border-hover); color: var(--text); }
+    .mode-btn.active { background: var(--green); border-color: var(--green); color: #000; font-weight: 600; }
+
+    /* ── Existing cue chips ── */
+    .existing-cue-chip {
+      display: inline-flex; align-items: center; gap: 3px;
+      background: var(--surface2); border-radius: 4px;
+      padding: 1px 6px; font-size: 0.72rem; color: var(--muted);
+      white-space: nowrap;
+    }
+    .existing-cue-chip.replaced { background: #fdecea; color: #c62828; }
+    html.dark .existing-cue-chip.replaced { background: #3b1010; color: #ef9a9a; }
+
     /* ── Toast ── */
     #toast {
       position: fixed; bottom: 80px; left: 50%;
@@ -547,6 +589,9 @@
       <p class="drop-title">Drop your rekordbox.xml here</p>
       <p class="drop-sub">or click to browse &nbsp;·&nbsp; <a href="#how-to">How to export ↓</a></p>
     </div>
+    <div id="backup-bar" style="display:none; margin-top:10px; text-align:right;">
+      <button id="backup-btn" class="secondary-btn">💾 Download backup XML</button>
+    </div>
   </section>
 
   <!-- Audio file drop (shown after XML loaded) -->
@@ -565,6 +610,40 @@
       <button id="audio-folder-toggle" title="Toggle folder select mode">📁 Folder</button>
       <span id="audio-match-count"></span>
     </div>
+  </section>
+
+  <!-- Conflict warning (shown when existing cues will be replaced) -->
+  <div id="overwrite-warning" style="display:none" class="warning-banner">
+    ⚠ <strong id="overwrite-count"></strong> track(s) have existing hot cues in slots AutoCue will replace.
+    <button id="backup-inline-btn" style="background:none;border:none;color:var(--green);cursor:pointer;text-decoration:underline;padding:0;font:inherit">Download backup first →</button>
+  </div>
+
+  <!-- Analysis mode toggle (shown after XML loaded) -->
+  <div id="analysis-mode-bar" style="display:none; margin-bottom:16px;">
+    <span style="font-size:13px;color:var(--muted);margin-right:10px;">Analysis mode:</span>
+    <button id="mode-bar-btn" class="mode-btn active">Bar intervals</button>
+    <button id="mode-phrase-btn" class="mode-btn">✨ Phrase analysis</button>
+  </div>
+
+  <!-- ANLZ analysis folder drop (shown in phrase mode) -->
+  <section id="anlz-drop-section" style="display:none; margin-bottom:16px;">
+    <div id="anlz-drop-zone">
+      <input type="file" id="anlz-file-input" webkitdirectory />
+      <div class="audio-drop-icon">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M3 3l7.07 16.97 2.51-7.39 7.39-2.51L3 3z"/><path d="M13 13l6 6"/>
+        </svg>
+      </div>
+      <div>
+        <div class="audio-drop-title">Drop your Rekordbox analysis folder</div>
+        <div class="audio-drop-sub">
+          macOS: ~/Library/Application Support/Pioneer/rekordbox/share<br>
+          Windows: C:\Users\[you]\AppData\Roaming\Pioneer\rekordbox\share
+        </div>
+      </div>
+      <span id="anlz-match-count"></span>
+    </div>
+    <div id="pyodide-status" style="font-size:12px;color:var(--muted);margin-top:8px;"></div>
   </section>
 
   <!-- Settings -->
@@ -614,6 +693,20 @@
       Everything runs locally in your browser — no files are ever uploaded anywhere.
     </p>
   </div>
+
+  <details id="cli-reference" style="margin-top:32px;padding-top:20px;border-top:1px solid var(--border);font-size:13px;color:var(--muted);">
+    <summary style="cursor:pointer;font-weight:600;color:var(--text);">Use the Python CLI instead ↓</summary>
+    <div style="margin-top:12px;line-height:1.7;">
+      <p>The CLI reads directly from your Rekordbox database and uses phrase detection (Intro, Chorus, Outro) automatically — no ANLZ files needed.</p>
+      <pre style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:12px;margin-top:10px;font-family:var(--mono);font-size:12px;overflow-x:auto;">pip install autocue
+
+autocue --library                    # all analyzed tracks
+autocue --track "Song Title"
+autocue --track-id 42 --dry-run
+autocue --library --playlist "My Set"</pre>
+      <p style="margin-top:10px;"><a href="https://github.com/HenriGeorge/AutoCue" target="_blank" rel="noopener" style="color:var(--green);">GitHub: HenriGeorge/AutoCue ↗</a></p>
+    </div>
+  </details>
 </main>
 
 <!-- Sticky download bar with mini player -->
@@ -664,6 +757,12 @@ const SLOT_NAMES = ['A','B','C','D','E','F','G','H'];
 // ── State ──────────────────────────────────────────────────────────────────────
 let parsedDoc    = null;
 let parsedTracks = [];
+let originalXmlText = null;
+
+let analysisMode = 'bar'; // 'bar' | 'phrase'
+let phraseCueState = {};  // trackId → [{position_ms, label, slot}]
+let anlzFileMap = {};     // folder-hex → { ext: File, dat: File }
+let pyodideReady = null;  // Promise<pyodide> once requested
 
 // Audio state: trackId → { file, objectUrl, artworkUrl }
 let audioState   = {};
@@ -701,8 +800,14 @@ function parseRekordboxXml(xmlString) {
     try { locationFilename = decodeURIComponent(rawLocation.split('/').pop()); }
     catch { locationFilename = rawLocation.split('/').pop(); }
 
-    const existingHotCues = [...el.querySelectorAll('POSITION_MARK')]
-      .filter(pm => parseInt(pm.getAttribute('Num'), 10) >= 0).length;
+    const existingCueDetails = [...el.querySelectorAll('POSITION_MARK')]
+      .filter(pm => parseInt(pm.getAttribute('Num'), 10) >= 0)
+      .map(pm => ({
+        num:   parseInt(pm.getAttribute('Num'), 10),
+        name:  pm.getAttribute('Name') || '',
+        start: parseFloat(pm.getAttribute('Start')),
+      }));
+    const existingHotCues = existingCueDetails.length;
 
     return {
       el,
@@ -713,6 +818,7 @@ function parseRekordboxXml(xmlString) {
       bpm:              parseFloat(el.getAttribute('AverageBpm')) || (tempo ? tempo.bpm : 0),
       tempo,
       existingHotCues,
+      existingCueDetails,
       locationFilename,
     };
   });
@@ -923,6 +1029,146 @@ function updateTimeline() {
   ph.style.left = `${pct}%`;
 }
 
+// ── Pyodide / Phrase analysis ──────────────────────────────────────────────────
+const ANALYZE_PYTHON = `
+from pyrekordbox.anlz import AnlzFile
+
+KIND_MAP = {
+    1: {1:'Intro',2:'Up',3:'Down',5:'Chorus',6:'Outro'},
+    2: {1:'Intro',2:'Verse',3:'Verse',4:'Verse',5:'Verse',6:'Verse',7:'Verse',8:'Bridge',9:'Chorus',10:'Outro'},
+    3: {1:'Intro',2:'Verse',3:'Verse',4:'Verse',5:'Verse',6:'Verse',7:'Verse',8:'Bridge',9:'Chorus',10:'Outro'},
+}
+
+def analyze_anlz(ext_bytes, dat_bytes):
+    ext = AnlzFile.parse(bytes(ext_bytes))
+    dat = AnlzFile.parse(bytes(dat_bytes))
+    pssi = next((t for t in ext.body.tags if t.fourcc == 'PSSI'), None)
+    pqtz = next((t for t in dat.body.tags if t.fourcc == 'PQTZ'), None)
+    if not pssi or not pqtz:
+        return []
+    beats = pqtz.content.entries
+    phrases = pssi.content.entries
+    mood = pssi.content.mood
+
+    def beat_ms(n):
+        idx = n - 1
+        return beats[idx].time if 0 <= idx < len(beats) else None
+
+    def lbl(kind):
+        return KIND_MAP.get(mood, {}).get(kind, '?')
+
+    seen, pass1, pass2 = set(), [], []
+    for ph in phrases:
+        ms = beat_ms(ph.beat)
+        if ms is None: continue
+        l = lbl(ph.kind)
+        if l not in seen:
+            seen.add(l)
+            pass1.append((ms, l))
+        else:
+            pass2.append((ms, l))
+
+    combined = sorted(pass1 + pass2[:max(0, 8 - len(pass1))], key=lambda x: x[0])
+    return [{'position_ms': ms, 'label': l, 'slot': i} for i, (ms, l) in enumerate(combined[:8])]
+`;
+
+async function loadPyodideEngine() {
+  if (pyodideReady) return pyodideReady;
+  const statusEl = document.getElementById('pyodide-status');
+  if (statusEl) statusEl.textContent = '⏳ Loading Python engine (first time ~15s)…';
+  pyodideReady = (async () => {
+    const script = document.createElement('script');
+    script.src = 'https://cdn.jsdelivr.net/pyodide/v0.26.4/full/pyodide.js';
+    document.head.appendChild(script);
+    await new Promise((res, rej) => { script.onload = res; script.onerror = rej; });
+    const py = await loadPyodide();
+    await py.loadPackage('micropip');
+    const micropip = py.pyimport('micropip');
+    await micropip.install('pyrekordbox');
+    py.runPython(ANALYZE_PYTHON);
+    if (statusEl) statusEl.textContent = '✅ Python engine ready';
+    return py;
+  })();
+  pyodideReady.catch(err => {
+    if (statusEl) statusEl.textContent = '❌ Failed — use bar-interval mode';
+    showToast('Python engine failed to load — phrase analysis unavailable');
+    pyodideReady = null;
+    analysisMode = 'bar';
+    document.getElementById('mode-bar-btn').classList.add('active');
+    document.getElementById('mode-phrase-btn').classList.remove('active');
+    if (parsedTracks.length) renderTracks();
+  });
+  return pyodideReady;
+}
+
+function indexAnlzFiles(fileList) {
+  anlzFileMap = {};
+  let count = 0;
+  for (const f of fileList) {
+    const parts = (f.webkitRelativePath || f.name).split('/');
+    if (parts.length < 2) continue;
+    const folder = parts[parts.length - 2].toLowerCase();
+    const name = parts[parts.length - 1].toUpperCase();
+    if (!anlzFileMap[folder]) anlzFileMap[folder] = {};
+    if (name.endsWith('.EXT') || name === 'ANLZ0000.EXT') { anlzFileMap[folder].ext = f; count++; }
+    if (name.endsWith('.DAT') || name === 'ANLZ0000.DAT') anlzFileMap[folder].dat = f;
+  }
+  return count;
+}
+
+async function analyzeTrackWithPyodide(trackId) {
+  const folder = parseInt(trackId, 10).toString(16).padStart(8, '0');
+  const files = anlzFileMap[folder];
+  if (!files?.ext || !files?.dat) return null;
+  const [extBuf, datBuf] = await Promise.all([files.ext.arrayBuffer(), files.dat.arrayBuffer()]);
+  const py = await loadPyodideEngine();
+  py.globals.set('_ext', new Uint8Array(extBuf));
+  py.globals.set('_dat', new Uint8Array(datBuf));
+  const result = await py.runPythonAsync('analyze_anlz(_ext, _dat)');
+  return result.toJs({ dict_converter: Object.fromEntries });
+}
+
+async function runPhraseAnalysis() {
+  const statusEl = document.getElementById('pyodide-status');
+  let matched = 0, analyzed = 0;
+  phraseCueState = {};
+  for (const track of parsedTracks) {
+    if (statusEl) statusEl.textContent = `⏳ Analyzing ${analyzed + 1}/${parsedTracks.length}…`;
+    try {
+      const cues = await analyzeTrackWithPyodide(track.id);
+      if (cues && cues.length > 0) {
+        phraseCueState[track.id] = cues;
+        matched++;
+      }
+    } catch(e) {
+      console.warn('Phrase analysis failed for', track.name, e);
+    }
+    analyzed++;
+  }
+  if (statusEl) statusEl.textContent = `✅ ${matched}/${parsedTracks.length} tracks analyzed`;
+  document.getElementById('anlz-match-count').textContent =
+    matched > 0 ? `${matched} / ${parsedTracks.length} matched` : '';
+  renderTracks();
+}
+
+function updateOverwriteWarning() {
+  if (!parsedTracks.length) return;
+  const { maxCues } = getSettings();
+  const skipExisting = document.getElementById('skip-existing-cues').checked;
+  const warning = document.getElementById('overwrite-warning');
+  if (skipExisting) { warning.style.display = 'none'; return; }
+  const usedSlots = new Set(Array.from({length: maxCues}, (_, i) => i));
+  const atRisk = parsedTracks.filter(t =>
+    t.existingCueDetails && t.existingCueDetails.some(c => usedSlots.has(c.num))
+  );
+  if (atRisk.length > 0) {
+    document.getElementById('overwrite-count').textContent = atRisk.length;
+    warning.style.display = '';
+  } else {
+    warning.style.display = 'none';
+  }
+}
+
 // ── Rendering ──────────────────────────────────────────────────────────────────
 function fmtTime(sec) {
   const m = Math.floor(sec / 60);
@@ -940,7 +1186,19 @@ function renderTracks() {
 
   for (const track of parsedTracks) {
     const willSkip = skipExisting && track.existingHotCues > 0;
-    const cues = willSkip ? [] : generateCues(track, barsInterval, startBar, maxCues);
+    let cues = [];
+    if (!willSkip) {
+      if (analysisMode === 'phrase' && phraseCueState[track.id]?.length) {
+        cues = phraseCueState[track.id].map(c => ({
+          slot: c.slot,
+          posSec: c.position_ms / 1000,
+          label: c.label,
+          isPhrase: true,
+        }));
+      } else {
+        cues = generateCues(track, barsInterval, startBar, maxCues);
+      }
+    }
     if (cues.length) { tracksWithCues++; totalCues += cues.length; }
 
     const card = document.createElement('div');
@@ -1054,12 +1312,16 @@ function renderTracks() {
     const badges = document.createElement('div');
     badges.className = 'cue-slots';
     for (const cue of cues) {
-      const barNumber = startBar + cue.slot * barsInterval;
       const b = document.createElement('span');
       b.className = 'cue-badge' + (hasAudio ? ' playable' : '');
       b.dataset.slot   = cue.slot;
       b.dataset.posSec = cue.posSec;
-      b.textContent = `${SLOT_NAMES[cue.slot]} Bar ${barNumber} ${fmtTime(cue.posSec)}`;
+      if (cue.isPhrase) {
+        b.textContent = `${SLOT_NAMES[cue.slot]} ${cue.label} ${fmtTime(cue.posSec)}`;
+      } else {
+        const barNumber = startBar + cue.slot * barsInterval;
+        b.textContent = `${SLOT_NAMES[cue.slot]} Bar ${barNumber} ${fmtTime(cue.posSec)}`;
+      }
       if (hasAudio) {
         b.addEventListener('click', () => seekAndPlay(track.id, cue.posSec));
       }
@@ -1072,6 +1334,33 @@ function renderTracks() {
       badges.appendChild(b);
     }
     cardMain.appendChild(badges);
+
+    // Existing cue chips (A5)
+    if (track.existingCueDetails && track.existingCueDetails.length > 0 && !willSkip) {
+      const { maxCues: mc } = getSettings();
+      const usedSlots = new Set(Array.from({length: mc}, (_, i) => i));
+      const chipsRow = document.createElement('div');
+      chipsRow.style.cssText = 'display:flex;gap:4px;flex-wrap:wrap;margin-top:5px;';
+      for (const ec of track.existingCueDetails) {
+        const chip = document.createElement('span');
+        chip.className = 'existing-cue-chip' + (usedSlots.has(ec.num) ? ' replaced' : '');
+        const slotLetter = ec.num >= 0 && ec.num <= 7 ? String.fromCharCode(65 + ec.num) : '?';
+        const mins = Math.floor(ec.start / 60), secs = Math.floor(ec.start % 60);
+        const icon = usedSlots.has(ec.num) ? '⚠' : '✓';
+        chip.textContent = `${icon} ${slotLetter}: ${mins}:${String(secs).padStart(2,'0')}${ec.name ? ' ' + ec.name : ''}`;
+        chip.title = usedSlots.has(ec.num) ? 'Will be replaced by AutoCue' : 'Will be preserved';
+        chipsRow.appendChild(chip);
+      }
+      cardMain.appendChild(chipsRow);
+    }
+
+    // Phrase mode note when no ANLZ data (B6)
+    if (analysisMode === 'phrase' && !phraseCueState[track.id]) {
+      const note = document.createElement('p');
+      note.style.cssText = 'font-size:12px;color:var(--muted);margin-top:4px;';
+      note.textContent = '⬡ No ANLZ data — drop the analysis folder above to enable phrase analysis';
+      cardMain.appendChild(note);
+    }
 
     // Timeline
     if (track.totalTime > 0 && cues.length > 0) {
@@ -1117,17 +1406,28 @@ function buildOutputXml() {
 
   for (const track of parsedTracks) {
     if (skipExisting && track.existingHotCues > 0) continue;
-    const cues = generateCues(track, barsInterval, startBar, maxCues);
+
+    let cues = [];
+    if (analysisMode === 'phrase' && phraseCueState[track.id]?.length) {
+      cues = phraseCueState[track.id].map(c => ({
+        slot: c.slot, posSec: c.position_ms / 1000, label: c.label, isPhrase: true
+      }));
+    } else {
+      cues = generateCues(track, barsInterval, startBar, maxCues);
+    }
+
     const trackEl = outDoc.querySelector(`COLLECTION > TRACK[TrackID="${track.id}"]`);
     if (!trackEl) continue;
 
+    const usedSlots = new Set(cues.map(c => c.slot));
     for (const pm of [...trackEl.querySelectorAll('POSITION_MARK')]) {
-      if (parseInt(pm.getAttribute('Num'), 10) >= 0) pm.remove();
+      const num = parseInt(pm.getAttribute('Num'), 10);
+      if (num >= 0 && usedSlots.has(num)) pm.remove();
     }
     for (const cue of cues) {
-      const barNumber = startBar + cue.slot * barsInterval;
       const pm = outDoc.createElement('POSITION_MARK');
-      pm.setAttribute('Name',  `Bar ${barNumber}`);
+      const cueName = cue.isPhrase ? cue.label : `Bar ${startBar + cue.slot * barsInterval}`;
+      pm.setAttribute('Name',  cueName);
       pm.setAttribute('Type',  '0');
       pm.setAttribute('Start', cue.posSec.toFixed(3));
       pm.setAttribute('Num',   String(cue.slot));
@@ -1164,6 +1464,7 @@ function handleFile(file) {
     const { doc, tracks } = result;
     parsedDoc    = doc;
     parsedTracks = tracks;
+    originalXmlText = e.target.result;
 
     const withExisting = tracks.filter(t => t.existingHotCues > 0).length;
     const info = document.getElementById('existing-cues-info');
@@ -1179,9 +1480,12 @@ function handleFile(file) {
     document.getElementById('tracks-section').classList.add('visible');
     document.getElementById('download-bar').classList.add('visible');
     document.getElementById('audio-drop-section').classList.add('visible');
+    document.getElementById('backup-bar').style.display = '';
+    document.getElementById('analysis-mode-bar').style.display = '';
 
     setStep(3);
     renderTracks();
+    updateOverwriteWarning();
   };
   reader.readAsText(file);
 }
@@ -1257,11 +1561,11 @@ document.getElementById('audio-folder-toggle').addEventListener('click', e => {
 // ── Events: Settings ───────────────────────────────────────────────────────────
 ['bars-interval', 'start-bar', 'max-cues'].forEach(id => {
   document.getElementById(id).addEventListener('input', () => {
-    if (parsedTracks.length) renderTracks();
+    if (parsedTracks.length) { renderTracks(); updateOverwriteWarning(); }
   });
 });
 document.getElementById('skip-existing-cues').addEventListener('change', () => {
-  if (parsedTracks.length) renderTracks();
+  if (parsedTracks.length) { renderTracks(); updateOverwriteWarning(); }
 });
 
 // ── Events: Download ───────────────────────────────────────────────────────────
@@ -1306,6 +1610,53 @@ miniScrubber.addEventListener('touchend', () => { audioPlayer.currentTime = pars
 
 document.getElementById('mini-play-btn').addEventListener('click', () => {
   if (nowPlayingId) togglePlayTrack(nowPlayingId);
+});
+
+// ── Events: Backup ─────────────────────────────────────────────────────────────
+document.getElementById('backup-btn').addEventListener('click', () => {
+  if (!originalXmlText) return;
+  const blob = new Blob([originalXmlText], { type: 'text/xml' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'rekordbox_backup_' + new Date().toISOString().slice(0,10) + '.xml';
+  a.click();
+  URL.revokeObjectURL(a.href);
+});
+document.getElementById('backup-inline-btn').addEventListener('click', () => {
+  document.getElementById('backup-btn').click();
+});
+
+// ── Events: ANLZ drop ──────────────────────────────────────────────────────────
+const anlzDropZone  = document.getElementById('anlz-drop-zone');
+const anlzFileInput = document.getElementById('anlz-file-input');
+anlzFileInput.addEventListener('change', async () => {
+  indexAnlzFiles(anlzFileInput.files);
+  await runPhraseAnalysis();
+});
+anlzDropZone.addEventListener('dragover',  e => { e.preventDefault(); anlzDropZone.classList.add('drag-over'); });
+anlzDropZone.addEventListener('dragleave', () => anlzDropZone.classList.remove('drag-over'));
+anlzDropZone.addEventListener('drop', async e => {
+  e.preventDefault();
+  anlzDropZone.classList.remove('drag-over');
+  indexAnlzFiles(e.dataTransfer.files);
+  await runPhraseAnalysis();
+});
+
+// ── Events: Analysis mode toggle ───────────────────────────────────────────────
+document.getElementById('mode-bar-btn').addEventListener('click', () => {
+  analysisMode = 'bar';
+  document.getElementById('mode-bar-btn').classList.add('active');
+  document.getElementById('mode-phrase-btn').classList.remove('active');
+  document.getElementById('anlz-drop-section').style.display = 'none';
+  if (parsedTracks.length) renderTracks();
+});
+document.getElementById('mode-phrase-btn').addEventListener('click', async () => {
+  analysisMode = 'phrase';
+  document.getElementById('mode-phrase-btn').classList.add('active');
+  document.getElementById('mode-bar-btn').classList.remove('active');
+  document.getElementById('anlz-drop-section').style.display = '';
+  loadPyodideEngine(); // start loading in background
+  if (parsedTracks.length) renderTracks();
 });
 
 // ── Theme toggle ───────────────────────────────────────────────────────────────
