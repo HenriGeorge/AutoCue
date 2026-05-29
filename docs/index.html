@@ -413,6 +413,100 @@
       color: #ffa000;
       margin-top: 6px;
     }
+
+    /* ── Mode callout ── */
+    .mode-callout {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-left: 3px solid var(--green);
+      border-radius: 8px;
+      padding: 12px 16px;
+      margin-bottom: 32px;
+      font-size: 13px;
+      color: var(--muted);
+      line-height: 1.5;
+    }
+    .mode-callout strong { color: var(--text); }
+    .mode-callout a { color: var(--green); text-decoration: none; }
+    .mode-callout a:hover { text-decoration: underline; }
+
+    /* ── Post-download warning banner ── */
+    #path-warning {
+      background: #fff8e1;
+      border: 1px solid #ffca28;
+      border-radius: 8px;
+      padding: 12px 16px;
+      margin-bottom: 20px;
+      font-size: 13px;
+      color: #5d4037;
+      display: none;
+      align-items: flex-start;
+      gap: 10px;
+    }
+    html.dark #path-warning {
+      background: #332900;
+      border-color: #ffca28;
+      color: #ffe082;
+    }
+    #path-warning.visible { display: flex; }
+    #path-warning p { flex: 1; line-height: 1.5; }
+    #path-warning button {
+      background: none;
+      border: none;
+      cursor: pointer;
+      color: inherit;
+      font-size: 16px;
+      line-height: 1;
+      padding: 0;
+      flex-shrink: 0;
+      opacity: 0.7;
+    }
+    #path-warning button:hover { opacity: 1; }
+
+    /* ── Upload error ── */
+    .drop-error {
+      color: #e53935;
+      font-size: 13px;
+      margin-top: 10px;
+      line-height: 1.5;
+    }
+    html.dark .drop-error { color: #ef9a9a; }
+
+    /* ── Existing cues info ── */
+    .existing-cues-info {
+      margin-top: 16px;
+      padding-top: 16px;
+      border-top: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+    .existing-cues-label {
+      font-size: 13px;
+      color: var(--muted);
+    }
+    .existing-cues-label strong { color: var(--text); }
+    .skip-cues-label {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 13px;
+      color: var(--text);
+      cursor: pointer;
+      user-select: none;
+    }
+    .skip-cues-label input[type=checkbox] { cursor: pointer; }
+
+    /* ── Skipped track badge ── */
+    .skipped-badge {
+      font-size: 11px;
+      color: var(--muted);
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      padding: 2px 8px;
+    }
   </style>
 </head>
 <body>
@@ -466,6 +560,18 @@
     <div class="step" id="step-4"><span class="step-num">4</span> Download</div>
   </div>
 
+  <!-- Mode callout -->
+  <div class="mode-callout">
+    <strong>Bar-interval mode:</strong> This tool places hot cues at equal bar intervals using the BPM and beat-grid data from your Rekordbox XML — for example, every 16 bars starting at bar 1.
+    The <a href="https://github.com/HenriGeorge/AutoCue" target="_blank" rel="noopener">CLI version ↗</a> uses Rekordbox's own phrase detection (Intro, Chorus, Outro) to place cues at musical phrase boundaries instead.
+  </div>
+
+  <!-- Post-download path warning -->
+  <div id="path-warning">
+    <p><strong>File path tip:</strong> Rekordbox matches tracks by file path. Import on the same machine you exported from, and don't move audio files between export and import — otherwise Rekordbox may create orphan entries.</p>
+    <button id="path-warning-dismiss" aria-label="Dismiss">✕</button>
+  </div>
+
   <!-- Upload -->
   <section id="upload-section">
     <div id="drop-zone">
@@ -501,6 +607,13 @@
         <label for="max-cues">Max hot cues per track</label>
         <input type="number" id="max-cues" value="8" min="1" max="8" />
       </div>
+    </div>
+    <div class="existing-cues-info" id="existing-cues-info" style="display:none">
+      <span class="existing-cues-label" id="existing-cues-label"></span>
+      <label class="skip-cues-label">
+        <input type="checkbox" id="skip-existing-cues" checked />
+        Skip tracks that already have hot cues
+      </label>
     </div>
   </section>
 
@@ -572,6 +685,16 @@ function parseRekordboxXml(xmlString) {
   const parser = new DOMParser();
   const doc = parser.parseFromString(xmlString, 'text/xml');
 
+  // Validate: check for parse errors (parsererror tag)
+  if (doc.querySelector('parsererror')) {
+    return { doc: null, tracks: null, error: "This file couldn't be parsed as XML. Make sure it's a valid rekordbox.xml export." };
+  }
+
+  // Validate: check for DJ_PLAYLISTS root element
+  if (!doc.querySelector('DJ_PLAYLISTS')) {
+    return { doc: null, tracks: null, error: "This doesn't look like a Rekordbox export. In Rekordbox go to File → Export Collection in rekordbox format." };
+  }
+
   const trackEls = [...doc.querySelectorAll('COLLECTION > TRACK')];
   const tracks = trackEls.map(el => {
     const tempoEl = el.querySelector('TEMPO');
@@ -585,6 +708,11 @@ function parseRekordboxXml(xmlString) {
         beatsPerBar,
       };
     }
+    // Count existing hot cues (POSITION_MARK with Num >= 0)
+    const existingHotCues = [...el.querySelectorAll('POSITION_MARK')].filter(pm => {
+      return parseInt(pm.getAttribute('Num'), 10) >= 0;
+    }).length;
+
     return {
       el,
       id:         el.getAttribute('TrackID'),
@@ -593,6 +721,7 @@ function parseRekordboxXml(xmlString) {
       totalTime:  parseFloat(el.getAttribute('TotalTime')) || 0,
       bpm:        parseFloat(el.getAttribute('AverageBpm')) || (tempo ? tempo.bpm : 0),
       tempo,
+      existingHotCues,
     };
   });
   return { doc, tracks };
@@ -638,13 +767,15 @@ function fmtTime(sec) {
 function renderTracks() {
   if (!parsedTracks.length) return;
   const { barsInterval, startBar, maxCues } = getSettings();
+  const skipExisting = document.getElementById('skip-existing-cues').checked;
   const list = document.getElementById('track-list');
   list.innerHTML = '';
   let totalCues = 0;
   let tracksWithCues = 0;
 
   for (const track of parsedTracks) {
-    const cues = generateCues(track, barsInterval, startBar, maxCues);
+    const willSkip = skipExisting && track.existingHotCues > 0;
+    const cues = willSkip ? [] : generateCues(track, barsInterval, startBar, maxCues);
     if (cues.length) { tracksWithCues++; totalCues += cues.length; }
 
     const card = document.createElement('div');
@@ -678,6 +809,16 @@ function renderTracks() {
     }
     card.appendChild(meta);
 
+    // Skipped-track badge
+    if (willSkip) {
+      const skipped = document.createElement('span');
+      skipped.className = 'skipped-badge';
+      skipped.textContent = `Skipped — has ${track.existingHotCues} existing hot cue${track.existingHotCues !== 1 ? 's' : ''}`;
+      card.appendChild(skipped);
+      list.appendChild(card);
+      continue;
+    }
+
     if (!track.tempo) {
       const w = document.createElement('p');
       w.className = 'warn';
@@ -687,14 +828,15 @@ function renderTracks() {
       continue;
     }
 
-    // cue badges
+    // cue badges with bar labels
     const badges = document.createElement('div');
     badges.className = 'cue-slots';
     for (const cue of cues) {
+      const barNumber = startBar + cue.slot * barsInterval;
       const b = document.createElement('span');
       b.className = 'cue-badge';
       b.dataset.slot = cue.slot;
-      b.textContent = `${SLOT_NAMES[cue.slot]} ${fmtTime(cue.posSec)}`;
+      b.textContent = `${SLOT_NAMES[cue.slot]} Bar ${barNumber} ${fmtTime(cue.posSec)}`;
       badges.appendChild(b);
     }
     if (cues.length === 0) {
@@ -738,10 +880,14 @@ function renderTracks() {
 
 function buildOutputXml() {
   const { barsInterval, startBar, maxCues } = getSettings();
+  const skipExisting = document.getElementById('skip-existing-cues').checked;
   // Deep clone the original doc
   const outDoc = parsedDoc.cloneNode(true);
 
   for (const track of parsedTracks) {
+    // Skip tracks that already have hot cues if checkbox is checked
+    if (skipExisting && track.existingHotCues > 0) continue;
+
     const cues = generateCues(track, barsInterval, startBar, maxCues);
     // Find corresponding element in cloned doc
     const trackEl = outDoc.querySelector(`COLLECTION > TRACK[TrackID="${track.id}"]`);
@@ -753,10 +899,11 @@ function buildOutputXml() {
       if (num >= 0) pm.remove();
     }
 
-    // Insert new cues
+    // Insert new cues with bar number labels
     for (const cue of cues) {
+      const barNumber = startBar + cue.slot * barsInterval;
       const pm = outDoc.createElement('POSITION_MARK');
-      pm.setAttribute('Name', '');
+      pm.setAttribute('Name', `Bar ${barNumber}`);
       pm.setAttribute('Type', '0');
       pm.setAttribute('Start', cue.posSec.toFixed(3));
       pm.setAttribute('Num', String(cue.slot));
@@ -777,13 +924,47 @@ function buildOutputXml() {
 // File load
 // ──────────────────────────────────────────────────────────────────────────────
 
+function showDropError(msg) {
+  // Remove any existing error
+  const existing = document.querySelector('#drop-zone .drop-error');
+  if (existing) existing.remove();
+  const errEl = document.createElement('p');
+  errEl.className = 'drop-error';
+  errEl.textContent = msg;
+  document.getElementById('drop-zone').appendChild(errEl);
+}
+
+function clearDropError() {
+  const existing = document.querySelector('#drop-zone .drop-error');
+  if (existing) existing.remove();
+}
+
 function handleFile(file) {
   if (!file) return;
+  clearDropError();
   const reader = new FileReader();
   reader.onload = e => {
-    const { doc, tracks } = parseRekordboxXml(e.target.result);
+    const result = parseRekordboxXml(e.target.result);
+
+    if (result.error) {
+      showDropError(result.error);
+      return;
+    }
+
+    const { doc, tracks } = result;
     parsedDoc = doc;
     parsedTracks = tracks;
+
+    // Show existing cues summary if any tracks have hot cues
+    const tracksWithExisting = tracks.filter(t => t.existingHotCues > 0).length;
+    const existingInfo = document.getElementById('existing-cues-info');
+    if (tracksWithExisting > 0) {
+      document.getElementById('existing-cues-label').innerHTML =
+        `<strong>${tracksWithExisting}</strong> of ${tracks.length} track${tracks.length !== 1 ? 's' : ''} already have hot cues`;
+      existingInfo.style.display = 'flex';
+    } else {
+      existingInfo.style.display = 'none';
+    }
 
     document.getElementById('settings-section').classList.add('visible');
     document.getElementById('tracks-section').classList.add('visible');
@@ -835,6 +1016,11 @@ dropZone.addEventListener('drop', e => {
   });
 });
 
+// Re-render when skip-existing-cues checkbox changes
+document.getElementById('skip-existing-cues').addEventListener('change', () => {
+  if (parsedTracks.length) renderTracks();
+});
+
 document.getElementById('download-btn').addEventListener('click', () => {
   const xml = buildOutputXml();
   const blob = new Blob([xml], { type: 'text/xml' });
@@ -845,6 +1031,13 @@ document.getElementById('download-btn').addEventListener('click', () => {
   a.click();
   URL.revokeObjectURL(url);
   setStep(4);
+  // Show path warning banner
+  document.getElementById('path-warning').classList.add('visible');
+});
+
+// Dismiss path warning
+document.getElementById('path-warning-dismiss').addEventListener('click', () => {
+  document.getElementById('path-warning').classList.remove('visible');
 });
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -857,7 +1050,6 @@ const themeBtn = document.getElementById('theme-toggle');
 function applyTheme(dark) {
   root.classList.toggle('dark', dark);
   themeBtn.setAttribute('aria-label', dark ? 'Switch to light mode' : 'Switch to dark mode');
-  try { localStorage.setItem('autocue-theme', dark ? 'dark' : 'light'); } catch {}
 }
 
 // Always start light (ignore system preference)
