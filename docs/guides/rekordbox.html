@@ -166,6 +166,11 @@
       <li><a class="toc-h2" href="#performance">Performance Mode</a></li>
       <li><a class="toc-h2" href="#export">USB Export</a></li>
       <li><a class="toc-h2" href="#shortcuts">Keyboard Shortcuts</a></li>
+      <li><a class="toc-h2" href="#advanced">Advanced Techniques</a></li>
+      <li><a class="toc-h3" href="#adv-library">Library Architecture</a></li>
+      <li><a class="toc-h3" href="#adv-xml">XML as a Power Tool</a></li>
+      <li><a class="toc-h3" href="#adv-streaming">Streaming Integration</a></li>
+      <li><a class="toc-h3" href="#adv-large">Large Library Management</a></li>
       <li><a class="toc-h2" href="#mistakes">12 Common Mistakes</a></li>
       <li><a class="toc-h2" href="#resources">Resources</a></li>
     </ul>
@@ -425,6 +430,114 @@
         <tr><td>BPM Tap</td><td><kbd>T</kbd></td></tr>
       </tbody>
     </table>
+
+    <!-- ─── ADVANCED ─── -->
+    <h2 id="advanced">Advanced Techniques</h2>
+
+    <h3 id="adv-library">Advanced Library Architecture</h3>
+    <p>Once your library grows past a few hundred tracks, the default flat collection view stops working. Professional DJs use a deliberate folder and playlist hierarchy built around <em>how they actually select tracks at a gig</em>, not how they organise music at home.</p>
+
+    <h4>The Preparation Folder workflow</h4>
+    <p>Create a special playlist called <strong>_PREP</strong> (underscore keeps it at the top). Drag every track into it when you import it. This is your "inbox" — tracks that haven't been analysed, tagged, or cue-pointed yet.</p>
+    <ol class="step-list">
+      <li>Import new tracks → they go into <strong>_PREP</strong>.</li>
+      <li>Work through _PREP: fix beatgrids, set hot cues, add My Tags, set key.</li>
+      <li>Once a track is fully prepared, remove it from _PREP and add it to its genre/energy playlists.</li>
+      <li>An empty _PREP folder means your library is fully prepared. A full one means you have homework.</li>
+    </ol>
+
+    <h4>Nested playlist structure</h4>
+    <p>Rekordbox supports playlist folders (right-click → Create Folder). A proven structure:</p>
+    <div class="two-col">
+      <div class="card">
+        <h4>By energy arc</h4>
+        <ul>
+          <li>📁 Warm-up (BPM 118–124, energy 1–2)</li>
+          <li>📁 Build (BPM 124–128, energy 3)</li>
+          <li>📁 Peak (BPM 128–133, energy 4–5)</li>
+          <li>📁 After-dark (dark, minimal, late night)</li>
+          <li>📁 Closing (slower, emotional, outro-ready)</li>
+        </ul>
+      </div>
+      <div class="card">
+        <h4>By function</h4>
+        <ul>
+          <li>📁 CURRENT SETS (active playlists for gigs)</li>
+          <li>📁 HISTORY (auto-generated play history)</li>
+          <li>📁 _PREP (unfinished tracks)</li>
+          <li>📁 TOOLS (acapellas, intros, anthems)</li>
+          <li>📁 ARCHIVE (old but keep-worthy)</li>
+        </ul>
+      </div>
+    </div>
+
+    <h4>History playlists</h4>
+    <p>Rekordbox automatically records every track you play in <strong>History</strong> (bottom of the left panel). After each gig, right-click the session → <strong>Export to Playlist</strong>. Name it with the date and venue. Over time this becomes invaluable: you can see exactly which tracks you've overplayed, which you've never reached for, and which combos worked.</p>
+    <div class="callout">
+      <strong>Smart Playlist: tracks not played in 6 months</strong>
+      Create an Intelligent Playlist with condition "Last Played more than 180 days ago" + "My Tag does not contain Archive". This surfaces forgotten gems that are still prepared and ready.
+    </div>
+
+    <h3 id="adv-xml">XML as a Power Tool</h3>
+    <p>Rekordbox's <strong>File → Export Collection in rekordbox format</strong> writes your entire library — tracks, playlists, hot cues, beatgrids, My Tags — to a human-readable XML file. This is more powerful than it looks.</p>
+
+    <h4>Library migration and backup</h4>
+    <ul>
+      <li><strong>Full backup</strong>: export XML monthly. If Rekordbox's <code>master.db</code> corrupts (it happens), you can rebuild from XML in minutes rather than re-preparing every track from scratch.</li>
+      <li><strong>Moving computers</strong>: export XML on old machine, import on new one. All metadata survives — hot cues, tags, playlists, beatgrids.</li>
+      <li><strong>Sharing prep work</strong>: send an XML to a b2b partner so they start the gig with your cues already loaded.</li>
+    </ul>
+
+    <h4>Third-party tools that read Rekordbox XML</h4>
+    <ul>
+      <li><strong><a href="https://lexiconsoftware.com" target="_blank" rel="noopener">Lexicon DJ</a></strong>: migrate libraries between DJ software (Rekordbox ↔ Serato ↔ Traktor ↔ Denon Engine). Reads and writes Rekordbox XML. The most reliable cross-platform migration tool.</li>
+      <li><strong><a href="https://github.com/digital-dj-tools/dj-data-converter" target="_blank" rel="noopener">DJ Data Converter</a></strong>: free, open-source XML conversion for basic migrations.</li>
+      <li><strong>AutoCue</strong>: reads your Rekordbox XML and writes back hot cues at phrase boundaries. AutoCue's output is a Rekordbox XML — import it via File → Import Library.</li>
+    </ul>
+
+    <div class="callout warn">
+      <strong>File → Import Library vs Export Collection</strong>
+      These are different directions. <em>Export Collection</em> writes your full library to XML. <em>Import Library</em> merges an XML back in — it only writes data that's present in the XML; missing tracks and slots are left untouched. AutoCue uses Import Library specifically because it's additive, not destructive.
+    </div>
+
+    <h4>Editing XML directly (power users)</h4>
+    <p>The Rekordbox XML format is documented and editable. Advanced users write scripts to bulk-set track colours, rename cues programmatically, or normalise My Tags across 10,000 tracks. The <code>&lt;TRACK&gt;</code> element holds everything; <code>&lt;POSITION_MARK&gt;</code> elements are hot/memory cues. The pyrekordbox library (Python) gives full programmatic access.</p>
+
+    <h3 id="adv-streaming">Streaming Integration (SoundCloud / Beatport Link)</h3>
+    <p>Rekordbox integrates with streaming services on the <strong>Creative and Professional plans</strong>. You can browse and play streaming tracks directly from the Rekordbox player interface and CDJ screens.</p>
+    <ul>
+      <li><strong>SoundCloud DJ</strong>: access SoundCloud's catalog from Rekordbox. Requires a paid SoundCloud DJ subscription in addition to a Rekordbox Creative/Pro plan.</li>
+      <li><strong>Beatport Link</strong>: access the full Beatport catalog for streaming and offline caching. Industry-standard for keeping up with new releases before buying.</li>
+      <li><strong>Beatsource Link</strong>: similar to Beatport, focused on open-format DJing (hip-hop, R&amp;B, dance).</li>
+    </ul>
+    <div class="callout warn">
+      <strong>Streaming limitations at venues</strong>
+      Streaming tracks require an internet connection to play. Club Wi-Fi is unreliable. Most professional DJs treat streaming as a discovery tool, then download and import tracks they plan to gig with. Do not rely on streaming for a paid gig unless you have a verified reliable connection and offline caching enabled.
+    </div>
+    <p><strong>Offline mode / Locker</strong>: tracks you've played from a streaming service can be cached locally ("added to Locker") for offline use, subject to the service's terms. Cache your set tracks the day before.</p>
+
+    <h3 id="adv-large">Large Library Management (10,000+ Tracks)</h3>
+    <p>Libraries above ~5,000 tracks introduce performance and navigation challenges. Here's how professional DJs with large collections stay fast.</p>
+
+    <h4>Search discipline</h4>
+    <ul>
+      <li>Use <kbd>Ctrl/Cmd+F</kbd> to focus the search bar instantly. Rekordbox searches across title, artist, album, and remixer simultaneously.</li>
+      <li>Prefix searches: type <code>t:word</code> to search title only, <code>a:artist</code> for artist only — faster on large databases.</li>
+      <li>The <strong>Tag List</strong> sidebar filter (show/hide with View → Tag List) lets you quickly filter by genre, key, or BPM range without building a playlist.</li>
+    </ul>
+
+    <h4>Duplicate detection</h4>
+    <p>Rekordbox has no built-in duplicate finder. Use <strong>Mixed In Key</strong> or <strong>Duplicate Cleaner Pro</strong> (Windows) / <strong>dupeGuru Music</strong> (Mac) to find audio duplicates by waveform fingerprint rather than filename. Re-import cleanly after removing duplicates.</p>
+
+    <h4>Database maintenance</h4>
+    <ul>
+      <li><strong>Relocate Missing Files</strong>: right-click Collection → Relocate Missing Files. Run this whenever files have moved. Better: never move files after importing.</li>
+      <li><strong>Remove from Collection</strong> (not just playlist): when permanently deleting tracks, right-click → Remove from Collection, not just Delete from Playlist. Orphaned collection entries slow down the database over time.</li>
+      <li><strong>Database backup</strong>: the master database lives at <code>~/Library/Caches/rekordbox/</code> (macOS) or <code>%APPDATA%\Pioneer\rekordbox\</code> (Windows). Back it up alongside your XML exports. Time Machine on macOS does this automatically if configured.</li>
+    </ul>
+
+    <h4>BPM and key corrections at scale</h4>
+    <p>For bulk-correcting analysis errors (common after a large import), use <strong>Preferences → Analysis</strong> to re-analyse selected tracks with updated sensitivity settings, rather than fixing each one manually. Set the BPM range to match your genre (e.g. 120–140 for techno/house) to prevent half/double BPM detection errors.</p>
 
     <!-- ─── MISTAKES ─── -->
     <h2 id="mistakes">12 Common Rekordbox Mistakes</h2>

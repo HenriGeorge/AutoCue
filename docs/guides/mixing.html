@@ -155,6 +155,12 @@
       <li><a class="toc-h2" href="#crowd">Reading the Crowd</a></li>
       <li><a class="toc-h2" href="#setbuilding">Set Building</a></li>
       <li><a class="toc-h2" href="#gain">Gain Staging</a></li>
+      <li><a class="toc-h2" href="#advanced">Advanced Techniques</a></li>
+      <li><a class="toc-h3" href="#adv-multidecks">Multi-Deck Mixing</a></li>
+      <li><a class="toc-h3" href="#adv-acapella">Acapella Mixing</a></li>
+      <li><a class="toc-h3" href="#adv-variable">Variable-Tempo Tracks</a></li>
+      <li><a class="toc-h3" href="#adv-tension">Tension & Release Theory</a></li>
+      <li><a class="toc-h3" href="#adv-genres">Genre-Bending Transitions</a></li>
       <li><a class="toc-h2" href="#mistakes">10 Beginner Mistakes</a></li>
       <li><a class="toc-h2" href="#resources">Resources</a></li>
     </ul>
@@ -542,6 +548,129 @@
       <li>The master output should average around –6 dBFS with occasional peaks reaching –3 dBFS. This gives the venue's limiter headroom.</li>
       <li>If tracks from different eras or labels sound wildly different in volume: use Rekordbox's <strong>Track Analysis → Loudness</strong> value to normalise before exporting, or adjust gain in Preferences → Analysis → Apply Gain.</li>
     </ol>
+
+    <!-- ─── ADVANCED ─── -->
+    <h2 id="advanced">Advanced Techniques</h2>
+
+    <h3 id="adv-multidecks">Multi-Deck Mixing (3–4 Decks)</h3>
+    <p>Three or four CDJs open up layering, live remixing, and complex transitions that are impossible with two. This is the territory of DJs like Richie Hawtin, Jeff Mills, and Nina Kraviz.</p>
+
+    <h4>The role of each deck</h4>
+    <div class="two-col">
+      <div class="card">
+        <h4>Two-deck baseline</h4>
+        <ul>
+          <li>Deck A: playing to crowd (outgoing)</li>
+          <li>Deck B: incoming track</li>
+        </ul>
+        <p style="font-size:13px;color:var(--muted);margin-top:8px;">The standard model. Linear — only one transition happening at any time.</p>
+      </div>
+      <div class="card">
+        <h4>Four-deck advanced</h4>
+        <ul>
+          <li>Deck 1: main track (the foundation)</li>
+          <li>Deck 2: incoming or layering track</li>
+          <li>Deck 3: loops, stabs, percussive layers</li>
+          <li>Deck 4: prepared next track (silent, in cue)</li>
+        </ul>
+        <p style="font-size:13px;color:var(--muted);margin-top:8px;">Non-linear — up to 3 tracks running simultaneously.</p>
+      </div>
+    </div>
+
+    <h4>Layering technique</h4>
+    <p>With three decks, the third deck runs a loop underneath the main two-track mix. This is how minimal techno DJs create a dense, evolving texture without a single-track mindset:</p>
+    <ol class="step-list">
+      <li>Deck 1 plays the main track at full volume.</li>
+      <li>Deck 3 plays a 4-bar loop from a percussion track, brought in low (−6 to −10 dB) — it adds rhythm without dominating.</li>
+      <li>Mix Deck 2 in over 16 bars as usual, using EQ.</li>
+      <li>When Deck 2 is established, drop Deck 1, mute Deck 3, and start the cycle again. The crowd hears continuous evolution rather than discrete transitions.</li>
+    </ol>
+
+    <h4>Master deck management</h4>
+    <p>In a multi-deck setup, Sync requires a designated master deck. The master's BPM becomes the reference everyone else syncs to. Rules:</p>
+    <ul>
+      <li>Only ever change the master assignment when the floor is already at maximum energy (drops, peaks) — a BPM lurch on a quiet breakdown is immediately noticeable.</li>
+      <li>Tempo changes should be gradual: ±0.5 BPM per transition max, unless doing a deliberate gear-change to a different energy level.</li>
+      <li>On CDJ-3000: the master deck is shown with a crown icon. Press MASTER explicitly to transfer it when transitioning.</li>
+    </ul>
+
+    <h3 id="adv-acapella">Acapella Mixing</h3>
+    <p>Playing a vocal over an instrumental is one of the most powerful tools in open-format and pop/dance DJing. When it works, it sounds like a professional mashup.</p>
+
+    <h4>Requirements for a clean acapella mix</h4>
+    <ul>
+      <li><strong>Key match</strong>: the acapella and the instrumental must be in the same key (or a compatible Camelot key). Even a semitone off sounds wrong. Use Key Shift on the CDJ to correct if needed.</li>
+      <li><strong>Tempo match</strong>: obvious, but acapellas often come at original BPM. Pitch fader correction may affect the vocal pitch unless Master Tempo is on.</li>
+      <li><strong>Phrase alignment</strong>: the vocal phrase (usually 16 bars) must start exactly on bar 1 of the instrumental's section. A hot cue on beat 1 of the vocal intro is essential.</li>
+    </ul>
+
+    <h4>Mixing in an acapella</h4>
+    <ol class="step-list">
+      <li>Hot cue A should be on beat 1, bar 1 of the vocal (often after any count-in).</li>
+      <li>Match the acapella BPM to the running track. Enable Master Tempo so pitch doesn't shift.</li>
+      <li>Set the acapella's channel EQ with Bass fully off (vocals have no useful bass) and High at 0.</li>
+      <li>Bring the acapella channel fader up to about 60–70% — loud enough to be clearly heard but not overpowering the instrumental.</li>
+      <li>Trigger hot cue A on beat 1 of the instrumental's chorus or main section. Both will be in sync.</li>
+      <li>After the vocal section finishes, fade the acapella channel back out. Don't let instrumental silence sections of the vocal track bleed into the mix.</li>
+    </ol>
+
+    <div class="callout">
+      <strong>Stem files and STEMS</strong>
+      Rekordbox supports <strong>.stem.mp4</strong> files (Native Instruments STEMS format) which contain separate stem layers (bass, drums, melody, vocals). On CDJ-3000 with a DJM-A9 or DJM-V10, you can isolate and blend individual stems live — play the vocals of one track over the kick of another. The CDJ-3000 also supports Rekordbox's own AI stem separation in newer firmware.
+    </div>
+
+    <h3 id="adv-variable">Mixing Variable-Tempo Tracks</h3>
+    <p>Live recordings, jazz, afrobeat, world music, and many classic records are not produced to a fixed BPM click track. Their tempo drifts naturally. Sync and standard beatgrids break completely on these tracks.</p>
+
+    <h4>The approaches</h4>
+    <div class="two-col">
+      <div class="card">
+        <h4>Manual beatmatch throughout</h4>
+        <p style="font-size:13px;">Sync off. You ride the pitch fader and jog wheel constantly to follow the live track's tempo. Requires excellent ear training. The only valid approach for jazz/afrobeat/live recordings.</p>
+      </div>
+      <div class="card">
+        <h4>Strategic transition points</h4>
+        <p style="font-size:13px;">Find a short section of the live track that's metronomic (the drummer settled into the groove). Mix in and out around that window. Avoid the rubato sections entirely.</p>
+      </div>
+    </div>
+    <ul>
+      <li>Use Rekordbox's <strong>Dynamic beatgrid</strong> mode for live recordings — it places multiple grid markers throughout the track to follow the actual tempo curve. This makes sync viable on tracks where the tempo drift is small.</li>
+      <li>Short mixes (4–8 bar cuts rather than 16-bar blends) minimise the phase drift problem — there's less time for the tempos to diverge.</li>
+      <li>EQ transitions work better than long crossfades on variable-tempo tracks — a quick bass swap at a phrase boundary sounds intentional even if the beats drift slightly in the overlap.</li>
+    </ul>
+
+    <h3 id="adv-tension">Tension &amp; Release Theory</h3>
+    <p>The most advanced skill in DJing isn't technical — it's emotional. Understanding how to build tension and control its release is what separates a technically competent DJ from one who <em>moves</em> people.</p>
+
+    <h4>Tension sources</h4>
+    <ul>
+      <li><strong>Frequency removal</strong>: sweeping a HPF to kill the bass makes people anticipate its return. Hold it longer than expected — then snap it back. The bass restoration <em>is</em> the release.</li>
+      <li><strong>Rhythmic interruption</strong>: a loop halved to 1/2 bar and held longer than comfortable creates almost physical tension. The drop out of the loop is relief.</li>
+      <li><strong>Harmonic ambiguity</strong>: a deliberate key clash for 4–8 bars (before resolving to a compatible key) creates unease that the resolution pays off.</li>
+      <li><strong>Silence</strong>: a brief filter-down to near-silence before a drop is one of the oldest tricks in the book — still works every time.</li>
+      <li><strong>Withholding the drop</strong>: let the build-up run 8 bars longer than expected. The crowd expects the drop at bar 16. Give it to them at bar 24. The wait is the tension.</li>
+    </ul>
+
+    <h4>Release mechanics</h4>
+    <ul>
+      <li>Releases should be sudden, not gradual. A slow fade back from HPF loses half the impact. Snap it. Cut the loop. Hit the drop. Instants are more powerful than transitions at the release moment.</li>
+      <li>Match the release to a phrase boundary — bar 1, beat 1. A release mid-phrase sounds like a mistake; a release on the downbeat of the chorus sounds like genius.</li>
+      <li><strong>Volume headroom</strong>: if the peak moment of tension is already at maximum volume, there's nowhere to go. Run 2–3 dB below maximum for 8 bars before a peak drop. Then push to maximum <em>on the drop</em>. The relative volume increase is the release, even without actually exceeding your previous maximum.</li>
+    </ul>
+
+    <h3 id="adv-genres">Genre-Bending Transitions</h3>
+    <p>Mixing between genres (house → techno, techno → drum &amp; bass, hip-hop → R&amp;B) requires deliberate bridging techniques — you can't just crossfade.</p>
+
+    <h4>BPM bridging</h4>
+    <p>Most genre boundaries are also BPM boundaries. Practical techniques:</p>
+    <ul>
+      <li><strong>Half-time / Double-time</strong>: a 140 BPM drum &amp; bass track at half-time feels like 70 BPM — you can mix into it from 130 BPM house by pitching down to 65 BPM and letting the dnb's half-time groove carry the transition. Requires Master Tempo on.</li>
+      <li><strong>Breakdown transition</strong>: mix in the new genre during its most stripped-down section (no kick drum, just pads/atmosphere). The BPM is implied but not felt. Cross during the atmospheric bridge, then let the new kick drop in the new tempo. The crowd recalibrates on the drop.</li>
+      <li><strong>Acapella bridge</strong>: play a vocal track with no distinct genre tempo as a 16–32 bar bridge between two genres. The acapella is the genre-neutral zone.</li>
+    </ul>
+
+    <h4>Energy matching across genres</h4>
+    <p>The crowd's emotional state matters more than technical genre consistency. A 110 BPM blues-influenced house track at peak energy can follow a 128 BPM techno track if both are at the same emotional intensity. The energy arc should be continuous even when genres jump.</p>
 
     <!-- ─── MISTAKES ─── -->
     <h2 id="mistakes">10 Common Beginner Mixing Mistakes</h2>

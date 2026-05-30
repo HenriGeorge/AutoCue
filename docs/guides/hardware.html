@@ -162,6 +162,12 @@
       <li><a class="toc-h2" href="#headphones">Headphone Monitoring</a></li>
       <li><a class="toc-h2" href="#usb-hw">USB Management</a></li>
       <li><a class="toc-h2" href="#etiquette">Booth Etiquette</a></li>
+      <li><a class="toc-h2" href="#advanced">Advanced Techniques</a></li>
+      <li><a class="toc-h3" href="#adv-link">Pro DJ Link</a></li>
+      <li><a class="toc-h3" href="#adv-stems">Stems &amp; AI Separation</a></li>
+      <li><a class="toc-h3" href="#adv-dvs">DVS Setup</a></li>
+      <li><a class="toc-h3" href="#adv-beatjump">Beat Jump Patterns</a></li>
+      <li><a class="toc-h3" href="#adv-4deck">4-Deck Performance</a></li>
       <li><a class="toc-h2" href="#resources">Resources</a></li>
     </ul>
   </nav>
@@ -491,6 +497,111 @@
       <li>Do not pull your USB until the incoming DJ's track is playing cleanly.</li>
       <li>Reset everything: return EQs to center, return any effects to off, return monitor volume to standard. Leave the booth as you found it.</li>
     </ol>
+
+    <!-- ─── ADVANCED ─── -->
+    <h2 id="advanced">Advanced Techniques</h2>
+
+    <h3 id="adv-link">Pro DJ Link Networking</h3>
+    <p>Pro DJ Link is Pioneer's Ethernet protocol that connects CDJs, XDJs, and DJMs on a local network. When two or more CDJs are linked, they share information — BPM, beat position, waveform data, and your USB library.</p>
+
+    <h4>What Pro DJ Link enables</h4>
+    <ul>
+      <li><strong>Single USB, multiple CDJs</strong>: plug one USB into CDJ 1. CDJ 2 (and 3, 4) can browse and load tracks from CDJ 1's USB over the network — no second USB needed. Essential for guest DJs who bring one drive.</li>
+      <li><strong>Sync via Link</strong>: BPM and beat phase sync over Ethernet rather than requiring the same USB database. More reliable than audio-cable-based sync.</li>
+      <li><strong>CDJ-3000 Link Cue</strong>: hear the other deck's cue audio through your current deck's headphone output. Useful for previewing tracks without switching headphone channels on the mixer.</li>
+      <li><strong>Rekordbox Performance mode via LAN</strong>: connect a laptop running Rekordbox to the same network. Rekordbox sends your library wirelessly to the CDJs — no USB at all.</li>
+    </ul>
+
+    <h4>Setup</h4>
+    <ol class="step-list">
+      <li>Connect all CDJs and the DJM to a network switch (not just each other — daisy-chaining CDJs causes network issues).</li>
+      <li>Press <strong>LINK</strong> on each CDJ. Each unit gets an IP via DHCP from the switch. Confirm the Link indicator lights solid.</li>
+      <li>On the CDJ that has the USB inserted: navigate to the USB source. Other CDJs can now see it in their Source menu under the CDJ's player number.</li>
+      <li>For Rekordbox wireless export: connect the laptop to the same switch, open Rekordbox, click the wireless export icon (CDJ broadcast symbol). CDJs show "Rekordbox" as a source.</li>
+    </ol>
+
+    <div class="callout warn">
+      <strong>Only one USB can act as the shared source</strong>
+      Multiple CDJs can read from one USB over the network, but only one CDJ loads each track into playback at a time. You can't have CDJ 1 and CDJ 3 both playing the same track simultaneously from the same USB slot — each player loads its own copy into RAM.
+    </div>
+
+    <h3 id="adv-stems">Stems &amp; AI Stem Separation</h3>
+    <p>Stems allow DJs to isolate and independently control individual elements of a track — vocals, bass, drums, melody — in real-time. Two systems are available on Pioneer hardware.</p>
+
+    <h4>Native Instruments STEMS (.stem.mp4)</h4>
+    <ul>
+      <li>Pre-prepared stem files with 4 independent layers baked in at mastering. Created by labels or using NI's Stem Creator.</li>
+      <li>Supported on CDJ-3000 with firmware ≥ 3.0.0 and DJM-A9 or DJM-V10.</li>
+      <li>Each stem layer has its own level and EQ control on the CDJ touchscreen. You can mute drums, play only the vocal, or remove the bass from one track and substitute the bass from another.</li>
+      <li>Limited catalog — most tracks aren't available as STEMS format. Beatport sells some stems releases.</li>
+    </ul>
+
+    <h4>AI Stem Separation (rekordbox + CDJ-3000)</h4>
+    <ul>
+      <li>Rekordbox 6.6+ can separate any track into stems using AI, without a pre-prepared stem file.</li>
+      <li>Right-click a track → <strong>Analyse → Separate Stems</strong>. Processing takes 1–5 minutes per track depending on CPU.</li>
+      <li>The separated stems are stored as additional analysis data alongside the track. On CDJ-3000, they appear as controllable layers.</li>
+      <li>Quality is good for electronic music; less reliable for dense orchestral recordings. Bass and drums separate cleanest; vocals are hit or miss on complex tracks.</li>
+      <li>Requires a Rekordbox Creative or Professional plan subscription for AI stem separation.</li>
+    </ul>
+
+    <div class="callout">
+      <strong>Live remix technique with stems</strong>
+      Classic application: mute the drums of the outgoing track during the last 8 bars, letting only the melody ring out. Bring in the incoming track's drums underneath. Then restore the outgoing melody while introducing the incoming bass. You've created a live remix that sounds label-produced.
+    </div>
+
+    <h3 id="adv-dvs">DVS Setup (Digital Vinyl System)</h3>
+    <p>DVS lets you use real vinyl records or CDs as controllers for digital audio. The turntable's timecode signal tells the software the exact needle position — you manipulate digital audio as if it were vinyl.</p>
+
+    <h4>Pioneer DVS setup</h4>
+    <ul>
+      <li>Requires: turntables (Technics, Pioneer PLX, or similar), DJM mixer with DVS support (DJM-900NXS2, DJM-A9, DJM-V10), Control Vinyl or Control CDs, and a Rekordbox Professional plan (or Interface 2 hardware for standalone DVS).</li>
+      <li>Connect turntable outputs to the DJM's PHONO inputs. The DJM decodes the timecode and sends it to Rekordbox via USB.</li>
+      <li>In Rekordbox: activate DVS mode (Preferences → Controller → DVS). Assign each analog input to a Rekordbox deck.</li>
+      <li>Place Control Vinyl on the turntable, drop the needle on Side A. Rekordbox displays the timecode signal quality — green = good signal, red = dirty record or worn needle.</li>
+    </ul>
+    <div class="callout warn">
+      <strong>DVS requires spotless vinyl and a good needle</strong>
+      Dust, scratches, and worn stylii all degrade the timecode signal. Signal degradation causes the digital audio to skip, stutter, or lose sync entirely. Clean records before every session; replace the needle at the manufacturer's recommended interval (usually 500 hours for standard DJ cartridges).
+    </div>
+
+    <h3 id="adv-beatjump">Beat Jump Patterns for Performance</h3>
+    <p>Beat Jump isn't just a navigation tool — it's a performance technique. Rapid, rhythmic beat jumps create stuttering fills and loop-like effects without actually triggering a loop.</p>
+
+    <h4>Stutter fills</h4>
+    <p>Set Beat Jump to 1/2 beat. Rapidly press the forward beat jump button in rhythm — 4 or 8 times in quick succession. This plays the same 1/2 beat section repeatedly in a forward-jumping stutter. The effect is similar to a very short forward loop but with a different texture.</p>
+
+    <h4>Reverse time jump</h4>
+    <p>Set Beat Jump to 4 or 8 beats. During a build, press backward jump once — the track snaps back by exactly 4 or 8 beats, replaying that section. The crowd hears a "rewind" to an earlier moment in the build, then the build plays again with added anticipation the second time.</p>
+
+    <h4>Phrase-length jumps</h4>
+    <p>Set Beat Jump to 32 beats (8 bars). Use it to skip entire sections of a track in real time — jump over a verse, skip to the drop directly. Combined with Quantize, this is seamless and on-beat. Useful when reading the crowd and realising a section needs to be shorter than originally planned.</p>
+
+    <div class="callout">
+      <strong>CDJ-3000 Beat Jump on the touchscreen</strong>
+      The CDJ-3000 allows you to swipe the waveform touchscreen left or right to jump. Swiping left jumps back; swiping right jumps forward by the selected Beat Jump size. More tactile than button pressing for performance use.
+    </div>
+
+    <h3 id="adv-4deck">4-Deck Performance Workflow</h3>
+    <p>Four CDJs requires a fundamentally different mental model. You're not doing one transition at a time — you're managing a live sound system.</p>
+
+    <h4>Role assignment</h4>
+    <ul>
+      <li><strong>CDJ 1 (left):</strong> Foundation track — long-playing, the main groove. This is what you manage first if anything goes wrong.</li>
+      <li><strong>CDJ 2 (right):</strong> Incoming track — currently being mixed in or prepared.</li>
+      <li><strong>CDJ 3 (left, second layer):</strong> Loop player — a percussion loop, acapella fragment, or texture layer. Usually played at −6 to −10 dB.</li>
+      <li><strong>CDJ 4 (right, second layer):</strong> Pre-loaded next track — silent, cued up, ready. You can see its waveform and confirm the hot cue position before you need it.</li>
+    </ul>
+
+    <h4>Channel routing on the DJM-A9 / DJM-V10</h4>
+    <p>The DJM-A9 has 4 channels, each assignable to any CDJ via Pro DJ Link. In a standard 4-CDJ setup: channels 1–4 correspond to CDJ players 1–4. Each channel's EQ, filter, and fader operate independently — you have full individual control of all four decks simultaneously.</p>
+
+    <h4>Simplifying complexity</h4>
+    <ul>
+      <li>Four decks is cognitively demanding. The most common professional approach is to use CDJ 3 as a <em>simple loop player only</em> — load a track, set a 4 or 8-bar loop, bring it in subtly. One function, low cognitive cost, big sonic payoff.</li>
+      <li>Keep CDJ 4 loaded and cued at all times. The worst moment in a 4-deck set is frantically searching for the next track while managing 3 live decks. Pre-load always.</li>
+      <li>Designate one deck as the "clock master" for the night and rarely change it. Constant master reassignment creates Sync instability.</li>
+    </ul>
 
     <!-- ─── RESOURCES ─── -->
     <h2 id="resources">Resources &amp; Further Reading</h2>
