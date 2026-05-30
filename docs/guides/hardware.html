@@ -1,0 +1,562 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Pioneer CDJ / XDJ Skills — DJ Learning Guides</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg: #ffffff; --surface: #f5f5f8; --surface2: #eaeaef;
+      --border: #e0e0e8; --border-hover: #c4c4d0;
+      --green: #159a05; --green-dim: #0f6e03;
+      --text: #111118; --muted: #888898; --warn: #c07800; --danger: #c02010;
+      --font: 'Inter', system-ui, sans-serif;
+      --mono: 'JetBrains Mono', 'Fira Code', monospace;
+    }
+    html.dark {
+      --bg: #0d0d0f; --surface: #16161a; --surface2: #1e1e24;
+      --border: #2a2a35; --border-hover: #3a3a48;
+      --green: #28e214; --green-dim: #1a9a0d;
+      --text: #e8e8f0; --muted: #6b6b80; --warn: #ffa000; --danger: #e0301e;
+    }
+    body { background: var(--bg); color: var(--text); font-family: var(--font);
+           font-size: 15px; line-height: 1.7; min-height: 100vh; }
+    header { border-bottom: 1px solid var(--border); padding: 16px 40px;
+             display: flex; align-items: center; gap: 16px; position: sticky; top: 0;
+             background: var(--bg); z-index: 100; }
+    .logo { display: flex; align-items: center; gap: 10px; text-decoration: none; }
+    .logo-icon { width: 30px; height: 30px; background: var(--green); border-radius: 7px;
+                 display: flex; align-items: center; justify-content: center; }
+    .logo-icon svg { width: 16px; height: 16px; }
+    .logo-text { font-size: 17px; font-weight: 700; color: var(--text); letter-spacing: -0.5px; }
+    header nav { margin-left: auto; display: flex; gap: 20px; align-items: center; }
+    header a { color: var(--muted); text-decoration: none; font-size: 14px; }
+    header a:hover { color: var(--text); }
+    .theme-btn { background: none; border: 1px solid var(--border); border-radius: 6px;
+                 padding: 3px 9px; cursor: pointer; color: var(--muted); font-size: 13px; }
+    .layout { display: flex; max-width: 1100px; margin: 0 auto; padding: 0 24px; }
+    .toc { width: 220px; flex-shrink: 0; padding: 40px 0; position: sticky; top: 62px;
+           height: calc(100vh - 62px); overflow-y: auto; }
+    .toc ul { list-style: none; }
+    .toc li { margin-bottom: 2px; }
+    .toc a { color: var(--muted); text-decoration: none; font-size: 13px;
+             display: block; padding: 3px 0; border-left: 2px solid transparent;
+             padding-left: 12px; transition: all .15s; }
+    .toc a:hover, .toc a.active { color: var(--text); border-left-color: var(--green); }
+    .toc .toc-h2 { font-weight: 600; margin-top: 12px; }
+    .toc .toc-h3 { padding-left: 24px; font-size: 12px; }
+    .toc-title { font-size: 11px; font-weight: 700; text-transform: uppercase;
+                 letter-spacing: 1px; color: var(--muted); padding-left: 12px; margin-bottom: 8px; }
+    article { flex: 1; min-width: 0; padding: 40px 0 40px 40px; }
+    .hero { margin-bottom: 48px; }
+    .hero-badge { display: inline-block; background: var(--green); color: #fff;
+                  border-radius: 20px; padding: 3px 12px; font-size: 12px;
+                  font-weight: 700; letter-spacing: 0.5px; margin-bottom: 16px; }
+    h1 { font-size: 40px; font-weight: 800; letter-spacing: -1.5px; line-height: 1.1; margin-bottom: 16px; }
+    .lead { font-size: 18px; color: var(--muted); max-width: 600px; }
+    h2 { font-size: 26px; font-weight: 700; letter-spacing: -0.5px;
+         margin: 52px 0 20px; padding-top: 8px; border-top: 2px solid var(--border); }
+    h3 { font-size: 18px; font-weight: 600; margin: 32px 0 12px; }
+    h4 { font-size: 15px; font-weight: 600; margin: 20px 0 8px; color: var(--muted); }
+    p { margin-bottom: 16px; }
+    ul, ol { padding-left: 24px; margin-bottom: 16px; }
+    li { margin-bottom: 6px; }
+    strong { font-weight: 600; }
+    a { color: var(--green-dim); }
+    html.dark a { color: var(--green); }
+    a:hover { text-decoration: underline; }
+    code { font-family: var(--mono); font-size: 13px; background: var(--surface2);
+           border-radius: 4px; padding: 1px 5px; }
+    .callout { background: var(--surface); border-left: 3px solid var(--green);
+               border-radius: 0 8px 8px 0; padding: 14px 18px; margin: 20px 0; }
+    .callout.warn { border-left-color: var(--warn); }
+    .callout.danger { border-left-color: var(--danger); }
+    .callout strong { display: block; margin-bottom: 4px; }
+    .step-list { counter-reset: steps; list-style: none; padding: 0; }
+    .step-list li { counter-increment: steps; padding-left: 40px; position: relative; margin-bottom: 14px; }
+    .step-list li::before { content: counter(steps); position: absolute; left: 0; top: 2px;
+                             width: 26px; height: 26px; background: var(--green); border-radius: 50%;
+                             display: flex; align-items: center; justify-content: center;
+                             font-size: 12px; font-weight: 700; color: #fff; }
+    .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin: 16px 0; }
+    .three-col { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px; margin: 16px 0; }
+    .card { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 18px; }
+    .card h4 { margin-top: 0; }
+    .fx-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 12px; margin: 16px 0; }
+    .fx-card { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 16px; }
+    .fx-card .fx-name { font-weight: 700; margin-bottom: 4px; }
+    .fx-card .fx-type { font-size: 11px; color: var(--muted); margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.5px; }
+    .fx-card p { font-size: 13px; color: var(--muted); margin: 0; }
+    .mistake-list { list-style: none; padding: 0; }
+    .mistake-list li { padding: 12px 16px; background: var(--surface); border-radius: 8px;
+                       margin-bottom: 8px; border-left: 3px solid var(--danger); font-size: 14px; }
+    .mistake-list li strong { color: var(--danger); }
+    .resources { background: var(--surface); border-radius: 12px; padding: 24px; margin-top: 20px; }
+    .resources h3 { margin-top: 0; }
+    .resource-item { display: flex; align-items: flex-start; gap: 10px; margin-bottom: 12px; }
+    .resource-tag { background: var(--surface2); border-radius: 4px; padding: 2px 8px;
+                    font-size: 11px; font-weight: 600; color: var(--muted); flex-shrink: 0; margin-top: 2px; }
+    .print-btn { background: var(--surface); border: 1px solid var(--border); border-radius: 8px;
+                 padding: 8px 18px; cursor: pointer; color: var(--text); font-size: 14px;
+                 margin-bottom: 32px; display: inline-flex; align-items: center; gap: 8px; }
+    .print-btn:hover { border-color: var(--border-hover); }
+    .model-badge { display: inline-block; background: var(--surface2); border-radius: 4px;
+                   padding: 2px 8px; font-size: 12px; font-weight: 600; color: var(--muted); margin-left: 8px; }
+    .shortcut-table { width: 100%; border-collapse: collapse; margin: 16px 0; }
+    .shortcut-table th, .shortcut-table td { padding: 10px 14px; text-align: left;
+                                              border-bottom: 1px solid var(--border); font-size: 14px; }
+    .shortcut-table th { color: var(--muted); font-size: 12px; font-weight: 600;
+                         text-transform: uppercase; letter-spacing: 0.5px; }
+    .shortcut-table tr:last-child td { border-bottom: none; }
+    kbd { font-family: var(--mono); font-size: 12px; background: var(--surface2);
+          border: 1px solid var(--border); border-radius: 4px; padding: 1px 6px; }
+    @media (max-width: 768px) { .toc { display: none; } .layout { padding: 0 16px; }
+      article { padding: 32px 0; } h1 { font-size: 28px; }
+      .two-col, .three-col { grid-template-columns: 1fr; } }
+    @media print {
+      header, .toc, .print-btn { display: none; }
+      .layout { display: block; }
+      article { padding: 0; }
+      h2 { page-break-before: always; }
+      .callout, .card, .fx-card { page-break-inside: avoid; }
+      a { color: var(--text); }
+      a[href]::after { content: " (" attr(href) ")"; font-size: 11px; color: var(--muted); }
+    }
+  </style>
+</head>
+<body>
+<header>
+  <a class="logo" href="../index.html">
+    <div class="logo-icon">
+      <svg viewBox="0 0 20 20" fill="none" stroke="white" stroke-width="2">
+        <circle cx="10" cy="10" r="7"/><circle cx="10" cy="10" r="2"/>
+      </svg>
+    </div>
+    <span class="logo-text">AutoCue</span>
+  </a>
+  <nav>
+    <a href="index.html">← Guides</a>
+    <a href="../index.html">App</a>
+    <button class="theme-btn" onclick="toggleTheme()">&#9788;</button>
+  </nav>
+</header>
+
+<div class="layout">
+  <nav class="toc" id="toc">
+    <div class="toc-title">Contents</div>
+    <ul>
+      <li><a class="toc-h2" href="#overview">CDJ Overview</a></li>
+      <li><a class="toc-h2" href="#jog">Jog Wheel Mastery</a></li>
+      <li><a class="toc-h3" href="#vinyl-cdj">VINYL vs CDJ Mode</a></li>
+      <li><a class="toc-h3" href="#jog-techniques">Jog Techniques</a></li>
+      <li><a class="toc-h2" href="#loops-hw">Loops on Hardware</a></li>
+      <li><a class="toc-h2" href="#effects">DJM Effects</a></li>
+      <li><a class="toc-h3" href="#beat-fx">Beat FX</a></li>
+      <li><a class="toc-h3" href="#sound-color">Sound Color FX</a></li>
+      <li><a class="toc-h2" href="#waveform">Waveform Reading</a></li>
+      <li><a class="toc-h2" href="#hotcues-hw">Hot Cues on Hardware</a></li>
+      <li><a class="toc-h2" href="#slip">Slip Mode</a></li>
+      <li><a class="toc-h2" href="#sync-hw">Sync on Hardware</a></li>
+      <li><a class="toc-h2" href="#key">Key Shift</a></li>
+      <li><a class="toc-h2" href="#headphones">Headphone Monitoring</a></li>
+      <li><a class="toc-h2" href="#usb-hw">USB Management</a></li>
+      <li><a class="toc-h2" href="#etiquette">Booth Etiquette</a></li>
+      <li><a class="toc-h2" href="#resources">Resources</a></li>
+    </ul>
+  </nav>
+
+  <article>
+    <button class="print-btn" onclick="window.print()">🖨️ Save as PDF</button>
+
+    <div class="hero">
+      <div class="hero-badge">Guide 3 of 3</div>
+      <h1>Pioneer CDJ / XDJ Skills</h1>
+      <p class="lead">Master the hardware found in 95% of professional DJ booths — from jog wheel feel to DJM effects, Slip mode, and booth etiquette.</p>
+    </div>
+
+    <!-- ─── OVERVIEW ─── -->
+    <h2 id="overview">CDJ / XDJ Overview</h2>
+    <p>Pioneer DJ's CDJ and XDJ players are the industry standard for professional DJ booths worldwide. Understanding the differences between models saves confusion when you're at a venue.</p>
+    <div class="three-col">
+      <div class="card">
+        <h4>CDJ-2000NXS2</h4>
+        <p style="font-size:13px;color:var(--muted);">The club standard since 2016. 7" non-mechanical jog wheel, USB + SD + CD. FAT32 required for USB. Found in most clubs worldwide.</p>
+      </div>
+      <div class="card">
+        <h4>CDJ-3000</h4>
+        <p style="font-size:13px;color:var(--muted);">Current flagship (2020+). 9" motorised jog wheel, larger touch screen, phrase display on screen, exFAT USB support. Found in major venues and festivals.</p>
+      </div>
+      <div class="card">
+        <h4>XDJ-RX3 / XDJ-XZ</h4>
+        <p style="font-size:13px;color:var(--muted);">All-in-one players with mixer included. Common in smaller clubs and home setups. Same Rekordbox USB export process; same hot cue behavior.</p>
+      </div>
+    </div>
+
+    <div class="callout">
+      <strong>Core principle</strong>
+      All Pioneer CDJ/XDJ players read the same Rekordbox database from your USB. Hot cues, beatgrids, and waveforms you prepared in Rekordbox appear identically on every model — what differs is the hardware feel and screen interface.
+    </div>
+
+    <!-- ─── JOG WHEEL ─── -->
+    <h2 id="jog">Jog Wheel Mastery</h2>
+    <p>The jog wheel is the most tactile part of CDJ control. Developing a feel for it takes practice — it responds differently from a turntable and differently in each mode.</p>
+
+    <h3 id="vinyl-cdj">VINYL vs CDJ Mode</h3>
+    <div class="two-col">
+      <div class="card">
+        <h4>VINYL Mode</h4>
+        <ul>
+          <li>Touching the top surface grabs the audio — holds it in place like holding a record</li>
+          <li>Moving the jog forward/back scratches</li>
+          <li>Releasing returns playback at normal speed</li>
+          <li>More tactile, closer to turntable feel</li>
+          <li><strong>Use for</strong>: scratching, turntablist techniques, learning CDJ feel</li>
+        </ul>
+      </div>
+      <div class="card">
+        <h4>CDJ Mode</h4>
+        <ul>
+          <li>Top surface does NOT grab audio — it controls pitch only (pitch bend)</li>
+          <li>Moving forward = speeds track up temporarily; backward = slows down</li>
+          <li>You must use the outer ring for nudge</li>
+          <li>More precise for tempo correction</li>
+          <li><strong>Use for</strong>: standard beatmatching, nudge corrections during mix</li>
+        </ul>
+      </div>
+    </div>
+
+    <p><strong>JOG ADJUST</strong>: The physical tension dial on CDJ-2000NXS2 and CDJ-3000 adjusts how heavy the jog feels. Tighter = more resistance (turntable feel). Looser = lighter touch needed. Find your preference and request the same setting when playing at venues.</p>
+
+    <h3 id="jog-techniques">Jog Techniques</h3>
+    <h4>Needle Drop (Search)</h4>
+    <p>Touch the outer ring and rotate — this scrubs through the track at high speed. Use it to find a specific point in a long track without waiting. On the CDJ-3000, you can also drag on the waveform touchscreen for the same effect.</p>
+
+    <h4>Nudge for Phase Correction</h4>
+    <p>When beatmatched but slightly off-phase, touch the outer ring lightly in CDJ mode:</p>
+    <ul>
+      <li>Push forward gently = slight speed increase = moves beats earlier</li>
+      <li>Hold gently = slight speed decrease = lets other deck catch up</li>
+      <li>Small, confident touches are better than constant small corrections. One clean nudge is better than ten micro-adjustments.</li>
+    </ul>
+
+    <h4>Danny Avila Countdown Technique</h4>
+    <p>A reliable method for mixing in from a hot cue without visual sync:</p>
+    <ol class="step-list">
+      <li>Set a hot cue at bar 1 of the section you want to mix in from.</li>
+      <li>Let the outgoing track count down — watch the CDJ's remaining time display.</li>
+      <li>At 32 bars remaining, trigger the hot cue on the incoming deck.</li>
+      <li>The incoming track is now 32 bars into the future. You have exactly the outro length to blend and swap.</li>
+    </ol>
+    <div class="callout">
+      This technique works because most electronic tracks have consistent phrase lengths. Once you know a track has a 32-bar outro, you can cue to 32 bars before the end and trigger the incoming track's intro simultaneously.
+    </div>
+
+    <!-- ─── LOOPS ─── -->
+    <h2 id="loops-hw">Loops on CDJ Hardware</h2>
+
+    <h4>Auto Beat Loop</h4>
+    <p>Press any of the loop size buttons (1/2, 1, 2, 4, 8 bars) and the CDJ immediately loops that many bars from the current position. The track continues looping until you press <strong>Loop Exit</strong> or the same button again.</p>
+
+    <h4>Manual Loop</h4>
+    <ol class="step-list">
+      <li>Press <strong>Loop In</strong> on beat 1 of the section to loop.</li>
+      <li>Press <strong>Loop Out</strong> where the loop should end. The CDJ immediately starts the loop.</li>
+      <li>Fine-tune endpoint: while the loop is active, press <strong>Loop Out</strong> again — now the jog wheel trims the loop end position ±1 sample at a time.</li>
+      <li>Fine-tune start: press <strong>Loop In</strong> to similarly trim the loop start.</li>
+    </ol>
+
+    <h4>Loop Halve / Double</h4>
+    <p>While a loop is active, the arrow buttons (◀▶ or the dedicated halve/double buttons) instantly cut or double the loop length. This is a live performance technique — rapidly halving a 4-bar loop to 2 bars to 1 bar to half a bar creates a stutter build-up effect that's crowd-tested.</p>
+
+    <h4>Saved Active Loops</h4>
+    <p>On CDJ-3000 (and NXS2 with updated firmware): hold a hot cue button while a loop is active to save the loop to that hot cue slot. The slot turns orange. Next time you press it, the track jumps to that point and the loop starts immediately — great for prepared drops.</p>
+
+    <!-- ─── EFFECTS ─── -->
+    <h2 id="effects">DJM Mixer Effects</h2>
+    <p>The DJM-900NXS2 and DJM-A9 are the club-standard mixers. Their effects section has two types: <strong>Beat FX</strong> (tempo-synced, per-channel or master) and <strong>Sound Color FX</strong> (the knobs above each channel).</p>
+
+    <h3 id="beat-fx">Beat FX</h3>
+    <div class="fx-grid">
+      <div class="fx-card">
+        <div class="fx-name">Echo</div>
+        <div class="fx-type">Most-used</div>
+        <p>Repeating delay timed to the BPM. Set Beat to ×2 or ×4. Pro tip: deselect the Low frequency band — this prevents the kick drum echo from becoming a bass rumble. Let the echo ring out as the track leaves.</p>
+      </div>
+      <div class="fx-card">
+        <div class="fx-name">Ping Pong Echo</div>
+        <div class="fx-type">Stereo variant</div>
+        <p>Like Echo but bounces left/right in stereo. More spatial feel. Same technique: deselect Low band. Adds width on a big club system.</p>
+      </div>
+      <div class="fx-card">
+        <div class="fx-name">Reverb</div>
+        <div class="fx-type">Spatial</div>
+        <p>Adds space and room. Use the XY pad (Level on Y, Decay on X) for real-time control. Sweep to full reverb on a breakdown then cut it for impact. Avoid on kicks — it makes the low end muddy.</p>
+      </div>
+      <div class="fx-card">
+        <div class="fx-name">Phaser</div>
+        <div class="fx-type">Modulation</div>
+        <p>Sweeping comb-filter effect. Works especially well applied to the <em>low band only</em> — creates a wobbling bass movement without affecting the high end. Classic in late-night techno sets.</p>
+      </div>
+      <div class="fx-card">
+        <div class="fx-name">Flanger</div>
+        <div class="fx-type">Modulation</div>
+        <p>Jet-plane sweeping effect. Aggressive — use on single channels, not the master. Good for transitional moments. Can make a crowd stop dancing if overused.</p>
+      </div>
+      <div class="fx-card">
+        <div class="fx-name">Roll / Loop Roll</div>
+        <div class="fx-type">Rhythmic</div>
+        <p>Records a short loop and plays it repeatedly while held. Press and hold to stutter-roll on a beat or 1/2 beat. The track continues underneath — when released, playback resumes in sync (like Slip mode for effects).</p>
+      </div>
+    </div>
+
+    <div class="callout warn">
+      <strong>Effects discipline</strong>
+      Less is more. Choose one effect per transition maximum. Effects that run through an entire mix become invisible to the crowd — and worse, they mask mixing mistakes you should fix instead.
+    </div>
+
+    <h3 id="sound-color">Sound Color FX (Channel Knobs)</h3>
+    <p>The Sound Color FX knobs are above each channel and apply a single effect type across the board. Select the type with the <strong>COLOR</strong> button:</p>
+    <ul>
+      <li><strong>Filter</strong>: HPF/LPF sweep — the most important knob on the mixer. Turn left for LPF (warm, bass-heavy), turn right for HPF (thin, hi-hat only).</li>
+      <li><strong>Dub Echo</strong>: simpler echo than Beat FX, no BPM sync. Good for reggae/dub textures.</li>
+      <li><strong>Noise</strong>: white noise blend — niche use, mostly percussive buildup over intros.</li>
+      <li><strong>Crush</strong>: bit-crushing distortion. High-energy moments. Use sparingly.</li>
+    </ul>
+
+    <!-- ─── WAVEFORM ─── -->
+    <h2 id="waveform">Waveform Reading</h2>
+    <p>CDJ-2000NXS2 shows a two-band waveform (red = low, blue-white = high). CDJ-3000 shows a full RGB three-band view. Learning to read waveforms lets you anticipate what's coming — drops, breakdowns, and endings — without needing to memorise every track.</p>
+    <div class="two-col">
+      <div class="card">
+        <h4>What to look for</h4>
+        <ul>
+          <li><strong>Tall red peaks</strong> = kick drum + bass = high energy</li>
+          <li><strong>Thin blue-white sections</strong> = breakdown, pads only, low energy</li>
+          <li><strong>Consistent blocks</strong> = driving loops, stable mixing window</li>
+          <li><strong>Sudden flatline</strong> = silence or near-silence = outro approaching</li>
+        </ul>
+      </div>
+      <div class="card">
+        <h4>Phrase markers (CDJ-3000)</h4>
+        <p>The CDJ-3000 displays Rekordbox's phrase analysis as a coloured strip above the waveform — the same data AutoCue reads. Green = Intro/Chorus, orange = Verse, grey = Outro. You can visually see "32 bars until the drop" without counting.</p>
+      </div>
+    </div>
+
+    <div class="callout">
+      <strong>Zoom in</strong>
+      Press the waveform zoom buttons to see finer detail. Zoomed in, you can see individual kick drums — useful for fine-tuning manual loops. Zoomed out, you see the full track structure.
+    </div>
+
+    <!-- ─── HOT CUES HW ─── -->
+    <h2 id="hotcues-hw">Hot Cues on Hardware</h2>
+
+    <h4>Critical setting: Auto Cue</h4>
+    <div class="callout warn">
+      <strong>Set this before your first gig</strong>
+      On the CDJ: press <strong>MENU</strong> → Utility → <em>Auto Cue</em>. Set to <strong>Memory</strong>. With this on, every track loaded jumps to its first memory cue position, skipping silent intros. Without it, every track loads at 00:00. This is one of the most common issues new DJs face in a real booth.
+    </div>
+
+    <h4>Hot Cue workflow on hardware</h4>
+    <ol class="step-list">
+      <li>When a track is loaded, its hot cues (A–H) appear as coloured buttons on the Hot Cue panel. Colours match what you set in Rekordbox.</li>
+      <li>Press a hot cue button while playing: jumps to that position immediately. On CDJ-3000, buttons are lit and labelled with the cue name.</li>
+      <li>To set a new hot cue on hardware: press an unlit hot cue button while playing or paused. The CDJ creates a new cue at the current position.</li>
+      <li>Hot cues set on hardware are <em>not</em> automatically saved to the USB database on CDJ-2000NXS2. They are saved on CDJ-3000. Always re-export from Rekordbox to persist changes made at a venue.</li>
+    </ol>
+
+    <h4>Loop juggling with hot cues</h4>
+    <p>Use hot cues + loops together for advanced technique:</p>
+    <ol class="step-list">
+      <li>Set hot cue A at the start of a 4-bar hook.</li>
+      <li>Engage a 4-bar auto loop while at hot cue A.</li>
+      <li>While looping, prepare the next section. The crowd thinks the drop is still building.</li>
+      <li>Exit the loop exactly on bar 1 to drop into the next section. This extends a moment that would otherwise be 4 bars into 16 or 32.</li>
+    </ol>
+
+    <!-- ─── SLIP ─── -->
+    <h2 id="slip">Slip Mode</h2>
+    <p>Slip mode is one of the CDJ's most powerful features. When Slip is active, the track continues playing <em>underneath</em> any jog, loop, or hot cue action. When you release, playback resumes where it <em>would have been</em> had you never intervened.</p>
+
+    <h4>Uses for Slip mode</h4>
+    <ul>
+      <li><strong>Slip scratch</strong>: scratch or rewind the audio while the underlying track keeps time. The scratch is heard; when released, the track is still in phase. Zero phase disruption.</li>
+      <li><strong>Turntable brake effect</strong>: hold the jog top in VINYL mode to slow and stop the audio — the brake effect. Release and the track continues in sync. Without Slip, you'd need to re-sync manually.</li>
+      <li><strong>Spinback</strong>: spin the jog backwards for a spinback effect. The underlying playhead keeps moving, so when the spinback ends, the track arrives at where it should have been.</li>
+      <li><strong>Loop during mix</strong>: engage a short loop for a stutter effect. Exit the loop and the track resumes on beat. Without Slip, a 2-bar loop would put the track 2 bars behind where the other deck expects it.</li>
+    </ul>
+
+    <div class="callout">
+      <strong>Enable Slip via the SLIP button</strong>
+      SLIP button lights solid yellow when active. The waveform shows a ghost playhead showing where the underlying playback position is. When you release, playback jumps to the ghost. If the jump is jarring (Slip snaps mid-phrase), activate and release Slip more carefully — timing the release to a phrase boundary.
+    </div>
+
+    <!-- ─── SYNC ─── -->
+    <h2 id="sync-hw">Sync on Hardware</h2>
+    <p>The CDJ Sync button matches BPM and phase to the Master deck (the deck with the MASTER button lit).</p>
+    <ul>
+      <li>Sync is used by professional DJs including Carl Cox, Richie Hawtin, and virtually every touring DJ at major festivals. It is not cheating — it is a tool.</li>
+      <li>Sync is <em>not</em> a substitute for phrase awareness. Sync aligns the kick drums; you still need to mix in at the right bar of the right section.</li>
+      <li>When to use Sync: busy mixes, complex multi-deck setups (4 decks), when also managing effects and crowd simultaneously.</li>
+      <li>When to beatmatch manually: when Sync can't lock (tracks with strong tempo variation), when playing for an industry audience who expects manual technique, when Sync keeps losing phase lock (indicates a beatgrid issue in Rekordbox — fix the grid first).</li>
+    </ul>
+
+    <h4>Quantize on hardware</h4>
+    <p>Quantize (Q button on CDJ) snaps all hot cue presses and loop points to the nearest beat. Enable it when you want clean, in-time triggers. Disable it when scratching or making free-form trigger gestures.</p>
+
+    <!-- ─── KEY ─── -->
+    <h2 id="key">Key Shift (Master Tempo)</h2>
+    <p>Changing BPM normally shifts pitch too — higher BPM = higher pitch. <strong>Master Tempo</strong> (the key lock button, labelled <strong>KEY</strong> or the musical note symbol on older CDJs) detaches pitch from tempo: you can speed up or slow down without affecting the musical key.</p>
+    <ul>
+      <li>Enable Master Tempo on both decks to keep keys consistent regardless of tempo adjustments.</li>
+      <li><strong>Key Shift</strong>: separate from Master Tempo, this shifts the key up or down in semitones. On CDJ-3000: long-press the KEY button to access Key Shift, then use the encoder to shift ±6 semitones.</li>
+      <li>Key Shift use case: you want to mix a track that's in 8B with a track that's in 9B. Instead of changing your track selection, shift the 8B track up 1 semitone to match 9B.</li>
+      <li>Key Shift sounds slightly processed at large shifts (±4+ semitones). Use subtle shifts only; large key shifts degrade audio quality noticeably.</li>
+    </ul>
+
+    <!-- ─── HEADPHONES ─── -->
+    <h2 id="headphones">Headphone Monitoring</h2>
+    <p>Proper headphone technique lets you cue and beatmatch accurately in a loud venue.</p>
+
+    <div class="two-col">
+      <div class="card">
+        <h4>Split Cue mode</h4>
+        <p>Left ear = cue channel (the track you're cueing). Right ear = program mix (what the crowd hears). You hear both sides simultaneously, enabling direct comparison.</p>
+        <p style="margin:0;font-size:13px;color:var(--muted);">Set on the DJM: <strong>CUE/MIX button → Split Cue</strong></p>
+      </div>
+      <div class="card">
+        <h4>Blend (MIX) mode</h4>
+        <p>Both ears get a blend of cue + program at a ratio you set with the CUE/MIX knob. Full cue = hearing only the incoming track; full mix = hearing only the program. Most DJs use roughly 70% cue / 30% mix.</p>
+      </div>
+    </div>
+
+    <h4>One-ear technique</h4>
+    <p>Wear headphones on one ear, leave the other open to hear the room. The open ear hears the mains through the club's PA (with room acoustics). This lets you feel the crowd's reaction while still cueing. The caveat: headphone audio leaks into your open ear causing phase interference — use the technique carefully in quiet rooms.</p>
+
+    <div class="callout warn">
+      <strong>Protect your hearing</strong>
+      The DJ booth has some of the loudest sustained sound exposure of any occupation. Keep monitor volume at the minimum needed to cue accurately. Use custom-moulded earplugs with flat-response filters (e.g. Etymotic or ACS) when standing near stacks.
+    </div>
+
+    <!-- ─── USB ─── -->
+    <h2 id="usb-hw">USB Management at the Venue</h2>
+
+    <h4>3-USB backup protocol</h4>
+    <ul>
+      <li><strong>USB 1</strong>: Full library, your main drive.</li>
+      <li><strong>USB 2</strong>: Full library, identical backup. Exact copy synced in Rekordbox.</li>
+      <li><strong>USB 3</strong>: Emergency/favourites only. Smaller. Lives in your bag always. If 1 and 2 both fail (yes, it happens), you can still play your best 50 tracks.</li>
+    </ul>
+
+    <h4>Pre-gig checklist</h4>
+    <ul>
+      <li>Format: FAT32 + MBR (CDJ-2000NXS2 and below), or exFAT for CDJ-3000 only setups</li>
+      <li>Synced in Rekordbox (not manual Finder copy)</li>
+      <li>Ejected safely after sync</li>
+      <li>Tested: plug into a CDJ, load 3 tracks, confirm hot cues load, confirm beatgrids look correct</li>
+      <li>Two identical copies at minimum; three if you're playing at a venue where USB deaths are common (heat, excessive use)</li>
+    </ul>
+
+    <h4>USB issues at the venue</h4>
+    <ul>
+      <li><strong>CDJ doesn't read USB</strong>: Check format (FAT32?). Try the other USB slot on the CDJ. Try another USB drive. If the Pioneer logo appears but "No USB" shows, the drive is unreadable — format issue.</li>
+      <li><strong>Tracks load but no waveform / no cues</strong>: The database wasn't written correctly. This happens when music is copied manually without Rekordbox. Export again from Rekordbox properly.</li>
+      <li><strong>Wrong tracks loading</strong>: Duplicate files or multiple Rekordbox exports on the same USB. Format and re-export clean.</li>
+    </ul>
+
+    <!-- ─── ETIQUETTE ─── -->
+    <h2 id="etiquette">Booth Etiquette</h2>
+    <p>How you behave in the booth affects your career as much as how you play. These are the unwritten rules.</p>
+
+    <h4>Arriving at the booth</h4>
+    <ol class="step-list">
+      <li>Arrive at least 20 minutes before your set. Introduce yourself to the current DJ — ask how the night is going, what vibe has been working.</li>
+      <li>Ask where to plug in your USB. Do not touch any mixer or CDJ controls without permission while another DJ is playing.</li>
+      <li>Set your headphone volume and booth monitor level <em>after</em> the previous DJ has finished — not during their set.</li>
+      <li>Load your track on the spare deck, not the one that's playing. Wait until the current DJ gives you the go-ahead or steps back.</li>
+    </ol>
+
+    <h4>During your set</h4>
+    <ul>
+      <li><strong>Don't touch the venue's mixer settings (master EQ, crossover, limiters)</strong> unless you're the sound engineer. These are set for the room.</li>
+      <li>Keep the booth tidy. Don't leave drinks on or near the equipment. CDJs cost £3,000+ each and sweat damage voids warranties.</li>
+      <li>Don't let people into the booth unless the promoter explicitly said guests are allowed in your rider.</li>
+      <li>Keep your phone away during the set. You're there to DJ, not document it.</li>
+    </ul>
+
+    <h4>Handing off to the next DJ</h4>
+    <ol class="step-list">
+      <li>Give the next DJ a heads-up 15 minutes before your slot ends.</li>
+      <li>When transitioning, play a track with a clean, extended outro — gives the next DJ time to cue up and sync.</li>
+      <li>Do not pull your USB until the incoming DJ's track is playing cleanly.</li>
+      <li>Reset everything: return EQs to center, return any effects to off, return monitor volume to standard. Leave the booth as you found it.</li>
+    </ol>
+
+    <!-- ─── RESOURCES ─── -->
+    <h2 id="resources">Resources &amp; Further Reading</h2>
+    <div class="resources">
+      <h3>Official Manuals</h3>
+      <div class="resource-item">
+        <span class="resource-tag">Official</span>
+        <div><a href="https://www.pioneerdj.com/en/support/software/rekordbox/" target="_blank" rel="noopener">Pioneer DJ Support</a> — official support page for all CDJ, XDJ, and DJM models. Download the latest operating manuals here (version-specific PDFs).</div>
+      </div>
+
+      <h3 style="margin-top:20px;">Hardware Tutorials</h3>
+      <div class="resource-item">
+        <span class="resource-tag">Video</span>
+        <div><a href="https://www.youtube.com/@PioneerDJofficial" target="_blank" rel="noopener">Pioneer DJ Official (YouTube)</a> — official tutorial videos for all hardware models, feature walkthroughs, and firmware update guides</div>
+      </div>
+      <div class="resource-item">
+        <span class="resource-tag">Video</span>
+        <div><a href="https://djtechtools.com/category/pioneer-dj/" target="_blank" rel="noopener">DJ TechTools — Pioneer DJ</a> — in-depth hardware reviews and technique tutorials for CDJ/XDJ/DJM</div>
+      </div>
+      <div class="resource-item">
+        <span class="resource-tag">Blog</span>
+        <div><a href="https://www.digitaldjtips.com/cdj/" target="_blank" rel="noopener">Digital DJ Tips — CDJ Guide</a> — CDJ beginner through advanced tutorials, focussed on Rekordbox preparation workflow</div>
+      </div>
+      <div class="resource-item">
+        <span class="resource-tag">Video</span>
+        <div><a href="https://www.youtube.com/@CrossfaderAustralia" target="_blank" rel="noopener">Crossfader (YouTube)</a> — CDJ-2000NXS2 and CDJ-3000 feature tutorials and DJM-A9 effects guides</div>
+      </div>
+      <div class="resource-item">
+        <span class="resource-tag">Blog</span>
+        <div><a href="https://deejayzplaza.com/pioneer-cdj/" target="_blank" rel="noopener">DeeJay Plaza — CDJ Resources</a> — comparison guides and buying advice for different CDJ/XDJ models</div>
+      </div>
+
+      <h3 style="margin-top:20px;">Hearing Protection</h3>
+      <div class="resource-item">
+        <span class="resource-tag">Product</span>
+        <div><a href="https://www.etymotic.com/consumer/hearing-protection/" target="_blank" rel="noopener">Etymotic Research</a> — flat-response musician earplugs trusted by touring DJs and live musicians</div>
+      </div>
+      <div class="resource-item">
+        <span class="resource-tag">Product</span>
+        <div><a href="https://www.acscustom.com/dj-earplugs/" target="_blank" rel="noopener">ACS Custom DJ Earplugs</a> — custom-moulded in-ear hearing protection with flat-response filters specifically for DJs</div>
+      </div>
+    </div>
+
+  </article>
+</div>
+
+<script>
+  function toggleTheme() {
+    document.documentElement.classList.toggle('dark');
+    localStorage.setItem('theme', document.documentElement.classList.contains('dark') ? 'dark' : 'light');
+  }
+  if (localStorage.getItem('theme') === 'dark' || (!localStorage.getItem('theme') && matchMedia('(prefers-color-scheme: dark)').matches)) {
+    document.documentElement.classList.add('dark');
+  }
+  const sections = document.querySelectorAll('h2[id], h3[id]');
+  const tocLinks = document.querySelectorAll('.toc a');
+  const observer = new IntersectionObserver(entries => {
+    entries.forEach(e => {
+      if (e.isIntersecting) {
+        tocLinks.forEach(l => l.classList.remove('active'));
+        const link = document.querySelector(`.toc a[href="#${e.target.id}"]`);
+        if (link) link.classList.add('active');
+      }
+    });
+  }, { rootMargin: '-20% 0px -70% 0px' });
+  sections.forEach(s => observer.observe(s));
+</script>
+</body>
+</html>

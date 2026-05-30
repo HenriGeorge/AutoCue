@@ -1,0 +1,515 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Rekordbox Mastery — DJ Learning Guides</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg: #ffffff; --surface: #f5f5f8; --surface2: #eaeaef;
+      --border: #e0e0e8; --border-hover: #c4c4d0;
+      --green: #159a05; --green-dim: #0f6e03;
+      --text: #111118; --muted: #888898; --warn: #c07800; --danger: #c02010;
+      --font: 'Inter', system-ui, sans-serif;
+      --mono: 'JetBrains Mono', 'Fira Code', monospace;
+    }
+    html.dark {
+      --bg: #0d0d0f; --surface: #16161a; --surface2: #1e1e24;
+      --border: #2a2a35; --border-hover: #3a3a48;
+      --green: #28e214; --green-dim: #1a9a0d;
+      --text: #e8e8f0; --muted: #6b6b80; --warn: #ffa000; --danger: #e0301e;
+    }
+    body { background: var(--bg); color: var(--text); font-family: var(--font);
+           font-size: 15px; line-height: 1.7; min-height: 100vh; }
+    header { border-bottom: 1px solid var(--border); padding: 16px 40px;
+             display: flex; align-items: center; gap: 16px; position: sticky; top: 0;
+             background: var(--bg); z-index: 100; }
+    .logo { display: flex; align-items: center; gap: 10px; text-decoration: none; }
+    .logo-icon { width: 30px; height: 30px; background: var(--green); border-radius: 7px;
+                 display: flex; align-items: center; justify-content: center; }
+    .logo-icon svg { width: 16px; height: 16px; }
+    .logo-text { font-size: 17px; font-weight: 700; color: var(--text); letter-spacing: -0.5px; }
+    header nav { margin-left: auto; display: flex; gap: 20px; align-items: center; }
+    header a { color: var(--muted); text-decoration: none; font-size: 14px; }
+    header a:hover { color: var(--text); }
+    .theme-btn { background: none; border: 1px solid var(--border); border-radius: 6px;
+                 padding: 3px 9px; cursor: pointer; color: var(--muted); font-size: 13px; }
+
+    .layout { display: flex; max-width: 1100px; margin: 0 auto; padding: 0 24px; }
+    .toc { width: 220px; flex-shrink: 0; padding: 40px 0; position: sticky; top: 62px;
+           height: calc(100vh - 62px); overflow-y: auto; }
+    .toc ul { list-style: none; }
+    .toc li { margin-bottom: 2px; }
+    .toc a { color: var(--muted); text-decoration: none; font-size: 13px;
+             display: block; padding: 3px 0; border-left: 2px solid transparent;
+             padding-left: 12px; transition: all .15s; }
+    .toc a:hover, .toc a.active { color: var(--text); border-left-color: var(--green); }
+    .toc .toc-h2 { font-weight: 600; margin-top: 12px; }
+    .toc .toc-h3 { padding-left: 24px; font-size: 12px; }
+    .toc-title { font-size: 11px; font-weight: 700; text-transform: uppercase;
+                 letter-spacing: 1px; color: var(--muted); padding-left: 12px; margin-bottom: 8px; }
+
+    article { flex: 1; min-width: 0; padding: 40px 0 40px 40px; }
+    .hero { margin-bottom: 48px; }
+    .hero-badge { display: inline-block; background: var(--green); color: #fff;
+                  border-radius: 20px; padding: 3px 12px; font-size: 12px;
+                  font-weight: 700; letter-spacing: 0.5px; margin-bottom: 16px; }
+    h1 { font-size: 40px; font-weight: 800; letter-spacing: -1.5px; line-height: 1.1; margin-bottom: 16px; }
+    .lead { font-size: 18px; color: var(--muted); max-width: 600px; }
+
+    h2 { font-size: 26px; font-weight: 700; letter-spacing: -0.5px;
+         margin: 52px 0 20px; padding-top: 8px;
+         border-top: 2px solid var(--border); }
+    h3 { font-size: 18px; font-weight: 600; margin: 32px 0 12px; }
+    h4 { font-size: 15px; font-weight: 600; margin: 20px 0 8px; color: var(--muted); }
+    p { margin-bottom: 16px; }
+    ul, ol { padding-left: 24px; margin-bottom: 16px; }
+    li { margin-bottom: 6px; }
+    strong { font-weight: 600; }
+    a { color: var(--green-dim); }
+    html.dark a { color: var(--green); }
+    a:hover { text-decoration: underline; }
+    code { font-family: var(--mono); font-size: 13px; background: var(--surface2);
+           border-radius: 4px; padding: 1px 5px; }
+
+    .callout { background: var(--surface); border-left: 3px solid var(--green);
+               border-radius: 0 8px 8px 0; padding: 14px 18px; margin: 20px 0; }
+    .callout.warn { border-left-color: var(--warn); }
+    .callout.danger { border-left-color: var(--danger); }
+    .callout strong { display: block; margin-bottom: 4px; }
+
+    .step-list { counter-reset: steps; list-style: none; padding: 0; }
+    .step-list li { counter-increment: steps; padding-left: 40px; position: relative;
+                    margin-bottom: 14px; }
+    .step-list li::before { content: counter(steps); position: absolute; left: 0; top: 2px;
+                             width: 26px; height: 26px; background: var(--green);
+                             border-radius: 50%; display: flex; align-items: center;
+                             justify-content: center; font-size: 12px; font-weight: 700;
+                             color: #fff; }
+
+    .shortcut-table { width: 100%; border-collapse: collapse; margin: 16px 0; }
+    .shortcut-table th, .shortcut-table td { padding: 10px 14px; text-align: left;
+                                              border-bottom: 1px solid var(--border); font-size: 14px; }
+    .shortcut-table th { color: var(--muted); font-size: 12px; font-weight: 600;
+                         text-transform: uppercase; letter-spacing: 0.5px; }
+    .shortcut-table tr:last-child td { border-bottom: none; }
+    kbd { font-family: var(--mono); font-size: 12px; background: var(--surface2);
+          border: 1px solid var(--border); border-radius: 4px; padding: 1px 6px; }
+
+    .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin: 16px 0; }
+    .card { background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
+            padding: 18px; }
+    .card h4 { margin-top: 0; }
+
+    .mistake-list { list-style: none; padding: 0; }
+    .mistake-list li { padding: 12px 16px; background: var(--surface); border-radius: 8px;
+                       margin-bottom: 8px; border-left: 3px solid var(--danger); font-size: 14px; }
+    .mistake-list li strong { color: var(--danger); }
+
+    .resources { background: var(--surface); border-radius: 12px; padding: 24px; margin-top: 20px; }
+    .resources h3 { margin-top: 0; }
+    .resource-item { display: flex; align-items: flex-start; gap: 10px; margin-bottom: 12px; }
+    .resource-tag { background: var(--surface2); border-radius: 4px; padding: 2px 8px;
+                    font-size: 11px; font-weight: 600; color: var(--muted); flex-shrink: 0; margin-top: 2px; }
+
+    .print-btn { background: var(--surface); border: 1px solid var(--border); border-radius: 8px;
+                 padding: 8px 18px; cursor: pointer; color: var(--text); font-size: 14px;
+                 margin-bottom: 32px; display: inline-flex; align-items: center; gap: 8px; }
+    .print-btn:hover { border-color: var(--border-hover); }
+
+    @media (max-width: 768px) { .toc { display: none; } .layout { padding: 0 16px; }
+      article { padding: 32px 0; } h1 { font-size: 28px; } .two-col { grid-template-columns: 1fr; } }
+    @media print {
+      header, .toc, .print-btn { display: none; }
+      .layout { display: block; }
+      article { padding: 0; }
+      h2 { page-break-before: always; }
+      .callout, .card { page-break-inside: avoid; }
+      a { color: var(--text); }
+      a[href]::after { content: " (" attr(href) ")"; font-size: 11px; color: var(--muted); }
+    }
+  </style>
+</head>
+<body>
+<header>
+  <a class="logo" href="../index.html">
+    <div class="logo-icon">
+      <svg viewBox="0 0 20 20" fill="none" stroke="white" stroke-width="2">
+        <circle cx="10" cy="10" r="7"/><circle cx="10" cy="10" r="2"/>
+      </svg>
+    </div>
+    <span class="logo-text">AutoCue</span>
+  </a>
+  <nav>
+    <a href="index.html">← Guides</a>
+    <a href="../index.html">App</a>
+    <button class="theme-btn" onclick="toggleTheme()">&#9788;</button>
+  </nav>
+</header>
+
+<div class="layout">
+  <nav class="toc" id="toc">
+    <div class="toc-title">Contents</div>
+    <ul>
+      <li><a class="toc-h2" href="#library">Library Management</a></li>
+      <li><a class="toc-h3" href="#importing">Importing Tracks</a></li>
+      <li><a class="toc-h3" href="#tags">My Tags & Color Coding</a></li>
+      <li><a class="toc-h3" href="#smart-playlists">Smart Playlists</a></li>
+      <li><a class="toc-h2" href="#analysis">Track Analysis</a></li>
+      <li><a class="toc-h3" href="#beatgrid">Fixing Beatgrids</a></li>
+      <li><a class="toc-h3" href="#phrase">Phrase Analysis</a></li>
+      <li><a class="toc-h2" href="#cues">Cue Points & Loops</a></li>
+      <li><a class="toc-h3" href="#hot-cues">Hot Cues</a></li>
+      <li><a class="toc-h3" href="#memory-cues">Memory Cues</a></li>
+      <li><a class="toc-h3" href="#loops">Loops & Beat Jump</a></li>
+      <li><a class="toc-h2" href="#performance">Performance Mode</a></li>
+      <li><a class="toc-h2" href="#export">USB Export</a></li>
+      <li><a class="toc-h2" href="#shortcuts">Keyboard Shortcuts</a></li>
+      <li><a class="toc-h2" href="#mistakes">12 Common Mistakes</a></li>
+      <li><a class="toc-h2" href="#resources">Resources</a></li>
+    </ul>
+  </nav>
+
+  <article>
+    <button class="print-btn" onclick="window.print()">🖨️ Save as PDF</button>
+
+    <div class="hero">
+      <div class="hero-badge">Guide 1 of 3</div>
+      <h1>Rekordbox Mastery</h1>
+      <p class="lead">Everything you need to organise your library, prepare tracks, and export them to USB for a seamless performance.</p>
+    </div>
+
+    <!-- ─── LIBRARY MANAGEMENT ─── -->
+    <h2 id="library">Library Management</h2>
+
+    <h3 id="importing">Importing Tracks</h3>
+    <p>Rekordbox tracks your library by file path. The safest workflow is to keep all music in one stable folder <em>before</em> importing.</p>
+    <ol class="step-list">
+      <li>Choose a permanent music folder (e.g. <code>~/Music/DJ Library</code>). Never move files after importing — Rekordbox will lose them.</li>
+      <li>Drag the folder onto the Rekordbox window, or use <strong>File → Add Folder to Collection</strong>.</li>
+      <li>Right-click the Collection and choose <strong>Analyse Tracks</strong> — this runs BPM detection, beatgrid, and key analysis in one pass.</li>
+      <li>Enable <strong>Preferences → Library → Relocate Missing Files Automatically</strong> so Rekordbox can recover if you do move files.</li>
+    </ol>
+
+    <div class="callout">
+      <strong>Tip: Analyse before cue-pointing</strong>
+      Always let Rekordbox finish analysis before you set cue points. If BPM or beatgrid is wrong, any bar-snapped cues will be in the wrong place.
+    </div>
+
+    <h3 id="tags">My Tags &amp; Color Coding</h3>
+    <p><strong>My Tags</strong> is Rekordbox's custom tagging system — more powerful than star ratings because you can create any tag you like and filter on them. Find it at the top of the left sidebar.</p>
+    <div class="two-col">
+      <div class="card">
+        <h4>Energy tags</h4>
+        <ul>
+          <li>Energy 1 – 5 (peak, after-dark, warm-up…)</li>
+          <li>Opening / Peak / Closing</li>
+          <li>Crowd Pleaser / Deep / Experimental</li>
+        </ul>
+      </div>
+      <div class="card">
+        <h4>Function tags</h4>
+        <ul>
+          <li>Intro-friendly (long intro for mixing in)</li>
+          <li>Acapella Out (vocal ending)</li>
+          <li>Key Locked (avoid harmonic mixing)</li>
+          <li>Re-Edit / Extended</li>
+        </ul>
+      </div>
+    </div>
+    <p><strong>Track color coding</strong> (right-click → Color) gives instant visual scanning in your library and on CDJ waveforms:</p>
+    <ul>
+      <li>Red = peak / high energy</li>
+      <li>Orange = crowd-pleasers / anthems</li>
+      <li>Yellow = warm-up / cool-down</li>
+      <li>Blue = deep / atmospheric</li>
+      <li>Purple = experimental / risky</li>
+    </ul>
+    <div class="callout warn">
+      <strong>Pro tip</strong>
+      Agree on a color system before you start and stick to it. Inconsistent tagging is worse than no tagging — you'll second-guess yourself at 2 AM.
+    </div>
+
+    <h3 id="smart-playlists">Smart Playlists (Intelligent Playlist)</h3>
+    <p>Smart playlists update automatically based on rules — great for "all tracks I haven't played in 6 months" or "everything BPM 125–135 tagged Energy 4–5".</p>
+    <ol class="step-list">
+      <li>Right-click the Playlist section → <strong>Create Intelligent Playlist</strong>.</li>
+      <li>Add conditions: BPM range, My Tag, genre, date added, play count, rating, key, etc.</li>
+      <li>Set <strong>Match: All / Any</strong> for AND vs OR logic.</li>
+      <li>The playlist rebuilds every time you open it — no manual maintenance.</li>
+    </ol>
+    <p>Useful preset recipes:</p>
+    <ul>
+      <li><strong>New additions</strong>: Date Added is in the last 30 days</li>
+      <li><strong>Peak set candidates</strong>: BPM 128–135, My Tag contains "Energy 5"</li>
+      <li><strong>Needs prep</strong>: Has no hot cues (Cue count is 0)</li>
+      <li><strong>Not recently played</strong>: Last played is more than 90 days ago</li>
+    </ul>
+
+    <!-- ─── ANALYSIS ─── -->
+    <h2 id="analysis">Track Analysis</h2>
+
+    <h3 id="beatgrid">Fixing Beatgrids</h3>
+    <p>A correct beatgrid is the foundation of everything — loops, hot cues, sync, and AutoCue phrase detection all depend on it. Most tracks auto-analyze correctly; here's how to fix the ones that don't.</p>
+
+    <div class="callout">
+      <strong>Check these tracks manually</strong>
+      Live recordings, old vinyl rips, jazz, and tracks with tempo variation (any track not produced in a DAW to a click track) will often have incorrect beatgrids.
+    </div>
+
+    <p><strong>The beatgrid editing workflow:</strong></p>
+    <ol class="step-list">
+      <li>Load the track into the deck. In the waveform view, zoom in to the first kick drum.</li>
+      <li>Press <strong>Edit Grid</strong> in the Beatgrid panel. A grid overlay appears on the waveform.</li>
+      <li>If the BPM is wrong: tap <strong>Tap BPM</strong> along with the beat, or type the correct BPM directly.</li>
+      <li>If the phase is off (grid is right BPM but misaligned): drag the grid left/right, or use the half-beat shift buttons.</li>
+      <li>For tracks with genuine tempo variation: disable <strong>Quantize</strong> in Preferences and set the grid to <strong>Dynamic</strong> mode — this lets Rekordbox follow the tempo changes instead of locking to a single BPM.</li>
+      <li>Press <strong>Save</strong>. The corrected grid is stored in Rekordbox and will appear on CDJs when you export to USB.</li>
+    </ol>
+
+    <div class="callout warn">
+      <strong>Dynamic vs Static analysis</strong>
+      Static (default) locks the entire track to one BPM. Dynamic follows tempo variation. Use Dynamic for live recordings, jazz, and anything with a human drummer. Use Static for electronic music produced to a click track.
+    </div>
+
+    <h3 id="phrase">Phrase Analysis</h3>
+    <p>Phrase analysis (available in Rekordbox 6+) detects structural sections of a track — Intro, Verse, Chorus, Bridge, Outro — and stores them in the ANLZ binary analysis files on disk. This is what AutoCue's phrase mode reads.</p>
+    <ul>
+      <li>Phrase analysis runs automatically as part of <strong>Analyse Tracks</strong>.</li>
+      <li>The coloured phrase strip appears above the waveform in Performance mode.</li>
+      <li>Rekordbox labels phrases by <em>mood</em> (1 = mid-energy, 2 = high-energy, 3 = low-energy) and <em>kind</em> (numeric 1–10 mapping to Intro/Verse/Chorus etc.).</li>
+      <li><strong>Intelligent Cue</strong> (Creative/Professional Plan only) can auto-place hot cues at phrase boundaries. AutoCue replicates this for free in both the web app and CLI.</li>
+    </ul>
+
+    <!-- ─── CUES ─── -->
+    <h2 id="cues">Cue Points &amp; Loops</h2>
+
+    <h3 id="hot-cues">Hot Cues</h3>
+    <p>Hot cues are instant-jump markers assigned to buttons A–H. They trigger immediately when pressed — no need to pause — making them your primary performance tools.</p>
+
+    <div class="two-col">
+      <div class="card">
+        <h4>When to set them</h4>
+        <ul>
+          <li><strong>A</strong> — Track start / intro beat 1</li>
+          <li><strong>B</strong> — First drop / main hook</li>
+          <li><strong>C</strong> — Breakdown</li>
+          <li><strong>D</strong> — Build-up</li>
+          <li><strong>E</strong> — Second drop</li>
+          <li><strong>F–H</strong> — Outro / acapella / special moments</li>
+        </ul>
+      </div>
+      <div class="card">
+        <h4>Naming convention</h4>
+        <p>Rekordbox displays cue names on CDJ screens. Short names are best:</p>
+        <ul>
+          <li>Intro / Drop / Build / Break / Outro</li>
+          <li>Vocal / Acap / Inst</li>
+          <li>Mix In / Mix Out (for long mixes)</li>
+        </ul>
+        <p>AutoCue uses: Intro, Verse, Chorus, Bridge, Outro, Up, Down</p>
+      </div>
+    </div>
+
+    <p><strong>Color coding hot cues</strong> speeds up visual recognition on the CDJ touchscreen:</p>
+    <ul>
+      <li>Green = safe mix-in point</li>
+      <li>Blue = mix-out / outro</li>
+      <li>Orange = builds / drops</li>
+      <li>Red = high energy / peak moment</li>
+      <li>Pink = vocals / acapella</li>
+    </ul>
+
+    <div class="callout">
+      <strong>Auto-load hot cues on CDJ</strong>
+      On the CDJ-2000NXS2 and CDJ-3000: press <strong>MENU</strong> → Utility → <em>Auto Cue</em> → set to <strong>Memory</strong>. This loads the first memory cue automatically, jumping to your prepared start point rather than the very beginning of the file. Hot cues always load regardless.
+    </div>
+
+    <h3 id="memory-cues">Memory Cues</h3>
+    <p>Memory cues are navigation markers. They don't trigger on button press — they show as triangles on the waveform. Use them for:</p>
+    <ul>
+      <li>Marking where a long intro starts getting interesting</li>
+      <li>Flagging a tricky timing section</li>
+      <li>Recording mix-in / mix-out points without using up hot cue slots</li>
+    </ul>
+    <p>The <strong>first memory cue</strong> is special — it sets the <em>Auto Cue</em> position. When you load a track on a CDJ with Auto Cue enabled, playback begins at the first memory cue, not time 00:00.</p>
+
+    <h3 id="loops">Loops &amp; Beat Jump</h3>
+    <p>Loops let you extend a section or create tension. Beat Jump moves the playhead exactly N beats forward/back without breaking the beatgrid.</p>
+
+    <h4>Setting loops</h4>
+    <ul>
+      <li><strong>Auto Beat Loop</strong>: click a loop size (1/2 beat, 1, 2, 4, 8 bars) and it starts immediately. Best for live performance.</li>
+      <li><strong>Manual loop</strong>: press <strong>Loop In</strong> at the start, <strong>Loop Out</strong> at the end. Fine-tune using the jog wheel while paused — in Rekordbox the jog adjusts loop endpoints with ±sample precision.</li>
+      <li><strong>Saved loops</strong>: right-click any loop → Save as Hot Cue Loop. The loop is stored in a hot cue slot (shown in orange on CDJs).</li>
+      <li><strong>Loop Halve / Double</strong>: instantly cuts or doubles the active loop length — great for building tension.</li>
+    </ul>
+
+    <h4>Beat Jump</h4>
+    <p>Beat Jump skips the playhead forward or backward by an exact number of beats while keeping sync. Use it to:</p>
+    <ul>
+      <li>Jump to the chorus 32 bars early without losing beatmatch</li>
+      <li>Correct a late mix by jumping forward 4 beats</li>
+      <li>Navigate to specific structural points quickly in preparation mode</li>
+    </ul>
+
+    <!-- ─── PERFORMANCE ─── -->
+    <h2 id="performance">Performance Mode Tips</h2>
+
+    <h4>Sync &amp; Quantize</h4>
+    <p><strong>Sync</strong> locks BPM and phase between decks. <strong>Quantize</strong> snaps cue triggers and loop points to the nearest beat so they always fire on the grid. Both are tools, not cheats — even experienced DJs use them strategically.</p>
+    <ul>
+      <li>Enable Quantize in Preferences → Controller → General to snap hot cue presses to the beat.</li>
+      <li>Turn Quantize <em>off</em> for free-form scratching or off-beat fills — you want immediate trigger response.</li>
+    </ul>
+
+    <h4>FX in Rekordbox</h4>
+    <p>Rekordbox's built-in FX (in Performance mode with a compatible controller) mirror the DJM-900NXS2 effects section:</p>
+    <ul>
+      <li><strong>Filter</strong>: most-used effect. HPF sweeps mud out of a mix; LPF adds warmth and hides a rough transition.</li>
+      <li><strong>Echo</strong>: use on the outgoing track's last phrase to extend its reverb tail into the incoming track.</li>
+      <li><strong>Beat FX Beat</strong>: always set beat multiplier to match the track's phrasing (×2 or ×4 for most electronic music).</li>
+    </ul>
+
+    <!-- ─── USB EXPORT ─── -->
+    <h2 id="export">USB Export</h2>
+    <p>Exporting to USB incorrectly is one of the most common causes of "the CDJ doesn't see my tracks" at the venue.</p>
+
+    <h4>Format your USB correctly first</h4>
+    <div class="callout danger">
+      <strong>Always use FAT32 + MBR — not exFAT, not APFS, not GPT</strong>
+      CDJ-2000NXS2 and older CDJs require FAT32 with an MBR (Master Boot Record) partition table. CDJ-3000 supports exFAT, but FAT32+MBR is universally compatible with all Pioneer gear. For drives &gt;32 GB on macOS, use Disk Utility → Erase → MS-DOS (FAT) + Master Boot Record scheme.
+    </div>
+
+    <ol class="step-list">
+      <li>Open Rekordbox. Connect the USB drive. It appears under <strong>Devices</strong> in the left sidebar.</li>
+      <li>Drag playlists from your Collection onto the device — or use <strong>Export</strong> → <strong>Sync Manager</strong> for a rules-based sync.</li>
+      <li>Use <strong>Sync Manager</strong> (recommended): define which playlists sync to which device. Rekordbox handles additions and deletions automatically.</li>
+      <li>Do <strong>not</strong> manually drag music files onto the USB in Finder/Explorer. Rekordbox needs to write the <code>PIONEER/</code> database folder alongside your music.</li>
+      <li>Always eject safely — the CDJ reads a database that can corrupt if the drive is yanked mid-write.</li>
+    </ol>
+
+    <h4>Pre-export checklist</h4>
+    <ul>
+      <li>All tracks analysed (no orange waveforms)</li>
+      <li>All beatgrids verified for tracks you plan to sync on</li>
+      <li>Hot cues set on key tracks</li>
+      <li>USB formatted FAT32 + MBR</li>
+      <li>Eject safely after export</li>
+      <li>Test the USB on a CDJ before the gig (at home or at the venue early)</li>
+    </ul>
+
+    <div class="callout warn">
+      <strong>Backup protocol</strong>
+      Keep at least 2 USBs. Format and sync both before every gig. CDJs at clubs can corrupt drives. Carry a spare. Professional DJs often carry 3.
+    </div>
+
+    <!-- ─── SHORTCUTS ─── -->
+    <h2 id="shortcuts">Keyboard Shortcuts</h2>
+    <p>Note: shortcuts are customisable in <strong>Preferences → Keyboard</strong> and may differ from defaults shown here. These reflect common defaults in Rekordbox 7.</p>
+    <table class="shortcut-table">
+      <thead><tr><th>Action</th><th>Shortcut (default)</th></tr></thead>
+      <tbody>
+        <tr><td>Play / Pause Deck 1</td><td><kbd>J</kbd></td></tr>
+        <tr><td>Play / Pause Deck 2</td><td><kbd>L</kbd></td></tr>
+        <tr><td>Set/Activate Cue Deck 1</td><td><kbd>U</kbd></td></tr>
+        <tr><td>Set/Activate Cue Deck 2</td><td><kbd>I</kbd></td></tr>
+        <tr><td>Hot Cue 1–8 (Deck 1)</td><td><kbd>1</kbd>–<kbd>8</kbd></td></tr>
+        <tr><td>Hot Cue 1–8 (Deck 2)</td><td><kbd>Q</kbd>–<kbd>I</kbd> row</td></tr>
+        <tr><td>Sync Deck 1</td><td><kbd>S</kbd></td></tr>
+        <tr><td>Loop In</td><td><kbd>O</kbd></td></tr>
+        <tr><td>Loop Out</td><td><kbd>P</kbd></td></tr>
+        <tr><td>Search library</td><td><kbd>Ctrl/Cmd+F</kbd></td></tr>
+        <tr><td>Analyse selected tracks</td><td><kbd>Ctrl/Cmd+Shift+A</kbd></td></tr>
+        <tr><td>BPM Tap</td><td><kbd>T</kbd></td></tr>
+      </tbody>
+    </table>
+
+    <!-- ─── MISTAKES ─── -->
+    <h2 id="mistakes">12 Common Rekordbox Mistakes</h2>
+    <ul class="mistake-list">
+      <li><strong>Moving files after importing.</strong> Rekordbox tracks absolute paths. Moving or renaming files breaks library links — always import from their final location.</li>
+      <li><strong>Not analysing before setting cues.</strong> If the BPM is wrong, all bar-snapped cues will be misaligned.</li>
+      <li><strong>Trusting auto-analysis on live recordings.</strong> Manually verify beatgrids for any track with a real drummer or tempo variation.</li>
+      <li><strong>Using exFAT USB for old CDJs.</strong> CDJ-2000NXS2 and below don't read exFAT. Always use FAT32+MBR.</li>
+      <li><strong>Manually copying files to USB in Finder.</strong> Rekordbox writes a database; you can't bypass it. Use the app's export.</li>
+      <li><strong>Forgetting to eject the USB safely.</strong> A corrupt database means no cues, no analysis on CDJs.</li>
+      <li><strong>One USB, no backup.</strong> Drives fail. Always have two.</li>
+      <li><strong>Skipping key analysis.</strong> Rekordbox detects key automatically. Without it, you can't use harmonic mixing features.</li>
+      <li><strong>Setting cues mid-analysis.</strong> Wait for the orange waveform to turn blue/grey before setting cues — analysis can shift timing.</li>
+      <li><strong>Ignoring the first memory cue.</strong> It sets the Auto Cue position on CDJs. If it's at 00:00, your tracks always load at the very start including silent intros.</li>
+      <li><strong>Never cleaning the collection.</strong> Duplicate tracks, missing files, and stale playlists slow down library navigation at 3 AM. Schedule a monthly clean-up.</li>
+      <li><strong>Over-relying on sync without understanding phrasing.</strong> Sync matches BPM but not musical phrases. If you mix in at the wrong bar, it'll still sound wrong even if the beats line up.</li>
+    </ul>
+
+    <!-- ─── RESOURCES ─── -->
+    <h2 id="resources">Resources &amp; Further Reading</h2>
+    <div class="resources">
+      <h3>Official Documentation</h3>
+      <div class="resource-item">
+        <span class="resource-tag">Official</span>
+        <div><a href="https://rekordbox.com/en/support/" target="_blank" rel="noopener">Pioneer DJ Rekordbox Support</a> — manuals, tutorials, and software downloads for all Rekordbox versions</div>
+      </div>
+      <div class="resource-item">
+        <span class="resource-tag">Official</span>
+        <div><a href="https://pioneerdj.com/en/support/software/rekordbox/" target="_blank" rel="noopener">Pioneer DJ Software Support</a> — Rekordbox release notes and known issues</div>
+      </div>
+
+      <h3 style="margin-top:20px;">Tutorials</h3>
+      <div class="resource-item">
+        <span class="resource-tag">Video</span>
+        <div><a href="https://www.crossfader.com.au/blog/rekordbox-tips-and-tricks" target="_blank" rel="noopener">Crossfader — Rekordbox Tips & Tricks</a> — comprehensive written + video breakdown of library management and performance setup</div>
+      </div>
+      <div class="resource-item">
+        <span class="resource-tag">Blog</span>
+        <div><a href="https://www.digitaldjtips.com/rekordbox/" target="_blank" rel="noopener">Digital DJ Tips — Rekordbox</a> — beginner through advanced guides, regularly updated</div>
+      </div>
+      <div class="resource-item">
+        <span class="resource-tag">Video</span>
+        <div><a href="https://www.youtube.com/@ClubReadyDJSchool" target="_blank" rel="noopener">Club Ready DJ School (YouTube)</a> — step-by-step Rekordbox workflow videos</div>
+      </div>
+      <div class="resource-item">
+        <span class="resource-tag">Blog</span>
+        <div><a href="https://hotcuedj.com" target="_blank" rel="noopener">Hot Cue DJ (reallychrism)</a> — in-depth Rekordbox preparation workflows and cue strategy</div>
+      </div>
+      <div class="resource-item">
+        <span class="resource-tag">Forum</span>
+        <div><a href="https://forums.pioneerdj.com" target="_blank" rel="noopener">Pioneer DJ Community Forums</a> — official forums for hardware-specific questions and bug reports</div>
+      </div>
+
+      <h3 style="margin-top:20px;">AutoCue</h3>
+      <div class="resource-item">
+        <span class="resource-tag">Tool</span>
+        <div><a href="../index.html">AutoCue Web App</a> — automatically place hot cues at phrase boundaries using Rekordbox's own analysis data</div>
+      </div>
+    </div>
+
+  </article>
+</div>
+
+<script>
+  function toggleTheme() {
+    document.documentElement.classList.toggle('dark');
+    localStorage.setItem('theme', document.documentElement.classList.contains('dark') ? 'dark' : 'light');
+  }
+  if (localStorage.getItem('theme') === 'dark' || (!localStorage.getItem('theme') && matchMedia('(prefers-color-scheme: dark)').matches)) {
+    document.documentElement.classList.add('dark');
+  }
+
+  // Highlight active TOC link on scroll
+  const sections = document.querySelectorAll('h2[id], h3[id]');
+  const tocLinks = document.querySelectorAll('.toc a');
+  const observer = new IntersectionObserver(entries => {
+    entries.forEach(e => {
+      if (e.isIntersecting) {
+        tocLinks.forEach(l => l.classList.remove('active'));
+        const link = document.querySelector(`.toc a[href="#${e.target.id}"]`);
+        if (link) link.classList.add('active');
+      }
+    });
+  }, { rootMargin: '-20% 0px -70% 0px' });
+  sections.forEach(s => observer.observe(s));
+</script>
+</body>
+</html>

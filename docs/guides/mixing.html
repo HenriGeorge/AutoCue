@@ -1,0 +1,624 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Mixing Techniques — DJ Learning Guides</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg: #ffffff; --surface: #f5f5f8; --surface2: #eaeaef;
+      --border: #e0e0e8; --border-hover: #c4c4d0;
+      --green: #159a05; --green-dim: #0f6e03;
+      --text: #111118; --muted: #888898; --warn: #c07800; --danger: #c02010;
+      --font: 'Inter', system-ui, sans-serif;
+      --mono: 'JetBrains Mono', 'Fira Code', monospace;
+    }
+    html.dark {
+      --bg: #0d0d0f; --surface: #16161a; --surface2: #1e1e24;
+      --border: #2a2a35; --border-hover: #3a3a48;
+      --green: #28e214; --green-dim: #1a9a0d;
+      --text: #e8e8f0; --muted: #6b6b80; --warn: #ffa000; --danger: #e0301e;
+    }
+    body { background: var(--bg); color: var(--text); font-family: var(--font);
+           font-size: 15px; line-height: 1.7; min-height: 100vh; }
+    header { border-bottom: 1px solid var(--border); padding: 16px 40px;
+             display: flex; align-items: center; gap: 16px; position: sticky; top: 0;
+             background: var(--bg); z-index: 100; }
+    .logo { display: flex; align-items: center; gap: 10px; text-decoration: none; }
+    .logo-icon { width: 30px; height: 30px; background: var(--green); border-radius: 7px;
+                 display: flex; align-items: center; justify-content: center; }
+    .logo-icon svg { width: 16px; height: 16px; }
+    .logo-text { font-size: 17px; font-weight: 700; color: var(--text); letter-spacing: -0.5px; }
+    header nav { margin-left: auto; display: flex; gap: 20px; align-items: center; }
+    header a { color: var(--muted); text-decoration: none; font-size: 14px; }
+    header a:hover { color: var(--text); }
+    .theme-btn { background: none; border: 1px solid var(--border); border-radius: 6px;
+                 padding: 3px 9px; cursor: pointer; color: var(--muted); font-size: 13px; }
+    .layout { display: flex; max-width: 1100px; margin: 0 auto; padding: 0 24px; }
+    .toc { width: 220px; flex-shrink: 0; padding: 40px 0; position: sticky; top: 62px;
+           height: calc(100vh - 62px); overflow-y: auto; }
+    .toc ul { list-style: none; }
+    .toc li { margin-bottom: 2px; }
+    .toc a { color: var(--muted); text-decoration: none; font-size: 13px;
+             display: block; padding: 3px 0; border-left: 2px solid transparent;
+             padding-left: 12px; transition: all .15s; }
+    .toc a:hover, .toc a.active { color: var(--text); border-left-color: var(--green); }
+    .toc .toc-h2 { font-weight: 600; margin-top: 12px; }
+    .toc .toc-h3 { padding-left: 24px; font-size: 12px; }
+    .toc-title { font-size: 11px; font-weight: 700; text-transform: uppercase;
+                 letter-spacing: 1px; color: var(--muted); padding-left: 12px; margin-bottom: 8px; }
+    article { flex: 1; min-width: 0; padding: 40px 0 40px 40px; }
+    .hero { margin-bottom: 48px; }
+    .hero-badge { display: inline-block; background: var(--green); color: #fff;
+                  border-radius: 20px; padding: 3px 12px; font-size: 12px;
+                  font-weight: 700; letter-spacing: 0.5px; margin-bottom: 16px; }
+    h1 { font-size: 40px; font-weight: 800; letter-spacing: -1.5px; line-height: 1.1; margin-bottom: 16px; }
+    .lead { font-size: 18px; color: var(--muted); max-width: 600px; }
+    h2 { font-size: 26px; font-weight: 700; letter-spacing: -0.5px;
+         margin: 52px 0 20px; padding-top: 8px; border-top: 2px solid var(--border); }
+    h3 { font-size: 18px; font-weight: 600; margin: 32px 0 12px; }
+    h4 { font-size: 15px; font-weight: 600; margin: 20px 0 8px; color: var(--muted); }
+    p { margin-bottom: 16px; }
+    ul, ol { padding-left: 24px; margin-bottom: 16px; }
+    li { margin-bottom: 6px; }
+    strong { font-weight: 600; }
+    a { color: var(--green-dim); }
+    html.dark a { color: var(--green); }
+    a:hover { text-decoration: underline; }
+    code { font-family: var(--mono); font-size: 13px; background: var(--surface2);
+           border-radius: 4px; padding: 1px 5px; }
+    .callout { background: var(--surface); border-left: 3px solid var(--green);
+               border-radius: 0 8px 8px 0; padding: 14px 18px; margin: 20px 0; }
+    .callout.warn { border-left-color: var(--warn); }
+    .callout.danger { border-left-color: var(--danger); }
+    .callout strong { display: block; margin-bottom: 4px; }
+    .step-list { counter-reset: steps; list-style: none; padding: 0; }
+    .step-list li { counter-increment: steps; padding-left: 40px; position: relative; margin-bottom: 14px; }
+    .step-list li::before { content: counter(steps); position: absolute; left: 0; top: 2px;
+                             width: 26px; height: 26px; background: var(--green); border-radius: 50%;
+                             display: flex; align-items: center; justify-content: center;
+                             font-size: 12px; font-weight: 700; color: #fff; }
+    .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin: 16px 0; }
+    .card { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 18px; }
+    .card h4 { margin-top: 0; }
+    .transition-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 12px; margin: 16px 0; }
+    .transition-card { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 16px; }
+    .transition-card .t-name { font-weight: 700; margin-bottom: 6px; font-size: 15px; }
+    .transition-card .t-level { font-size: 11px; color: var(--muted); margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.5px; }
+    .transition-card p { font-size: 13px; color: var(--muted); margin: 0; }
+    .mistake-list { list-style: none; padding: 0; }
+    .mistake-list li { padding: 12px 16px; background: var(--surface); border-radius: 8px;
+                       margin-bottom: 8px; border-left: 3px solid var(--danger); font-size: 14px; }
+    .mistake-list li strong { color: var(--danger); }
+    .resources { background: var(--surface); border-radius: 12px; padding: 24px; margin-top: 20px; }
+    .resources h3 { margin-top: 0; }
+    .resource-item { display: flex; align-items: flex-start; gap: 10px; margin-bottom: 12px; }
+    .resource-tag { background: var(--surface2); border-radius: 4px; padding: 2px 8px;
+                    font-size: 11px; font-weight: 600; color: var(--muted); flex-shrink: 0; margin-top: 2px; }
+    .print-btn { background: var(--surface); border: 1px solid var(--border); border-radius: 8px;
+                 padding: 8px 18px; cursor: pointer; color: var(--text); font-size: 14px;
+                 margin-bottom: 32px; display: inline-flex; align-items: center; gap: 8px; }
+    .print-btn:hover { border-color: var(--border-hover); }
+
+    /* Camelot Wheel SVG */
+    .camelot-wrap { display: flex; justify-content: center; margin: 24px 0; }
+    .camelot-wrap svg { max-width: 420px; width: 100%; }
+
+    @media (max-width: 768px) { .toc { display: none; } .layout { padding: 0 16px; }
+      article { padding: 32px 0; } h1 { font-size: 28px; } .two-col { grid-template-columns: 1fr; } }
+    @media print {
+      header, .toc, .print-btn { display: none; }
+      .layout { display: block; }
+      article { padding: 0; }
+      h2 { page-break-before: always; }
+      .callout, .card, .transition-card { page-break-inside: avoid; }
+      a { color: var(--text); }
+      a[href]::after { content: " (" attr(href) ")"; font-size: 11px; color: var(--muted); }
+    }
+  </style>
+</head>
+<body>
+<header>
+  <a class="logo" href="../index.html">
+    <div class="logo-icon">
+      <svg viewBox="0 0 20 20" fill="none" stroke="white" stroke-width="2">
+        <circle cx="10" cy="10" r="7"/><circle cx="10" cy="10" r="2"/>
+      </svg>
+    </div>
+    <span class="logo-text">AutoCue</span>
+  </a>
+  <nav>
+    <a href="index.html">← Guides</a>
+    <a href="../index.html">App</a>
+    <button class="theme-btn" onclick="toggleTheme()">&#9788;</button>
+  </nav>
+</header>
+
+<div class="layout">
+  <nav class="toc" id="toc">
+    <div class="toc-title">Contents</div>
+    <ul>
+      <li><a class="toc-h2" href="#beatmatching">Beatmatching</a></li>
+      <li><a class="toc-h3" href="#pitch-fader">Pitch Fader</a></li>
+      <li><a class="toc-h3" href="#jog-nudge">Jog Nudge & Phase</a></li>
+      <li><a class="toc-h2" href="#phrasing">Phrase Mixing</a></li>
+      <li><a class="toc-h3" href="#structure">Track Structure</a></li>
+      <li><a class="toc-h3" href="#mix-timing">Mix In/Out Timing</a></li>
+      <li><a class="toc-h2" href="#eq">EQ Mixing</a></li>
+      <li><a class="toc-h3" href="#bass-swap">Bass Swap</a></li>
+      <li><a class="toc-h3" href="#three-band">Three-Band Blend</a></li>
+      <li><a class="toc-h2" href="#harmonic">Harmonic Mixing</a></li>
+      <li><a class="toc-h3" href="#camelot">Camelot Wheel</a></li>
+      <li><a class="toc-h2" href="#transitions">7 Transition Types</a></li>
+      <li><a class="toc-h2" href="#filters">Filter Techniques</a></li>
+      <li><a class="toc-h2" href="#crowd">Reading the Crowd</a></li>
+      <li><a class="toc-h2" href="#setbuilding">Set Building</a></li>
+      <li><a class="toc-h2" href="#gain">Gain Staging</a></li>
+      <li><a class="toc-h2" href="#mistakes">10 Beginner Mistakes</a></li>
+      <li><a class="toc-h2" href="#resources">Resources</a></li>
+    </ul>
+  </nav>
+
+  <article>
+    <button class="print-btn" onclick="window.print()">🖨️ Save as PDF</button>
+
+    <div class="hero">
+      <div class="hero-badge">Guide 2 of 3</div>
+      <h1>Mixing Techniques</h1>
+      <p class="lead">From beatmatching by ear to harmonic mixing and crowd reading — the core skills that make a DJ set feel like one continuous journey.</p>
+    </div>
+
+    <!-- ─── BEATMATCHING ─── -->
+    <h2 id="beatmatching">Beatmatching</h2>
+    <p>Beatmatching is the foundation: making two tracks play at the same tempo and in phase with each other. Even if you use sync, you need to understand what it's doing under the hood.</p>
+
+    <h3 id="pitch-fader">Step 1: Match the Tempo with the Pitch Fader</h3>
+    <ol class="step-list">
+      <li>Load your outgoing track (Deck 1) — it's playing to the crowd. Note its BPM display.</li>
+      <li>Load your incoming track (Deck 2). Start it and listen in headphones. Compare the BPM displays — if they differ, adjust Deck 2's pitch fader up (faster) or down (slower).</li>
+      <li>Listen for the kick drums in both tracks. When tempos are close but not identical, you'll hear a "flamming" — a rapid double-hit. The faster it flams, the more off-tempo you are.</li>
+      <li>Make small pitch fader adjustments. Approach from one direction (don't overshoot and correct back constantly) — this trains your ear faster.</li>
+      <li>The flam disappears when BPMs match. Confirm by tapping along with both kick drums — they should feel like one.</li>
+    </ol>
+
+    <div class="callout warn">
+      <strong>Set your pitch fader range</strong>
+      The default ±8% pitch range covers most use cases. For mixing genres with wider BPM gaps (e.g., 120 bpm house into 140 bpm techno), change to ±16% in CDJ Utility settings.
+    </div>
+
+    <h3 id="jog-nudge">Step 2: Align the Phase with Jog Nudge</h3>
+    <p>BPM can be matched but the beats still misaligned by a fraction of a beat. This is called <em>phase offset</em>. Fix it with jog nudge:</p>
+    <ol class="step-list">
+      <li>With both tracks playing (Deck 2 only in headphones), listen for the flamming pattern. A regular slow flam = BPM slightly off (go back to pitch fader). A one-time delayed kick = phase offset.</li>
+      <li>Lightly tap the edge of the jog wheel on Deck 2 in CDJ mode — this momentarily nudges the track forward. Use the outer ring, not the platter surface.</li>
+      <li>If Deck 2's beat is arriving <em>late</em>, nudge it forward (tap edge). If it's arriving <em>early</em>, hold the edge to slow it momentarily.</li>
+      <li>When the kicks land together, the phase is locked. Bring Deck 2 into the mix.</li>
+    </ol>
+
+    <div class="callout">
+      <strong>Practise without headphones first</strong>
+      Listen to both decks through the main speakers, mute the crowd, and practise lining up the beats visually on the waveform. This trains your ear to identify flamming. Then switch to headphones for real mixes.
+    </div>
+
+    <!-- ─── PHRASING ─── -->
+    <h2 id="phrasing">Phrase Mixing</h2>
+    <p>Beatmatching handles the technical side. Phrase mixing handles the musical side — mixing at structurally correct moments so the transition feels intentional.</p>
+
+    <h3 id="structure">Understanding Track Structure</h3>
+    <p>Nearly all electronic music is built in multiples of 4 bars:</p>
+    <ul>
+      <li><strong>4 bars</strong> = the smallest structural unit (phrase)</li>
+      <li><strong>8 bars</strong> = a standard phrase (8 bars in, 8 bars out)</li>
+      <li><strong>16 bars</strong> = a section (intro, verse, breakdown)</li>
+      <li><strong>32 bars</strong> = a larger section (a full chorus or drop)</li>
+      <li><strong>64 bars</strong> = a musical "paragraph" — roughly 2 minutes at 128 BPM</li>
+    </ul>
+    <p>The phrase strip in Rekordbox (and on CDJ-3000 screens) shows you exactly where sections begin and end. AutoCue places hot cues at these boundaries so you can jump to them instantly during a mix.</p>
+
+    <h3 id="mix-timing">When to Mix In / Mix Out</h3>
+    <p>The golden rule: <strong>always start and end transitions on phrase boundaries</strong>. Mixing in on beat 1 of a new 16-bar section sounds intentional. Mixing in on beat 3 of bar 6 sounds like a mistake.</p>
+    <div class="two-col">
+      <div class="card">
+        <h4>Mix-in points (incoming track)</h4>
+        <ul>
+          <li>Bar 1 of a breakdown (low energy = forgiving)</li>
+          <li>Bar 1 of the main intro loop</li>
+          <li>16 bars before the first drop (builds tension)</li>
+          <li>Hot cue A (your prepared start point)</li>
+        </ul>
+      </div>
+      <div class="card">
+        <h4>Mix-out points (outgoing track)</h4>
+        <ul>
+          <li>After the outro starts</li>
+          <li>After a breakdown's last beat</li>
+          <li>Before a repeated chorus loop goes stale</li>
+          <li>On a vocal endpoint for a clean finish</li>
+        </ul>
+      </div>
+    </div>
+    <div class="callout">
+      <strong>The 8-bar mix window</strong>
+      The most natural transition length is 8–16 bars. Shorter feels abrupt; longer loses the energy of the incoming track. Start your transition 8 bars before where you want the outgoing track to be gone.
+    </div>
+
+    <!-- ─── EQ ─── -->
+    <h2 id="eq">EQ Mixing</h2>
+    <p>EQ is how you separate two tracks in the same frequency space. You can't have two bass lines competing at full volume — EQ mixing solves this.</p>
+
+    <h3 id="bass-swap">Bass Swap</h3>
+    <p>The most important single technique in electronic music DJing. The bass frequencies (20–250 Hz) carry most of the energy — only one track should have the bass at full at any time.</p>
+    <ol class="step-list">
+      <li>Start with the outgoing track playing, all EQs at 12 o'clock (0 dB).</li>
+      <li>Mix in the incoming track. Immediately kill its bass: rotate the Low EQ to fully off (usually fully left, or −∞ on a DJM).</li>
+      <li>During the transition, blend the mid and high frequencies with the crossfader or channel fader while keeping incoming bass off.</li>
+      <li>When you're ready to finish the transition, quickly swap: kill the outgoing bass and bring the incoming bass fully up simultaneously. This is the "bass swap".</li>
+      <li>Fade out the outgoing track's mids/highs.</li>
+    </ol>
+    <div class="callout warn">
+      <strong>Always return EQs to center</strong>
+      Forgetting to reset a killed EQ before the next mix is one of the most common live mistakes. Build the habit: as soon as a track leaves the mix, reset all its EQs to 12 o'clock.
+    </div>
+
+    <h3 id="three-band">Three-Band Progressive Blend</h3>
+    <p>For a more gradual, textured transition (common in melodic techno, progressive house):</p>
+    <ol class="step-list">
+      <li>Mix in the incoming track with only its <strong>high</strong> EQ open — lows and mids cut. Let the hi-hats and cymbals layer over the outgoing track. This runs for 8–16 bars.</li>
+      <li>Gradually open the <strong>mid</strong> EQ on the incoming track. The melodies begin to blend. Reduce the outgoing track's mids simultaneously if needed.</li>
+      <li>Execute the bass swap (see above) when both mid and high are blended.</li>
+      <li>Fade out the outgoing lows and mids completely.</li>
+    </ol>
+
+    <!-- ─── HARMONIC ─── -->
+    <h2 id="harmonic">Harmonic Mixing</h2>
+    <p>Harmonic mixing means choosing tracks whose musical keys are compatible — so when two tracks overlap, their melodies and chords don't clash.</p>
+
+    <h3 id="camelot">The Camelot Wheel</h3>
+    <p>The Camelot Wheel maps all 24 musical keys to a clock-face of 12 positions (1–12), each with two modes: <strong>A</strong> (minor/inner ring) and <strong>B</strong> (major/outer ring). Numbers show up in Rekordbox and Mixed In Key.</p>
+
+    <!-- Camelot Wheel SVG -->
+    <div class="camelot-wrap">
+      <svg viewBox="0 0 420 420" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Camelot Wheel diagram">
+        <defs>
+          <style>
+            .cw-ring-a { fill: #1a6b3c; }
+            .cw-ring-b { fill: #1a3b7a; }
+            .cw-text { fill: #fff; font-family: Inter, system-ui, sans-serif; font-weight: 700; font-size: 13px; text-anchor: middle; dominant-baseline: central; }
+            .cw-key { fill: #fff; font-family: Inter, system-ui, sans-serif; font-size: 9px; text-anchor: middle; dominant-baseline: central; opacity: 0.8; }
+            .cw-center { fill: #111; }
+            .cw-label { fill: #888; font-family: Inter, system-ui, sans-serif; font-size: 11px; text-anchor: middle; }
+            .cw-compat { stroke: #ffd700; stroke-width: 1.5; fill: none; stroke-dasharray: 4 3; opacity: 0.6; }
+          </style>
+        </defs>
+        <!-- Background -->
+        <circle cx="210" cy="210" r="205" fill="#1a1a2e"/>
+
+        <!-- Outer ring segments (B = major) -->
+        <!-- 12 segments, each 30 degrees. We draw wedges. -->
+        <!-- Positions: angle = (i * 30 - 90) degrees for top = 12 -->
+
+        <!-- We'll use path arcs. Each segment: inner r=110, outer r=200 -->
+        <!-- B ring (outer, blue) -->
+        <g>
+          <!-- 1B: Ab major (angle center = -90°) -->
+          <path d="M210,210 L210,10 A200,200 0 0,1 306.6,63.4 Z" fill="#1a3b7a" stroke="#1a1a2e" stroke-width="2"/>
+          <!-- 2B: Eb major -->
+          <path d="M210,210 L306.6,63.4 A200,200 0 0,1 356.6,123.4 Z" fill="#1a3b7a" stroke="#1a1a2e" stroke-width="2"/>
+          <!-- 3B: Bb major -->
+          <path d="M210,210 L356.6,123.4 A200,200 0 0,1 400,210 Z" fill="#1a3b7a" stroke="#1a1a2e" stroke-width="2"/>
+          <!-- 4B: F major -->
+          <path d="M210,210 L400,210 A200,200 0 0,1 356.6,296.6 Z" fill="#1a3b7a" stroke="#1a1a2e" stroke-width="2"/>
+          <!-- 5B: C major -->
+          <path d="M210,210 L356.6,296.6 A200,200 0 0,1 306.6,356.6 Z" fill="#1a3b7a" stroke="#1a1a2e" stroke-width="2"/>
+          <!-- 6B: G major -->
+          <path d="M210,210 L306.6,356.6 A200,200 0 0,1 210,400 Z" fill="#1a3b7a" stroke="#1a1a2e" stroke-width="2"/>
+          <!-- 7B: D major -->
+          <path d="M210,210 L210,400 A200,200 0 0,1 113.4,356.6 Z" fill="#1a3b7a" stroke="#1a1a2e" stroke-width="2"/>
+          <!-- 8B: A major -->
+          <path d="M210,210 L113.4,356.6 A200,200 0 0,1 63.4,296.6 Z" fill="#1a3b7a" stroke="#1a1a2e" stroke-width="2"/>
+          <!-- 9B: E major -->
+          <path d="M210,210 L63.4,296.6 A200,200 0 0,1 20,210 Z" fill="#1a3b7a" stroke="#1a1a2e" stroke-width="2"/>
+          <!-- 10B: B major -->
+          <path d="M210,210 L20,210 A200,200 0 0,1 63.4,123.4 Z" fill="#1a3b7a" stroke="#1a1a2e" stroke-width="2"/>
+          <!-- 11B: F# major -->
+          <path d="M210,210 L63.4,123.4 A200,200 0 0,1 113.4,63.4 Z" fill="#1a3b7a" stroke="#1a1a2e" stroke-width="2"/>
+          <!-- 12B: Db major -->
+          <path d="M210,210 L113.4,63.4 A200,200 0 0,1 210,10 Z" fill="#1a3b7a" stroke="#1a1a2e" stroke-width="2"/>
+        </g>
+
+        <!-- Inner ring segments (A = minor) -->
+        <g>
+          <path d="M210,210 L210,110 A100,100 0 0,1 266.6,143.4 Z" fill="#1a6b3c" stroke="#1a1a2e" stroke-width="2"/>
+          <path d="M210,210 L266.6,143.4 A100,100 0 0,1 293.2,210 Z" fill="#1a6b3c" stroke="#1a1a2e" stroke-width="2"/>
+          <path d="M210,210 L293.2,210 A100,100 0 0,1 266.6,276.6 Z" fill="#1a6b3c" stroke="#1a1a2e" stroke-width="2"/>
+          <path d="M210,210 L266.6,276.6 A100,100 0 0,1 210,310 Z" fill="#1a6b3c" stroke="#1a1a2e" stroke-width="2"/>
+          <path d="M210,210 L210,310 A100,100 0 0,1 153.4,276.6 Z" fill="#1a6b3c" stroke="#1a1a2e" stroke-width="2"/>
+          <path d="M210,210 L153.4,276.6 A100,100 0 0,1 126.8,210 Z" fill="#1a6b3c" stroke="#1a1a2e" stroke-width="2"/>
+          <path d="M210,210 L126.8,210 A100,100 0 0,1 153.4,143.4 Z" fill="#1a6b3c" stroke="#1a1a2e" stroke-width="2"/>
+          <path d="M210,210 L153.4,143.4 A100,100 0 0,1 210,110 Z" fill="#1a6b3c" stroke="#1a1a2e" stroke-width="2"/>
+          <!-- remaining 4 -->
+          <path d="M210,210 L210,110 A100,100 0 0,0 153.4,143.4 Z" fill="#1a6b3c" stroke="#1a1a2e" stroke-width="2" transform="rotate(0,210,210)"/>
+        </g>
+
+        <!-- Simpler approach: just draw 12 outer and 12 inner colored wedges with text -->
+        <!-- Reset and draw properly -->
+        <g id="wheel">
+          <!-- We render each slice using a JS-free approach with correct math -->
+          <!-- Outer B ring: r=110 to 200, Inner A ring: r=40 to 110 -->
+          <!-- Center: r=40, white -->
+        </g>
+
+        <!-- Draw clean wheel using pre-calculated coordinates -->
+        <!-- Outer ring (B = major, blue-ish, r 115–195) -->
+        <!-- Position formula: x = cx + r*cos(a), y = cy + r*sin(a) where a = (slot*30 - 90) * pi/180 -->
+        <!-- Slots 1-12, each 30 degrees wide, centered on slot angle -->
+
+        <!-- I'll render the full wheel as simplified colored rings with text overlaid -->
+        <!-- Blue outer ring -->
+        <circle cx="210" cy="210" r="197" fill="none" stroke="#1a1a2e" stroke-width="2"/>
+        <circle cx="210" cy="210" r="155" fill="#0a1428" stroke="#1a1a2e" stroke-width="2"/>
+        <!-- Green inner ring -->
+        <circle cx="210" cy="210" r="113" fill="none" stroke="#1a1a2e" stroke-width="2"/>
+        <circle cx="210" cy="210" r="72" fill="#0a2818" stroke="#1a1a2e" stroke-width="2"/>
+        <!-- Center -->
+        <circle cx="210" cy="210" r="40" fill="#111" stroke="#333" stroke-width="1.5"/>
+        <text x="210" y="204" style="fill:#888;font-family:Inter,sans-serif;font-size:10px;text-anchor:middle;">Camelot</text>
+        <text x="210" y="218" style="fill:#888;font-family:Inter,sans-serif;font-size:10px;text-anchor:middle;">Wheel</text>
+
+        <!-- Draw division lines -->
+        <g stroke="#1a1a2e" stroke-width="1.5">
+          <line x1="210" y1="13" x2="210" y2="407"/>
+          <line x1="13" y1="210" x2="407" y2="210"/>
+          <line x1="73.4" y1="73.4" x2="346.6" y2="346.6"/>
+          <line x1="346.6" y1="73.4" x2="73.4" y2="346.6"/>
+          <line x1="44.5" y1="136.7" x2="375.5" y2="283.3"/>
+          <line x1="375.5" y1="136.7" x2="44.5" y2="283.3"/>
+          <line x1="136.7" y1="44.5" x2="283.3" y2="375.5"/>
+          <line x1="283.3" y1="44.5" x2="136.7" y2="375.5"/>
+        </g>
+
+        <!-- Outer ring labels (B = major) at r=176 -->
+        <!-- Angles: slot i center = (i-1)*30 - 90 + 15 degrees -->
+        <text class="cw-text" x="210" y="34">1B</text>
+        <text class="cw-key" x="210" y="48">A♭ maj</text>
+        <text class="cw-text" x="282" y="56">2B</text>
+        <text class="cw-key" x="282" y="70">E♭ maj</text>
+        <text class="cw-text" x="336" y="128">3B</text>
+        <text class="cw-key" x="336" y="142">B♭ maj</text>
+        <text class="cw-text" x="358" y="210">4B</text>
+        <text class="cw-key" x="358" y="224">F maj</text>
+        <text class="cw-text" x="336" y="290">5B</text>
+        <text class="cw-key" x="336" y="304">C maj</text>
+        <text class="cw-text" x="282" y="364">6B</text>
+        <text class="cw-key" x="282" y="378">G maj</text>
+        <text class="cw-text" x="210" y="388">7B</text>
+        <text class="cw-key" x="210" y="401">D maj</text>
+        <text class="cw-text" x="138" y="364">8B</text>
+        <text class="cw-key" x="138" y="378">A maj</text>
+        <text class="cw-text" x="84" y="290">9B</text>
+        <text class="cw-key" x="84" y="304">E maj</text>
+        <text class="cw-text" x="62" y="210">10B</text>
+        <text class="cw-key" x="62" y="224">B maj</text>
+        <text class="cw-text" x="84" y="128">11B</text>
+        <text class="cw-key" x="84" y="142">F♯ maj</text>
+        <text class="cw-text" x="138" y="56">12B</text>
+        <text class="cw-key" x="138" y="70">D♭ maj</text>
+
+        <!-- Inner ring labels (A = minor) at r=93 -->
+        <text class="cw-text" x="210" y="130">1A</text>
+        <text class="cw-text" x="250" y="153">2A</text>
+        <text class="cw-text" x="270" y="210">3A</text>
+        <text class="cw-text" x="250" y="267">4A</text>
+        <text class="cw-text" x="210" y="292">5A</text>
+        <text class="cw-text" x="170" y="267">6A</text>
+        <text class="cw-text" x="150" y="210">7A</text>
+        <text class="cw-text" x="170" y="153">8A</text>
+        <!-- 4 more at diagonals -->
+        <text class="cw-text" x="230" y="134">9A</text>
+        <text class="cw-text" x="265" y="185">10A</text>
+        <text class="cw-text" x="210" y="290">11A</text>
+        <text class="cw-text" x="162" y="138">12A</text>
+
+        <!-- Legend -->
+        <rect x="20" y="375" width="14" height="10" fill="#1a3b7a" rx="2"/>
+        <text x="38" y="384" style="fill:#aaa;font-family:Inter,sans-serif;font-size:11px;">B = Major (outer)</text>
+        <rect x="145" y="375" width="14" height="10" fill="#1a6b3c" rx="2"/>
+        <text x="163" y="384" style="fill:#aaa;font-family:Inter,sans-serif;font-size:11px;">A = Minor (inner)</text>
+      </svg>
+    </div>
+
+    <p><strong>Compatible key movements</strong> — these combinations always sound harmonically smooth:</p>
+    <ul>
+      <li><strong>Same number, same letter</strong>: e.g. 8A → 8A — identical key, always works</li>
+      <li><strong>Same number, switch letter</strong>: e.g. 8A → 8B — relative minor/major, very compatible</li>
+      <li><strong>±1 on the number, same letter</strong>: e.g. 8A → 9A or 7A — adjacent on the wheel, a perfect 5th interval, always harmonious</li>
+      <li><strong>+3 on the number, same letter</strong>: e.g. 8A → 11A — energetic key jump, used to "lift" energy</li>
+    </ul>
+    <div class="callout warn">
+      <strong>Harmonic mixing is a tool, not a rule</strong>
+      Many great mixes cross keys intentionally — the "wrong" key jump creates tension and surprise. Use harmonic mixing as a guide when you're unsure, not as a straitjacket. Short transitions (cuts, quick blends) are often inaudible regardless of key.
+    </div>
+
+    <p>Rekordbox displays keys in Open Key, Camelot, or standard notation. Switch in <strong>Preferences → View → Key Display</strong>. Mixed In Key is a separate analysis tool that many DJs consider more accurate than Rekordbox's built-in key detection.</p>
+
+    <!-- ─── TRANSITIONS ─── -->
+    <h2 id="transitions">7 Transition Types</h2>
+    <p>Each transition serves a different musical moment. Knowing all 7 means you're never stuck doing the same blend over and over.</p>
+
+    <div class="transition-grid">
+      <div class="transition-card">
+        <div class="t-name">Straight Cut</div>
+        <div class="t-level">Beginner</div>
+        <p>Jump directly from track to track — zero overlap. Works perfectly at the exact end of a phrase. Feels punchy and intentional when timed right.</p>
+      </div>
+      <div class="transition-card">
+        <div class="t-name">Crossfade</div>
+        <div class="t-level">Beginner</div>
+        <p>Smooth crossfader or volume fade over 4–16 bars. The most common transition. Best when both tracks have similar energy and frequency content.</p>
+      </div>
+      <div class="transition-card">
+        <div class="t-name">EQ Bass Swap</div>
+        <div class="t-level">Intermediate</div>
+        <p>Blend using EQ — see EQ section above. Most professional technique for electronic music. Preserves bass clarity through the entire transition.</p>
+      </div>
+      <div class="transition-card">
+        <div class="t-name">Echo Out</div>
+        <div class="t-level">Intermediate</div>
+        <p>Apply a long Echo/Delay to the outgoing track, then cut it while the echo tail rings out. The incoming track enters into the reverb space. Works beautifully between breakdowns.</p>
+      </div>
+      <div class="transition-card">
+        <div class="t-name">Filter Sweep</div>
+        <div class="t-level">Intermediate</div>
+        <p>Sweep a LPF (low-pass filter) down to cut the outgoing track's high end, then crossfade. Or sweep a HPF up on the incoming track from nothing. Smooth and musical.</p>
+      </div>
+      <div class="transition-card">
+        <div class="t-name">Build-up Drop</div>
+        <div class="t-level">Advanced</div>
+        <p>Let the incoming track's build-up run over the outgoing track, then hit the drop of the incoming right as the outgoing ends. Maximises energy. Requires compatible phrase lengths.</p>
+      </div>
+      <div class="transition-card">
+        <div class="t-name">Spinback / Brake</div>
+        <div class="t-level">Advanced</div>
+        <p>Stop the outgoing track with a spinback (pitch up spin) or Brake (pitch fader down quickly). Arresting technique — works best at set peaks or when switching styles. Don't overuse.</p>
+      </div>
+    </div>
+
+    <!-- ─── FILTERS ─── -->
+    <h2 id="filters">Filter Techniques</h2>
+    <p>The filter knob (HPF–LPF sweep) is the most expressive real-time tool on a DJM mixer. It works on one channel at a time.</p>
+    <ul>
+      <li><strong>LPF sweep (turn left)</strong>: cuts high frequencies, leaves bass and kick. Creates a muffled, underwater feeling. Use to fade out a complex mix into just kick and bass before a new track enters.</li>
+      <li><strong>HPF sweep (turn right)</strong>: cuts bass, leaves hi-hats and synths. Use to blend in a new track's melodic elements before revealing its bass. Also great for tension builds.</li>
+      <li><strong>Double-filter transition</strong>: LPF down on outgoing + HPF down on incoming → they meet in the middle creating a thin band of mid-frequency. Psychedelic effect, use sparingly.</li>
+      <li><strong>Filter return snap</strong>: hold filter at full LPF, then snap it back to center on the downbeat. Creates a satisfying "suck" effect that punctuates the beat.</li>
+    </ul>
+
+    <!-- ─── CROWD ─── -->
+    <h2 id="crowd">Reading the Crowd</h2>
+    <p>Technical skills get you to the booth. Crowd reading keeps you employed.</p>
+    <div class="two-col">
+      <div class="card">
+        <h4>Positive signals</h4>
+        <ul>
+          <li>Hands in the air</li>
+          <li>People moving from the bar to the floor</li>
+          <li>Singing along / mouthing lyrics</li>
+          <li>Eye contact and nodding</li>
+          <li>Couples dancing together</li>
+          <li>No one looking at phones</li>
+        </ul>
+      </div>
+      <div class="card">
+        <h4>Negative signals</h4>
+        <ul>
+          <li>Floor emptying</li>
+          <li>People at bar turning away from speakers</li>
+          <li>Everyone on their phones</li>
+          <li>Conversations replacing dancing</li>
+          <li>Staff looking concerned</li>
+        </ul>
+      </div>
+    </div>
+    <p><strong>The energy arc</strong>: a good set has a shape — warm-up (70%), build (80%), peak (90–100%), sustain (90%), gradual close (80%). Don't go to 100% in the first hour. Don't stay at 100% — there's nowhere to go. Give the crowd peaks and valleys so the peaks mean something.</p>
+
+    <!-- ─── SET BUILDING ─── -->
+    <h2 id="setbuilding">Set Building</h2>
+    <p>Great sets are planned. Not rigidly — but with a structure in mind.</p>
+    <ul>
+      <li><strong>Know your opening 3 tracks</strong> and your closing 3 tracks. Everything else can be free-form based on the crowd.</li>
+      <li><strong>Have a "nuclear option"</strong> — 2–3 crowd-pleasers you can deploy if the floor empties. Know them by hot cue slot A.</li>
+      <li><strong>BPM architecture</strong>: don't jump BPMs wildly. A gradual drift (e.g. 126 → 130 over 1 hour) is natural. A jump from 122 to 138 in one mix is jarring unless bridged with a technique.</li>
+      <li><strong>Harmonic journey</strong>: plan 4–5 track stretches that move around the Camelot Wheel in a logical direction. Random key jumps every track is exhausting.</li>
+      <li><strong>Listen to other DJs' recorded sets</strong> and note where they make transitions, how they build energy, and what they use to change direction. Transcription is the fastest learning technique.</li>
+    </ul>
+
+    <!-- ─── GAIN ─── -->
+    <h2 id="gain">Gain Staging</h2>
+    <p>Gain staging means calibrating your signal levels so everything is consistent. Inconsistent gain is the fastest way to sound amateurish — if your tracks jump in volume every mix, the crowd notices.</p>
+    <ol class="step-list">
+      <li>Set each channel's gain so the VU meter peaks in the green, just below yellow (–6 dBFS to –3 dBFS). Never clip into red.</li>
+      <li>Use the channel gain (trim) knob, not the channel fader, to match levels. The fader should be at unity (12 o'clock or "∞ – 0") during performance.</li>
+      <li>The master output should average around –6 dBFS with occasional peaks reaching –3 dBFS. This gives the venue's limiter headroom.</li>
+      <li>If tracks from different eras or labels sound wildly different in volume: use Rekordbox's <strong>Track Analysis → Loudness</strong> value to normalise before exporting, or adjust gain in Preferences → Analysis → Apply Gain.</li>
+    </ol>
+
+    <!-- ─── MISTAKES ─── -->
+    <h2 id="mistakes">10 Common Beginner Mixing Mistakes</h2>
+    <ul class="mistake-list">
+      <li><strong>Mixing in on the wrong bar.</strong> Starting a mix on beat 3 of bar 2 instead of beat 1 of bar 1. Always count phrases in multiples of 8.</li>
+      <li><strong>Letting two bass lines fight.</strong> Both tracks at full bass = muddy mess. Bass swap is non-negotiable in electronic music.</li>
+      <li><strong>Leaving EQs killed after the mix.</strong> If you kill the bass to mix in, remember to bring it back. An incoming track stuck with no bass is a silent disaster.</li>
+      <li><strong>Over-correcting BPM.</strong> Pitch fader adjustment anxiety — small corrections, one direction at a time. Overshooting makes it worse.</li>
+      <li><strong>Missing the phrase.</strong> Playing a transition over a breakdown and not having the new track's drop ready for bar 1. Know where your drop is.</li>
+      <li><strong>Ignoring gain staging.</strong> Volume jumping 6 dB between tracks is audible and unprofessional. Match gains before mixing in.</li>
+      <li><strong>Using the crossfader for everything.</strong> The crossfader is a cut tool. Use channel faders for blend transitions.</li>
+      <li><strong>Too many effects.</strong> One effect, used once, is memorable. Effects on every track, constantly running, becomes noise.</li>
+      <li><strong>Not listening in headphones.</strong> Cuing the right track matters. If you mix in without checking, you might start 16 bars into the song instead of bar 1.</li>
+      <li><strong>Forgetting to have fun.</strong> Crowds mirror the DJ's energy. If you're tense and staring down at the equipment, the floor feels it.</li>
+    </ul>
+
+    <!-- ─── RESOURCES ─── -->
+    <h2 id="resources">Resources &amp; Further Reading</h2>
+    <div class="resources">
+      <h3>Mixing Techniques</h3>
+      <div class="resource-item">
+        <span class="resource-tag">Blog</span>
+        <div><a href="https://djtechtools.com/category/learn-to-dj/" target="_blank" rel="noopener">DJ TechTools — Learn to DJ</a> — in-depth technique articles, gear reviews, and advanced theory</div>
+      </div>
+      <div class="resource-item">
+        <span class="resource-tag">Blog</span>
+        <div><a href="https://www.digitaldjtips.com/how-to-dj/" target="_blank" rel="noopener">Digital DJ Tips — How to DJ</a> — structured learning path for beginners through advanced</div>
+      </div>
+      <div class="resource-item">
+        <span class="resource-tag">Video</span>
+        <div><a href="https://www.youtube.com/@CrossfaderAustralia" target="_blank" rel="noopener">Crossfader (YouTube)</a> — free mixing technique videos: EQ, phrasing, transitions</div>
+      </div>
+      <div class="resource-item">
+        <span class="resource-tag">Blog</span>
+        <div><a href="https://www.musicradar.com/how-to/dj-tips-and-tricks" target="_blank" rel="noopener">MusicRadar — DJ Tips</a> — mixing theory and practical technique breakdowns</div>
+      </div>
+
+      <h3 style="margin-top:20px;">Harmonic Mixing</h3>
+      <div class="resource-item">
+        <span class="resource-tag">Tool</span>
+        <div><a href="https://mixedinkey.com" target="_blank" rel="noopener">Mixed In Key</a> — paid key analysis tool many DJs prefer over Rekordbox's built-in analysis; includes Camelot notation</div>
+      </div>
+      <div class="resource-item">
+        <span class="resource-tag">Blog</span>
+        <div><a href="https://mixedinkey.com/captain-plugins/wiki/camelot-wheel/" target="_blank" rel="noopener">Camelot Wheel explained — Mixed In Key</a> — definitive reference for the wheel and compatible key movements</div>
+      </div>
+
+      <h3 style="margin-top:20px;">Set Analysis</h3>
+      <div class="resource-item">
+        <span class="resource-tag">Tool</span>
+        <div><a href="https://dj.studio" target="_blank" rel="noopener">DJ.Studio</a> — set planning and analysis tool with harmonic path visualisation</div>
+      </div>
+    </div>
+
+  </article>
+</div>
+
+<script>
+  function toggleTheme() {
+    document.documentElement.classList.toggle('dark');
+    localStorage.setItem('theme', document.documentElement.classList.contains('dark') ? 'dark' : 'light');
+  }
+  if (localStorage.getItem('theme') === 'dark' || (!localStorage.getItem('theme') && matchMedia('(prefers-color-scheme: dark)').matches)) {
+    document.documentElement.classList.add('dark');
+  }
+  const sections = document.querySelectorAll('h2[id], h3[id]');
+  const tocLinks = document.querySelectorAll('.toc a');
+  const observer = new IntersectionObserver(entries => {
+    entries.forEach(e => {
+      if (e.isIntersecting) {
+        tocLinks.forEach(l => l.classList.remove('active'));
+        const link = document.querySelector(`.toc a[href="#${e.target.id}"]`);
+        if (link) link.classList.add('active');
+      }
+    });
+  }, { rootMargin: '-20% 0px -70% 0px' });
+  sections.forEach(s => observer.observe(s));
+</script>
+</body>
+</html>
