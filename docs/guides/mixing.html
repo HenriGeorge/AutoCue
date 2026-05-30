@@ -87,6 +87,19 @@
     .transition-card .t-name { font-weight: 700; margin-bottom: 6px; font-size: 15px; }
     .transition-card .t-level { font-size: 11px; color: var(--muted); margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.5px; }
     .transition-card p { font-size: 13px; color: var(--muted); margin: 0; }
+    .diagram { margin: 24px 0; border-radius: 10px; overflow: hidden; border: 1px solid var(--border); }
+    .diagram svg { display: block; width: 100%; }
+    .diagram-caption { font-size: 12px; color: var(--muted); text-align: center; padding: 8px; background: var(--surface); }
+    .spec-table { width: 100%; border-collapse: collapse; margin: 16px 0; font-size: 14px; }
+    .spec-table th { background: var(--surface2); padding: 10px 14px; text-align: left; font-size: 12px;
+                     font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; color: var(--muted); }
+    .spec-table td { padding: 10px 14px; border-bottom: 1px solid var(--border); }
+    .spec-table tr:last-child td { border-bottom: none; }
+    .spec-table td:first-child { font-weight: 600; color: var(--muted); font-size: 13px; }
+    .pullquote { border-left: 4px solid var(--green); background: var(--surface); padding: 16px 20px;
+                 border-radius: 0 10px 10px 0; margin: 24px 0; font-size: 17px; font-style: italic;
+                 color: var(--text); line-height: 1.5; }
+    .pullquote cite { display: block; font-size: 13px; font-style: normal; color: var(--muted); margin-top: 8px; }
     .mistake-list { list-style: none; padding: 0; }
     .mistake-list li { padding: 12px 16px; background: var(--surface); border-radius: 8px;
                        margin-bottom: 8px; border-left: 3px solid var(--danger); font-size: 14px; }
@@ -249,9 +262,120 @@
       The most natural transition length is 8–16 bars. Shorter feels abrupt; longer loses the energy of the incoming track. Start your transition 8 bars before where you want the outgoing track to be gone.
     </div>
 
+    <!-- Phrase timeline diagram -->
+    <div class="diagram">
+      <svg viewBox="0 0 700 160" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Phrase mixing timeline showing two tracks and mixing window">
+        <rect width="700" height="160" fill="#0d0d0f"/>
+        <!-- Track labels -->
+        <text x="8" y="44" fill="#888" font-size="10" font-family="sans-serif" font-weight="700">TRACK A</text>
+        <text x="8" y="110" fill="#888" font-size="10" font-family="sans-serif" font-weight="700">TRACK B</text>
+        <!-- Track A timeline: Intro(0-80) | Verse(80-200) | Chorus(200-320) | Verse(320-440) | Outro(440-560) | End(560-680) -->
+        <rect x="60" y="28" width="80" height="22" fill="#1a6b3c" rx="3"/>
+        <text x="100" y="43" text-anchor="middle" fill="#fff" font-size="9" font-family="sans-serif">Intro (4 bars)</text>
+        <rect x="140" y="28" width="120" height="22" fill="#1a3b7a" rx="3"/>
+        <text x="200" y="43" text-anchor="middle" fill="#fff" font-size="9" font-family="sans-serif">Verse (8 bars)</text>
+        <rect x="260" y="28" width="120" height="22" fill="#6b1a6b" rx="3"/>
+        <text x="320" y="43" text-anchor="middle" fill="#fff" font-size="9" font-family="sans-serif">Chorus (8 bars)</text>
+        <rect x="380" y="28" width="120" height="22" fill="#1a3b7a" rx="3"/>
+        <text x="440" y="43" text-anchor="middle" fill="#fff" font-size="9" font-family="sans-serif">Verse (8 bars)</text>
+        <rect x="500" y="28" width="80" height="22" fill="#6b3a1a" rx="3"/>
+        <text x="540" y="43" text-anchor="middle" fill="#fff" font-size="9" font-family="sans-serif">Outro (8 bars)</text>
+        <rect x="580" y="28" width="80" height="22" fill="#333" rx="3"/>
+        <text x="620" y="43" text-anchor="middle" fill="#666" font-size="9" font-family="sans-serif">End</text>
+        <!-- Track B timeline: appears later, starting at bar 32 of Track A -->
+        <rect x="380" y="94" width="80" height="22" fill="#1a6b3c" rx="3"/>
+        <text x="420" y="109" text-anchor="middle" fill="#fff" font-size="9" font-family="sans-serif">Intro (4 bars)</text>
+        <rect x="460" y="94" width="120" height="22" fill="#1a3b7a" rx="3"/>
+        <text x="520" y="109" text-anchor="middle" fill="#fff" font-size="9" font-family="sans-serif">Verse (8 bars)</text>
+        <rect x="580" y="94" width="120" height="22" fill="#6b1a6b" rx="3"/>
+        <text x="640" y="109" text-anchor="middle" fill="#fff" font-size="9" font-family="sans-serif">Chorus (8 bars)</text>
+        <!-- Mix window highlight -->
+        <rect x="500" y="20" width="80" height="108" fill="#fff" opacity="0.04" rx="2"/>
+        <rect x="500" y="20" width="80" height="108" fill="none" stroke="#ffd700" stroke-width="1.5" stroke-dasharray="4 3" rx="2" opacity="0.6"/>
+        <text x="540" y="142" text-anchor="middle" fill="#ffd700" font-size="9" font-family="sans-serif" font-weight="700" opacity="0.8">MIX WINDOW (8 bars)</text>
+        <!-- Bar numbers -->
+        <text x="60" y="20" fill="#555" font-size="8" font-family="sans-serif" text-anchor="middle">bar 1</text>
+        <text x="140" y="20" fill="#555" font-size="8" font-family="sans-serif" text-anchor="middle">bar 5</text>
+        <text x="260" y="20" fill="#555" font-size="8" font-family="sans-serif" text-anchor="middle">bar 13</text>
+        <text x="380" y="20" fill="#555" font-size="8" font-family="sans-serif" text-anchor="middle">bar 21</text>
+        <text x="500" y="20" fill="#ffd700" font-size="8" font-family="sans-serif" text-anchor="middle" opacity="0.8">bar 29</text>
+        <text x="580" y="20" fill="#555" font-size="8" font-family="sans-serif" text-anchor="middle">bar 33</text>
+        <!-- Arrows showing mix in / out -->
+        <line x1="500" y1="60" x2="500" y2="94" stroke="#ffd700" stroke-width="1.5" marker-end="url(#arrowdown)" opacity="0.8"/>
+        <defs>
+          <marker id="arrowdown" markerWidth="6" markerHeight="6" refX="3" refY="6" orient="auto">
+            <path d="M0,0 L6,0 L3,6 Z" fill="#ffd700" opacity="0.8"/>
+          </marker>
+        </defs>
+        <text x="508" y="80" fill="#ffd700" font-size="9" font-family="sans-serif" opacity="0.8">mix in</text>
+        <!-- Volume fade line for Track A (fading out in mix window) -->
+        <line x1="500" y1="50" x2="580" y2="39" stroke="#28e214" stroke-width="1.5" opacity="0.6" stroke-dasharray="2 2"/>
+        <text x="490" y="56" fill="#28e214" font-size="8" font-family="sans-serif" opacity="0.7">A fades</text>
+        <!-- Volume fade line for Track B (fading in in mix window) -->
+        <line x1="380" y1="115" x2="500" y2="105" stroke="#4a8fff" stroke-width="1.5" opacity="0.6" stroke-dasharray="2 2"/>
+        <text x="368" y="121" fill="#4a8fff" font-size="8" font-family="sans-serif" opacity="0.7">B fades in</text>
+      </svg>
+      <div class="diagram-caption">Phrase mixing timeline — mix in at bar 29 (Track A's outro start), 8-bar window to complete the transition. Track B's intro starts simultaneously.</div>
+    </div>
+
     <!-- ─── EQ ─── -->
     <h2 id="eq">EQ Mixing</h2>
     <p>EQ is how you separate two tracks in the same frequency space. You can't have two bass lines competing at full volume — EQ mixing solves this.</p>
+
+    <!-- Frequency spectrum diagram -->
+    <div class="diagram">
+      <svg viewBox="0 0 700 120" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Audio frequency spectrum diagram showing DJ EQ ranges">
+        <rect width="700" height="120" fill="#0d0d0f"/>
+        <!-- Frequency bands -->
+        <!-- Sub-bass: 20-60Hz (~0-70px) -->
+        <rect x="0" y="20" width="70" height="60" fill="#3d0000" rx="0"/>
+        <!-- Bass: 60-250Hz (~70-210px) -->
+        <rect x="70" y="20" width="140" height="60" fill="#7a1800" rx="0"/>
+        <!-- Low-mid: 250-500Hz (~210-280px) -->
+        <rect x="210" y="20" width="70" height="60" fill="#7a4a00" rx="0"/>
+        <!-- Mid: 500-2kHz (~280-420px) -->
+        <rect x="280" y="20" width="140" height="60" fill="#1a5a1a" rx="0"/>
+        <!-- High-mid: 2-8kHz (~420-560px) -->
+        <rect x="420" y="20" width="140" height="60" fill="#1a3a6a" rx="0"/>
+        <!-- High: 8-20kHz (~560-700px) -->
+        <rect x="560" y="20" width="140" height="60" fill="#2a1a6a" rx="0"/>
+        <!-- Labels in bands -->
+        <text x="35" y="52" text-anchor="middle" fill="#ff6666" font-size="9" font-family="sans-serif" font-weight="700">SUB</text>
+        <text x="35" y="63" text-anchor="middle" fill="#ff6666" font-size="8" font-family="sans-serif">20–60 Hz</text>
+        <text x="140" y="48" text-anchor="middle" fill="#ff9966" font-size="10" font-family="sans-serif" font-weight="700">BASS</text>
+        <text x="140" y="60" text-anchor="middle" fill="#ff9966" font-size="8" font-family="sans-serif">60–250 Hz</text>
+        <text x="140" y="72" text-anchor="middle" fill="#ff9966" font-size="8" font-family="sans-serif">← Low EQ knob</text>
+        <text x="245" y="48" text-anchor="middle" fill="#ffcc66" font-size="9" font-family="sans-serif" font-weight="700">LOW-MID</text>
+        <text x="245" y="60" text-anchor="middle" fill="#ffcc66" font-size="8" font-family="sans-serif">250–500 Hz</text>
+        <text x="245" y="72" text-anchor="middle" fill="#ffcc66" font-size="8" font-family="sans-serif">"mud zone"</text>
+        <text x="350" y="48" text-anchor="middle" fill="#66cc66" font-size="10" font-family="sans-serif" font-weight="700">MID</text>
+        <text x="350" y="60" text-anchor="middle" fill="#66cc66" font-size="8" font-family="sans-serif">500 Hz–2 kHz</text>
+        <text x="350" y="72" text-anchor="middle" fill="#66cc66" font-size="8" font-family="sans-serif">← Mid EQ knob</text>
+        <text x="490" y="48" text-anchor="middle" fill="#6699ff" font-size="9" font-family="sans-serif" font-weight="700">HIGH-MID</text>
+        <text x="490" y="60" text-anchor="middle" fill="#6699ff" font-size="8" font-family="sans-serif">2–8 kHz</text>
+        <text x="490" y="72" text-anchor="middle" fill="#6699ff" font-size="8" font-family="sans-serif">presence/attack</text>
+        <text x="630" y="48" text-anchor="middle" fill="#aaaaff" font-size="9" font-family="sans-serif" font-weight="700">HIGH</text>
+        <text x="630" y="60" text-anchor="middle" fill="#aaaaff" font-size="8" font-family="sans-serif">8–20 kHz</text>
+        <text x="630" y="72" text-anchor="middle" fill="#aaaaff" font-size="8" font-family="sans-serif">← High EQ knob</text>
+        <!-- Frequency axis labels -->
+        <text x="0" y="14" fill="#555" font-size="8" font-family="sans-serif">20 Hz</text>
+        <text x="65" y="14" fill="#555" font-size="8" font-family="sans-serif">60 Hz</text>
+        <text x="200" y="14" fill="#555" font-size="8" font-family="sans-serif">250 Hz</text>
+        <text x="272" y="14" fill="#555" font-size="8" font-family="sans-serif">500 Hz</text>
+        <text x="410" y="14" fill="#555" font-size="8" font-family="sans-serif">2 kHz</text>
+        <text x="550" y="14" fill="#555" font-size="8" font-family="sans-serif">8 kHz</text>
+        <text x="675" y="14" fill="#555" font-size="8" font-family="sans-serif">20 kHz</text>
+        <!-- DJM 3-band EQ bracket labels at bottom -->
+        <line x1="70" y1="88" x2="210" y2="88" stroke="#ff9966" stroke-width="1.5" opacity="0.7"/>
+        <text x="140" y="100" text-anchor="middle" fill="#ff9966" font-size="9" font-family="sans-serif" opacity="0.8">LOW kill = bass swap</text>
+        <line x1="280" y1="88" x2="420" y2="88" stroke="#66cc66" stroke-width="1.5" opacity="0.7"/>
+        <text x="350" y="100" text-anchor="middle" fill="#66cc66" font-size="9" font-family="sans-serif" opacity="0.8">MID = melodies</text>
+        <line x1="420" y1="88" x2="700" y2="88" stroke="#aaaaff" stroke-width="1.5" opacity="0.7"/>
+        <text x="560" y="100" text-anchor="middle" fill="#aaaaff" font-size="9" font-family="sans-serif" opacity="0.8">HIGH = hi-hats, air, presence</text>
+        <text x="350" y="114" text-anchor="middle" fill="#555" font-size="9" font-family="sans-serif">DJM 3-band EQ: Low / Mid / High knobs map roughly to these ranges</text>
+      </svg>
+      <div class="diagram-caption">Audio frequency spectrum — the DJM's Low EQ controls roughly 60–250 Hz (where kick and bassline live). The bass swap works here.</div>
+    </div>
 
     <h3 id="bass-swap">Bass Swap</h3>
     <p>The most important single technique in electronic music DJing. The bass frequencies (20–250 Hz) carry most of the energy — only one track should have the bass at full at any time.</p>
@@ -446,7 +570,7 @@
       Many great mixes cross keys intentionally — the "wrong" key jump creates tension and surprise. Use harmonic mixing as a guide when you're unsure, not as a straitjacket. Short transitions (cuts, quick blends) are often inaudible regardless of key.
     </div>
 
-    <p>Rekordbox displays keys in Open Key, Camelot, or standard notation. Switch in <strong>Preferences → View → Key Display</strong>. Mixed In Key is a separate analysis tool that many DJs consider more accurate than Rekordbox's built-in key detection.</p>
+    <p>Rekordbox displays keys in Open Key, Camelot, or standard notation. Switch in <strong>Preferences → View → Key Display</strong>. <strong>Mixed In Key</strong> is a widely-used third-party key analysis tool. It provides Camelot Wheel notation directly and includes automatic cue point generation. There is no published independent study comparing its accuracy to Rekordbox's built-in analysis — both tools occasionally disagree on complex tracks. The practical advantage of Mixed In Key is the Camelot workflow integration, not a measurable accuracy gap.</p>
 
     <!-- ─── TRANSITIONS ─── -->
     <h2 id="transitions">7 Transition Types</h2>
@@ -693,7 +817,7 @@
       <h3>Mixing Techniques</h3>
       <div class="resource-item">
         <span class="resource-tag">Blog</span>
-        <div><a href="https://djtechtools.com/category/learn-to-dj/" target="_blank" rel="noopener">DJ TechTools — Learn to DJ</a> — in-depth technique articles, gear reviews, and advanced theory</div>
+        <div><a href="https://djtechtools.com" target="_blank" rel="noopener">DJ TechTools</a> — in-depth technique articles, gear reviews, and advanced mixing theory</div>
       </div>
       <div class="resource-item">
         <span class="resource-tag">Blog</span>
@@ -705,7 +829,7 @@
       </div>
       <div class="resource-item">
         <span class="resource-tag">Blog</span>
-        <div><a href="https://www.musicradar.com/how-to/dj-tips-and-tricks" target="_blank" rel="noopener">MusicRadar — DJ Tips</a> — mixing theory and practical technique breakdowns</div>
+        <div><a href="https://www.musicradar.com/how-to/music-software" target="_blank" rel="noopener">MusicRadar — DJ Software Guides</a> — mixing theory, DAW integration, and practical technique breakdowns</div>
       </div>
 
       <h3 style="margin-top:20px;">Harmonic Mixing</h3>
@@ -715,7 +839,7 @@
       </div>
       <div class="resource-item">
         <span class="resource-tag">Blog</span>
-        <div><a href="https://mixedinkey.com/captain-plugins/wiki/camelot-wheel/" target="_blank" rel="noopener">Camelot Wheel explained — Mixed In Key</a> — definitive reference for the wheel and compatible key movements</div>
+        <div><a href="https://mixedinkey.com/harmonic-mixing-guide/" target="_blank" rel="noopener">Harmonic Mixing Guide — Mixed In Key</a> — official guide to the Camelot Wheel and compatible key movements</div>
       </div>
 
       <h3 style="margin-top:20px;">Set Analysis</h3>

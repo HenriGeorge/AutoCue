@@ -102,6 +102,22 @@
             padding: 18px; }
     .card h4 { margin-top: 0; }
 
+    .diagram { margin: 24px 0; border-radius: 10px; overflow: hidden; border: 1px solid var(--border); }
+    .diagram svg { display: block; width: 100%; }
+    .diagram-caption { font-size: 12px; color: var(--muted); text-align: center; padding: 8px; background: var(--surface); }
+    .spec-table { width: 100%; border-collapse: collapse; margin: 16px 0; font-size: 14px; }
+    .spec-table th { background: var(--surface2); padding: 10px 14px; text-align: left; font-size: 12px;
+                     font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; color: var(--muted); }
+    .spec-table td { padding: 10px 14px; border-bottom: 1px solid var(--border); }
+    .spec-table tr:last-child td { border-bottom: none; }
+    .spec-table td:first-child { font-weight: 600; color: var(--muted); font-size: 13px; }
+    .spec-table .yes { color: var(--green); font-weight: 700; }
+    .spec-table .no { color: var(--muted); }
+    .spec-table .new-badge { background: var(--green); color: #fff; border-radius: 3px; padding: 1px 5px; font-size: 10px; font-weight: 700; margin-left: 4px; }
+    .stat-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin: 16px 0; }
+    .stat-box { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 16px; text-align: center; }
+    .stat-num { font-size: 28px; font-weight: 800; color: var(--green); letter-spacing: -1px; }
+    .stat-label { font-size: 12px; color: var(--muted); margin-top: 4px; }
     .mistake-list { list-style: none; padding: 0; }
     .mistake-list li { padding: 12px 16px; background: var(--surface); border-radius: 8px;
                        margin-bottom: 8px; border-left: 3px solid var(--danger); font-size: 14px; }
@@ -159,12 +175,14 @@
       <li><a class="toc-h2" href="#analysis">Track Analysis</a></li>
       <li><a class="toc-h3" href="#beatgrid">Fixing Beatgrids</a></li>
       <li><a class="toc-h3" href="#phrase">Phrase Analysis</a></li>
+      <li><a class="toc-h2" href="#rb7">Rekordbox 7 — What's New</a></li>
       <li><a class="toc-h2" href="#cues">Cue Points & Loops</a></li>
       <li><a class="toc-h3" href="#hot-cues">Hot Cues</a></li>
       <li><a class="toc-h3" href="#memory-cues">Memory Cues</a></li>
       <li><a class="toc-h3" href="#loops">Loops & Beat Jump</a></li>
       <li><a class="toc-h2" href="#performance">Performance Mode</a></li>
       <li><a class="toc-h2" href="#export">USB Export</a></li>
+      <li><a class="toc-h3" href="#usb-drives">USB Drive Guide</a></li>
       <li><a class="toc-h2" href="#shortcuts">Keyboard Shortcuts</a></li>
       <li><a class="toc-h2" href="#advanced">Advanced Techniques</a></li>
       <li><a class="toc-h3" href="#adv-library">Library Architecture</a></li>
@@ -254,6 +272,157 @@
 
     <!-- ─── ANALYSIS ─── -->
     <h2 id="analysis">Track Analysis</h2>
+
+    <!-- Waveform anatomy diagram -->
+    <div class="diagram">
+      <svg viewBox="0 0 720 180" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Anatomy of a Rekordbox waveform">
+        <rect width="720" height="180" fill="#0d0d0f"/>
+        <!-- Phrase regions -->
+        <rect x="0" y="0" width="160" height="130" fill="#1a6b3c" opacity="0.18"/>
+        <rect x="160" y="0" width="200" height="130" fill="#1a3b7a" opacity="0.18"/>
+        <rect x="360" y="0" width="200" height="130" fill="#6b1a6b" opacity="0.15"/>
+        <rect x="560" y="0" width="160" height="130" fill="#6b3a1a" opacity="0.18"/>
+        <!-- Phrase labels -->
+        <text x="80" y="14" text-anchor="middle" fill="#28e214" font-size="9" font-family="sans-serif" font-weight="700" letter-spacing="1">INTRO</text>
+        <text x="260" y="14" text-anchor="middle" fill="#4a8fff" font-size="9" font-family="sans-serif" font-weight="700" letter-spacing="1">VERSE</text>
+        <text x="460" y="14" text-anchor="middle" fill="#e040fb" font-size="9" font-family="sans-serif" font-weight="700" letter-spacing="1">CHORUS</text>
+        <text x="640" y="14" text-anchor="middle" fill="#ff8a40" font-size="9" font-family="sans-serif" font-weight="700" letter-spacing="1">OUTRO</text>
+        <!-- Phrase boundary lines -->
+        <line x1="160" y1="0" x2="160" y2="130" stroke="#4a8fff" stroke-width="1.5" stroke-dasharray="3 2"/>
+        <line x1="360" y1="0" x2="360" y2="130" stroke="#e040fb" stroke-width="1.5" stroke-dasharray="3 2"/>
+        <line x1="560" y1="0" x2="560" y2="130" stroke="#ff8a40" stroke-width="1.5" stroke-dasharray="3 2"/>
+        <!-- Beatgrid vertical ticks (every ~20px = 1 beat) -->
+        <g stroke="#ffffff" stroke-width="0.5" opacity="0.25">
+          <line x1="20" y1="25" x2="20" y2="110"/> <line x1="40" y1="25" x2="40" y2="110"/>
+          <line x1="60" y1="25" x2="60" y2="110"/> <line x1="80" y1="25" x2="80" y2="110"/>
+          <line x1="100" y1="25" x2="100" y2="110"/> <line x1="120" y1="25" x2="120" y2="110"/>
+          <line x1="140" y1="25" x2="140" y2="110"/>
+          <line x1="180" y1="25" x2="180" y2="110"/> <line x1="200" y1="25" x2="200" y2="110"/>
+          <line x1="220" y1="25" x2="220" y2="110"/> <line x1="240" y1="25" x2="240" y2="110"/>
+          <line x1="280" y1="25" x2="280" y2="110"/> <line x1="300" y1="25" x2="300" y2="110"/>
+          <line x1="320" y1="25" x2="320" y2="110"/> <line x1="340" y1="25" x2="340" y2="110"/>
+          <line x1="380" y1="25" x2="380" y2="110"/> <line x1="400" y1="25" x2="400" y2="110"/>
+          <line x1="420" y1="25" x2="420" y2="110"/> <line x1="440" y1="25" x2="440" y2="110"/>
+          <line x1="460" y1="25" x2="460" y2="110"/> <line x1="480" y1="25" x2="480" y2="110"/>
+          <line x1="500" y1="25" x2="500" y2="110"/> <line x1="520" y1="25" x2="520" y2="110"/>
+          <line x1="540" y1="25" x2="540" y2="110"/>
+          <line x1="580" y1="25" x2="580" y2="110"/> <line x1="600" y1="25" x2="600" y2="110"/>
+          <line x1="620" y1="25" x2="620" y2="110"/> <line x1="640" y1="25" x2="640" y2="110"/>
+          <line x1="660" y1="25" x2="660" y2="110"/> <line x1="680" y1="25" x2="680" y2="110"/>
+          <line x1="700" y1="25" x2="700" y2="110"/>
+        </g>
+        <!-- Bar markers (every 4 beats = every 80px) - brighter -->
+        <g stroke="#ffffff" stroke-width="1" opacity="0.5">
+          <line x1="0" y1="20" x2="0" y2="115"/> <line x1="80" y1="20" x2="80" y2="115"/>
+          <line x1="160" y1="20" x2="160" y2="115"/> <line x1="240" y1="20" x2="240" y2="115"/>
+          <line x1="320" y1="20" x2="320" y2="115"/> <line x1="400" y1="20" x2="400" y2="115"/>
+          <line x1="480" y1="20" x2="480" y2="115"/> <line x1="560" y1="20" x2="560" y2="115"/>
+          <line x1="640" y1="20" x2="640" y2="115"/>
+        </g>
+        <!-- Simulated waveform bars — red/orange = bass+kick, blue/white = highs -->
+        <!-- INTRO: quieter, mostly hi-hats -->
+        <rect x="2" y="75" width="3" height="30" fill="#4a8fff" opacity="0.7" rx="1"/>
+        <rect x="7" y="65" width="3" height="40" fill="#ff6b35" opacity="0.8" rx="1"/>
+        <rect x="12" y="80" width="3" height="20" fill="#4a8fff" opacity="0.5" rx="1"/>
+        <rect x="17" y="60" width="3" height="45" fill="#ff6b35" opacity="0.8" rx="1"/>
+        <rect x="22" y="78" width="3" height="22" fill="#4a8fff" opacity="0.6" rx="1"/>
+        <rect x="27" y="55" width="3" height="50" fill="#ff6b35" opacity="0.7" rx="1"/>
+        <rect x="32" y="76" width="3" height="28" fill="#8aa4ff" opacity="0.6" rx="1"/>
+        <rect x="37" y="58" width="3" height="48" fill="#ff6b35" opacity="0.8" rx="1"/>
+        <rect x="42" y="79" width="3" height="24" fill="#4a8fff" opacity="0.5" rx="1"/>
+        <rect x="47" y="62" width="3" height="43" fill="#ff8c50" opacity="0.75" rx="1"/>
+        <rect x="52" y="77" width="3" height="26" fill="#4a8fff" opacity="0.6" rx="1"/>
+        <rect x="57" y="56" width="3" height="49" fill="#ff6b35" opacity="0.8" rx="1"/>
+        <rect x="62" y="80" width="3" height="20" fill="#6a9fff" opacity="0.5" rx="1"/>
+        <rect x="67" y="60" width="3" height="44" fill="#ff7040" opacity="0.75" rx="1"/>
+        <rect x="72" y="78" width="3" height="24" fill="#4a8fff" opacity="0.6" rx="1"/>
+        <rect x="77" y="57" width="3" height="48" fill="#ff6b35" opacity="0.8" rx="1"/>
+        <!-- VERSE: fuller, bass-heavy -->
+        <rect x="162" y="50" width="3" height="60" fill="#ff4b1f" opacity="0.9" rx="1"/>
+        <rect x="167" y="72" width="3" height="38" fill="#5a9fff" opacity="0.8" rx="1"/>
+        <rect x="172" y="42" width="3" height="70" fill="#ff4b1f" opacity="0.9" rx="1"/>
+        <rect x="177" y="68" width="3" height="44" fill="#7ab0ff" opacity="0.7" rx="1"/>
+        <rect x="182" y="45" width="3" height="66" fill="#ff5530" opacity="0.85" rx="1"/>
+        <rect x="187" y="65" width="3" height="46" fill="#5a9fff" opacity="0.8" rx="1"/>
+        <rect x="192" y="40" width="3" height="72" fill="#ff4b1f" opacity="0.9" rx="1"/>
+        <rect x="197" y="70" width="3" height="40" fill="#4a8fff" opacity="0.7" rx="1"/>
+        <rect x="202" y="44" width="3" height="66" fill="#ff5530" opacity="0.85" rx="1"/>
+        <rect x="207" y="65" width="3" height="45" fill="#6090ff" opacity="0.75" rx="1"/>
+        <rect x="212" y="38" width="3" height="74" fill="#ff4b1f" opacity="0.9" rx="1"/>
+        <rect x="217" y="68" width="3" height="42" fill="#5a9fff" opacity="0.8" rx="1"/>
+        <rect x="222" y="46" width="3" height="64" fill="#ff5030" opacity="0.85" rx="1"/>
+        <rect x="227" y="72" width="3" height="36" fill="#4a8fff" opacity="0.7" rx="1"/>
+        <rect x="232" y="42" width="3" height="70" fill="#ff4b1f" opacity="0.9" rx="1"/>
+        <rect x="237" y="66" width="3" height="46" fill="#6a9fff" opacity="0.75" rx="1"/>
+        <rect x="242" y="40" width="3" height="72" fill="#ff5030" opacity="0.85" rx="1"/>
+        <rect x="247" y="68" width="3" height="42" fill="#5090ff" opacity="0.8" rx="1"/>
+        <!-- CHORUS: dense, high energy (tall peaks) -->
+        <rect x="362" y="32" width="3" height="82" fill="#ff2b0f" opacity="0.95" rx="1"/>
+        <rect x="367" y="52" width="3" height="62" fill="#5090ff" opacity="0.9" rx="1"/>
+        <rect x="372" y="28" width="3" height="88" fill="#ff3520" opacity="0.95" rx="1"/>
+        <rect x="377" y="48" width="3" height="66" fill="#60a0ff" opacity="0.85" rx="1"/>
+        <rect x="382" y="30" width="3" height="86" fill="#ff2b0f" opacity="0.95" rx="1"/>
+        <rect x="387" y="50" width="3" height="64" fill="#5090ff" opacity="0.88" rx="1"/>
+        <rect x="392" y="26" width="3" height="90" fill="#ff3520" opacity="0.95" rx="1"/>
+        <rect x="397" y="50" width="3" height="64" fill="#6090ff" opacity="0.85" rx="1"/>
+        <rect x="402" y="29" width="3" height="87" fill="#ff2b0f" opacity="0.95" rx="1"/>
+        <rect x="407" y="52" width="3" height="62" fill="#5a90ff" opacity="0.88" rx="1"/>
+        <rect x="412" y="27" width="3" height="90" fill="#ff3520" opacity="0.95" rx="1"/>
+        <rect x="417" y="48" width="3" height="66" fill="#60a0ff" opacity="0.85" rx="1"/>
+        <rect x="422" y="30" width="3" height="84" fill="#ff2b0f" opacity="0.95" rx="1"/>
+        <rect x="427" y="54" width="3" height="60" fill="#5090ff" opacity="0.88" rx="1"/>
+        <rect x="432" y="28" width="3" height="88" fill="#ff3020" opacity="0.95" rx="1"/>
+        <rect x="437" y="50" width="3" height="64" fill="#60a0ff" opacity="0.85" rx="1"/>
+        <rect x="442" y="28" width="3" height="88" fill="#ff2b0f" opacity="0.95" rx="1"/>
+        <rect x="447" y="52" width="3" height="62" fill="#5090ff" opacity="0.88" rx="1"/>
+        <!-- OUTRO: decaying -->
+        <rect x="562" y="58" width="3" height="52" fill="#ff5530" opacity="0.75" rx="1"/>
+        <rect x="567" y="72" width="3" height="38" fill="#5a8fff" opacity="0.7" rx="1"/>
+        <rect x="572" y="62" width="3" height="46" fill="#ff5030" opacity="0.7" rx="1"/>
+        <rect x="577" y="75" width="3" height="32" fill="#4a8fff" opacity="0.65" rx="1"/>
+        <rect x="582" y="66" width="3" height="42" fill="#ff5030" opacity="0.65" rx="1"/>
+        <rect x="587" y="78" width="3" height="28" fill="#4a8fff" opacity="0.6" rx="1"/>
+        <rect x="592" y="70" width="3" height="38" fill="#ff5030" opacity="0.6" rx="1"/>
+        <rect x="597" y="80" width="3" height="24" fill="#5a8fff" opacity="0.55" rx="1"/>
+        <rect x="602" y="74" width="3" height="34" fill="#ff5030" opacity="0.55" rx="1"/>
+        <rect x="607" y="82" width="3" height="22" fill="#4a8fff" opacity="0.5" rx="1"/>
+        <rect x="612" y="77" width="3" height="28" fill="#e85020" opacity="0.5" rx="1"/>
+        <rect x="617" y="84" width="3" height="20" fill="#4a8fff" opacity="0.45" rx="1"/>
+        <rect x="622" y="80" width="3" height="24" fill="#e85020" opacity="0.45" rx="1"/>
+        <rect x="627" y="86" width="3" height="18" fill="#4a8fff" opacity="0.4" rx="1"/>
+        <!-- Hot cue triangles (A=green, B=blue, C=cyan, D=orange) at top -->
+        <polygon points="20,22 26,22 23,28" fill="#28e214"/>
+        <text x="23" y="21" text-anchor="middle" fill="#28e214" font-size="8" font-family="sans-serif" font-weight="700">A</text>
+        <polygon points="160,22 166,22 163,28" fill="#4a8fff"/>
+        <text x="163" y="21" text-anchor="middle" fill="#4a8fff" font-size="8" font-family="sans-serif" font-weight="700">B</text>
+        <polygon points="362,22 368,22 365,28" fill="#e040fb"/>
+        <text x="365" y="21" text-anchor="middle" fill="#e040fb" font-size="8" font-family="sans-serif" font-weight="700">C</text>
+        <polygon points="560,22 566,22 563,28" fill="#ff8a40"/>
+        <text x="563" y="21" text-anchor="middle" fill="#ff8a40" font-size="8" font-family="sans-serif" font-weight="700">D</text>
+        <!-- Memory cue (inverted triangle at bottom) -->
+        <polygon points="80,115 86,115 83,109" fill="#ffffff" opacity="0.7"/>
+        <text x="83" y="124" text-anchor="middle" fill="#ffffff" font-size="7" font-family="sans-serif" opacity="0.6">MEM</text>
+        <!-- Playhead line -->
+        <line x1="230" y1="16" x2="230" y2="130" stroke="#fff" stroke-width="1.5" opacity="0.9"/>
+        <!-- Legend bottom -->
+        <rect x="0" y="130" width="720" height="50" fill="#16161a"/>
+        <g font-family="sans-serif" font-size="10">
+          <rect x="12" y="140" width="10" height="10" fill="#ff4b1f" opacity="0.9" rx="2"/>
+          <text x="26" y="150" fill="#aaa">Low freq (kick/bass)</text>
+          <rect x="160" y="140" width="10" height="10" fill="#4a8fff" opacity="0.9" rx="2"/>
+          <text x="174" y="150" fill="#aaa">High freq (hi-hats/synths)</text>
+          <polygon points="330,149 336,149 333,143" fill="#28e214"/>
+          <text x="340" y="150" fill="#aaa">Hot Cue</text>
+          <polygon points="430,143 436,143 433,149" fill="#fff" opacity="0.7"/>
+          <text x="440" y="150" fill="#aaa">Memory Cue</text>
+          <line x1="530" y1="140" x2="530" y2="152" stroke="#fff" stroke-width="1.5" opacity="0.8"/>
+          <text x="536" y="150" fill="#aaa">Playhead</text>
+          <line x1="610" y1="140" x2="610" y2="152" stroke="#4a8fff" stroke-width="1.5" stroke-dasharray="3 2"/>
+          <text x="616" y="150" fill="#aaa">Phrase boundary</text>
+        </g>
+      </svg>
+      <div class="diagram-caption">Rekordbox waveform anatomy — phrase regions, beatgrid, hot cues, memory cues, and playhead</div>
+    </div>
 
     <h3 id="beatgrid">Fixing Beatgrids</h3>
     <p>A correct beatgrid is the foundation of everything — loops, hot cues, sync, and AutoCue phrase detection all depend on it. Most tracks auto-analyze correctly; here's how to fix the ones that don't.</p>
@@ -377,6 +546,51 @@
       <li><strong>Beat FX Beat</strong>: always set beat multiplier to match the track's phrasing (×2 or ×4 for most electronic music).</li>
     </ul>
 
+    <!-- ─── REKORDBOX 7 ─── -->
+    <h2 id="rb7">Rekordbox 7 — What's New</h2>
+    <p>AlphaTheta (Pioneer DJ's parent company) released Rekordbox 7 in May 2024. It's a significant update — not just cosmetic — with performance improvements, AI features, and a restructured subscription model.</p>
+
+    <div class="stat-row">
+      <div class="stat-box">
+        <div class="stat-num">56%</div>
+        <div class="stat-label">reduction in CPU load vs Rekordbox 6</div>
+      </div>
+      <div class="stat-box">
+        <div class="stat-num">38%</div>
+        <div class="stat-label">reduction in power consumption at startup</div>
+      </div>
+      <div class="stat-box">
+        <div class="stat-num">v7</div>
+        <div class="stat-label">hardware registration unlocks features (not subscription)</div>
+      </div>
+    </div>
+
+    <h4>Interface changes</h4>
+    <ul>
+      <li><strong>Icon-based Media Browser</strong>: replaces the old tree/folder view with a visual, icon-driven layout. Navigation is more consistent with CDJ system menus.</li>
+      <li><strong>Column View</strong>: hierarchical browse similar to macOS Finder — navigate folder-to-folder without losing context.</li>
+      <li><strong>Blue accent color</strong>: Rekordbox 7 uses blue rather than green (the AlphaTheta brand color). Your tracks, cues, and waveforms look the same; the app chrome has changed.</li>
+      <li><strong>Dark and Light modes</strong>: both fully overhauled with better waveform contrast and control grouping.</li>
+    </ul>
+
+    <h4>AI features <span style="font-size:12px;font-weight:400;color:var(--muted);">(Creative/Professional plan)</span></h4>
+    <ul>
+      <li><strong>Intelligent Cue Creation</strong>: learns from your existing cue points and auto-places hot cues and memory cues on unprocessed tracks using the same placement patterns it observes in your library. AutoCue is a free alternative that does the same thing using phrase boundaries.</li>
+      <li><strong>Collection Radar</strong>: analyses your library usage patterns and surfaces tracks you haven't played recently but that fit the current moment. Think "Spotify Discover Weekly" but for your own library.</li>
+      <li><strong>Streaming Radar</strong>: searches Beatport, SoundCloud and other connected streaming services to suggest new tracks based on your current set's mood, BPM, and key.</li>
+    </ul>
+
+    <h4>Workflow tools</h4>
+    <ul>
+      <li><strong>Dual Player Layout</strong> (Export mode): links two decks for synchronized playback with Beat Jump, EQ Kill, Key Sync, and Key Shift — useful for pre-listening to transitions before a gig.</li>
+      <li><strong>Collaborative Playlists</strong>: share playlists with other Rekordbox 7 users while preserving BPM grids and cue point metadata.</li>
+    </ul>
+
+    <div class="callout">
+      <strong>Hardware unlocks</strong>
+      Registering a compatible Pioneer DJ device (CDJ-3000, CDJ-2000NXS2, XDJ-RX3, etc.) in Rekordbox 7 unlocks additional features for free — no paid subscription required for the core software. Check <a href="https://rekordbox.com/en/" target="_blank" rel="noopener">rekordbox.com</a> for the current list of unlocked features per hardware model.
+    </div>
+
     <!-- ─── USB EXPORT ─── -->
     <h2 id="export">USB Export</h2>
     <p>Exporting to USB incorrectly is one of the most common causes of "the CDJ doesn't see my tracks" at the venue.</p>
@@ -408,6 +622,45 @@
     <div class="callout warn">
       <strong>Backup protocol</strong>
       Keep at least 2 USBs. Format and sync both before every gig. CDJs at clubs can corrupt drives. Carry a spare. Professional DJs often carry 3.
+    </div>
+
+    <h3 id="usb-drives">USB Drive Selection Guide</h3>
+    <p>Not all USB drives are equal. Slow or unreliable drives cause track loading hangs on CDJs. Here are verified options ordered by performance:</p>
+    <table class="spec-table">
+      <thead>
+        <tr><th>Drive</th><th>Read Speed</th><th>Format</th><th>Notes</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>SanDisk DJ Flash Drive (2025) <span class="new-badge">NEW</span></td>
+          <td>~1,000 MB/s</td>
+          <td>FAT32 / exFAT</td>
+          <td>Pioneer/AlphaTheta co-engineered; dual USB-A + USB-C; 512 GB – 1 TB. Best choice for CDJ-3000 setups.</td>
+        </tr>
+        <tr>
+          <td>Kingston DataTraveler Max</td>
+          <td>up to 1,000 MB/s</td>
+          <td>FAT32 / exFAT</td>
+          <td>USB 3.2 Gen 2. Solid long-term reliability. Widely available.</td>
+        </tr>
+        <tr>
+          <td>SanDisk Extreme PRO</td>
+          <td>up to 420 MB/s</td>
+          <td>FAT32 / exFAT</td>
+          <td>Rugged aluminium body. Reliable for touring. Good for mixed CDJ generations.</td>
+        </tr>
+        <tr>
+          <td>SanDisk Ultra Fit</td>
+          <td>130–150 MB/s</td>
+          <td>FAT32 / exFAT</td>
+          <td>Budget pick. Adequate for MP3/AAC sets. Not ideal for lossless AIFF/WAV-heavy libraries.</td>
+        </tr>
+      </tbody>
+    </table>
+    <p><strong>Minimum specs:</strong> USB 3.0, sustained read speed ≥ 80 MB/s. The CDJ-3000 buffers full tracks into RAM on load, so only read speed matters — write speed is irrelevant. 64–128 GB is sufficient for most gigs; a 3-hour AIFF set is roughly 5–7 GB.</p>
+    <div class="callout warn">
+      <strong>Avoid no-name drives</strong>
+      Unbranded USB drives often have inconsistent read speeds due to low-quality NAND flash. A drive that reads fine on your computer may stall mid-track on a CDJ. Stick to SanDisk, Kingston, Samsung, or Corsair.
     </div>
 
     <!-- ─── SHORTCUTS ─── -->
@@ -490,7 +743,7 @@
 
     <h4>Third-party tools that read Rekordbox XML</h4>
     <ul>
-      <li><strong><a href="https://lexiconsoftware.com" target="_blank" rel="noopener">Lexicon DJ</a></strong>: migrate libraries between DJ software (Rekordbox ↔ Serato ↔ Traktor ↔ Denon Engine). Reads and writes Rekordbox XML. The most reliable cross-platform migration tool.</li>
+      <li><strong><a href="https://www.lexicondj.com" target="_blank" rel="noopener">Lexicon DJ</a></strong>: migrate libraries between DJ software (Rekordbox ↔ Serato ↔ Traktor ↔ Denon Engine). Reads and writes Rekordbox XML. The most reliable cross-platform migration tool.</li>
       <li><strong><a href="https://github.com/digital-dj-tools/dj-data-converter" target="_blank" rel="noopener">DJ Data Converter</a></strong>: free, open-source XML conversion for basic migrations.</li>
       <li><strong>AutoCue</strong>: reads your Rekordbox XML and writes back hot cues at phrase boundaries. AutoCue's output is a Rekordbox XML — import it via File → Import Library.</li>
     </ul>
@@ -562,17 +815,13 @@
       <h3>Official Documentation</h3>
       <div class="resource-item">
         <span class="resource-tag">Official</span>
-        <div><a href="https://rekordbox.com/en/support/" target="_blank" rel="noopener">Pioneer DJ Rekordbox Support</a> — manuals, tutorials, and software downloads for all Rekordbox versions</div>
-      </div>
-      <div class="resource-item">
-        <span class="resource-tag">Official</span>
-        <div><a href="https://pioneerdj.com/en/support/software/rekordbox/" target="_blank" rel="noopener">Pioneer DJ Software Support</a> — Rekordbox release notes and known issues</div>
+        <div><a href="https://rekordbox.com/en/" target="_blank" rel="noopener">Rekordbox Official Site</a> — software download, subscription plans, hardware compatibility, and release notes for Rekordbox 7</div>
       </div>
 
       <h3 style="margin-top:20px;">Tutorials</h3>
       <div class="resource-item">
         <span class="resource-tag">Video</span>
-        <div><a href="https://www.crossfader.com.au/blog/rekordbox-tips-and-tricks" target="_blank" rel="noopener">Crossfader — Rekordbox Tips & Tricks</a> — comprehensive written + video breakdown of library management and performance setup</div>
+        <div><a href="https://wearecrossfader.co.uk/blog/rekordbox-7/" target="_blank" rel="noopener">Crossfader — Rekordbox 7 Deep Dive</a> — comprehensive written breakdown of Rekordbox 7 features, AI tools, and workflow changes</div>
       </div>
       <div class="resource-item">
         <span class="resource-tag">Blog</span>
