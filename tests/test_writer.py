@@ -24,7 +24,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from autocue.models import CuePoint, PhraseLabel
-from autocue.writer import write_xml
+from autocue.writer import _resolve_file_path, write_xml
 
 
 # ---------------------------------------------------------------------------
@@ -167,6 +167,22 @@ class TestPositionMarkAttributes:
         marks = _parse_position_marks(out)
         assert marks[0]["Name"] == "?"
 
+    def test_name_field_overrides_label_value(self, tmp_path):
+        content = _make_content()
+        cues = [CuePoint(position_ms=0, label=PhraseLabel.CHORUS, slot=0, name="Drop")]
+        out = tmp_path / "out.xml"
+        write_xml([(content, cues)], out)
+        marks = _parse_position_marks(out)
+        assert marks[0]["Name"] == "Drop"
+
+    def test_empty_name_falls_back_to_label_value(self, tmp_path):
+        content = _make_content()
+        cues = [CuePoint(position_ms=0, label=PhraseLabel.CHORUS, slot=0, name="")]
+        out = tmp_path / "out.xml"
+        write_xml([(content, cues)], out)
+        marks = _parse_position_marks(out)
+        assert marks[0]["Name"] == "Chorus"
+
 
 # ---------------------------------------------------------------------------
 # Multiple cues per track
@@ -293,3 +309,150 @@ class TestTrackLocation:
         tracks = _parse_tracks(out)
         location = tracks[0].get("Location", "")
         assert "Library" in location or "Music" in location
+
+
+# ---------------------------------------------------------------------------
+# _resolve_file_path
+# ---------------------------------------------------------------------------
+
+class TestResolveFilePath:
+    def _content(self, folder=None, file_l=None, file_s=None):
+        c = MagicMock()
+        c.FolderPath = folder
+        c.FileNameL = file_l
+        c.FileNameS = file_s
+        return c
+
+    def test_normal_path_joined(self):
+        c = self._content(folder="/Music", file_l="track.mp3")
+        assert _resolve_file_path(c) == "/Music/track.mp3"
+
+    def test_folder_path_none_uses_empty_string(self):
+        c = self._content(folder=None, file_l="track.mp3")
+        result = _resolve_file_path(c)
+        assert result.endswith("track.mp3")
+        assert result != ""
+
+    def test_file_name_l_none_falls_back_to_file_name_s(self):
+        c = self._content(folder="/Music", file_l=None, file_s="short.mp3")
+        result = _resolve_file_path(c)
+        assert "short.mp3" in result
+
+    def test_both_filenames_none_produces_folder_only(self):
+        # os.path.join("/Music", "") returns "/Music/" — no filename component.
+        # Rekordbox silently ignores entries with invalid paths on import.
+        c = self._content(folder="/Music", file_l=None, file_s=None)
+        result = _resolve_file_path(c)
+        assert "Music" in result
+        assert result == "/Music/"
+
+    def test_all_fields_none_returns_empty_string(self):
+        c = self._content(folder=None, file_l=None, file_s=None)
+        assert _resolve_file_path(c) == ""
+
+    def test_empty_string_fields(self):
+        c = self._content(folder="", file_l="", file_s="")
+        assert _resolve_file_path(c) == ""
+
+    def test_trailing_slash_on_folder_no_double_slash(self):
+        c = self._content(folder="/Music/", file_l="song.mp3")
+        result = _resolve_file_path(c)
+        assert "//" not in result
+        assert result.endswith("song.mp3")
+
+
+# ---------------------------------------------------------------------------
+# write_xml with None Title / ArtistName
+# ---------------------------------------------------------------------------
+
+class TestWriteXmlNoneFields:
+    def test_none_title_omits_name_attribute(self, tmp_path):
+        content = _make_content(title="Placeholder")
+        content.Title = None
+        cues = [CuePoint(position_ms=0, label=PhraseLabel.INTRO, slot=0)]
+        out = tmp_path / "out.xml"
+        write_xml([(content, cues)], out)
+        tracks = _parse_tracks(out)
+        assert tracks[0].get("Name") is None
+
+    def test_empty_string_title_omits_name_attribute(self, tmp_path):
+        content = _make_content(title="Placeholder")
+        content.Title = ""
+        cues = [CuePoint(position_ms=0, label=PhraseLabel.INTRO, slot=0)]
+        out = tmp_path / "out.xml"
+        write_xml([(content, cues)], out)
+        tracks = _parse_tracks(out)
+        assert tracks[0].get("Name") is None
+
+    def test_none_artist_omits_artist_attribute(self, tmp_path):
+        content = _make_content()
+        content.ArtistName = None
+        cues = [CuePoint(position_ms=0, label=PhraseLabel.INTRO, slot=0)]
+        out = tmp_path / "out.xml"
+        write_xml([(content, cues)], out)
+        tracks = _parse_tracks(out)
+        assert tracks[0].get("Artist") is None
+
+    def test_none_title_and_artist_track_still_written(self, tmp_path):
+        content = _make_content()
+        content.Title = None
+        content.ArtistName = None
+        cues = [CuePoint(position_ms=0, label=PhraseLabel.INTRO, slot=0)]
+        out = tmp_path / "out.xml"
+        write_xml([(content, cues)], out)
+        tracks = _parse_tracks(out)
+        assert len(tracks) == 1
+
+
+# ---------------------------------------------------------------------------
+# write_xml with empty cues
+# ---------------------------------------------------------------------------
+
+class TestWriteXmlEmptyCues:
+    def test_track_with_no_cues_produces_no_position_marks(self, tmp_path):
+        content = _make_content()
+        out = tmp_path / "out.xml"
+        write_xml([(content, [])], out)
+        marks = _parse_position_marks(out)
+        assert marks == []
+
+    def test_track_with_no_cues_still_produces_track_element(self, tmp_path):
+        content = _make_content(title="Silent Track")
+        out = tmp_path / "out.xml"
+        write_xml([(content, [])], out)
+        tracks = _parse_tracks(out)
+        assert len(tracks) == 1
+
+    def test_mix_of_cued_and_uncued_tracks(self, tmp_path):
+        c1 = _make_content(title="With Cues", folder="/Music", filename="a.mp3")
+        c2 = _make_content(title="No Cues", folder="/Music", filename="b.mp3")
+        cues = [
+            CuePoint(position_ms=0, label=PhraseLabel.INTRO, slot=0),
+            CuePoint(position_ms=30_000, label=PhraseLabel.CHORUS, slot=1),
+        ]
+        out = tmp_path / "out.xml"
+        write_xml([(c1, cues), (c2, [])], out)
+        marks = _parse_position_marks(out)
+        assert len(marks) == 2
+
+
+# ---------------------------------------------------------------------------
+# All 8 slots
+# ---------------------------------------------------------------------------
+
+class TestWriteXmlAllSlots:
+    def test_all_eight_slots_written(self, tmp_path):
+        from autocue.models import PhraseLabel
+        labels = [
+            PhraseLabel.INTRO, PhraseLabel.VERSE, PhraseLabel.BRIDGE,
+            PhraseLabel.CHORUS, PhraseLabel.OUTRO, PhraseLabel.UP,
+            PhraseLabel.DOWN, PhraseLabel.UNKNOWN,
+        ]
+        content = _make_content()
+        cues = [CuePoint(position_ms=i * 10_000, label=labels[i], slot=i) for i in range(8)]
+        out = tmp_path / "out.xml"
+        write_xml([(content, cues)], out)
+        marks = _parse_position_marks(out)
+        assert len(marks) == 8
+        nums = sorted(int(m["Num"]) for m in marks)
+        assert nums == list(range(8))

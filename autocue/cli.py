@@ -8,20 +8,24 @@ from pathlib import Path
 from pyrekordbox import Rekordbox6Database as MasterDatabase
 from pyrekordbox.db6 import DjmdCue, DjmdPlaylist, DjmdSongPlaylist
 
-from .analyzer import analyze_all, analyze_by_id, analyze_by_title
+from .analyzer import analyze_by_id, analyze_by_title
+from .db_writer import has_existing_hot_cues
+from .generator import GenerationPrefs, generate_cues_for_track
 from .writer import write_xml
 
 
-def has_existing_hot_cues(content, db: MasterDatabase) -> int:
-    """Return the number of existing hot cues for a track (Kind > 0 means hot cue)."""
-    return (
-        db.query(DjmdCue)
-        .filter(DjmdCue.ContentID == content.ID, DjmdCue.Kind > 0)
-        .count()
-    )
-
-
 def main() -> None:
+    if len(sys.argv) > 1 and sys.argv[1] == "serve":
+        from .serve.app import serve as _serve
+        import argparse as _ap
+        p = _ap.ArgumentParser(prog="autocue serve")
+        p.add_argument("--port", type=int, default=7432)
+        p.add_argument("--no-browser", action="store_true")
+        p.add_argument("--db-path", metavar="PATH")
+        a = p.parse_args(sys.argv[2:])
+        _serve(port=a.port, open_browser=not a.no_browser, db_path=a.db_path)
+        return
+
     parser = argparse.ArgumentParser(
         prog="autocue",
         description="Automatically place hot cues on tracks in your Rekordbox 7 library.",
@@ -91,50 +95,50 @@ def main() -> None:
         print("Make sure Rekordbox is closed before running AutoCue.", file=sys.stderr)
         sys.exit(1)
 
+    prefs = GenerationPrefs()
+
     if args.track:
         result = analyze_by_title(args.track, db)
         if result is None:
             print(f"Track not found: {args.track!r}", file=sys.stderr)
             sys.exit(1)
-        content, cues = result
+        content, _ = result
+        cues, mode = generate_cues_for_track(content, db, prefs)
         if not cues:
-            print(f"No phrase data found for {args.track!r}. Analyze the track in Rekordbox first.")
+            print(f"No cue data generated for {args.track!r}.")
             sys.exit(0)
-        tracks = [(content, cues)]
+        tracks = [(content, cues, mode)]
 
     elif args.track_id:
         result = analyze_by_id(args.track_id, db)
         if result is None:
             print(f"Track not found: ID={args.track_id}", file=sys.stderr)
             sys.exit(1)
-        content, cues = result
+        content, _ = result
+        cues, mode = generate_cues_for_track(content, db, prefs)
         if not cues:
-            print(
-                f"No phrase data found for track ID={args.track_id}. "
-                "Analyze the track in Rekordbox first."
-            )
+            print(f"No cue data generated for track ID={args.track_id}.")
             sys.exit(0)
-        tracks = [(content, cues)]
+        tracks = [(content, cues, mode)]
 
     else:
         # --library mode
-        print("Scanning library for phrase data…")
+        print("Scanning library…")
 
         if args.playlist:
-            tracks = _analyze_playlist(args.playlist, db)
+            tracks = _process_playlist(args.playlist, db, prefs)
             if tracks is None:
                 sys.exit(1)
         else:
-            tracks = analyze_all(db)
+            tracks = _process_all(db, prefs)
 
         if not tracks:
-            print("No analyzed tracks found. Analyze your library in Rekordbox first.")
+            print("No tracks found in library.")
             sys.exit(0)
 
-        # Apply duplicate-cue filtering
         if not args.overwrite:
             filtered = []
-            for content, cues in tracks:
+            for content, cues, mode in tracks:
                 n = has_existing_hot_cues(content, db)
                 if n > 0:
                     title = content.Title or content.FileNameL or "Unknown"
@@ -143,18 +147,8 @@ def main() -> None:
                         "Use --overwrite to replace."
                     )
                 else:
-                    filtered.append((content, cues))
+                    filtered.append((content, cues, mode))
             tracks = filtered
-        elif args.uncued_only:
-            # --overwrite takes precedence: uncued-only is ignored
-            pass
-
-        # --uncued-only without --overwrite: further restrict to uncued tracks
-        # (already handled above since non-overwrite path skips cued tracks,
-        #  but --uncued-only is an explicit tighter filter for the same behaviour)
-        if args.uncued_only and not args.overwrite:
-            # already filtered above — nothing extra to do
-            pass
 
         if not tracks:
             print("No eligible tracks to process (all already have hot cues). Use --overwrite to re-generate.")
@@ -166,15 +160,26 @@ def main() -> None:
         print("\nDry run — no files written.")
         return
 
-    output = write_xml(tracks, args.output)
+    output = write_xml([(c, cues) for c, cues, _ in tracks], args.output)
     print(f"\nWrote {output}")
     print("Import in Rekordbox: File > Import Library > select the XML file above.")
 
 
-def _analyze_playlist(
-    playlist_name: str, db: MasterDatabase
+def _process_all(db: MasterDatabase, prefs: GenerationPrefs) -> list[tuple]:
+    """Return (content, cues, mode) for every track in the library."""
+    from pyrekordbox.db6 import DjmdContent
+    results = []
+    for content in db.get_content().all():
+        cues, mode = generate_cues_for_track(content, db, prefs)
+        if cues:
+            results.append((content, cues, mode))
+    return results
+
+
+def _process_playlist(
+    playlist_name: str, db: MasterDatabase, prefs: GenerationPrefs
 ) -> list[tuple] | None:
-    """Return (content, cues) for all tracks in the named playlist, or None on error."""
+    """Return (content, cues, mode) for all tracks in the named playlist, or None on error."""
     playlist = db.query(DjmdPlaylist).filter_by(Name=playlist_name).first()
     if playlist is None:
         print(f"Error: playlist {playlist_name!r} not found.", file=sys.stderr)
@@ -192,25 +197,22 @@ def _analyze_playlist(
     )
     content_ids = {entry.ContentID for entry in song_entries}
 
-    from .analyzer import analyze_track
-    from pyrekordbox.db6 import DjmdContent
-
     results = []
     for content in db.get_content().all():
         if content.ID not in content_ids:
             continue
-        cues = analyze_track(content, db)
+        cues, mode = generate_cues_for_track(content, db, prefs)
         if cues:
-            results.append((content, cues))
+            results.append((content, cues, mode))
     return results
 
 
 def _print_summary(tracks: list) -> None:
-    total_cues = sum(len(cues) for _, cues in tracks)
+    total_cues = sum(len(cues) for _, cues, _ in tracks)
     print(f"\n{len(tracks)} track(s) · {total_cues} cue(s) total\n")
-    for content, cues in tracks:
+    for content, cues, mode in tracks:
         title = content.Title or content.FileNameL or "Unknown"
-        print(f"  {title}")
+        print(f"  {title}  [{mode}]")
         for cue in cues:
             mins, secs = divmod(cue.position_ms // 1000, 60)
             print(f"    [{cue.slot_name}] {mins:02d}:{secs:02d}  {cue.label.value}")

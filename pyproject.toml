@@ -9,10 +9,13 @@ description = "Automatically place hot cues on tracks in your Rekordbox 7 librar
 requires-python = ">=3.10"
 dependencies = [
     "pyrekordbox>=0.3.0",
+    "fastapi>=0.110.0",
+    "uvicorn[standard]>=0.29.0",
+    "psutil>=5.9",
 ]
 
 [project.scripts]
 autocue = "autocue.cli:main"
 
 [project.optional-dependencies]
-dev = ["pytest>=7.0"]
+dev = ["pytest>=7.0", "httpx>=0.27.0"]

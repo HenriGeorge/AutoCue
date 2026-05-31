@@ -225,8 +225,60 @@
     /* ── Track list ── */
     #tracks-section { display: none; }
     #tracks-section.visible { display: block; }
-    .tracks-header { display: flex; align-items: baseline; gap: 12px; margin-bottom: 20px; }
+    .tracks-header { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; flex-wrap: wrap; }
     .tracks-title { font-size: 18px; font-weight: 700; }
+    .sort-bar {
+      display: flex; align-items: center; gap: 6px; margin-bottom: 16px;
+      font-size: 12px; color: var(--muted);
+    }
+    .sort-bar span { flex-shrink: 0; }
+    .sort-btn {
+      background: var(--surface2); border: 1px solid var(--border);
+      border-radius: 4px; padding: 3px 10px; cursor: pointer;
+      font-family: var(--font); font-size: 12px; color: var(--muted);
+      transition: border-color .15s, color .15s;
+    }
+    .sort-btn:hover { border-color: var(--border-hover); color: var(--text); }
+    .sort-btn.active { border-color: var(--green); color: var(--green); font-weight: 600; }
+    .track-album { font-size: 11px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+    /* ── Album group view ── */
+    .album-group { margin-bottom: 10px; }
+    .album-header {
+      display: flex; align-items: center; gap: 12px;
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 10px; padding: 12px 16px;
+      cursor: pointer; transition: border-color .15s;
+      user-select: none;
+    }
+    .album-header:hover { border-color: var(--border-hover); }
+    .album-header.open {
+      border-bottom-left-radius: 0; border-bottom-right-radius: 0;
+      border-bottom-color: transparent;
+    }
+    .album-art-lg {
+      width: 56px; height: 56px; border-radius: 6px; overflow: hidden;
+      background: var(--surface2); border: 1px solid var(--border);
+      flex-shrink: 0; display: flex; align-items: center;
+      justify-content: center; color: var(--muted); font-size: 22px;
+      position: relative;
+    }
+    .album-art-lg img { width: 100%; height: 100%; object-fit: cover; display: block; position: absolute; top:0; left:0; }
+    .album-header-info { flex: 1; min-width: 0; }
+    .album-header-name { font-size: 15px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .album-header-sub { font-size: 12px; color: var(--muted); margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .album-header-right { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
+    .album-track-count { font-size: 12px; color: var(--muted); white-space: nowrap; }
+    .album-chevron { font-size: 11px; color: var(--muted); transition: transform .2s; display: inline-block; }
+    .album-header.open .album-chevron { transform: rotate(90deg); }
+    .album-tracks {
+      border: 1px solid var(--border); border-top: none;
+      border-bottom-left-radius: 10px; border-bottom-right-radius: 10px;
+      padding: 6px 6px 2px; display: none;
+    }
+    .album-tracks.open { display: block; }
+    .album-tracks .track-card { margin-bottom: 6px; }
+    .album-tracks .track-card:last-child { margin-bottom: 0; }
     .tracks-count {
       font-size: 13px; color: var(--muted);
       background: var(--surface); border: 1px solid var(--border);
@@ -270,6 +322,11 @@
     .track-bpm {
       font-family: var(--mono); font-size: 12px; color: var(--green);
       background: rgba(40,226,20,.08); border: 1px solid rgba(40,226,20,.2);
+      border-radius: 4px; padding: 2px 7px; white-space: nowrap;
+    }
+    .track-key {
+      font-family: var(--mono); font-size: 12px; color: var(--text);
+      background: rgba(255,255,255,.06); border: 1px solid var(--border);
       border-radius: 4px; padding: 2px 7px; white-space: nowrap;
     }
     .track-time { font-family: var(--mono); font-size: 12px; color: var(--muted); white-space: nowrap; }
@@ -413,6 +470,21 @@
     }
     button.primary:hover { background: #33ff18; }
     button.primary:active { transform: scale(.97); }
+    button.danger {
+      background: #c0392b; color: #fff;
+      font-weight: 700; font-size: 14px; padding: 10px 20px;
+      border: none; border-radius: 8px; cursor: pointer;
+      font-family: var(--font); transition: background .15s, transform .1s;
+      flex-shrink: 0;
+    }
+    button.danger:hover { background: #e74c3c; }
+    button.danger:active { transform: scale(.97); }
+    button.danger:disabled { opacity: .5; cursor: not-allowed; }
+    #delete-confirm-bar {
+      display: none; align-items: center; gap: 10px; flex-shrink: 0;
+    }
+    #delete-confirm-bar.visible { display: flex; }
+    #delete-confirm-bar .confirm-msg { font-size: 13px; color: #e74c3c; font-weight: 600; }
 
     /* ── Mode callout ── */
     .mode-callout {
@@ -590,6 +662,10 @@
       <p class="drop-title">Drop your rekordbox.xml here</p>
       <p class="drop-sub">or click to browse &nbsp;·&nbsp; <a href="#how-to">How to export ↓</a></p>
     </div>
+    <div id="local-mode-banner" style="display:none; margin-top:14px; padding:14px 18px; border-radius:10px; background:var(--surface-card, #1e1e2e); border:1px solid var(--green, #28e214);">
+      <strong style="color:var(--green, #28e214);">Connected to Rekordbox</strong>
+      <span id="local-track-count" style="color:var(--muted, #888);"></span>
+    </div>
     <div id="backup-bar" style="display:none; margin-top:10px; text-align:right;">
       <button id="backup-btn" class="secondary-btn">💾 Download backup XML</button>
     </div>
@@ -664,6 +740,14 @@
         <input type="number" id="max-cues" value="8" min="1" max="8" />
       </div>
     </div>
+    <div class="settings-grid" style="margin-top:10px">
+      <div class="field" style="grid-column:1/-1">
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
+          <input type="checkbox" id="add-memory-cue" />
+          Place memory cue at bar 1 (sets CDJ Auto Cue)
+        </label>
+      </div>
+    </div>
     <div class="existing-cues-info" id="existing-cues-info" style="display:none">
       <span class="existing-cues-label" id="existing-cues-label"></span>
       <label class="skip-cues-label">
@@ -679,9 +763,18 @@
       <h2 class="tracks-title">Tracks</h2>
       <span class="tracks-count" id="tracks-count">0 tracks</span>
     </div>
+    <div class="sort-bar" id="sort-bar" style="display:none">
+      <span>Sort:</span>
+      <button class="sort-btn active" data-sort="title">Title</button>
+      <button class="sort-btn" data-sort="artist">Artist</button>
+      <button class="sort-btn" data-sort="album">Album</button>
+      <button class="sort-btn" data-sort="bpm">BPM</button>
+      <button class="sort-btn" data-sort="key">Key</button>
+    </div>
     <div id="track-list"></div>
   </section>
 
+  <!-- XML upload workflow (hidden in local mode) -->
   <div class="how-to" id="how-to">
     <h2>How to use AutoCue</h2>
     <ol>
@@ -692,6 +785,41 @@
     </ol>
     <p style="margin-top:16px;font-size:13px;color:var(--muted)">
       Everything runs locally in your browser — no files are ever uploaded anywhere.
+    </p>
+  </div>
+
+  <!-- Local server workflow (shown only in local mode) -->
+  <div class="how-to" id="local-how-to" style="display:none">
+    <h2>Local server mode — workflow</h2>
+    <ol>
+      <li>
+        <strong>Close Rekordbox</strong> before applying or deleting cues. The Rekordbox database is locked while the app is open. AutoCue will warn you if it detects Rekordbox is running.
+      </li>
+      <li>
+        <strong>Choose analysis mode:</strong>
+        <ul style="margin-top:6px;margin-left:1.2em;line-height:1.8">
+          <li><em>Bar intervals</em> — places cues every N bars using the BPM grid. Works for every analyzed track.</li>
+          <li><em>✨ Phrase analysis</em> — uses Rekordbox's phrase detection (Intro, Verse, Chorus, Outro). Falls back to bar intervals if a track has no phrase data.</li>
+        </ul>
+      </li>
+      <li>
+        <strong>Configure cue settings:</strong> set how many bars apart each cue lands, which bar to start from, and the maximum number of cues per track.
+      </li>
+      <li>
+        <strong>Browse your library:</strong> sort by Title, Artist, Album, or BPM (click the same button again to reverse order). In Album view tracks are grouped under collapsible album headers — click an album to expand it. Each track card previews the cues that will be written.
+      </li>
+      <li>
+        <strong>Skip existing cues:</strong> check <em>Skip tracks that already have hot cues</em> to leave tracks untouched. Uncheck it to overwrite all tracks.
+      </li>
+      <li>
+        <strong>Apply to Rekordbox:</strong> click the green button. AutoCue backs up <code>master.db</code> first, then writes the cues directly. The footer shows how many tracks and cues will be written before you confirm.
+      </li>
+      <li>
+        <strong>Delete all hot cues:</strong> click <em>Delete all cues</em> (bottom left) → confirm in the inline bar. This removes every hot cue (slots A–H) from all tracks, including manually placed ones. A backup is made first.
+      </li>
+    </ol>
+    <p style="margin-top:16px;font-size:13px;color:var(--muted)">
+      Backups are saved to <code>~/.local/share/autocue/backups/</code> (macOS: <code>~/Library/Application Support/autocue/backups/</code>) before every write. The server only accepts connections from localhost — your database never leaves your machine.
     </p>
   </div>
 
@@ -731,6 +859,13 @@ autocue --library --playlist "My Set"</pre>
   <div class="dl-info">
     Ready to import: <strong id="dl-summary">— tracks · — cues</strong>
   </div>
+  <div id="delete-confirm-bar">
+    <span class="confirm-msg" id="delete-confirm-msg">Delete all hot cues from X tracks?</span>
+    <button class="danger" id="delete-confirm-btn">Confirm delete</button>
+    <button class="secondary-btn" id="delete-cancel-btn">Cancel</button>
+  </div>
+  <button class="danger" id="delete-cues-btn" style="display:none">Delete all cues</button>
+  <button class="secondary-btn" id="color-by-bpm-btn" style="display:none">Color tracks by BPM</button>
   <button class="primary" id="download-btn">Download XML</button>
 </div>
 
@@ -753,6 +888,22 @@ const CUE_COLORS = [
   { r: 245, g: 30,  b: 140 },
   { r: 230, g: 0,   b: 255 },
 ];
+const PHRASE_COLORS = {
+  'Intro':   { r: 40,  g: 226, b: 20  },
+  'Verse':   { r: 48,  g: 90,  b: 255 },
+  'Bridge':  { r: 0,   g: 224, b: 255 },
+  'Chorus':  { r: 255, g: 50,  b: 50  },
+  'Outro':   { r: 255, g: 160, b: 0   },
+  'Up':      { r: 245, g: 30,  b: 140 },
+  'Down':    { r: 230, g: 0,   b: 255 },
+  '?':       { r: 180, g: 180, b: 180 },
+};
+
+function pickCueColor(cue) {
+  if (cue.isPhrase && PHRASE_COLORS[cue.label]) return PHRASE_COLORS[cue.label];
+  const safeSlot = Math.max(0, Math.min(7, cue.slot || 0));
+  return CUE_COLORS[safeSlot];
+}
 const SLOT_NAMES = ['A','B','C','D','E','F','G','H'];
 
 // ── State ──────────────────────────────────────────────────────────────────────
@@ -762,6 +913,8 @@ let originalXmlText = null;
 
 let analysisMode = 'bar'; // 'bar' | 'phrase'
 let phraseCueState = {};  // trackId → [{position_ms, label, slot}]
+let currentSort = { by: 'title', order: 'asc' };
+let expandedAlbums = new Set();
 let anlzFileMap = {};     // folder-hex → { ext: File, dat: File }
 let pyodideReady = null;  // Promise<pyodide> once requested
 
@@ -770,6 +923,139 @@ let audioState   = {};
 let nowPlayingId = null;
 let isScrubbing  = false;
 const blobUrlsToRevoke = new Set();
+
+// ── Local mode ────────────────────────────────────────────────────────────────
+let localMode = false;
+
+async function detectLocalMode() {
+  try {
+    const r = await fetch('/api/status', { signal: AbortSignal.timeout(600) });
+    if (r.ok) { const d = await r.json(); return d.connected === true; }
+  } catch {}
+  return false;
+}
+
+async function loadTracksFromServer() {
+  const [statusData, tracksData] = await Promise.all([
+    fetch('/api/status').then(r => r.json()),
+    fetch('/api/tracks?limit=10000').then(r => r.json()),
+  ]);
+  document.getElementById('local-track-count').textContent = ` · ${statusData.track_count} tracks`;
+  parsedTracks = tracksData.map(t => ({
+    id: String(t.id), name: t.title, artist: t.artist, album: t.album || '',
+    bpm: t.bpm, totalTime: t.duration, tempo: null,
+    existingHotCues: t.existing_hot_cues, hasPhrase: t.has_phrase,
+    key: t.key || '',
+    locationFilename: '',
+  }));
+  parsedDoc = null;
+  const withExisting = parsedTracks.filter(t => t.existingHotCues > 0).length;
+  const info = document.getElementById('existing-cues-info');
+  if (withExisting > 0) {
+    document.getElementById('existing-cues-label').innerHTML =
+      `<strong>${withExisting}</strong> of ${parsedTracks.length} tracks already have hot cues`;
+    info.style.display = 'flex';
+  } else {
+    info.style.display = 'none';
+  }
+  document.getElementById('settings-section').classList.add('visible');
+  document.getElementById('tracks-section').classList.add('visible');
+  document.getElementById('download-bar').classList.add('visible');
+  document.getElementById('analysis-mode-bar').style.display = '';
+  document.getElementById('sort-bar').style.display = '';
+  setStep(3);
+  renderTracks();
+  updateOverwriteWarning();
+}
+
+async function colorTracksByBpm() {
+  const btn = document.getElementById('color-by-bpm-btn');
+  btn.textContent = 'Coloring…';
+  btn.disabled = true;
+  try {
+    const trackIds = parsedTracks.map(t => parseInt(t.id));
+    const r = await fetch('/api/color-tracks', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ track_ids: trackIds, dry_run: false }),
+      signal: AbortSignal.timeout(30_000),
+    });
+    const resp = await r.json();
+    if (!r.ok) {
+      showToast(`Color by BPM failed: ${resp.detail || r.statusText}`);
+    } else {
+      const backupNote = resp.backup_path ? ' — backup saved to ~/.autocue/backups/' : '';
+      showToast(`Colored ${resp.colored} track(s) by BPM${backupNote}`);
+    }
+  } catch (err) {
+    showToast(`Color by BPM failed: ${err.message}`);
+  } finally {
+    btn.textContent = 'Color tracks by BPM';
+    btn.disabled = false;
+  }
+}
+
+async function applyToRekordbox() {
+  const barsInterval = parseInt(document.getElementById('bars-interval').value) || 16;
+  const startBar = parseInt(document.getElementById('start-bar').value) || 1;
+  const maxCues = parseInt(document.getElementById('max-cues').value) || 8;
+  const addMemoryCue = document.getElementById('add-memory-cue').checked;
+
+  document.getElementById('download-btn').textContent = 'Applying…';
+  document.getElementById('download-btn').disabled = true;
+
+  try {
+    const genR = await fetch('/api/generate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        track_ids: parsedTracks.map(t => parseInt(t.id)),
+        mode: analysisMode === 'phrase' ? 'auto' : 'bar',
+        bars_interval: barsInterval,
+        start_bar: startBar,
+        max_cues: maxCues,
+        add_memory_cue: addMemoryCue,
+      }),
+      signal: AbortSignal.timeout(30_000),
+    });
+    const genResp = await genR.json();
+    if (!genR.ok) throw new Error(genResp.detail || genR.statusText);
+
+    // Note: genResp.tracks[].cues items include `is_phrase` (snake_case from the Python API).
+    // If a future feature renders a cue preview before applying, map c.is_phrase → isPhrase
+    // so that the PHRASE_COLORS lookup in renderTracks / buildOutputXml works correctly.
+    const applyR = await fetch('/api/apply', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ tracks: genResp.tracks, overwrite: !document.getElementById('skip-existing-cues').checked, dry_run: false }),
+      signal: AbortSignal.timeout(30_000),
+    });
+    const applyResp = await applyR.json();
+    if (!applyR.ok) throw new Error(applyResp.detail || applyR.statusText);
+
+    setStep(4);
+    showToast(`Applied ${applyResp.applied} track(s) — backup saved to ~/.autocue/backups/`);
+  } catch (err) {
+    showToast(`Error applying cues: ${err.message}`);
+  } finally {
+    document.getElementById('download-btn').textContent = 'Apply to Rekordbox';
+    document.getElementById('download-btn').disabled = false;
+  }
+}
+
+detectLocalMode().then(connected => {
+  localMode = connected;
+  if (localMode) {
+    document.getElementById('drop-zone').style.display = 'none';
+    document.getElementById('local-mode-banner').style.display = '';
+    document.getElementById('download-btn').textContent = 'Apply to Rekordbox';
+    document.getElementById('delete-cues-btn').style.display = '';
+    document.getElementById('color-by-bpm-btn').style.display = '';
+    document.getElementById('how-to').style.display = 'none';
+    document.getElementById('local-how-to').style.display = '';
+    loadTracksFromServer();
+  }
+});
 
 // ── Parsing ────────────────────────────────────────────────────────────────────
 function parseRekordboxXml(xmlString) {
@@ -828,15 +1114,21 @@ function parseRekordboxXml(xmlString) {
 
 // ── Cue generation ─────────────────────────────────────────────────────────────
 function generateCues(track, barsInterval, startBar, maxCues) {
-  if (!track.tempo || !track.tempo.bpm) return [];
-  const { bpm, inizio, beatsPerBar } = track.tempo;
+  // local-mode tracks have track.bpm directly; XML tracks use track.tempo
+  const bpm = track.tempo?.bpm || track.bpm || 0;
+  if (!bpm) return [];
+  const inizio = track.tempo?.inizio || 0;
+  const beatsPerBar = track.tempo?.beatsPerBar || 4;
   const barDuration = (60.0 / bpm) * beatsPerBar;
   const cues = [];
-  for (let i = 0; i < maxCues; i++) {
+  let slot = 0;
+  for (let i = 0; i < maxCues + 64 && slot < maxCues; i++) {
     const posSec = inizio + (startBar - 1 + i * barsInterval) * barDuration;
     if (posSec < 0) continue;
     if (track.totalTime > 0 && posSec >= track.totalTime) break;
-    cues.push({ slot: i, posSec: Math.round(posSec * 1000) / 1000 });
+    const barNumber = startBar + i * barsInterval;
+    cues.push({ slot, posSec: Math.round(posSec * 1000) / 1000, name: `Bar ${barNumber}` });
+    slot++;
   }
   return cues;
 }
@@ -1040,6 +1332,11 @@ KIND_MAP = {
     3: {1:'Intro',2:'Verse',3:'Verse',4:'Verse',5:'Verse',6:'Verse',7:'Verse',8:'Bridge',9:'Chorus',10:'Outro'},
 }
 
+DJ_NAMES = {
+    'Intro':'Intro', 'Verse':'Verse', 'Bridge':'Bridge',
+    'Chorus':'Drop', 'Outro':'Outro', 'Up':'Build', 'Down':'Break', '?':'',
+}
+
 def analyze_anlz(ext_bytes, dat_bytes):
     ext = AnlzFile.parse(bytes(ext_bytes))
     dat = AnlzFile.parse(bytes(dat_bytes))
@@ -1070,7 +1367,16 @@ def analyze_anlz(ext_bytes, dat_bytes):
             pass2.append((ms, l))
 
     combined = sorted(pass1 + pass2[:max(0, 8 - len(pass1))], key=lambda x: x[0])
-    return [{'position_ms': ms, 'label': l, 'slot': i} for i, (ms, l) in enumerate(combined[:8])]
+    from collections import Counter
+    counts = Counter(l for _, l in combined[:8])
+    seen = {}
+    result = []
+    for i, (ms, l) in enumerate(combined[:8]):
+        seen[l] = seen.get(l, 0) + 1
+        base = DJ_NAMES.get(l, '')
+        name = '' if not base else (base if counts[l] == 1 else f'{base} {seen[l]}')
+        result.append({'position_ms': ms, 'label': l, 'slot': i, 'name': name})
+    return result
 `;
 
 async function loadPyodideEngine() {
@@ -1177,6 +1483,230 @@ function fmtTime(sec) {
   return `${m}:${String(s).padStart(2,'0')}`;
 }
 
+function camelotSortKey(key) {
+  if (!key) return 9999;
+  const num = parseInt(key, 10) || 0;
+  const letter = key.slice(-1).toUpperCase();
+  return num * 2 + (letter === 'B' ? 1 : 0);
+}
+
+function sortedTracks() {
+  const { by, order } = currentSort;
+  const sorted = [...parsedTracks].sort((a, b) => {
+    let av, bv;
+    if (by === 'bpm') { av = a.bpm || 0; bv = b.bpm || 0; }
+    else if (by === 'artist') { av = (a.artist || '').toLowerCase(); bv = (b.artist || '').toLowerCase(); }
+    else if (by === 'album') { av = (a.album || '').toLowerCase(); bv = (b.album || '').toLowerCase(); }
+    else if (by === 'key') { av = camelotSortKey(a.key); bv = camelotSortKey(b.key); }
+    else { av = (a.name || '').toLowerCase(); bv = (b.name || '').toLowerCase(); }
+    if (av < bv) return order === 'asc' ? -1 : 1;
+    if (av > bv) return order === 'asc' ? 1 : -1;
+    return 0;
+  });
+  return sorted;
+}
+
+function buildTrackCard(track, cues, willSkip, opts = {}) {
+  const { hideAlbum = false } = opts;
+  const hasAudio = !!audioState[track.id];
+  const artUrl = audioState[track.id]?.artworkUrl
+    || (localMode ? `/api/tracks/${track.id}/artwork` : null);
+
+  const card = document.createElement('div');
+  card.className = 'track-card';
+  card.dataset.trackId = track.id;
+  if (nowPlayingId === track.id && !audioPlayer.paused) card.classList.add('now-playing');
+
+  const cardTop = document.createElement('div');
+  cardTop.className = 'card-top';
+
+  // Artwork
+  const artWrap = document.createElement('div');
+  artWrap.className = 'artwork-wrap';
+  const ph = document.createElement('div');
+  ph.className = 'artwork-placeholder';
+  ph.textContent = '♪';
+  artWrap.appendChild(ph);
+  if (artUrl) {
+    const img = document.createElement('img');
+    img.className = 'artwork-img';
+    img.loading = 'lazy';
+    img.src = artUrl;
+    img.onload = () => ph.remove();
+    img.onerror = () => img.remove();
+    artWrap.appendChild(img);
+  }
+  cardTop.appendChild(artWrap);
+
+  // Card main
+  const cardMain = document.createElement('div');
+  cardMain.className = 'card-main';
+
+  // Track meta row: title + BPM + duration + play btn + load btn
+  const meta = document.createElement('div');
+  meta.className = 'track-meta';
+
+  const nameEl = document.createElement('span');
+  nameEl.className = 'track-name';
+  nameEl.title = track.name;
+  nameEl.textContent = track.name;
+  meta.appendChild(nameEl);
+
+  if (track.bpm) {
+    const b = document.createElement('span');
+    b.className = 'track-bpm';
+    b.textContent = track.bpm.toFixed(2) + ' BPM';
+    meta.appendChild(b);
+  }
+  if (track.key) {
+    const k = document.createElement('span');
+    k.className = 'track-key';
+    k.textContent = track.key;
+    meta.appendChild(k);
+  }
+  if (track.totalTime) {
+    const t = document.createElement('span');
+    t.className = 'track-time';
+    t.textContent = fmtTime(track.totalTime);
+    meta.appendChild(t);
+  }
+
+  const playBtn = document.createElement('button');
+  playBtn.className = 'play-btn' + (hasAudio ? '' : ' hidden');
+  playBtn.innerHTML = (nowPlayingId === track.id && !audioPlayer.paused) ? SVG_PAUSE : SVG_PLAY;
+  playBtn.setAttribute('aria-label', 'Play');
+  playBtn.addEventListener('click', e => { e.stopPropagation(); togglePlayTrack(track.id); });
+  meta.appendChild(playBtn);
+
+  const loadBtn = document.createElement('label');
+  loadBtn.className = 'load-audio-btn' + (hasAudio ? ' hidden' : '');
+  loadBtn.textContent = 'Load audio';
+  const loadInput = document.createElement('input');
+  loadInput.type = 'file';
+  loadInput.accept = 'audio/*';
+  loadInput.addEventListener('change', () => {
+    if (loadInput.files[0]) registerAudioFile(track, loadInput.files[0]);
+  });
+  loadBtn.appendChild(loadInput);
+  meta.appendChild(loadBtn);
+
+  cardMain.appendChild(meta);
+
+  // Artist / album sub-row (hidden in album-group view where album is shown in header)
+  const showArtist = track.artist;
+  const showAlbumName = !hideAlbum && track.album;
+  if (showArtist || showAlbumName) {
+    const sub = document.createElement('div');
+    sub.style.cssText = 'display:flex;gap:6px;align-items:baseline;flex-wrap:wrap;margin-top:2px;margin-bottom:4px;';
+    if (showArtist) {
+      const a = document.createElement('span');
+      a.className = 'track-artist';
+      a.textContent = track.artist;
+      sub.appendChild(a);
+    }
+    if (showAlbumName) {
+      const al = document.createElement('span');
+      al.className = 'track-album';
+      al.textContent = '· ' + track.album;
+      sub.appendChild(al);
+    }
+    cardMain.appendChild(sub);
+  }
+
+  if (willSkip) {
+    const skipped = document.createElement('span');
+    skipped.className = 'skipped-badge';
+    skipped.textContent = `Skipped — has ${track.existingHotCues} existing hot cue${track.existingHotCues !== 1 ? 's' : ''}`;
+    cardMain.appendChild(skipped);
+    cardTop.appendChild(cardMain);
+    card.appendChild(cardTop);
+    return card;
+  }
+
+  if (!track.tempo && !track.bpm) {
+    const w = document.createElement('p');
+    w.className = 'warn';
+    w.textContent = '⚠ No beat-grid data — open this track in Rekordbox, run BPM analysis, then re-export your XML';
+    cardMain.appendChild(w);
+    cardTop.appendChild(cardMain);
+    card.appendChild(cardTop);
+    return card;
+  }
+
+  // Cue badges
+  const badges = document.createElement('div');
+  badges.className = 'cue-slots';
+  for (const cue of cues) {
+    const b = document.createElement('span');
+    b.className = 'cue-badge' + (hasAudio ? ' playable' : '');
+    b.dataset.slot   = cue.slot;
+    b.dataset.posSec = cue.posSec;
+    const displayName = cue.name || cue.label || '';
+    const slotLabel = cue.slot === -1 ? 'Mem' : (SLOT_NAMES[cue.slot] ?? '?');
+    b.textContent = `${slotLabel} ${displayName} ${fmtTime(cue.posSec)}`.trim();
+    if (hasAudio) b.addEventListener('click', () => seekAndPlay(track.id, cue.posSec));
+    badges.appendChild(b);
+  }
+  if (cues.length === 0) {
+    const b = document.createElement('span');
+    b.style.cssText = 'font-size:12px;color:var(--muted)';
+    b.textContent = 'No cues fit within track length';
+    badges.appendChild(b);
+  }
+  cardMain.appendChild(badges);
+
+  if (track.existingCueDetails && track.existingCueDetails.length > 0) {
+    const { maxCues: mc } = getSettings();
+    const usedSlots = new Set(Array.from({length: mc}, (_, i) => i));
+    const chipsRow = document.createElement('div');
+    chipsRow.style.cssText = 'display:flex;gap:4px;flex-wrap:wrap;margin-top:5px;';
+    for (const ec of track.existingCueDetails) {
+      const chip = document.createElement('span');
+      chip.className = 'existing-cue-chip' + (usedSlots.has(ec.num) ? ' replaced' : '');
+      const slotLetter = ec.num >= 0 && ec.num <= 7 ? String.fromCharCode(65 + ec.num) : '?';
+      const mins = Math.floor(ec.start / 60), secs = Math.floor(ec.start % 60);
+      const icon = usedSlots.has(ec.num) ? '⚠' : '✓';
+      chip.textContent = `${icon} ${slotLetter}: ${mins}:${String(secs).padStart(2,'0')}${ec.name ? ' ' + ec.name : ''}`;
+      chip.title = usedSlots.has(ec.num) ? 'Will be replaced by AutoCue' : 'Will be preserved';
+      chipsRow.appendChild(chip);
+    }
+    cardMain.appendChild(chipsRow);
+  }
+
+  if (analysisMode === 'phrase' && !phraseCueState[track.id]) {
+    const note = document.createElement('p');
+    note.style.cssText = 'font-size:12px;color:var(--muted);margin-top:4px;';
+    note.textContent = '⬡ No ANLZ data — drop the analysis folder above to enable phrase analysis';
+    cardMain.appendChild(note);
+  }
+
+  if (track.totalTime > 0 && cues.length > 0) {
+    const tl = document.createElement('div');
+    tl.className = 'timeline';
+    for (const cue of cues) {
+      const pct = (cue.posSec / track.totalTime) * 100;
+      const m = document.createElement('div');
+      m.className = 'timeline-marker';
+      m.style.left = `${pct}%`;
+      const c = pickCueColor(cue);
+      m.style.background = `rgb(${c.r},${c.g},${c.b})`;
+      m.style.color = `rgb(${c.r},${c.g},${c.b})`;
+      tl.appendChild(m);
+    }
+    if (nowPlayingId === track.id) {
+      const playhead = document.createElement('div');
+      playhead.className = 'timeline-playhead';
+      playhead.style.left = `${track.totalTime ? (audioPlayer.currentTime / track.totalTime) * 100 : 0}%`;
+      tl.appendChild(playhead);
+    }
+    cardMain.appendChild(tl);
+  }
+
+  cardTop.appendChild(cardMain);
+  card.appendChild(cardTop);
+  return card;
+}
+
 function renderTracks() {
   if (!parsedTracks.length) return;
   const { barsInterval, startBar, maxCues } = getSettings();
@@ -1185,212 +1715,119 @@ function renderTracks() {
   list.innerHTML = '';
   let totalCues = 0, tracksWithCues = 0;
 
-  for (const track of parsedTracks) {
-    const willSkip = skipExisting && track.existingHotCues > 0;
-    let cues = [];
-    if (!willSkip) {
-      if (analysisMode === 'phrase' && phraseCueState[track.id]?.length) {
-        cues = phraseCueState[track.id].map(c => ({
-          slot: c.slot,
-          posSec: c.position_ms / 1000,
-          label: c.label,
-          isPhrase: true,
-        }));
-      } else {
-        cues = generateCues(track, barsInterval, startBar, maxCues);
-      }
-    }
-    if (cues.length) { tracksWithCues++; totalCues += cues.length; }
-
-    const card = document.createElement('div');
-    card.className = 'track-card';
-    card.dataset.trackId = track.id;
-    if (nowPlayingId === track.id && !audioPlayer.paused) card.classList.add('now-playing');
-
-    // ── Card top: artwork + main ──
-    const cardTop = document.createElement('div');
-    cardTop.className = 'card-top';
-
-    // Artwork
-    const artWrap = document.createElement('div');
-    artWrap.className = 'artwork-wrap';
-    const hasAudio = !!audioState[track.id];
-    const artUrl = audioState[track.id]?.artworkUrl;
-    if (artUrl) {
-      const img = document.createElement('img');
-      img.className = 'artwork-img';
-      img.src = artUrl;
-      artWrap.appendChild(img);
+  function computeCues(track) {
+    if (skipExisting && track.existingHotCues > 0) return [];
+    let cues;
+    if (analysisMode === 'phrase' && phraseCueState[track.id]?.length) {
+      cues = phraseCueState[track.id].map(c => ({
+        slot: c.slot, posSec: c.position_ms / 1000,
+        label: c.label, isPhrase: true, name: c.name || '',
+      }));
     } else {
-      const ph = document.createElement('div');
-      ph.className = 'artwork-placeholder';
-      ph.textContent = '♪';
-      artWrap.appendChild(ph);
+      cues = generateCues(track, barsInterval, startBar, maxCues);
     }
-    cardTop.appendChild(artWrap);
-
-    // Card main
-    const cardMain = document.createElement('div');
-    cardMain.className = 'card-main';
-
-    // Track meta row
-    const meta = document.createElement('div');
-    meta.className = 'track-meta';
-
-    const nameEl = document.createElement('span');
-    nameEl.className = 'track-name';
-    nameEl.title = track.name;
-    nameEl.textContent = track.name;
-    meta.appendChild(nameEl);
-
-    if (track.artist) {
-      const a = document.createElement('span');
-      a.className = 'track-artist';
-      a.textContent = track.artist;
-      meta.appendChild(a);
+    if (document.getElementById('add-memory-cue').checked && cues.length) {
+      const memPos = analysisMode === 'phrase' ? cues[0].posSec : 0;
+      cues = [{ slot: -1, posSec: memPos, label: '', name: 'Auto Cue' }, ...cues];
     }
-    if (track.bpm) {
-      const b = document.createElement('span');
-      b.className = 'track-bpm';
-      b.textContent = track.bpm.toFixed(2) + ' BPM';
-      meta.appendChild(b);
-    }
-    if (track.totalTime) {
-      const t = document.createElement('span');
-      t.className = 'track-time';
-      t.textContent = fmtTime(track.totalTime);
-      meta.appendChild(t);
+    return cues;
+  }
+
+  const sorted = sortedTracks();
+
+  if (currentSort.by === 'album') {
+    // Group consecutive tracks by album name
+    const groups = new Map();
+    for (const track of sorted) {
+      const key = track.album || '';
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key).push(track);
     }
 
-    // Play button (visible only when audio loaded)
-    const playBtn = document.createElement('button');
-    playBtn.className = 'play-btn' + (hasAudio ? '' : ' hidden');
-    playBtn.innerHTML = (nowPlayingId === track.id && !audioPlayer.paused) ? SVG_PAUSE : SVG_PLAY;
-    playBtn.setAttribute('aria-label', 'Play');
-    playBtn.addEventListener('click', e => { e.stopPropagation(); togglePlayTrack(track.id); });
-    meta.appendChild(playBtn);
-
-    // Load audio button (hidden when audio loaded)
-    const loadBtn = document.createElement('label');
-    loadBtn.className = 'load-audio-btn' + (hasAudio ? ' hidden' : '');
-    loadBtn.textContent = 'Load audio';
-    const loadInput = document.createElement('input');
-    loadInput.type = 'file';
-    loadInput.accept = 'audio/*';
-    loadInput.addEventListener('change', () => {
-      if (loadInput.files[0]) registerAudioFile(track, loadInput.files[0]);
-    });
-    loadBtn.appendChild(loadInput);
-    meta.appendChild(loadBtn);
-
-    cardMain.appendChild(meta);
-
-    // Skipped badge
-    if (willSkip) {
-      const skipped = document.createElement('span');
-      skipped.className = 'skipped-badge';
-      skipped.textContent = `Skipped — has ${track.existingHotCues} existing hot cue${track.existingHotCues !== 1 ? 's' : ''}`;
-      cardMain.appendChild(skipped);
-      cardTop.appendChild(cardMain);
-      card.appendChild(cardTop);
-      list.appendChild(card);
-      continue;
-    }
-
-    // No tempo warning
-    if (!track.tempo) {
-      const w = document.createElement('p');
-      w.className = 'warn';
-      w.textContent = '⚠ No beat-grid data — open this track in Rekordbox, run BPM analysis, then re-export your XML';
-      cardMain.appendChild(w);
-      cardTop.appendChild(cardMain);
-      card.appendChild(cardTop);
-      list.appendChild(card);
-      continue;
-    }
-
-    // Cue badges
-    const badges = document.createElement('div');
-    badges.className = 'cue-slots';
-    for (const cue of cues) {
-      const b = document.createElement('span');
-      b.className = 'cue-badge' + (hasAudio ? ' playable' : '');
-      b.dataset.slot   = cue.slot;
-      b.dataset.posSec = cue.posSec;
-      if (cue.isPhrase) {
-        b.textContent = `${SLOT_NAMES[cue.slot]} ${cue.label} ${fmtTime(cue.posSec)}`;
-      } else {
-        const barNumber = startBar + cue.slot * barsInterval;
-        b.textContent = `${SLOT_NAMES[cue.slot]} Bar ${barNumber} ${fmtTime(cue.posSec)}`;
+    for (const [albumName, tracks] of groups) {
+      // Count cues for this group
+      for (const track of tracks) {
+        const cues = computeCues(track);
+        if (cues.length) { tracksWithCues++; totalCues += cues.length; }
       }
-      if (hasAudio) {
-        b.addEventListener('click', () => seekAndPlay(track.id, cue.posSec));
-      }
-      badges.appendChild(b);
-    }
-    if (cues.length === 0) {
-      const b = document.createElement('span');
-      b.style.cssText = 'font-size:12px;color:var(--muted)';
-      b.textContent = 'No cues fit within track length';
-      badges.appendChild(b);
-    }
-    cardMain.appendChild(badges);
 
-    // Existing cue chips (A5)
-    if (track.existingCueDetails && track.existingCueDetails.length > 0 && !willSkip) {
-      const { maxCues: mc } = getSettings();
-      const usedSlots = new Set(Array.from({length: mc}, (_, i) => i));
-      const chipsRow = document.createElement('div');
-      chipsRow.style.cssText = 'display:flex;gap:4px;flex-wrap:wrap;margin-top:5px;';
-      for (const ec of track.existingCueDetails) {
-        const chip = document.createElement('span');
-        chip.className = 'existing-cue-chip' + (usedSlots.has(ec.num) ? ' replaced' : '');
-        const slotLetter = ec.num >= 0 && ec.num <= 7 ? String.fromCharCode(65 + ec.num) : '?';
-        const mins = Math.floor(ec.start / 60), secs = Math.floor(ec.start % 60);
-        const icon = usedSlots.has(ec.num) ? '⚠' : '✓';
-        chip.textContent = `${icon} ${slotLetter}: ${mins}:${String(secs).padStart(2,'0')}${ec.name ? ' ' + ec.name : ''}`;
-        chip.title = usedSlots.has(ec.num) ? 'Will be replaced by AutoCue' : 'Will be preserved';
-        chipsRow.appendChild(chip);
-      }
-      cardMain.appendChild(chipsRow);
-    }
+      const group = document.createElement('div');
+      group.className = 'album-group';
 
-    // Phrase mode note when no ANLZ data (B6)
-    if (analysisMode === 'phrase' && !phraseCueState[track.id]) {
-      const note = document.createElement('p');
-      note.style.cssText = 'font-size:12px;color:var(--muted);margin-top:4px;';
-      note.textContent = '⬡ No ANLZ data — drop the analysis folder above to enable phrase analysis';
-      cardMain.appendChild(note);
-    }
+      // Album header
+      const header = document.createElement('div');
+      const isOpen = expandedAlbums.has(albumName);
+      header.className = 'album-header' + (isOpen ? ' open' : '');
 
-    // Timeline
-    if (track.totalTime > 0 && cues.length > 0) {
-      const tl = document.createElement('div');
-      tl.className = 'timeline';
-      for (const cue of cues) {
-        const pct = (cue.posSec / track.totalTime) * 100;
-        const m = document.createElement('div');
-        m.className = 'timeline-marker';
-        m.style.left = `${pct}%`;
-        const c = CUE_COLORS[cue.slot];
-        m.style.background = `rgb(${c.r},${c.g},${c.b})`;
-        m.style.color = `rgb(${c.r},${c.g},${c.b})`;
-        tl.appendChild(m);
+      // Album art (from first track that has one)
+      const artBox = document.createElement('div');
+      artBox.className = 'album-art-lg';
+      artBox.textContent = '♪';
+      const firstTrack = tracks[0];
+      if (localMode && firstTrack) {
+        const img = document.createElement('img');
+        img.loading = 'lazy';
+        img.src = `/api/tracks/${firstTrack.id}/artwork`;
+        img.onload = () => { artBox.textContent = ''; artBox.appendChild(img); };
+        img.onerror = () => {};
       }
-      // Playhead for currently-playing track
-      if (nowPlayingId === track.id) {
-        const ph = document.createElement('div');
-        ph.className = 'timeline-playhead';
-        const pct = track.totalTime ? (audioPlayer.currentTime / track.totalTime) * 100 : 0;
-        ph.style.left = `${pct}%`;
-        tl.appendChild(ph);
-      }
-      cardMain.appendChild(tl);
-    }
+      header.appendChild(artBox);
 
-    cardTop.appendChild(cardMain);
-    card.appendChild(cardTop);
-    list.appendChild(card);
+      // Info: album name + artist
+      const info = document.createElement('div');
+      info.className = 'album-header-info';
+      const nameDiv = document.createElement('div');
+      nameDiv.className = 'album-header-name';
+      nameDiv.textContent = albumName || 'Unknown Album';
+      info.appendChild(nameDiv);
+      const artists = [...new Set(tracks.map(t => t.artist).filter(Boolean))];
+      if (artists.length) {
+        const sub = document.createElement('div');
+        sub.className = 'album-header-sub';
+        sub.textContent = artists.slice(0, 3).join(', ') + (artists.length > 3 ? '…' : '');
+        info.appendChild(sub);
+      }
+      header.appendChild(info);
+
+      // Right side: track count + chevron
+      const right = document.createElement('div');
+      right.className = 'album-header-right';
+      const count = document.createElement('span');
+      count.className = 'album-track-count';
+      count.textContent = `${tracks.length} track${tracks.length !== 1 ? 's' : ''}`;
+      right.appendChild(count);
+      const chev = document.createElement('span');
+      chev.className = 'album-chevron';
+      chev.textContent = '▶';
+      right.appendChild(chev);
+      header.appendChild(right);
+
+      // Track list (shown when expanded)
+      const tracksDiv = document.createElement('div');
+      tracksDiv.className = 'album-tracks' + (isOpen ? ' open' : '');
+      for (const track of tracks) {
+        const willSkip = skipExisting && track.existingHotCues > 0;
+        tracksDiv.appendChild(buildTrackCard(track, computeCues(track), willSkip, { hideAlbum: true }));
+      }
+
+      header.addEventListener('click', () => {
+        const opening = !expandedAlbums.has(albumName);
+        if (opening) expandedAlbums.add(albumName); else expandedAlbums.delete(albumName);
+        header.classList.toggle('open', opening);
+        tracksDiv.classList.toggle('open', opening);
+      });
+
+      group.appendChild(header);
+      group.appendChild(tracksDiv);
+      list.appendChild(group);
+    }
+  } else {
+    for (const track of sorted) {
+      const willSkip = skipExisting && track.existingHotCues > 0;
+      const cues = computeCues(track);
+      if (cues.length) { tracksWithCues++; totalCues += cues.length; }
+      list.appendChild(buildTrackCard(track, cues, willSkip, {}));
+    }
   }
 
   document.getElementById('tracks-count').textContent =
@@ -1401,6 +1838,7 @@ function renderTracks() {
 
 // ── XML export ─────────────────────────────────────────────────────────────────
 function buildOutputXml() {
+  if (!parsedDoc || !parsedTracks.length) return '';
   const { barsInterval, startBar, maxCues } = getSettings();
   const skipExisting = document.getElementById('skip-existing-cues').checked;
   const outDoc = parsedDoc.cloneNode(true);
@@ -1411,7 +1849,8 @@ function buildOutputXml() {
     let cues = [];
     if (analysisMode === 'phrase' && phraseCueState[track.id]?.length) {
       cues = phraseCueState[track.id].map(c => ({
-        slot: c.slot, posSec: c.position_ms / 1000, label: c.label, isPhrase: true
+        slot: c.slot, posSec: c.position_ms / 1000, label: c.label, isPhrase: true,
+        name: c.name || '',
       }));
     } else {
       cues = generateCues(track, barsInterval, startBar, maxCues);
@@ -1426,13 +1865,16 @@ function buildOutputXml() {
       if (num >= 0 && usedSlots.has(num)) pm.remove();
     }
     for (const cue of cues) {
+      if (cue.slot < 0) continue;  // memory cues have no POSITION_MARK representation
       const pm = outDoc.createElement('POSITION_MARK');
-      const cueName = cue.isPhrase ? cue.label : `Bar ${startBar + cue.slot * barsInterval}`;
+      const cueName = cue.name || cue.label || `Bar ${startBar + cue.slot * barsInterval}`;
       pm.setAttribute('Name',  cueName);
       pm.setAttribute('Type',  '0');
       pm.setAttribute('Start', cue.posSec.toFixed(3));
       pm.setAttribute('Num',   String(cue.slot));
-      const c = CUE_COLORS[cue.slot];
+      const c = (cue.isPhrase && PHRASE_COLORS[cue.label])
+        ? PHRASE_COLORS[cue.label]
+        : (CUE_COLORS[cue.slot] ?? CUE_COLORS[0]);
       pm.setAttribute('Red',   String(c.r));
       pm.setAttribute('Green', String(c.g));
       pm.setAttribute('Blue',  String(c.b));
@@ -1569,8 +2011,32 @@ document.getElementById('skip-existing-cues').addEventListener('change', () => {
   if (parsedTracks.length) { renderTracks(); updateOverwriteWarning(); }
 });
 
+// ── Sort buttons ────────────────────────────────────────────────────────────────
+document.querySelectorAll('.sort-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    const by = btn.dataset.sort;
+    if (currentSort.by === by) {
+      currentSort.order = currentSort.order === 'asc' ? 'desc' : 'asc';
+    } else {
+      currentSort = { by, order: 'asc' };
+      if (by === 'album') expandedAlbums.clear();
+    }
+    document.querySelectorAll('.sort-btn').forEach(b => {
+      b.classList.toggle('active', b.dataset.sort === currentSort.by);
+      if (b.dataset.sort === currentSort.by) {
+        b.textContent = { title: 'Title', artist: 'Artist', album: 'Album', bpm: 'BPM', key: 'Key' }[by]
+          + (currentSort.order === 'asc' ? ' ▲' : ' ▼');
+      } else {
+        b.textContent = { title: 'Title', artist: 'Artist', album: 'Album', bpm: 'BPM', key: 'Key' }[b.dataset.sort];
+      }
+    });
+    if (parsedTracks.length) renderTracks();
+  });
+});
+
 // ── Events: Download ───────────────────────────────────────────────────────────
 document.getElementById('download-btn').addEventListener('click', () => {
+  if (localMode) { applyToRekordbox(); return; }
   const xml  = buildOutputXml();
   const blob = new Blob([xml], { type: 'text/xml' });
   const url  = URL.createObjectURL(blob);
@@ -1582,6 +2048,53 @@ document.getElementById('download-btn').addEventListener('click', () => {
 });
 document.getElementById('path-warning-dismiss').addEventListener('click', () => {
   document.getElementById('path-warning').classList.remove('visible');
+});
+
+// ── Events: Delete all cues (local mode only) ──────────────────────────────────
+document.getElementById('color-by-bpm-btn').addEventListener('click', colorTracksByBpm);
+
+document.getElementById('delete-cues-btn').addEventListener('click', () => {
+  const total = parsedTracks.length;
+  if (!total) return;
+  document.getElementById('delete-confirm-msg').textContent =
+    `Delete all hot cues from ${total} track${total !== 1 ? 's' : ''}?`;
+  document.getElementById('delete-confirm-bar').classList.add('visible');
+  document.getElementById('delete-cues-btn').style.display = 'none';
+});
+
+document.getElementById('delete-cancel-btn').addEventListener('click', () => {
+  document.getElementById('delete-confirm-bar').classList.remove('visible');
+  document.getElementById('delete-cues-btn').style.display = '';
+});
+
+document.getElementById('delete-confirm-btn').addEventListener('click', async () => {
+  const confirmBtn = document.getElementById('delete-confirm-btn');
+  const cancelBtn  = document.getElementById('delete-cancel-btn');
+  confirmBtn.disabled = true;
+  cancelBtn.disabled  = true;
+  confirmBtn.textContent = 'Deleting…';
+  try {
+    const trackIds = parsedTracks.map(t => parseInt(t.id));
+    const r = await fetch('/api/delete-cues', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ track_ids: trackIds, dry_run: false }),
+      signal: AbortSignal.timeout(60_000),
+    });
+    const resp = await r.json();
+    if (!r.ok) throw new Error(resp.detail || r.statusText);
+    showToast(`Deleted ${resp.deleted} cues from ${resp.tracks_affected} tracks — backup saved`);
+    // Refresh track list so existing_hot_cues counts update
+    await loadTracksFromServer();
+  } catch (err) {
+    showToast(`Delete failed: ${err.message}`);
+  } finally {
+    confirmBtn.disabled = false;
+    cancelBtn.disabled  = false;
+    confirmBtn.textContent = 'Confirm delete';
+    document.getElementById('delete-confirm-bar').classList.remove('visible');
+    document.getElementById('delete-cues-btn').style.display = '';
+  }
 });
 
 // ── Events: Mini player ────────────────────────────────────────────────────────
@@ -1655,10 +2168,56 @@ document.getElementById('mode-phrase-btn').addEventListener('click', async () =>
   analysisMode = 'phrase';
   document.getElementById('mode-phrase-btn').classList.add('active');
   document.getElementById('mode-bar-btn').classList.remove('active');
-  document.getElementById('anlz-drop-section').style.display = '';
-  loadPyodideEngine(); // start loading in background
-  if (parsedTracks.length) renderTracks();
+  if (localMode) {
+    // Server already has ANLZ access — no Pyodide or folder drop needed
+    document.getElementById('anlz-drop-section').style.display = 'none';
+    if (parsedTracks.length) await loadPhraseFromServer();
+  } else {
+    document.getElementById('anlz-drop-section').style.display = '';
+    loadPyodideEngine(); // start loading in background
+    if (parsedTracks.length) renderTracks();
+  }
 });
+
+async function loadPhraseFromServer() {
+  const phraseTrackIds = parsedTracks
+    .filter(t => t.bpm > 0)
+    .map(t => parseInt(t.id));
+
+  if (!phraseTrackIds.length) {
+    showToast('No tracks with phrase analysis data found');
+    renderTracks();
+    return;
+  }
+
+  showToast(`Loading phrase cues for ${phraseTrackIds.length} tracks…`);
+  try {
+    const resp = await fetch('/api/generate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ track_ids: phraseTrackIds, mode: 'phrase' }),
+      signal: AbortSignal.timeout(120_000),
+    }).then(r => r.json());
+
+    phraseCueState = {};
+    for (const result of (resp.tracks || [])) {
+      if (result.mode_used === 'phrase' && result.cues.length) {
+        phraseCueState[String(result.id)] = result.cues.map(c => ({
+          position_ms: c.position_ms,
+          label: c.label,
+          slot: c.slot,
+          name: c.name || '',
+        }));
+      }
+    }
+    const matched = Object.keys(phraseCueState).length;
+    showToast(`Phrase analysis loaded for ${matched} track${matched !== 1 ? 's' : ''}`);
+    renderTracks();
+  } catch (err) {
+    showToast('Phrase analysis failed — showing bar-interval preview');
+    renderTracks();
+  }
+}
 
 // ── Theme toggle ───────────────────────────────────────────────────────────────
 const root = document.documentElement;

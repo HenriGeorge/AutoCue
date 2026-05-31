@@ -12,7 +12,7 @@ import dataclasses
 
 import pytest
 
-from autocue.models import CuePoint, PhraseLabel, phrase_label
+from autocue.models import CuePoint, DJ_NAMES, PhraseLabel, phrase_label
 
 
 # ---------------------------------------------------------------------------
@@ -111,7 +111,7 @@ class TestCuePointDataclass:
 
     def test_expected_fields(self):
         field_names = {f.name for f in dataclasses.fields(CuePoint)}
-        assert field_names == {"position_ms", "label", "slot"}
+        assert field_names == {"position_ms", "label", "slot", "name", "color_id"}
 
     def test_value_equality(self):
         a = CuePoint(position_ms=1000, label=PhraseLabel.INTRO, slot=0)
@@ -128,6 +128,47 @@ class TestCuePointDataclass:
         assert cue.position_ms == 5000
         assert cue.label is PhraseLabel.CHORUS
         assert cue.slot == 3
+
+    def test_name_defaults_to_empty_string(self):
+        cue = CuePoint(position_ms=0, label=PhraseLabel.INTRO, slot=0)
+        assert cue.name == ""
+
+    def test_name_can_be_set(self):
+        cue = CuePoint(position_ms=0, label=PhraseLabel.CHORUS, slot=0, name="Drop")
+        assert cue.name == "Drop"
+
+
+# ---------------------------------------------------------------------------
+# DJ_NAMES mapping
+# ---------------------------------------------------------------------------
+
+class TestDJNames:
+    def test_chorus_maps_to_drop(self):
+        assert DJ_NAMES[PhraseLabel.CHORUS] == "Drop"
+
+    def test_up_maps_to_build(self):
+        assert DJ_NAMES[PhraseLabel.UP] == "Build"
+
+    def test_down_maps_to_break(self):
+        assert DJ_NAMES[PhraseLabel.DOWN] == "Break"
+
+    def test_intro_unchanged(self):
+        assert DJ_NAMES[PhraseLabel.INTRO] == "Intro"
+
+    def test_verse_unchanged(self):
+        assert DJ_NAMES[PhraseLabel.VERSE] == "Verse"
+
+    def test_outro_unchanged(self):
+        assert DJ_NAMES[PhraseLabel.OUTRO] == "Outro"
+
+    def test_bridge_unchanged(self):
+        assert DJ_NAMES[PhraseLabel.BRIDGE] == "Bridge"
+
+    def test_unknown_is_empty_string(self):
+        assert DJ_NAMES[PhraseLabel.UNKNOWN] == ""
+
+    def test_all_labels_covered(self):
+        assert set(DJ_NAMES.keys()) == set(PhraseLabel)
 
 
 # ---------------------------------------------------------------------------

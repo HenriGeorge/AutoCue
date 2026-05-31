@@ -44,7 +44,7 @@ def write_xml(
         for cue in cues:
             # Num: -1 = memory cue, 0–7 = Hot Cues A–H (slot already matches wire format)
             track.add_mark(
-                Name=cue.label.value,
+                Name=cue.name or cue.label.value,
                 Type="cue",
                 Start=cue.position_sec,
                 Num=cue.slot,

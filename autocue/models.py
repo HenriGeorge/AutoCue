@@ -56,12 +56,45 @@ def phrase_label(mood: int, kind: int) -> PhraseLabel:
     return _KIND_MAP.get(mood, {}).get(kind, PhraseLabel.UNKNOWN)
 
 
+# DJ-friendly display names written into Rekordbox cue labels.
+# CHORUS→Drop, UP→Build, DOWN→Break reflect EDM conventions where
+# Rekordbox's PSSI "Chorus" is the drop and "Up"/"Down" are build/breakdown.
+DJ_NAMES: dict[PhraseLabel, str] = {
+    PhraseLabel.INTRO:   "Intro",
+    PhraseLabel.VERSE:   "Verse",
+    PhraseLabel.BRIDGE:  "Bridge",
+    PhraseLabel.CHORUS:  "Drop",
+    PhraseLabel.OUTRO:   "Outro",
+    PhraseLabel.UP:      "Build",
+    PhraseLabel.DOWN:    "Break",
+    PhraseLabel.UNKNOWN: "",
+}
+
+
+# DjmdColor table IDs: 1=Pink 2=Red 3=Orange 4=Yellow 5=Green 6=Aqua 7=Blue 8=Purple
+SLOT_COLORS: list[int] = [5, 7, 6, 3, 2, 2, 1, 8]  # slots A→H
+
+LABEL_COLORS: dict[str, int] = {
+    "Intro":   5,  # Green
+    "Verse":   7,  # Blue
+    "Bridge":  6,  # Aqua
+    "Chorus":  2,  # Red  (Rekordbox "Chorus" maps to Drop in EDM)
+    "Outro":   3,  # Orange
+    "Up":      1,  # Pink (Build)
+    "Down":    8,  # Purple (Break)
+}
+
+
 @dataclass
 class CuePoint:
     position_ms: int
     label: PhraseLabel
     # hot cue slot: 0–7 (A–H), or -1 for memory cue — matches Rekordbox XML Num field directly
     slot: int
+    # DJ-friendly text written to Rekordbox. Empty = fall back to label.value.
+    name: str = ""
+    # DjmdColor table ID: 0=none, 1=Pink, 2=Red, 3=Orange, 4=Yellow, 5=Green, 6=Aqua, 7=Blue, 8=Purple
+    color_id: int = 0
 
     @property
     def position_sec(self) -> float:

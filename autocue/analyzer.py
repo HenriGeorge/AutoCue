@@ -4,10 +4,12 @@ returning a list of CuePoints ready to be written back to the library.
 """
 from __future__ import annotations
 
+from collections import Counter
+
 from pyrekordbox import Rekordbox6Database as MasterDatabase
 from pyrekordbox.db6 import DjmdContent
 
-from .models import CuePoint, PhraseLabel, phrase_label
+from .models import CuePoint, DJ_NAMES, PhraseLabel, phrase_label
 
 # Maximum hot cue slots Rekordbox supports (A–H)
 MAX_HOT_CUES = 8
@@ -82,10 +84,21 @@ def analyze_track(content: DjmdContent, db: MasterDatabase) -> list[CuePoint]:
 
     # Combine, sort by position ascending, assign 0-indexed slots
     combined = sorted(pass1 + pass2, key=lambda x: x[0])
-    cues: list[CuePoint] = [
-        CuePoint(position_ms=ms, label=lbl, slot=slot)
-        for slot, (ms, lbl) in enumerate(combined)
-    ]
+
+    # Assign DJ-friendly names; number each label if it appears more than once
+    label_counts = Counter(lbl for _, lbl in combined)
+    label_seen: dict[PhraseLabel, int] = {}
+    cues: list[CuePoint] = []
+    for slot, (ms, lbl) in enumerate(combined):
+        label_seen[lbl] = label_seen.get(lbl, 0) + 1
+        base = DJ_NAMES[lbl]
+        if not base:
+            name = ""
+        elif label_counts[lbl] == 1:
+            name = base
+        else:
+            name = f"{base} {label_seen[lbl]}"
+        cues.append(CuePoint(position_ms=ms, label=lbl, slot=slot, name=name))
     return cues
 
 
