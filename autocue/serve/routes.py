@@ -88,6 +88,10 @@ def tracks(
     elif sort_by == "key":
         q = q.outerjoin(DjmdKey, DjmdContent.KeyID == DjmdKey.ID)
         q = q.order_by(order_fn(DjmdKey.Seq))
+    elif sort_by == "rating":
+        q = q.order_by(order_fn(DjmdContent.Rating))
+    elif sort_by == "plays":
+        q = q.order_by(order_fn(DjmdContent.DJPlayCount))
     else:
         q = q.order_by(order_fn(func.lower(DjmdContent.Title)))
 
@@ -95,8 +99,45 @@ def tracks(
     rows = q.offset(offset).limit(limit).all()
     # Pre-load the 24-row key table once rather than querying per track
     key_map = {k.ID: k.ScaleName for k in db.query(DjmdKey).all() if k.ScaleName}
+
+    # Pre-load play history: ContentID → latest session DateCreated
+    last_played_map: dict[str, str] = {}
+    try:
+        from pyrekordbox.db6 import DjmdHistory, DjmdSongHistory
+        hist_date = {str(h.ID): h.DateCreated for h in db.query(DjmdHistory).all() if h.DateCreated}
+        for sh in db.query(DjmdSongHistory).all():
+            d = hist_date.get(str(sh.HistoryID))
+            if d and sh.ContentID:
+                key = str(sh.ContentID)
+                if key not in last_played_map or d > last_played_map[key]:
+                    last_played_map[key] = d
+    except Exception:
+        pass
+
+    # Pre-load my tags: ContentID → [tag names]
+    my_tags_map: dict[str, list[str]] = {}
+    try:
+        from pyrekordbox.db6 import DjmdMyTag, DjmdSongMyTag
+        tag_names = {str(t.ID): t.Name for t in db.query(DjmdMyTag).all() if t.Name}
+        for st in db.query(DjmdSongMyTag).all():
+            n = tag_names.get(str(st.MyTagID))
+            if n and st.ContentID:
+                my_tags_map.setdefault(str(st.ContentID), []).append(n)
+    except Exception:
+        pass
+
+    # Pre-load color names
+    color_name_map: dict[str, str] = {}
+    try:
+        from pyrekordbox.db6 import DjmdColor
+        for c in db.query(DjmdColor).all():
+            if c.ID and c.Commnt:
+                color_name_map[str(c.ID)] = c.Commnt
+    except Exception:
+        pass
+
     response.headers["X-Total-Count"] = str(total)
-    return [_to_item(t, db, key_map) for t in rows]
+    return [_to_item(t, db, key_map, last_played_map, my_tags_map, color_name_map) for t in rows]
 
 
 @router.get("/tracks/{track_id}/artwork")
@@ -112,10 +153,50 @@ def track_artwork(track_id: int, db=Depends(get_db)):
     db_dir = getattr(db, "_db_dir", None)
     if db_dir is None:
         raise HTTPException(500, "Cannot resolve artwork path")
-    full = Path(db_dir) / "share" / image_path.lstrip("/")
+    ext_types = {".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png", ".gif": "image/gif"}
+    candidates = [
+        Path(image_path),
+        Path(db_dir) / image_path.lstrip("/"),
+        Path(db_dir) / "share" / image_path.lstrip("/"),
+    ]
+    for c in candidates:
+        if c.exists():
+            return FileResponse(str(c), media_type=ext_types.get(c.suffix.lower(), "image/jpeg"))
+    raise HTTPException(404, "Artwork file not found")
+
+
+@router.get("/tracks/{track_id}/audio")
+def track_audio(track_id: int, db=Depends(get_db)):
+    from pathlib import Path
+
+    content = db.get_content(ID=track_id)
+    if content is None:
+        raise HTTPException(404, "Track not found")
+    folder = getattr(content, "FolderPath", None) or ""
+    filename = getattr(content, "FileNameL", None) or getattr(content, "FileNameS", None) or ""
+    if not filename:
+        raise HTTPException(404, "No file path")
+    # Rekordbox on macOS sometimes uses /: prefix for volume paths
+    folder = folder.replace("/:", "/", 1) if folder.startswith("/:") else folder
+    full = Path(folder) / filename
     if not full.exists():
-        raise HTTPException(404, "Artwork file not found")
-    return FileResponse(str(full), media_type="image/jpeg")
+        raise HTTPException(404, "Audio file not found on disk")
+    ext_types = {
+        ".mp3": "audio/mpeg", ".wav": "audio/wav", ".aac": "audio/aac",
+        ".m4a": "audio/mp4", ".flac": "audio/flac", ".ogg": "audio/ogg",
+        ".aiff": "audio/aiff", ".aif": "audio/aiff",
+    }
+    return FileResponse(str(full), media_type=ext_types.get(full.suffix.lower(), "audio/mpeg"))
+
+
+@router.get("/tags")
+def list_tags(db=Depends(get_db)):
+    try:
+        from pyrekordbox.db6 import DjmdMyTag
+        tags = db.query(DjmdMyTag).filter(DjmdMyTag.Name.isnot(None)).all()
+        return [{"id": t.ID, "name": t.Name} for t in tags if t.Name]
+    except Exception:
+        return []
 
 
 @router.post("/generate", response_model=GenerateResponse)
@@ -126,6 +207,7 @@ def generate(req: GenerateRequest, db=Depends(get_db)):
         start_bar=req.start_bar,
         max_cues=req.max_cues,
         add_memory_cue=req.add_memory_cue,
+        add_fill_cues=req.add_fill_cues,
     )
     results = []
     for tid in req.track_ids:
@@ -226,6 +308,7 @@ def generate_apply(req: GenerateAndApplyRequest, db=Depends(get_db)):
         start_bar=req.start_bar,
         max_cues=req.max_cues,
         add_memory_cue=req.add_memory_cue,
+        add_fill_cues=req.add_fill_cues,
     )
 
     backup_path = None
@@ -295,6 +378,7 @@ def generate_apply_stream(req: GenerateAndApplyRequest, db=Depends(get_db)):
         start_bar=req.start_bar,
         max_cues=req.max_cues,
         add_memory_cue=req.add_memory_cue,
+        add_fill_cues=req.add_fill_cues,
     )
 
     backup_path = None
@@ -484,22 +568,28 @@ def color_tracks_ep(req: ColorTracksRequest, db=Depends(get_db)):
         except Exception as e:
             raise HTTPException(500, f"Backup failed — aborting: {e}")
 
-    colored, skipped = color_tracks_by_bpm(req.track_ids, db, dry_run=req.dry_run)
+    colored, skipped = color_tracks_by_bpm(req.track_ids, db, dry_run=req.dry_run, skip_colored=req.skip_colored)
     return ColorTracksResponse(
         colored=colored, skipped=skipped, dry_run=req.dry_run, backup_path=backup_path
     )
 
 
-def _to_item(t, db, key_map: dict | None = None) -> TrackItem:
+def _to_item(
+    t, db,
+    key_map: dict | None = None,
+    last_played_map: dict | None = None,
+    my_tags_map: dict | None = None,
+    color_name_map: dict | None = None,
+) -> TrackItem:
     bpm_raw = getattr(t, "BPM", None)
     key_id = getattr(t, "KeyID", None)
     key = key_map.get(key_id, "") if key_map and key_id else ""
-    # Fast phrase check: see if the ANLZ .EXT file exists (no parse needed)
     try:
         ext_path = db.get_anlz_path(t, "EXT")
         has_phrase = bool(ext_path)
     except Exception:
         has_phrase = False
+    color_id = str(getattr(t, "ColorID", None) or "")
     return TrackItem(
         id=t.ID,
         title=t.Title or "",
@@ -511,4 +601,9 @@ def _to_item(t, db, key_map: dict | None = None) -> TrackItem:
         has_beats=bool(bpm_raw and float(bpm_raw) > 0),
         existing_hot_cues=has_existing_hot_cues(t, db),
         key=key,
+        rating=int(getattr(t, "Rating", 0) or 0),
+        play_count=int(str(getattr(t, "DJPlayCount", None) or "0") or "0"),
+        last_played=(last_played_map or {}).get(str(t.ID)),
+        my_tags=(my_tags_map or {}).get(str(t.ID), []),
+        color_name=(color_name_map or {}).get(color_id, "") if color_id else "",
     )

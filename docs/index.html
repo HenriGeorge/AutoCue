@@ -296,6 +296,23 @@
     .track-card.selected { border-color: var(--green); background: color-mix(in srgb, var(--green) 6%, var(--surface)); }
     .track-select-cb { width:15px; height:15px; flex-shrink:0; cursor:pointer; accent-color:var(--green); margin-top:4px; }
 
+    /* artwork play overlay */
+    .art-play-overlay {
+      position:absolute; inset:0; display:flex; align-items:center; justify-content:center;
+      background:rgba(0,0,0,0); transition:background .15s; border-radius:6px; cursor:pointer;
+      border:none; padding:0;
+    }
+    .art-play-overlay:hover { background:rgba(0,0,0,.5); }
+    .art-play-overlay svg { opacity:0; transition:opacity .15s; width:22px; height:22px; color:#fff; }
+    .art-play-overlay:hover svg, .art-play-overlay.playing svg { opacity:1; }
+    .art-play-overlay.playing { background:rgba(0,0,0,.35); }
+    /* tag pills */
+    .tag-pill { font-size:10px; padding:1px 6px; border-radius:10px; background:rgba(255,255,255,.07);
+      border:1px solid var(--border); color:var(--muted); white-space:nowrap; }
+    /* rating + play count */
+    .track-rating { font-size:11px; color:#f0b429; letter-spacing:-1px; white-space:nowrap; }
+    .track-plays { font-size:11px; color:var(--muted); white-space:nowrap; }
+
     /* card layout: artwork + main content */
     .card-top { display: flex; gap: 12px; align-items: flex-start; }
     .artwork-wrap {
@@ -766,6 +783,12 @@
           Place memory cue at bar 1 (sets CDJ Auto Cue)
         </label>
       </div>
+      <div class="field" style="grid-column:1/-1">
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
+          <input type="checkbox" id="add-fill-cues" />
+          Add fill-beat cues (phrase mode only — places a cue at each fill section start)
+        </label>
+      </div>
     </div>
     <div class="existing-cues-info" id="existing-cues-info" style="display:none">
       <span class="existing-cues-label" id="existing-cues-label"></span>
@@ -789,6 +812,25 @@
         <input type="checkbox" id="phrase-only-cb" />
         Phrase only
       </label>
+      <select id="rating-filter" title="Min rating" style="background:var(--surface-card);color:var(--text);border:1px solid var(--border,#333);border-radius:6px;padding:4px 8px;font-size:12px;">
+        <option value="0">Any rating</option>
+        <option value="1">★+</option><option value="2">★★+</option>
+        <option value="3">★★★+</option><option value="4">★★★★+</option><option value="5">★★★★★</option>
+      </select>
+      <select id="plays-filter" style="background:var(--surface-card);color:var(--text);border:1px solid var(--border,#333);border-radius:6px;padding:4px 8px;font-size:12px;">
+        <option value="all">All plays</option>
+        <option value="played">Played</option>
+        <option value="unplayed">Never played</option>
+      </select>
+      <select id="lastplayed-filter" style="background:var(--surface-card);color:var(--text);border:1px solid var(--border,#333);border-radius:6px;padding:4px 8px;font-size:12px;">
+        <option value="all">Any time</option>
+        <option value="7d">Last 7 days</option>
+        <option value="30d">Last 30 days</option>
+        <option value="never">Never played</option>
+      </select>
+      <select id="tag-filter-select" style="background:var(--surface-card);color:var(--text);border:1px solid var(--border,#333);border-radius:6px;padding:4px 8px;font-size:12px;">
+        <option value="">All tags</option>
+      </select>
       <button class="secondary-btn" id="select-all-btn" style="font-size:12px;padding:4px 10px;">Select all</button>
       <button class="secondary-btn" id="deselect-all-btn" style="font-size:12px;padding:4px 10px;display:none">Deselect all</button>
       <span id="selection-count" style="font-size:12px;color:var(--green);white-space:nowrap;"></span>
@@ -800,6 +842,8 @@
       <button class="sort-btn" data-sort="album">Album</button>
       <button class="sort-btn" data-sort="bpm">BPM</button>
       <button class="sort-btn" data-sort="key">Key</button>
+      <button class="sort-btn" data-sort="rating">Rating</button>
+      <button class="sort-btn" data-sort="plays">Plays</button>
     </div>
     <div id="track-list"></div>
   </section>
@@ -896,6 +940,9 @@ autocue --library --playlist "My Set"</pre>
   </div>
   <button class="secondary-btn" id="undo-btn" style="display:none">↩ Undo last apply</button>
   <button class="danger" id="delete-cues-btn" style="display:none">Delete all cues</button>
+  <label id="skip-colored-label" style="display:none;font-size:12px;color:var(--muted);cursor:pointer;white-space:nowrap;gap:4px;align-items:center;">
+    <input type="checkbox" id="skip-colored-cb"> Skip colored
+  </label>
   <button class="secondary-btn" id="color-by-bpm-btn" style="display:none">Color tracks by BPM</button>
   <button class="secondary-btn" id="preview-cues-btn" style="display:none">Preview cues</button>
   <button class="primary" id="download-btn">Download XML</button>
@@ -958,6 +1005,11 @@ let activePlaylistId = null;
 let searchQuery = '';
 // F6: phrase-only filter
 let phraseOnlyFilter = false;
+// Rating/plays/lastplayed/tag filters (local mode)
+let ratingFilter = 0;
+let playsFilter = 'all';   // 'all' | 'played' | 'unplayed'
+let lastPlayedFilter = 'all'; // 'all' | '7d' | '30d' | 'never'
+let myTagFilter = '';      // '' = all tags
 // F7: bulk selection (track id strings)
 let selectedTrackIds = new Set();
 // F8: filename of the last successful apply backup (for one-click undo)
@@ -994,6 +1046,11 @@ async function loadTracksFromServer(playlistId = null) {
     bpm: t.bpm, totalTime: t.duration, tempo: null,
     existingHotCues: t.existing_hot_cues, hasPhrase: t.has_phrase,
     key: t.key || '',
+    rating: t.rating || 0,
+    playCount: t.play_count || 0,
+    lastPlayed: t.last_played || null,
+    myTags: t.my_tags || [],
+    colorName: t.color_name || '',
     locationFilename: '',
   }));
   parsedDoc = null;
@@ -1024,10 +1081,11 @@ async function colorTracksByBpm() {
   btn.disabled = true;
   try {
     const trackIds = activeTracks().map(t => parseInt(t.id));
+    const skipColored = document.getElementById('skip-colored-cb')?.checked ?? false;
     const r = await fetch('/api/color-tracks', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ track_ids: trackIds, dry_run: false }),
+      body: JSON.stringify({ track_ids: trackIds, dry_run: false, skip_colored: skipColored }),
       signal: AbortSignal.timeout(30_000),
     });
     const resp = await r.json();
@@ -1050,6 +1108,7 @@ async function applyToRekordbox() {
   const startBar = parseInt(document.getElementById('start-bar').value) || 1;
   const maxCues = parseInt(document.getElementById('max-cues').value) || 8;
   const addMemoryCue = document.getElementById('add-memory-cue').checked;
+  const addFillCues = document.getElementById('add-fill-cues').checked;
   const tracks = activeTracks();
   const trackCount = tracks.length;
 
@@ -1064,6 +1123,7 @@ async function applyToRekordbox() {
     start_bar: startBar,
     max_cues: maxCues,
     add_memory_cue: addMemoryCue,
+    add_fill_cues: addFillCues,
     overwrite: !document.getElementById('skip-existing-cues').checked,
     phrase_only: phraseOnlyFilter,
     dry_run: false,
@@ -1127,6 +1187,7 @@ detectLocalMode().then(async connected => {
     document.getElementById('local-mode-banner').style.display = '';
     document.getElementById('download-btn').textContent = 'Apply to Rekordbox';
     document.getElementById('delete-cues-btn').style.display = '';
+    document.getElementById('skip-colored-label').style.display = 'flex';
     document.getElementById('color-by-bpm-btn').style.display = '';
     document.getElementById('preview-cues-btn').style.display = '';
     document.getElementById('how-to').style.display = 'none';
@@ -1143,6 +1204,17 @@ detectLocalMode().then(async connected => {
         opt.value = pl.id;
         opt.textContent = `${pl.name} (${pl.track_count})`;
         sel.appendChild(opt);
+      }
+    } catch {}
+
+    try {
+      const tags = await fetch('/api/tags').then(r => r.json());
+      const tagSel = document.getElementById('tag-filter-select');
+      for (const tag of tags) {
+        const opt = document.createElement('option');
+        opt.value = tag;
+        opt.textContent = tag;
+        tagSel.appendChild(opt);
       }
     } catch {}
 
@@ -1212,6 +1284,24 @@ document.getElementById('search-input').addEventListener('input', e => {
 // F6: Phrase-only filter
 document.getElementById('phrase-only-cb').addEventListener('change', e => {
   phraseOnlyFilter = e.target.checked;
+  if (parsedTracks.length) renderTracks();
+});
+
+// Rating / plays / last-played / tag filters
+document.getElementById('rating-filter').addEventListener('change', e => {
+  ratingFilter = parseInt(e.target.value) || 0;
+  if (parsedTracks.length) renderTracks();
+});
+document.getElementById('plays-filter').addEventListener('change', e => {
+  playsFilter = e.target.value;
+  if (parsedTracks.length) renderTracks();
+});
+document.getElementById('lastplayed-filter').addEventListener('change', e => {
+  lastPlayedFilter = e.target.value;
+  if (parsedTracks.length) renderTracks();
+});
+document.getElementById('tag-filter-select').addEventListener('change', e => {
+  myTagFilter = e.target.value;
   if (parsedTracks.length) renderTracks();
 });
 
@@ -1411,6 +1501,21 @@ function pausePlayback() {
   updatePlaybackUI();
 }
 
+async function ensureLocalAudio(track) {
+  if (audioState[track.id]) return; // already loaded
+  try {
+    const resp = await fetch(`/api/tracks/${track.id}/audio`);
+    if (!resp.ok) { showToast('Audio file not found on disk'); return; }
+    const blob = await resp.blob();
+    const url = URL.createObjectURL(blob);
+    blobUrlsToRevoke.add(url);
+    audioState[track.id] = { file: null, objectUrl: url, artworkUrl: audioState[track.id]?.artworkUrl || null };
+    updateCardAudioState(track.id);
+  } catch (e) {
+    showToast(`Could not load audio: ${e.message}`);
+  }
+}
+
 function togglePlayTrack(trackId) {
   if (nowPlayingId === trackId && !audioPlayer.paused) {
     pausePlayback();
@@ -1431,15 +1536,21 @@ function seekAndPlay(trackId, posSec) {
 function updatePlaybackUI() {
   const isPlaying = !audioPlayer.paused;
 
-  // Update all card play buttons
+  // Update all card play buttons and art overlay
   document.querySelectorAll('.track-card').forEach(card => {
     const tid = card.dataset.trackId;
     const btn = card.querySelector('.play-btn');
-    if (!btn) return;
+    const overlay = card.querySelector('.art-play-overlay');
     const active = tid === nowPlayingId;
     card.classList.toggle('now-playing', active && isPlaying);
-    btn.innerHTML = (active && isPlaying) ? SVG_PAUSE : SVG_PLAY;
-    btn.setAttribute('aria-label', (active && isPlaying) ? 'Pause' : 'Play');
+    if (btn) {
+      btn.innerHTML = (active && isPlaying) ? SVG_PAUSE : SVG_PLAY;
+      btn.setAttribute('aria-label', (active && isPlaying) ? 'Pause' : 'Play');
+    }
+    if (overlay) {
+      overlay.innerHTML = (active && isPlaying) ? SVG_PAUSE : SVG_PLAY;
+      overlay.classList.toggle('playing', active && isPlaying);
+    }
   });
 
   // Update mini player play button
@@ -1692,6 +1803,19 @@ function filteredTracks() {
       (t.artist || '').toLowerCase().includes(q)
     );
   }
+  if (ratingFilter > 0) tracks = tracks.filter(t => t.rating >= ratingFilter);
+  if (playsFilter === 'played') tracks = tracks.filter(t => t.playCount > 0);
+  else if (playsFilter === 'unplayed') tracks = tracks.filter(t => t.playCount === 0);
+  if (lastPlayedFilter !== 'all') {
+    if (lastPlayedFilter === 'never') {
+      tracks = tracks.filter(t => !t.lastPlayed);
+    } else {
+      const days = lastPlayedFilter === '7d' ? 7 : 30;
+      const cutoff = new Date(Date.now() - days * 86400000).toISOString();
+      tracks = tracks.filter(t => t.lastPlayed && t.lastPlayed >= cutoff);
+    }
+  }
+  if (myTagFilter) tracks = tracks.filter(t => (t.myTags || []).includes(myTagFilter));
   return tracks;
 }
 
@@ -1719,6 +1843,8 @@ function sortedTracks() {
     else if (by === 'artist') { av = (a.artist || '').toLowerCase(); bv = (b.artist || '').toLowerCase(); }
     else if (by === 'album') { av = (a.album || '').toLowerCase(); bv = (b.album || '').toLowerCase(); }
     else if (by === 'key') { av = camelotSortKey(a.key); bv = camelotSortKey(b.key); }
+    else if (by === 'rating') { av = a.rating || 0; bv = b.rating || 0; }
+    else if (by === 'plays') { av = a.playCount || 0; bv = b.playCount || 0; }
     else { av = (a.name || '').toLowerCase(); bv = (b.name || '').toLowerCase(); }
     if (av < bv) return order === 'asc' ? -1 : 1;
     if (av > bv) return order === 'asc' ? 1 : -1;
@@ -1760,6 +1886,7 @@ function buildTrackCard(track, cues, willSkip, opts = {}) {
   // Artwork
   const artWrap = document.createElement('div');
   artWrap.className = 'artwork-wrap';
+  artWrap.style.position = 'relative';
   const ph = document.createElement('div');
   ph.className = 'artwork-placeholder';
   ph.textContent = '♪';
@@ -1773,6 +1900,20 @@ function buildTrackCard(track, cues, willSkip, opts = {}) {
     img.onerror = () => img.remove();
     artWrap.appendChild(img);
   }
+  // Art play overlay (always present; in local mode triggers ensureLocalAudio)
+  const artOverlay = document.createElement('button');
+  artOverlay.className = 'art-play-overlay' + (nowPlayingId === track.id && !audioPlayer.paused ? ' playing' : '');
+  artOverlay.setAttribute('aria-label', 'Play');
+  artOverlay.innerHTML = (nowPlayingId === track.id && !audioPlayer.paused) ? SVG_PAUSE : SVG_PLAY;
+  artOverlay.addEventListener('click', e => {
+    e.stopPropagation();
+    if (localMode && !audioState[track.id]) {
+      ensureLocalAudio(track).then(() => togglePlayTrack(track.id));
+    } else {
+      togglePlayTrack(track.id);
+    }
+  });
+  artWrap.appendChild(artOverlay);
   cardTop.appendChild(artWrap);
 
   // Card main
@@ -1848,6 +1989,40 @@ function buildTrackCard(track, cues, willSkip, opts = {}) {
       sub.appendChild(al);
     }
     cardMain.appendChild(sub);
+  }
+
+  // Rating / play-count / last-played / My Tags (local mode data)
+  if (localMode && (track.rating || track.playCount || track.lastPlayed || (track.myTags && track.myTags.length))) {
+    const infoRow = document.createElement('div');
+    infoRow.style.cssText = 'display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:4px;';
+    if (track.rating > 0) {
+      const rEl = document.createElement('span');
+      rEl.className = 'track-rating';
+      rEl.title = `Rating: ${track.rating}/5`;
+      rEl.textContent = '★'.repeat(track.rating) + '☆'.repeat(5 - track.rating);
+      infoRow.appendChild(rEl);
+    }
+    if (track.playCount > 0) {
+      const pEl = document.createElement('span');
+      pEl.className = 'track-plays';
+      pEl.textContent = `${track.playCount} play${track.playCount !== 1 ? 's' : ''}`;
+      infoRow.appendChild(pEl);
+    }
+    if (track.lastPlayed) {
+      const lpEl = document.createElement('span');
+      lpEl.className = 'track-plays';
+      lpEl.title = track.lastPlayed;
+      const d = new Date(track.lastPlayed);
+      lpEl.textContent = `Last: ${d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}`;
+      infoRow.appendChild(lpEl);
+    }
+    for (const tag of (track.myTags || [])) {
+      const tp = document.createElement('span');
+      tp.className = 'tag-pill';
+      tp.textContent = tag;
+      infoRow.appendChild(tp);
+    }
+    cardMain.appendChild(infoRow);
   }
 
   if (willSkip) {

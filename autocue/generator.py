@@ -33,6 +33,7 @@ class GenerationPrefs:
     max_cues: int = MAX_HOT_CUES
     inizio_ms: int = 0  # first-beat offset in milliseconds
     add_memory_cue: bool = False
+    add_fill_cues: bool = False
 
 
 def detect_capability(
@@ -135,6 +136,25 @@ def generate_cues_for_track(
                 cues, mode_used = _bar_strategy(content, db, prefs)
             else:
                 cues, mode_used = _heuristic_strategy(content, db, prefs)
+
+    if prefs.add_fill_cues and mode_used == "phrase" and len(cues) < prefs.max_cues:
+        from .analyzer import analyze_fills
+        fills = analyze_fills(content, db)
+        existing_ms = {c.position_ms for c in cues}
+        for fill in fills:
+            if len(cues) >= prefs.max_cues:
+                break
+            if all(abs(fill.position_ms - e) > 500 for e in existing_ms):
+                fill.slot = len([c for c in cues if c.slot >= 0])
+                fill.color_id = SLOT_COLORS[fill.slot % len(SLOT_COLORS)]
+                cues.append(fill)
+                existing_ms.add(fill.position_ms)
+        cues = sorted(cues, key=lambda c: c.position_ms)
+        slot_idx = 0
+        for c in cues:
+            if c.slot >= 0:
+                c.slot = slot_idx
+                slot_idx += 1
 
     if prefs.add_memory_cue and cues:
         mem_pos = cues[0].position_ms if mode_used == "phrase" else max(0, prefs.inizio_ms)

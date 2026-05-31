@@ -6,7 +6,10 @@ from __future__ import annotations
 
 from collections import Counter
 
-from pyrekordbox import Rekordbox6Database as MasterDatabase
+try:
+    from pyrekordbox import MasterDatabase
+except ImportError:
+    from pyrekordbox import Rekordbox6Database as MasterDatabase  # type: ignore[no-redef]
 from pyrekordbox.db6 import DjmdContent
 
 from .models import CuePoint, DJ_NAMES, PhraseLabel, phrase_label
@@ -100,6 +103,39 @@ def analyze_track(content: DjmdContent, db: MasterDatabase) -> list[CuePoint]:
             name = f"{base} {label_seen[lbl]}"
         cues.append(CuePoint(position_ms=ms, label=lbl, slot=slot, name=name))
     return cues
+
+
+def analyze_fills(content: DjmdContent, db: MasterDatabase) -> list[CuePoint]:
+    """Return CuePoints at fill beats from PSSI phrase data. Returns [] on any failure."""
+    try:
+        anlz_ext = db.read_anlz_file(content, "EXT")
+        anlz_dat = db.read_anlz_file(content, "DAT")
+        if anlz_ext is None or anlz_dat is None:
+            return []
+        pssi = anlz_ext.get_tag("PSSI")
+        pqtz = anlz_dat.get_tag("PQTZ")
+        if pssi is None or pqtz is None:
+            return []
+        beat_entries = pqtz.content.entries
+        fills = []
+        for entry in pssi.content.entries:
+            fill_flag = getattr(entry, "fill", None)
+            beat_fill = getattr(entry, "beat_fill", None)
+            if not fill_flag or not beat_fill:
+                continue
+            fill_beat = entry.beat + int(beat_fill) - 1
+            ms = _beat_to_ms(beat_entries, fill_beat)
+            if ms is not None:
+                fills.append(CuePoint(
+                    position_ms=ms,
+                    label=PhraseLabel.UNKNOWN,
+                    slot=0,
+                    name="Fill",
+                    color_id=0,
+                ))
+        return fills
+    except Exception:
+        return []
 
 
 def analyze_by_title(title: str, db: MasterDatabase) -> tuple[DjmdContent, list[CuePoint]] | None:

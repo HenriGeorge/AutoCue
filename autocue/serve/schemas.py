@@ -28,6 +28,11 @@ class TrackItem(BaseModel):
     has_beats: bool
     existing_hot_cues: int
     key: str = ""
+    rating: int = 0
+    play_count: int = 0
+    last_played: str | None = None
+    my_tags: list[str] = []
+    color_name: str = ""
 
 
 class GenerateRequest(BaseModel):
@@ -37,6 +42,7 @@ class GenerateRequest(BaseModel):
     start_bar: int = 1
     max_cues: int = 8
     add_memory_cue: bool = False
+    add_fill_cues: bool = False
 
 
 class CueItem(BaseModel):
@@ -73,6 +79,7 @@ class GenerateAndApplyRequest(BaseModel):
     start_bar: int = 1
     max_cues: int = 8
     add_memory_cue: bool = False
+    add_fill_cues: bool = False
     overwrite: bool = False
     dry_run: bool = False
     phrase_only: bool = False
@@ -116,6 +123,7 @@ class DeleteResponse(BaseModel):
 class ColorTracksRequest(BaseModel):
     track_ids: list[int]
     dry_run: bool = False
+    skip_colored: bool = False
 
 
 class ColorTracksResponse(BaseModel):

@@ -5,7 +5,10 @@ import argparse
 import sys
 from pathlib import Path
 
-from pyrekordbox import Rekordbox6Database as MasterDatabase
+try:
+    from pyrekordbox import MasterDatabase
+except ImportError:
+    from pyrekordbox import Rekordbox6Database as MasterDatabase  # type: ignore[no-redef]
 from pyrekordbox.db6 import DjmdCue, DjmdPlaylist, DjmdSongPlaylist
 
 from .analyzer import analyze_by_id, analyze_by_title

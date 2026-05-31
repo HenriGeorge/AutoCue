@@ -85,7 +85,7 @@ def _bpm_to_color_sort_key(bpm: float) -> int:
     return 1                  # Pink
 
 
-def color_tracks_by_bpm(track_ids: list, db, *, dry_run: bool = False) -> tuple[int, int]:
+def color_tracks_by_bpm(track_ids: list, db, *, dry_run: bool = False, skip_colored: bool = False) -> tuple[int, int]:
     """Set DjmdContent.ColorID based on BPM range. Returns (colored, skipped).
 
     Looks up actual DjmdColor.ID strings by SortKey at runtime so UUID-format IDs
@@ -103,6 +103,9 @@ def color_tracks_by_bpm(track_ids: list, db, *, dry_run: bool = False) -> tuple[
     for tid in track_ids:
         content = db.get_content(ID=tid)
         if content is None:
+            skipped += 1
+            continue
+        if skip_colored and getattr(content, "ColorID", None):
             skipped += 1
             continue
         bpm_raw = getattr(content, "BPM", None)
