@@ -778,13 +778,13 @@
     </div>
     <div class="settings-grid" style="margin-top:10px">
       <div class="field" style="grid-column:1/-1">
-        <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer" title="Writes a memory cue (Kind=0, no hot cue slot used) at the first beat. CDJs load to this position — it controls where a track starts when you insert the media. Recommended if you want to skip directly to the intro or first drop.">
           <input type="checkbox" id="add-memory-cue" />
           Place memory cue at bar 1 (sets CDJ Auto Cue)
         </label>
       </div>
       <div class="field" style="grid-column:1/-1">
-        <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer" title="Phrase mode only. Adds extra cues at fill-beat positions — the short drum fills Rekordbox detects just before a phrase change (e.g. before a drop). Fill cues are added after phrase cues and are capped at the 8-cue limit. Has no effect in bar-interval mode.">
           <input type="checkbox" id="add-fill-cues" />
           Add fill-beat cues (phrase mode only — places a cue at each fill section start)
         </label>
@@ -792,7 +792,7 @@
     </div>
     <div class="existing-cues-info" id="existing-cues-info" style="display:none">
       <span class="existing-cues-label" id="existing-cues-label"></span>
-      <label class="skip-cues-label">
+      <label class="skip-cues-label" title="Tracks that already have hot cues will be shown as Skipped and left untouched. Uncheck to overwrite existing cues with AutoCue's suggestions. A backup is always made before any writes.">
         <input type="checkbox" id="skip-existing-cues" checked />
         Skip tracks that already have hot cues
       </label>
@@ -808,7 +808,7 @@
     <!-- F4: Search + F6: Phrase-only filter -->
     <div id="filter-bar" style="display:none; margin-bottom:8px; gap:8px; align-items:center; flex-wrap:wrap;">
       <input id="search-input" type="search" placeholder="Search title or artist…" style="flex:1;min-width:160px;background:var(--surface-card);color:var(--text);border:1px solid var(--border,#333);border-radius:6px;padding:5px 10px;font-size:13px;" />
-      <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;white-space:nowrap;">
+      <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;white-space:nowrap;" title="Show only tracks that have Rekordbox phrase data (ANLZ .EXT file). Useful to scope Apply to phrase-ready tracks so AutoCue can use Intro/Verse/Chorus/Outro labels instead of bar intervals.">
         <input type="checkbox" id="phrase-only-cb" />
         Phrase only
       </label>
@@ -850,12 +850,20 @@
 
   <!-- XML upload workflow (hidden in local mode) -->
   <div class="how-to" id="how-to">
-    <h2>How to use AutoCue</h2>
+    <h2>How to use AutoCue (web mode)</h2>
     <ol>
-      <li><strong>Export from Rekordbox:</strong> <code>File</code> → <code>Export Collection in rekordbox format</code> → save as <code>rekordbox.xml</code></li>
-      <li><strong>Drop the XML</strong> above. Optionally drop your audio files too to enable playback and artwork.</li>
-      <li><strong>Adjust settings</strong> and preview cue placements. Click any cue badge to audition it.</li>
-      <li><strong>Download</strong> the updated XML, then in Rekordbox: <code>File</code> → <code>Import Library</code>.</li>
+      <li><strong>Export from Rekordbox:</strong> <code>File</code> → <code>Export Collection in rekordbox format</code> → save as <code>rekordbox.xml</code>.</li>
+      <li><strong>Drop the XML</strong> above. Optionally also drop your audio files (or the whole analysis folder) to enable playback, artwork, and phrase analysis.</li>
+      <li>
+        <strong>Choose analysis mode:</strong>
+        <ul style="margin-top:6px;margin-left:1.2em;line-height:1.8">
+          <li><em>Bar intervals</em> — places cues every N bars using the BPM grid. Works for every analyzed track.</li>
+          <li><em>✨ Phrase analysis</em> — uses phrase data from the dropped ANLZ files (Intro, Verse, Chorus, Outro). Drop your Rekordbox analysis folder to enable this.</li>
+        </ul>
+      </li>
+      <li><strong>Adjust settings:</strong> bars interval, starting bar, max hot cues per track, and optional memory cue at bar 1. Hover any option for a tooltip explaining what it does.</li>
+      <li><strong>Preview cues:</strong> click any cue badge on a track card to audition the position. The timeline at the bottom of each card shows all cue positions at a glance.</li>
+      <li><strong>Download</strong> the updated XML, then import it back into Rekordbox: <code>File</code> → <code>Import Library</code> → select the file.</li>
     </ol>
     <p style="margin-top:16px;font-size:13px;color:var(--muted)">
       Everything runs locally in your browser — no files are ever uploaded anywhere.
@@ -867,46 +875,81 @@
     <h2>Local server mode — workflow</h2>
     <ol>
       <li>
-        <strong>Close Rekordbox</strong> before applying or deleting cues. The Rekordbox database is locked while the app is open. AutoCue will warn you if it detects Rekordbox is running.
+        <strong>Close Rekordbox</strong> before applying, deleting, or coloring tracks. AutoCue writes directly to the Rekordbox database (<code>master.db</code>) — it must be closed first. AutoCue warns you if it detects Rekordbox is still running.
+      </li>
+      <li>
+        <strong>Filter &amp; browse your library:</strong>
+        <ul style="margin-top:6px;margin-left:1.2em;line-height:1.8">
+          <li>Use the <em>search bar</em> to filter by title or artist.</li>
+          <li>Use the <em>playlist dropdown</em> to view a specific playlist.</li>
+          <li>Filter by <em>Phrase only</em>, <em>Rating</em>, <em>Plays</em>, <em>Last Played</em>, or <em>My Tag</em>.</li>
+          <li>Sort by Title, Artist, Album, BPM, Key, Rating, or Plays — click the same button again to reverse order.</li>
+          <li>In Album view tracks are grouped under collapsible album headers.</li>
+        </ul>
       </li>
       <li>
         <strong>Choose analysis mode:</strong>
         <ul style="margin-top:6px;margin-left:1.2em;line-height:1.8">
           <li><em>Bar intervals</em> — places cues every N bars using the BPM grid. Works for every analyzed track.</li>
-          <li><em>✨ Phrase analysis</em> — uses Rekordbox's phrase detection (Intro, Verse, Chorus, Outro). Falls back to bar intervals if a track has no phrase data.</li>
+          <li><em>✨ Phrase analysis</em> — uses Rekordbox's built-in phrase detection (Intro, Verse, Chorus, Outro, etc.). Falls back to bar intervals if a track has no phrase data.</li>
         </ul>
       </li>
       <li>
-        <strong>Configure cue settings:</strong> set how many bars apart each cue lands, which bar to start from, and the maximum number of cues per track.
+        <strong>Configure cue settings</strong> (hover each option for a detailed tooltip):
+        <ul style="margin-top:6px;margin-left:1.2em;line-height:1.8">
+          <li><em>Bars interval / Start bar / Max hot cues</em> — control bar-interval placement.</li>
+          <li><em>Memory cue at bar 1</em> — also writes a CDJ Auto Cue so your CDJ loads to the right position.</li>
+          <li><em>Fill-beat cues</em> — phrase mode only; adds cues at the fill sections before drops.</li>
+          <li><em>Skip tracks with existing cues</em> — leaves manually-cued tracks untouched.</li>
+        </ul>
       </li>
       <li>
-        <strong>Browse your library:</strong> sort by Title, Artist, Album, or BPM (click the same button again to reverse order). In Album view tracks are grouped under collapsible album headers — click an album to expand it. Each track card previews the cues that will be written.
+        <strong>Select tracks</strong> (optional): check individual track cards to scope operations to a subset. <em>Select all</em> selects every visible (filtered) track. Apply, Delete, and Color by BPM all respect the current selection.
       </li>
       <li>
-        <strong>Skip existing cues:</strong> check <em>Skip tracks that already have hot cues</em> to leave tracks untouched. Uncheck it to overwrite all tracks.
+        <strong>Preview cues</strong> (optional): click <em>Preview cues</em> to generate positions without writing. Each card shows a secondary preview timeline. Click Apply when ready.
       </li>
       <li>
-        <strong>Apply to Rekordbox:</strong> click the green button. AutoCue backs up <code>master.db</code> first, then writes the cues directly. The footer shows how many tracks and cues will be written before you confirm.
+        <strong>Apply to Rekordbox:</strong> click the green button. AutoCue backs up <code>master.db</code> first, then streams progress as each track is processed. Use <em>↩ Undo last apply</em> immediately afterwards to restore the backup if needed.
       </li>
       <li>
-        <strong>Delete all hot cues:</strong> click <em>Delete all cues</em> (bottom left) → confirm in the inline bar. This removes every hot cue (slots A–H) from all tracks, including manually placed ones. A backup is made first.
+        <strong>Color tracks by BPM:</strong> assigns a Rekordbox track color by BPM range — Aqua (&lt;90), Green (90–114), Blue (115–124), Orange (125–134), Red (135–149), Pink (≥150). Enable <em>Skip colored</em> to leave already-colored tracks untouched.
+      </li>
+      <li>
+        <strong>Delete all hot cues:</strong> click <em>Delete all cues</em> → confirm. Removes every hot cue (slots A–H) from all visible tracks, including manually placed ones. A backup is made first.
+      </li>
+      <li>
+        <strong>Restore a backup:</strong> click <em>Restore backup</em> to pick from previous database snapshots saved to <code>~/.autocue/backups/</code>.
+      </li>
+      <li>
+        <strong>Listen to tracks:</strong> hover over the album art and click play. AutoCue loads the audio directly from disk — no file dropping needed. You can also drop an audio file onto the <em>Load audio</em> button on any card.
       </li>
     </ol>
     <p style="margin-top:16px;font-size:13px;color:var(--muted)">
-      Backups are saved to <code>~/.local/share/autocue/backups/</code> (macOS: <code>~/Library/Application Support/autocue/backups/</code>) before every write. The server only accepts connections from localhost — your database never leaves your machine.
+      Backups are saved to <code>~/.autocue/backups/</code> before every write operation. The server only accepts connections from <code>localhost</code> — your database never leaves your machine.
     </p>
   </div>
 
   <details id="cli-reference" style="margin-top:32px;padding-top:20px;border-top:1px solid var(--border);font-size:13px;color:var(--muted);">
-    <summary style="cursor:pointer;font-weight:600;color:var(--text);">Use the Python CLI instead ↓</summary>
+    <summary style="cursor:pointer;font-weight:600;color:var(--text);">Use the Python CLI or local server instead ↓</summary>
     <div style="margin-top:12px;line-height:1.7;">
-      <p>The CLI reads directly from your Rekordbox database and uses phrase detection (Intro, Chorus, Outro) automatically — no ANLZ files needed.</p>
+      <p>The Python package provides both a CLI and a local server that writes directly to your Rekordbox database — no XML export/import needed.</p>
       <pre style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:12px;margin-top:10px;font-family:var(--mono);font-size:12px;overflow-x:auto;">pip install autocue
 
+# Local server (this UI) — reads &amp; writes the Rekordbox DB directly
+autocue serve                        # opens browser automatically
+autocue serve --no-browser           # start without opening browser
+autocue serve --port 8080            # use a different port
+
+# CLI — generates a new rekordbox.xml with cues
 autocue --library                    # all analyzed tracks
+autocue --library --overwrite        # re-generate for all (overwrite existing)
+autocue --library --dry-run          # preview without writing
 autocue --track "Song Title"
 autocue --track-id 42 --dry-run
-autocue --library --playlist "My Set"</pre>
+autocue --library --playlist "My Set"
+autocue --library --mode phrase      # force phrase mode
+autocue --library --mode bar --bars-interval 8 --start-bar 1</pre>
       <p style="margin-top:10px;"><a href="https://github.com/HenriGeorge/AutoCue" target="_blank" rel="noopener" style="color:var(--green);">GitHub: HenriGeorge/AutoCue ↗</a></p>
     </div>
   </details>
@@ -940,7 +983,7 @@ autocue --library --playlist "My Set"</pre>
   </div>
   <button class="secondary-btn" id="undo-btn" style="display:none">↩ Undo last apply</button>
   <button class="danger" id="delete-cues-btn" style="display:none">Delete all cues</button>
-  <label id="skip-colored-label" style="display:none;font-size:12px;color:var(--muted);cursor:pointer;white-space:nowrap;gap:4px;align-items:center;">
+  <label id="skip-colored-label" style="display:none;font-size:12px;color:var(--muted);cursor:pointer;white-space:nowrap;gap:4px;align-items:center;" title="Leave tracks that already have a color set in Rekordbox unchanged. Only color currently uncolored tracks.">
     <input type="checkbox" id="skip-colored-cb"> Skip colored
   </label>
   <button class="secondary-btn" id="color-by-bpm-btn" style="display:none">Color tracks by BPM</button>
