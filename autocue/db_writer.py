@@ -161,7 +161,9 @@ def write_cues_to_db(
 
     # In DjmdCue: Kind encodes the hot cue slot — Kind=slot+1 (A=1, B=2, …, H=8).
     # Kind=0 is a memory cue. There is no separate "Num" column.
+    from uuid import uuid4
     kinds_to_write = {c.slot + 1 for c in cues}
+    content_uuid = getattr(content, "UUID", None) or ""
     try:
         sp = db.session.begin_nested()
         (
@@ -173,14 +175,29 @@ def write_cues_to_db(
             .delete(synchronize_session=False)
         )
         for cue in cues:
+            # InFrame: CDJ uses 150 sub-frames per second for cue precision
+            in_frame = int(round(cue.position_ms * 150.0 / 1000.0))
             db.session.add(
                 DjmdCue(
+                    ID=str(db.generate_unused_id(DjmdCue)),
                     ContentID=content.ID,
+                    ContentUUID=content_uuid,
+                    UUID=str(uuid4()),
                     InMsec=cue.position_ms,
+                    InFrame=in_frame,
+                    InMpegFrame=0,
+                    InMpegAbs=0,
+                    OutMsec=-1,
+                    OutFrame=0,
+                    OutMpegFrame=0,
+                    OutMpegAbs=0,
                     Kind=cue.slot + 1,
-                    Comment=cue.name or cue.label.value,
                     Color=0,
                     ColorTableIndex=cue.color_id,
+                    ActiveLoop=0,
+                    BeatLoopSize=0,
+                    CueMicrosec=0,
+                    Comment=cue.name or cue.label.value,
                 )
             )
         sp.commit()

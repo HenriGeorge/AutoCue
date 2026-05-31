@@ -66,6 +66,34 @@ class ApplyRequest(BaseModel):
     dry_run: bool = False
 
 
+class GenerateAndApplyRequest(BaseModel):
+    track_ids: list[int]
+    mode: Literal["phrase", "bar", "auto"] = "auto"
+    bars_interval: int = 16
+    start_bar: int = 1
+    max_cues: int = 8
+    add_memory_cue: bool = False
+    overwrite: bool = False
+    dry_run: bool = False
+    phrase_only: bool = False
+
+
+class BackupItem(BaseModel):
+    path: str
+    filename: str
+    size_mb: float
+    created_at: str
+
+
+class RestoreRequest(BaseModel):
+    filename: str
+
+
+class RestoreResponse(BaseModel):
+    restored: bool
+    message: str
+
+
 class ApplyResponse(BaseModel):
     applied: int
     skipped: int

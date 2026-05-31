@@ -158,16 +158,56 @@ async function colorTracksByBpm_fn(trackIds, fetchImpl, showToast) {
   }
 }
 
-async function applyToRekordbox_fn(genFetch, applyFetch, showToast) {
-  const genR = await genFetch('/api/generate', { method: 'POST' })
-  const genResp = await genR.json()
-  if (!genR.ok) { showToast(`Error applying cues: ${genResp.detail || genR.statusText}`); return }
+// SSE-based applyToRekordbox (mirrors docs/index.html implementation)
+async function applyToRekordbox_fn(fetchImpl, showToast, onProgress) {
+  try {
+    const r = await fetchImpl('/api/generate-apply-stream', { method: 'POST' })
+    if (!r.ok) {
+      const err = await r.json().catch(() => ({}))
+      throw new Error(err.detail || r.statusText)
+    }
+    const reader = r.body.getReader()
+    const decoder = new TextDecoder()
+    let buf = ''
+    let finalData = null
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+      buf += decoder.decode(value, { stream: true })
+      const lines = buf.split('\n'); buf = lines.pop()
+      for (const line of lines) {
+        if (!line.startsWith('data: ')) continue
+        const ev = JSON.parse(line.slice(6))
+        if (ev.done) { finalData = ev }
+        else if (onProgress) { onProgress(ev) }
+      }
+    }
+    if (finalData) {
+      const backupNote = finalData.backup_path ? ' — backup saved to ~/.autocue/backups/' : ''
+      showToast(`Applied ${finalData.applied} track(s)${backupNote}`)
+    }
+  } catch (err) {
+    showToast(`Error applying cues: ${err.message}`)
+  }
+}
 
-  const applyR = await applyFetch('/api/apply', { method: 'POST' })
-  const applyResp = await applyR.json()
-  if (!applyR.ok) { showToast(`Error applying cues: ${applyResp.detail || applyR.statusText}`); return }
-
-  showToast(`Applied ${applyResp.applied} track(s) — backup saved to ~/.autocue/backups/`)
+function mockSseResponse(events, status = 200) {
+  const eventText = events.map(e => `data: ${JSON.stringify(e)}\n\n`).join('')
+  const bytes = new TextEncoder().encode(eventText)
+  let consumed = false
+  const reader = {
+    read: async () => {
+      if (!consumed) { consumed = true; return { done: false, value: bytes } }
+      return { done: true, value: undefined }
+    },
+  }
+  return vi.fn().mockResolvedValue({
+    ok: status >= 200 && status < 300,
+    status,
+    statusText: status === 409 ? 'Conflict' : 'OK',
+    json: async () => ({ detail: 'Rekordbox is running — close it before applying cues' }),
+    body: { getReader: () => reader },
+  })
 }
 
 function mockResponse(body, status = 200) {
@@ -206,33 +246,61 @@ describe('colorTracksByBpm — HTTP error handling', () => {
   })
 })
 
-describe('applyToRekordbox — HTTP error handling', () => {
-  it('shows error toast when /api/apply returns 409', async () => {
+describe('applyToRekordbox — SSE error handling and progress', () => {
+  it('shows error toast when server returns 409', async () => {
     const { showToast, messages } = makeToastCapture()
-    const genFetch = mockResponse({ tracks: [] })
-    const applyFetch = mockResponse({ detail: 'Rekordbox is running — close it before applying cues' }, 409)
-    await applyToRekordbox_fn(genFetch, applyFetch, showToast)
+    const fetch = mockSseResponse([], 409)
+    await applyToRekordbox_fn(fetch, showToast)
     expect(messages[0]).toContain('Error applying cues')
     expect(messages[0]).toContain('Rekordbox is running')
     expect(messages[0]).not.toContain('undefined')
   })
 
-  it('shows error toast when /api/generate returns non-200', async () => {
+  it('shows applied count on success without backup when backup_path is null', async () => {
     const { showToast, messages } = makeToastCapture()
-    const genFetch = mockResponse({ detail: 'Internal error' }, 500)
-    const applyFetch = mockResponse({})
-    await applyToRekordbox_fn(genFetch, applyFetch, showToast)
-    expect(messages[0]).toContain('Error applying cues')
+    const events = [
+      { processed: 1, total: 1, applied: 1, skipped: 0 },
+      { done: true, applied: 1, skipped: 0, backup_path: null },
+    ]
+    const fetch = mockSseResponse(events)
+    await applyToRekordbox_fn(fetch, showToast)
+    expect(messages[0]).toBe('Applied 1 track(s)')
     expect(messages[0]).not.toContain('undefined')
-    expect(applyFetch).not.toHaveBeenCalled()
   })
 
-  it('shows applied count on success', async () => {
+  it('includes backup note when backup_path is present', async () => {
     const { showToast, messages } = makeToastCapture()
-    const genFetch = mockResponse({ tracks: [] })
-    const applyFetch = mockResponse({ applied: 7, skipped: 0, backup_path: '/p' })
-    await applyToRekordbox_fn(genFetch, applyFetch, showToast)
-    expect(messages[0]).toBe('Applied 7 track(s) — backup saved to ~/.autocue/backups/')
+    const events = [
+      { done: true, applied: 7, skipped: 0, backup_path: '/some/backup.db' },
+    ]
+    const fetch = mockSseResponse(events)
+    await applyToRekordbox_fn(fetch, showToast)
+    expect(messages[0]).toContain('Applied 7 track(s)')
+    expect(messages[0]).toContain('backup saved to ~/.autocue/backups/')
     expect(messages[0]).not.toContain('undefined')
+  })
+
+  it('calls onProgress for each non-done SSE event', async () => {
+    const { showToast } = makeToastCapture()
+    const progressCalls = []
+    const events = [
+      { processed: 1, total: 3, applied: 1, skipped: 0 },
+      { processed: 2, total: 3, applied: 2, skipped: 0 },
+      { processed: 3, total: 3, applied: 3, skipped: 0 },
+      { done: true, applied: 3, skipped: 0, backup_path: null },
+    ]
+    const fetch = mockSseResponse(events)
+    await applyToRekordbox_fn(fetch, showToast, ev => progressCalls.push(ev))
+    expect(progressCalls).toHaveLength(3)
+    expect(progressCalls[0].processed).toBe(1)
+    expect(progressCalls[2].processed).toBe(3)
+  })
+
+  it('shows error toast on network failure', async () => {
+    const { showToast, messages } = makeToastCapture()
+    const failFetch = vi.fn().mockRejectedValue(new Error('Network error'))
+    await applyToRekordbox_fn(failFetch, showToast)
+    expect(messages[0]).toContain('Error applying cues')
+    expect(messages[0]).toContain('Network error')
   })
 })

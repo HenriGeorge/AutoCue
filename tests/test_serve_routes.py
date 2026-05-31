@@ -182,7 +182,7 @@ class TestTracks:
         filter_q.first.return_value = None
         db.query.return_value.filter_by.return_value = filter_q
         client = _make_client(db)
-        r = client.get("/api/tracks?playlist=NonExistent")
+        r = client.get("/api/tracks?playlist_id=9999")
         assert r.status_code == 404
 
     def test_returns_x_total_count_header(self):
@@ -554,6 +554,336 @@ class TestColorTracks:
         with patch("autocue.db_writer.rekordbox_is_running", return_value=True):
             r = client.post("/api/color-tracks", json={"track_ids": [1], "dry_run": True})
         assert r.status_code == 200
+
+
+# ---------------------------------------------------------------------------
+# /api/tracks — playlist_id filter + has_phrase
+# ---------------------------------------------------------------------------
+
+class TestTracksPlaylistFilter:
+    def _make_content_q(self, db, tracks):
+        q = MagicMock()
+        q.count.return_value = len(tracks)
+        q.all.return_value = tracks
+        q.offset.return_value = q
+        q.limit.return_value = q
+        q.filter.return_value = q
+        q.order_by.return_value = q
+        db.get_content.return_value = q
+        return q
+
+    def test_playlist_id_filters_tracks(self):
+        db = _make_db()
+        pl = SimpleNamespace(ID="10", Name="My Playlist")
+        pl_q = MagicMock()
+        pl_q.filter_by.return_value = pl_q
+        pl_q.first.return_value = pl
+        # DjmdSongPlaylist returns one entry
+        sp_q = MagicMock()
+        sp_q.filter_by.return_value = [SimpleNamespace(ContentID="1")]
+        db.query.side_effect = lambda cls: pl_q if "Playlist" in cls.__name__ else sp_q
+        self._make_content_q(db, [])
+        client = _make_client(db)
+        r = client.get("/api/tracks?playlist_id=10")
+        assert r.status_code == 200
+
+    def test_playlist_id_integer_not_found_returns_404(self):
+        db = _make_db()
+        fb_q = MagicMock()
+        fb_q.first.return_value = None
+        db.query.return_value.filter_by.return_value = fb_q
+        client = _make_client(db)
+        r = client.get("/api/tracks?playlist_id=9999")
+        assert r.status_code == 404
+
+    def test_has_phrase_true_when_anlz_ext_exists(self):
+        db = _make_db()
+        track = SimpleNamespace(
+            ID=1, Title="T", ArtistName="A", AlbumName="", BPM=12800, Length=300, KeyID=None,
+        )
+        q = self._make_content_q(db, [track])
+        key_q = MagicMock()
+        key_q.all.return_value = []
+        db.query.return_value = key_q
+        db.get_anlz_path.return_value = "/some/path/ANLZ0000.EXT"
+        with patch("autocue.serve.routes.has_existing_hot_cues", return_value=0):
+            client = _make_client(db)
+            r = client.get("/api/tracks")
+        assert r.status_code == 200
+        assert r.json()[0]["has_phrase"] is True
+
+    def test_has_phrase_false_when_anlz_ext_missing(self):
+        db = _make_db()
+        track = SimpleNamespace(
+            ID=1, Title="T", ArtistName="A", AlbumName="", BPM=12800, Length=300, KeyID=None,
+        )
+        q = self._make_content_q(db, [track])
+        key_q = MagicMock()
+        key_q.all.return_value = []
+        db.query.return_value = key_q
+        db.get_anlz_path.return_value = ""
+        with patch("autocue.serve.routes.has_existing_hot_cues", return_value=0):
+            client = _make_client(db)
+            r = client.get("/api/tracks")
+        assert r.status_code == 200
+        assert r.json()[0]["has_phrase"] is False
+
+    def test_has_phrase_false_on_anlz_exception(self):
+        db = _make_db()
+        track = SimpleNamespace(
+            ID=1, Title="T", ArtistName="A", AlbumName="", BPM=12800, Length=300, KeyID=None,
+        )
+        q = self._make_content_q(db, [track])
+        key_q = MagicMock()
+        key_q.all.return_value = []
+        db.query.return_value = key_q
+        db.get_anlz_path.side_effect = Exception("ANLZ error")
+        with patch("autocue.serve.routes.has_existing_hot_cues", return_value=0):
+            client = _make_client(db)
+            r = client.get("/api/tracks")
+        assert r.status_code == 200
+        assert r.json()[0]["has_phrase"] is False
+
+
+# ---------------------------------------------------------------------------
+# /api/generate-apply-stream (SSE)
+# ---------------------------------------------------------------------------
+
+class TestGenerateApplyStream:
+    def _make_track(self, id=1):
+        return SimpleNamespace(
+            ID=id, Title=f"Track {id}", BPM=12800, Length=300, UUID="test-uuid",
+        )
+
+    def _collect_sse(self, response_text: str) -> list[dict]:
+        import json
+        events = []
+        for line in response_text.splitlines():
+            if line.startswith("data: "):
+                events.append(json.loads(line[6:]))
+        return events
+
+    def test_returns_409_when_rekordbox_running(self):
+        client = _make_client()
+        with patch("autocue.db_writer.rekordbox_is_running", return_value=True):
+            r = client.post("/api/generate-apply-stream",
+                            json={"track_ids": [], "dry_run": True})
+        assert r.status_code == 409
+
+    def test_streams_progress_event_per_track(self, tmp_path):
+        db = _make_db()
+        db._db_dir = tmp_path
+        (tmp_path / "master.db").write_bytes(b"fake")
+        db.get_content.side_effect = [self._make_track(1), self._make_track(2)]
+        with patch("autocue.db_writer.rekordbox_is_running", return_value=False):
+            with patch("autocue.generator.analyze_track", return_value=[]):
+                with patch("autocue.db_writer.write_cues_to_db", return_value=1):
+                    with patch("autocue.db_writer.BACKUP_DIR", tmp_path / "backups"):
+                        client = _make_client(db)
+                        r = client.post("/api/generate-apply-stream",
+                                        json={"track_ids": [1, 2], "dry_run": False,
+                                              "overwrite": True})
+        assert r.status_code == 200
+        assert "text/event-stream" in r.headers["content-type"]
+        events = self._collect_sse(r.text)
+        progress = [e for e in events if not e.get("done")]
+        assert len(progress) == 2
+        assert progress[0]["processed"] == 1
+        assert progress[0]["total"] == 2
+        assert progress[1]["processed"] == 2
+
+    def test_final_event_has_done_true(self, tmp_path):
+        db = _make_db()
+        db._db_dir = tmp_path
+        (tmp_path / "master.db").write_bytes(b"fake")
+        db.get_content.return_value = None
+        with patch("autocue.db_writer.rekordbox_is_running", return_value=False):
+            with patch("autocue.db_writer.BACKUP_DIR", tmp_path / "backups"):
+                client = _make_client(db)
+                r = client.post("/api/generate-apply-stream",
+                                json={"track_ids": [1], "dry_run": False})
+        events = self._collect_sse(r.text)
+        done_events = [e for e in events if e.get("done")]
+        assert len(done_events) == 1
+        assert "applied" in done_events[0]
+        assert "skipped" in done_events[0]
+
+    def test_phrase_only_skips_tracks_without_ext(self, tmp_path):
+        db = _make_db()
+        db._db_dir = tmp_path
+        (tmp_path / "master.db").write_bytes(b"fake")
+        db.get_content.return_value = self._make_track(1)
+        db.get_anlz_path.return_value = ""  # no .EXT file
+        with patch("autocue.db_writer.rekordbox_is_running", return_value=False):
+            with patch("autocue.db_writer.BACKUP_DIR", tmp_path / "backups"):
+                client = _make_client(db)
+                r = client.post("/api/generate-apply-stream",
+                                json={"track_ids": [1], "dry_run": False,
+                                      "phrase_only": True})
+        events = self._collect_sse(r.text)
+        done = next(e for e in events if e.get("done"))
+        assert done["skipped"] == 1
+        assert done["applied"] == 0
+
+    def test_dry_run_backup_path_is_none(self):
+        db = _make_db()
+        db.get_content.return_value = None
+        with patch("autocue.db_writer.rekordbox_is_running", return_value=False):
+            client = _make_client(db)
+            r = client.post("/api/generate-apply-stream",
+                            json={"track_ids": [], "dry_run": True})
+        events = self._collect_sse(r.text)
+        done = next(e for e in events if e.get("done"))
+        assert done["backup_path"] is None
+
+
+# ---------------------------------------------------------------------------
+# /api/backups + /api/restore
+# ---------------------------------------------------------------------------
+
+class TestBackups:
+    def test_returns_empty_list_when_no_backups(self, tmp_path):
+        with patch("autocue.db_writer.BACKUP_DIR", tmp_path / "nodir"):
+            client = _make_client()
+            r = client.get("/api/backups")
+        assert r.status_code == 200
+        assert r.json() == []
+
+    def test_returns_backup_files_sorted_newest_first(self, tmp_path):
+        backup_dir = tmp_path / "backups"
+        backup_dir.mkdir()
+        import time
+        (backup_dir / "master_20260101T000000.db").write_bytes(b"old")
+        time.sleep(0.01)
+        (backup_dir / "master_20260531T120000.db").write_bytes(b"new")
+        with patch("autocue.db_writer.BACKUP_DIR", backup_dir):
+            client = _make_client()
+            r = client.get("/api/backups")
+        assert r.status_code == 200
+        data = r.json()
+        assert len(data) == 2
+        assert data[0]["filename"] == "master_20260531T120000.db"
+
+    def test_backup_item_has_required_fields(self, tmp_path):
+        backup_dir = tmp_path / "backups"
+        backup_dir.mkdir()
+        (backup_dir / "master_20260531T120000.db").write_bytes(b"x" * 1024)
+        with patch("autocue.db_writer.BACKUP_DIR", backup_dir):
+            client = _make_client()
+            r = client.get("/api/backups")
+        item = r.json()[0]
+        assert "filename" in item
+        assert "size_mb" in item
+        assert "path" in item
+
+
+class TestRestore:
+    def test_returns_409_when_rekordbox_running(self, tmp_path):
+        backup_dir = tmp_path / "backups"
+        backup_dir.mkdir()
+        (backup_dir / "master_old.db").write_bytes(b"x")
+        with patch("autocue.db_writer.BACKUP_DIR", backup_dir):
+            with patch("autocue.db_writer.rekordbox_is_running", return_value=True):
+                client = _make_client()
+                r = client.post("/api/restore", json={"filename": "master_old.db"})
+        assert r.status_code == 409
+
+    def test_path_traversal_blocked(self, tmp_path):
+        with patch("autocue.db_writer.BACKUP_DIR", tmp_path / "backups"):
+            with patch("autocue.db_writer.rekordbox_is_running", return_value=False):
+                client = _make_client()
+                r = client.post("/api/restore",
+                                json={"filename": "../../../etc/passwd"})
+        assert r.status_code == 400
+
+    def test_path_traversal_with_slash_blocked(self, tmp_path):
+        with patch("autocue.db_writer.BACKUP_DIR", tmp_path / "backups"):
+            with patch("autocue.db_writer.rekordbox_is_running", return_value=False):
+                client = _make_client()
+                r = client.post("/api/restore",
+                                json={"filename": "subdir/master.db"})
+        assert r.status_code == 400
+
+    def test_missing_backup_returns_404(self, tmp_path):
+        backup_dir = tmp_path / "backups"
+        backup_dir.mkdir()
+        with patch("autocue.db_writer.BACKUP_DIR", backup_dir):
+            with patch("autocue.db_writer.rekordbox_is_running", return_value=False):
+                client = _make_client()
+                r = client.post("/api/restore", json={"filename": "nonexistent.db"})
+        assert r.status_code == 404
+
+    def test_successful_restore_returns_restored_true(self, tmp_path):
+        backup_dir = tmp_path / "backups"
+        backup_dir.mkdir()
+        backup_file = backup_dir / "master_old.db"
+        backup_file.write_bytes(b"backup content")
+        db_dir = tmp_path / "db"
+        db_dir.mkdir()
+        (db_dir / "master.db").write_bytes(b"current content")
+        db = _make_db()
+        db._db_dir = db_dir
+        with patch("autocue.db_writer.BACKUP_DIR", backup_dir):
+            with patch("autocue.db_writer.rekordbox_is_running", return_value=False):
+                with patch("pyrekordbox.Rekordbox6Database") as mock_rb:
+                    mock_rb.return_value = _make_db()
+                    client = _make_client(db)
+                    r = client.post("/api/restore", json={"filename": "master_old.db"})
+        assert r.status_code == 200
+        assert r.json()["restored"] is True
+
+    def test_restore_overwrites_db_file(self, tmp_path):
+        backup_dir = tmp_path / "backups"
+        backup_dir.mkdir()
+        (backup_dir / "master_old.db").write_bytes(b"backup content")
+        db_dir = tmp_path / "db"
+        db_dir.mkdir()
+        (db_dir / "master.db").write_bytes(b"old content")
+        db = _make_db()
+        db._db_dir = db_dir
+        with patch("autocue.db_writer.BACKUP_DIR", backup_dir):
+            with patch("autocue.db_writer.rekordbox_is_running", return_value=False):
+                with patch("pyrekordbox.Rekordbox6Database") as mock_rb:
+                    mock_rb.return_value = _make_db()
+                    client = _make_client(db)
+                    client.post("/api/restore", json={"filename": "master_old.db"})
+        assert (db_dir / "master.db").read_bytes() == b"backup content"
+
+    def test_restore_copies_wal_if_present(self, tmp_path):
+        backup_dir = tmp_path / "backups"
+        backup_dir.mkdir()
+        (backup_dir / "master_old.db").write_bytes(b"backup")
+        (backup_dir / "master_old.db-wal").write_bytes(b"wal-content")
+        db_dir = tmp_path / "db"
+        db_dir.mkdir()
+        (db_dir / "master.db").write_bytes(b"current")
+        db = _make_db()
+        db._db_dir = db_dir
+        with patch("autocue.db_writer.BACKUP_DIR", backup_dir):
+            with patch("autocue.db_writer.rekordbox_is_running", return_value=False):
+                with patch("pyrekordbox.Rekordbox6Database") as mock_rb:
+                    mock_rb.return_value = _make_db()
+                    client = _make_client(db)
+                    client.post("/api/restore", json={"filename": "master_old.db"})
+        assert (db_dir / "master.db-wal").read_bytes() == b"wal-content"
+
+    def test_restore_removes_stale_wal_if_backup_has_none(self, tmp_path):
+        backup_dir = tmp_path / "backups"
+        backup_dir.mkdir()
+        (backup_dir / "master_old.db").write_bytes(b"backup")
+        db_dir = tmp_path / "db"
+        db_dir.mkdir()
+        (db_dir / "master.db").write_bytes(b"current")
+        (db_dir / "master.db-wal").write_bytes(b"stale-wal")
+        db = _make_db()
+        db._db_dir = db_dir
+        with patch("autocue.db_writer.BACKUP_DIR", backup_dir):
+            with patch("autocue.db_writer.rekordbox_is_running", return_value=False):
+                with patch("pyrekordbox.Rekordbox6Database") as mock_rb:
+                    mock_rb.return_value = _make_db()
+                    client = _make_client(db)
+                    client.post("/api/restore", json={"filename": "master_old.db"})
+        assert not (db_dir / "master.db-wal").exists()
 
 
 class TestCORS:

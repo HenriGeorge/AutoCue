@@ -666,6 +666,23 @@
       <strong style="color:var(--green, #28e214);">Connected to Rekordbox</strong>
       <span id="local-track-count" style="color:var(--muted, #888);"></span>
     </div>
+    <!-- F2: Playlist filter -->
+    <div id="playlist-filter-bar" style="display:none; margin-top:10px; gap:8px; align-items:center; flex-wrap:wrap;">
+      <label style="font-size:13px;color:var(--muted);">Playlist:</label>
+      <select id="playlist-select" style="background:var(--surface-card);color:var(--text);border:1px solid var(--border,#333);border-radius:6px;padding:4px 8px;font-size:13px;">
+        <option value="">All tracks</option>
+      </select>
+      <!-- F3: Restore backup -->
+      <button id="restore-btn" class="secondary-btn" style="margin-left:auto;font-size:12px;">Restore backup…</button>
+    </div>
+    <!-- F3: Restore backup picker (hidden until restore-btn clicked) -->
+    <div id="restore-bar" style="display:none; margin-top:8px; gap:8px; align-items:center; flex-wrap:wrap;">
+      <select id="restore-select" style="background:var(--surface-card);color:var(--text);border:1px solid var(--border,#333);border-radius:6px;padding:4px 8px;font-size:13px;flex:1;min-width:200px;">
+        <option value="">— select backup —</option>
+      </select>
+      <button id="restore-confirm-btn" class="danger" style="font-size:12px;">Restore</button>
+      <button id="restore-cancel-btn" class="secondary-btn" style="font-size:12px;">Cancel</button>
+    </div>
     <div id="backup-bar" style="display:none; margin-top:10px; text-align:right;">
       <button id="backup-btn" class="secondary-btn">💾 Download backup XML</button>
     </div>
@@ -762,6 +779,14 @@
     <div class="tracks-header">
       <h2 class="tracks-title">Tracks</h2>
       <span class="tracks-count" id="tracks-count">0 tracks</span>
+    </div>
+    <!-- F4: Search + F6: Phrase-only filter -->
+    <div id="filter-bar" style="display:none; margin-bottom:8px; gap:8px; align-items:center; flex-wrap:wrap;">
+      <input id="search-input" type="search" placeholder="Search title or artist…" style="flex:1;min-width:160px;background:var(--surface-card);color:var(--text);border:1px solid var(--border,#333);border-radius:6px;padding:5px 10px;font-size:13px;" />
+      <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;white-space:nowrap;">
+        <input type="checkbox" id="phrase-only-cb" />
+        Phrase analysis only
+      </label>
     </div>
     <div class="sort-bar" id="sort-bar" style="display:none">
       <span>Sort:</span>
@@ -866,6 +891,7 @@ autocue --library --playlist "My Set"</pre>
   </div>
   <button class="danger" id="delete-cues-btn" style="display:none">Delete all cues</button>
   <button class="secondary-btn" id="color-by-bpm-btn" style="display:none">Color tracks by BPM</button>
+  <button class="secondary-btn" id="preview-cues-btn" style="display:none">Preview cues</button>
   <button class="primary" id="download-btn">Download XML</button>
 </div>
 
@@ -918,6 +944,15 @@ let expandedAlbums = new Set();
 let anlzFileMap = {};     // folder-hex → { ext: File, dat: File }
 let pyodideReady = null;  // Promise<pyodide> once requested
 
+// F1/F5: pending cues from preview generate (string trackId → [{slot,posSec,label,isPhrase,name}])
+let pendingCues = {};
+// F2: active playlist filter (null = all)
+let activePlaylistId = null;
+// F4: active search query
+let searchQuery = '';
+// F6: phrase-only filter
+let phraseOnlyFilter = false;
+
 // Audio state: trackId → { file, objectUrl, artworkUrl }
 let audioState   = {};
 let nowPlayingId = null;
@@ -935,10 +970,13 @@ async function detectLocalMode() {
   return false;
 }
 
-async function loadTracksFromServer() {
+async function loadTracksFromServer(playlistId = null) {
+  const tracksUrl = playlistId != null
+    ? `/api/tracks?limit=10000&playlist_id=${playlistId}&sort_by=${currentSort.by}&sort_order=${currentSort.order}`
+    : `/api/tracks?limit=10000&sort_by=${currentSort.by}&sort_order=${currentSort.order}`;
   const [statusData, tracksData] = await Promise.all([
     fetch('/api/status').then(r => r.json()),
-    fetch('/api/tracks?limit=10000').then(r => r.json()),
+    fetch(tracksUrl).then(r => r.json()),
   ]);
   document.getElementById('local-track-count').textContent = ` · ${statusData.track_count} tracks`;
   parsedTracks = tracksData.map(t => ({
@@ -973,7 +1011,7 @@ async function colorTracksByBpm() {
   btn.textContent = 'Coloring…';
   btn.disabled = true;
   try {
-    const trackIds = parsedTracks.map(t => parseInt(t.id));
+    const trackIds = filteredTracks().map(t => parseInt(t.id));
     const r = await fetch('/api/color-tracks', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -1000,50 +1038,73 @@ async function applyToRekordbox() {
   const startBar = parseInt(document.getElementById('start-bar').value) || 1;
   const maxCues = parseInt(document.getElementById('max-cues').value) || 8;
   const addMemoryCue = document.getElementById('add-memory-cue').checked;
+  const tracks = filteredTracks();
+  const trackCount = tracks.length;
 
-  document.getElementById('download-btn').textContent = 'Applying…';
-  document.getElementById('download-btn').disabled = true;
+  const btn = document.getElementById('download-btn');
+  btn.textContent = `Applying… 0 / ${trackCount}`;
+  btn.disabled = true;
+
+  const body = JSON.stringify({
+    track_ids: tracks.map(t => parseInt(t.id)),
+    mode: analysisMode === 'phrase' ? 'auto' : 'bar',
+    bars_interval: barsInterval,
+    start_bar: startBar,
+    max_cues: maxCues,
+    add_memory_cue: addMemoryCue,
+    overwrite: !document.getElementById('skip-existing-cues').checked,
+    phrase_only: phraseOnlyFilter,
+    dry_run: false,
+  });
 
   try {
-    const genR = await fetch('/api/generate', {
+    const r = await fetch('/api/generate-apply-stream', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        track_ids: parsedTracks.map(t => parseInt(t.id)),
-        mode: analysisMode === 'phrase' ? 'auto' : 'bar',
-        bars_interval: barsInterval,
-        start_bar: startBar,
-        max_cues: maxCues,
-        add_memory_cue: addMemoryCue,
-      }),
-      signal: AbortSignal.timeout(30_000),
+      body,
     });
-    const genResp = await genR.json();
-    if (!genR.ok) throw new Error(genResp.detail || genR.statusText);
+    if (!r.ok) {
+      const err = await r.json().catch(() => ({}));
+      throw new Error(err.detail || r.statusText);
+    }
 
-    // Note: genResp.tracks[].cues items include `is_phrase` (snake_case from the Python API).
-    // If a future feature renders a cue preview before applying, map c.is_phrase → isPhrase
-    // so that the PHRASE_COLORS lookup in renderTracks / buildOutputXml works correctly.
-    const applyR = await fetch('/api/apply', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ tracks: genResp.tracks, overwrite: !document.getElementById('skip-existing-cues').checked, dry_run: false }),
-      signal: AbortSignal.timeout(30_000),
-    });
-    const applyResp = await applyR.json();
-    if (!applyR.ok) throw new Error(applyResp.detail || applyR.statusText);
+    const reader = r.body.getReader();
+    const decoder = new TextDecoder();
+    let buf = '';
+    let finalData = null;
 
-    setStep(4);
-    showToast(`Applied ${applyResp.applied} track(s) — backup saved to ~/.autocue/backups/`);
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buf += decoder.decode(value, { stream: true });
+      const lines = buf.split('\n');
+      buf = lines.pop();
+      for (const line of lines) {
+        if (!line.startsWith('data: ')) continue;
+        const ev = JSON.parse(line.slice(6));
+        if (ev.done) {
+          finalData = ev;
+        } else {
+          btn.textContent = `Applying… ${ev.applied + ev.skipped} / ${ev.total}`;
+        }
+      }
+    }
+
+    if (finalData) {
+      pendingCues = {};
+      setStep(4);
+      const backupNote = finalData.backup_path ? ' — backup saved to ~/.autocue/backups/' : '';
+      showToast(`Applied ${finalData.applied} track(s)${backupNote}`);
+    }
   } catch (err) {
     showToast(`Error applying cues: ${err.message}`);
   } finally {
-    document.getElementById('download-btn').textContent = 'Apply to Rekordbox';
-    document.getElementById('download-btn').disabled = false;
+    btn.textContent = 'Apply to Rekordbox';
+    btn.disabled = false;
   }
 }
 
-detectLocalMode().then(connected => {
+detectLocalMode().then(async connected => {
   localMode = connected;
   if (localMode) {
     document.getElementById('drop-zone').style.display = 'none';
@@ -1051,10 +1112,91 @@ detectLocalMode().then(connected => {
     document.getElementById('download-btn').textContent = 'Apply to Rekordbox';
     document.getElementById('delete-cues-btn').style.display = '';
     document.getElementById('color-by-bpm-btn').style.display = '';
+    document.getElementById('preview-cues-btn').style.display = '';
     document.getElementById('how-to').style.display = 'none';
     document.getElementById('local-how-to').style.display = '';
+
+    // F2: Load playlists into dropdown
+    document.getElementById('playlist-filter-bar').style.display = 'flex';
+    document.getElementById('filter-bar').style.display = 'flex';
+    try {
+      const playlists = await fetch('/api/playlists').then(r => r.json());
+      const sel = document.getElementById('playlist-select');
+      for (const pl of playlists) {
+        const opt = document.createElement('option');
+        opt.value = pl.id;
+        opt.textContent = `${pl.name} (${pl.track_count})`;
+        sel.appendChild(opt);
+      }
+    } catch {}
+
     loadTracksFromServer();
   }
+});
+
+// F2: Playlist filter change
+document.getElementById('playlist-select').addEventListener('change', () => {
+  const val = document.getElementById('playlist-select').value;
+  activePlaylistId = val ? parseInt(val) : null;
+  pendingCues = {};
+  loadTracksFromServer(activePlaylistId);
+});
+
+// F3: Restore backup UI
+document.getElementById('restore-btn').addEventListener('click', async () => {
+  const bar = document.getElementById('restore-bar');
+  if (bar.style.display !== 'none') { bar.style.display = 'none'; return; }
+  const sel = document.getElementById('restore-select');
+  sel.innerHTML = '<option value="">— select backup —</option>';
+  try {
+    const backups = await fetch('/api/backups').then(r => r.json());
+    for (const b of backups) {
+      const opt = document.createElement('option');
+      opt.value = b.filename;
+      opt.textContent = `${b.filename} (${b.size_mb} MB)`;
+      sel.appendChild(opt);
+    }
+  } catch (e) { showToast('Could not load backups'); return; }
+  bar.style.display = 'flex';
+});
+document.getElementById('restore-cancel-btn').addEventListener('click', () => {
+  document.getElementById('restore-bar').style.display = 'none';
+});
+document.getElementById('restore-confirm-btn').addEventListener('click', async () => {
+  const filename = document.getElementById('restore-select').value;
+  if (!filename) { showToast('Select a backup first'); return; }
+  if (!confirm(`Restore "${filename}"? This will replace your current Rekordbox database.`)) return;
+  const btn = document.getElementById('restore-confirm-btn');
+  btn.disabled = true; btn.textContent = 'Restoring…';
+  try {
+    const r = await fetch('/api/restore', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ filename }),
+    });
+    const resp = await r.json();
+    if (!r.ok) throw new Error(resp.detail || r.statusText);
+    showToast(resp.message + ' — reloading tracks…');
+    document.getElementById('restore-bar').style.display = 'none';
+    pendingCues = {};
+    await loadTracksFromServer(activePlaylistId);
+  } catch (e) { showToast(`Restore failed: ${e.message}`); }
+  finally { btn.disabled = false; btn.textContent = 'Restore'; }
+});
+
+// F4: Search input with debounce
+let _searchTimer = null;
+document.getElementById('search-input').addEventListener('input', e => {
+  clearTimeout(_searchTimer);
+  _searchTimer = setTimeout(() => {
+    searchQuery = e.target.value.trim();
+    if (parsedTracks.length) renderTracks();
+  }, 200);
+});
+
+// F6: Phrase-only filter
+document.getElementById('phrase-only-cb').addEventListener('change', e => {
+  phraseOnlyFilter = e.target.checked;
+  if (parsedTracks.length) renderTracks();
 });
 
 // ── Parsing ────────────────────────────────────────────────────────────────────
@@ -1490,9 +1632,22 @@ function camelotSortKey(key) {
   return num * 2 + (letter === 'B' ? 1 : 0);
 }
 
+function filteredTracks() {
+  let tracks = parsedTracks;
+  if (phraseOnlyFilter) tracks = tracks.filter(t => t.hasPhrase);
+  if (searchQuery) {
+    const q = searchQuery.toLowerCase();
+    tracks = tracks.filter(t =>
+      (t.name || '').toLowerCase().includes(q) ||
+      (t.artist || '').toLowerCase().includes(q)
+    );
+  }
+  return tracks;
+}
+
 function sortedTracks() {
   const { by, order } = currentSort;
-  const sorted = [...parsedTracks].sort((a, b) => {
+  const sorted = [...filteredTracks()].sort((a, b) => {
     let av, bv;
     if (by === 'bpm') { av = a.bpm || 0; bv = b.bpm || 0; }
     else if (by === 'artist') { av = (a.artist || '').toLowerCase(); bv = (b.artist || '').toLowerCase(); }
@@ -1702,6 +1857,30 @@ function buildTrackCard(track, cues, willSkip, opts = {}) {
     cardMain.appendChild(tl);
   }
 
+  // F5: Pending cue preview bar (shown after Preview Cues, cleared after Apply)
+  const pending = pendingCues[String(track.id)];
+  if (pending && pending.length > 0 && track.totalTime > 0) {
+    const label = document.createElement('div');
+    label.style.cssText = 'font-size:10px;color:var(--muted);margin-top:6px;margin-bottom:2px;text-transform:uppercase;letter-spacing:.05em;';
+    label.textContent = 'Preview (pending apply)';
+    cardMain.appendChild(label);
+    const ptl = document.createElement('div');
+    ptl.className = 'timeline';
+    ptl.style.opacity = '0.75';
+    for (const cue of pending) {
+      const pct = (cue.posSec / track.totalTime) * 100;
+      const m = document.createElement('div');
+      m.className = 'timeline-marker';
+      m.style.left = `${pct}%`;
+      // Memory cues (slot=-1) get white; hot cues use slot color
+      const c = cue.slot === -1 ? { r: 220, g: 220, b: 220 } : pickCueColor(cue);
+      m.style.background = `rgb(${c.r},${c.g},${c.b})`;
+      m.style.color = `rgb(${c.r},${c.g},${c.b})`;
+      ptl.appendChild(m);
+    }
+    cardMain.appendChild(ptl);
+  }
+
   cardTop.appendChild(cardMain);
   card.appendChild(cardTop);
   return card;
@@ -1830,8 +2009,13 @@ function renderTracks() {
     }
   }
 
-  document.getElementById('tracks-count').textContent =
-    `${parsedTracks.length} track${parsedTracks.length !== 1 ? 's' : ''}`;
+  const visible = filteredTracks();
+  const totalFiltered = visible.length;
+  const totalAll = parsedTracks.length;
+  const countLabel = totalFiltered === totalAll
+    ? `${totalAll} track${totalAll !== 1 ? 's' : ''}`
+    : `${totalFiltered} of ${totalAll} track${totalAll !== 1 ? 's' : ''}`;
+  document.getElementById('tracks-count').textContent = countLabel;
   document.getElementById('dl-summary').textContent =
     `${tracksWithCues} track${tracksWithCues !== 1 ? 's' : ''} · ${totalCues} cue${totalCues !== 1 ? 's' : ''}`;
 }
@@ -2053,11 +2237,44 @@ document.getElementById('path-warning-dismiss').addEventListener('click', () => 
 // ── Events: Delete all cues (local mode only) ──────────────────────────────────
 document.getElementById('color-by-bpm-btn').addEventListener('click', colorTracksByBpm);
 
+// F5: Preview cues — calls /api/generate and stores results in pendingCues for card rendering
+document.getElementById('preview-cues-btn').addEventListener('click', async () => {
+  const btn = document.getElementById('preview-cues-btn');
+  btn.textContent = 'Loading…'; btn.disabled = true;
+  const { barsInterval, startBar, maxCues } = getSettings();
+  const tracks = filteredTracks();
+  try {
+    const r = await fetch('/api/generate', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        track_ids: tracks.map(t => parseInt(t.id)),
+        mode: analysisMode === 'phrase' ? 'auto' : 'bar',
+        bars_interval: barsInterval, start_bar: startBar, max_cues: maxCues,
+        add_memory_cue: document.getElementById('add-memory-cue').checked,
+      }),
+      signal: AbortSignal.timeout(60_000),
+    });
+    if (!r.ok) { const e = await r.json().catch(() => ({})); throw new Error(e.detail || r.statusText); }
+    const data = await r.json();
+    pendingCues = {};
+    for (const tr of data.tracks) {
+      pendingCues[String(tr.id)] = tr.cues.map(c => ({
+        slot: c.slot, posSec: c.position_ms / 1000,
+        label: c.label, isPhrase: c.is_phrase, name: c.name || '',
+      }));
+    }
+    renderTracks();
+    showToast(`Previewing cues for ${data.tracks.length} track(s) — click Apply to write`);
+  } catch (e) { showToast(`Preview failed: ${e.message}`); }
+  finally { btn.textContent = 'Preview cues'; btn.disabled = false; }
+});
+
 document.getElementById('delete-cues-btn').addEventListener('click', () => {
-  const total = parsedTracks.length;
+  const total = filteredTracks().length;
   if (!total) return;
+  const suffix = total < parsedTracks.length ? ` (${total} visible)` : '';
   document.getElementById('delete-confirm-msg').textContent =
-    `Delete all hot cues from ${total} track${total !== 1 ? 's' : ''}?`;
+    `Delete all hot cues from ${total} track${total !== 1 ? 's' : ''}${suffix}?`;
   document.getElementById('delete-confirm-bar').classList.add('visible');
   document.getElementById('delete-cues-btn').style.display = 'none';
 });
@@ -2074,7 +2291,7 @@ document.getElementById('delete-confirm-btn').addEventListener('click', async ()
   cancelBtn.disabled  = true;
   confirmBtn.textContent = 'Deleting…';
   try {
-    const trackIds = parsedTracks.map(t => parseInt(t.id));
+    const trackIds = filteredTracks().map(t => parseInt(t.id));
     const r = await fetch('/api/delete-cues', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
