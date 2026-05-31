@@ -293,6 +293,8 @@
     }
     .track-card:hover { border-color: var(--border-hover); }
     .track-card.now-playing { border-color: var(--green); }
+    .track-card.selected { border-color: var(--green); background: color-mix(in srgb, var(--green) 6%, var(--surface)); }
+    .track-select-cb { width:15px; height:15px; flex-shrink:0; cursor:pointer; accent-color:var(--green); margin-top:4px; }
 
     /* card layout: artwork + main content */
     .card-top { display: flex; gap: 12px; align-items: flex-start; }
@@ -785,8 +787,11 @@
       <input id="search-input" type="search" placeholder="Search title or artist…" style="flex:1;min-width:160px;background:var(--surface-card);color:var(--text);border:1px solid var(--border,#333);border-radius:6px;padding:5px 10px;font-size:13px;" />
       <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;white-space:nowrap;">
         <input type="checkbox" id="phrase-only-cb" />
-        Phrase analysis only
+        Phrase only
       </label>
+      <button class="secondary-btn" id="select-all-btn" style="font-size:12px;padding:4px 10px;">Select all</button>
+      <button class="secondary-btn" id="deselect-all-btn" style="font-size:12px;padding:4px 10px;display:none">Deselect all</button>
+      <span id="selection-count" style="font-size:12px;color:var(--green);white-space:nowrap;"></span>
     </div>
     <div class="sort-bar" id="sort-bar" style="display:none">
       <span>Sort:</span>
@@ -889,6 +894,7 @@ autocue --library --playlist "My Set"</pre>
     <button class="danger" id="delete-confirm-btn">Confirm delete</button>
     <button class="secondary-btn" id="delete-cancel-btn">Cancel</button>
   </div>
+  <button class="secondary-btn" id="undo-btn" style="display:none">↩ Undo last apply</button>
   <button class="danger" id="delete-cues-btn" style="display:none">Delete all cues</button>
   <button class="secondary-btn" id="color-by-bpm-btn" style="display:none">Color tracks by BPM</button>
   <button class="secondary-btn" id="preview-cues-btn" style="display:none">Preview cues</button>
@@ -952,6 +958,10 @@ let activePlaylistId = null;
 let searchQuery = '';
 // F6: phrase-only filter
 let phraseOnlyFilter = false;
+// F7: bulk selection (track id strings)
+let selectedTrackIds = new Set();
+// F8: filename of the last successful apply backup (for one-click undo)
+let lastAppliedBackupFilename = null;
 
 // Audio state: trackId → { file, objectUrl, artworkUrl }
 let audioState   = {};
@@ -987,6 +997,8 @@ async function loadTracksFromServer(playlistId = null) {
     locationFilename: '',
   }));
   parsedDoc = null;
+  selectedTrackIds.clear();
+  updateSelectionBar();
   const withExisting = parsedTracks.filter(t => t.existingHotCues > 0).length;
   const info = document.getElementById('existing-cues-info');
   if (withExisting > 0) {
@@ -1011,7 +1023,7 @@ async function colorTracksByBpm() {
   btn.textContent = 'Coloring…';
   btn.disabled = true;
   try {
-    const trackIds = filteredTracks().map(t => parseInt(t.id));
+    const trackIds = activeTracks().map(t => parseInt(t.id));
     const r = await fetch('/api/color-tracks', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -1038,7 +1050,7 @@ async function applyToRekordbox() {
   const startBar = parseInt(document.getElementById('start-bar').value) || 1;
   const maxCues = parseInt(document.getElementById('max-cues').value) || 8;
   const addMemoryCue = document.getElementById('add-memory-cue').checked;
-  const tracks = filteredTracks();
+  const tracks = activeTracks();
   const trackCount = tracks.length;
 
   const btn = document.getElementById('download-btn');
@@ -1093,6 +1105,10 @@ async function applyToRekordbox() {
     if (finalData) {
       pendingCues = {};
       setStep(4);
+      if (finalData.backup_path) {
+        lastAppliedBackupFilename = finalData.backup_path.split('/').pop();
+        document.getElementById('undo-btn').style.display = '';
+      }
       const backupNote = finalData.backup_path ? ' — backup saved to ~/.autocue/backups/' : '';
       showToast(`Applied ${finalData.applied} track(s)${backupNote}`);
     }
@@ -1197,6 +1213,40 @@ document.getElementById('search-input').addEventListener('input', e => {
 document.getElementById('phrase-only-cb').addEventListener('change', e => {
   phraseOnlyFilter = e.target.checked;
   if (parsedTracks.length) renderTracks();
+});
+
+// F7: Bulk selection — Select all / Deselect all
+document.getElementById('select-all-btn').addEventListener('click', () => {
+  for (const t of filteredTracks()) selectedTrackIds.add(t.id);
+  if (parsedTracks.length) renderTracks();
+  updateSelectionBar();
+});
+document.getElementById('deselect-all-btn').addEventListener('click', () => {
+  selectedTrackIds.clear();
+  if (parsedTracks.length) renderTracks();
+  updateSelectionBar();
+});
+
+// F8: Undo last apply
+document.getElementById('undo-btn').addEventListener('click', async () => {
+  if (!lastAppliedBackupFilename) return;
+  if (!confirm(`Undo last apply? This restores "${lastAppliedBackupFilename}" and replaces your current Rekordbox database.`)) return;
+  const btn = document.getElementById('undo-btn');
+  btn.disabled = true; btn.textContent = 'Undoing…';
+  try {
+    const r = await fetch('/api/restore', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ filename: lastAppliedBackupFilename }),
+    });
+    const resp = await r.json();
+    if (!r.ok) throw new Error(resp.detail || r.statusText);
+    lastAppliedBackupFilename = null;
+    btn.style.display = 'none';
+    pendingCues = {};
+    showToast('Undo successful — tracks reloaded');
+    await loadTracksFromServer(activePlaylistId);
+  } catch (e) { showToast(`Undo failed: ${e.message}`); }
+  finally { btn.disabled = false; btn.textContent = '↩ Undo last apply'; }
 });
 
 // ── Parsing ────────────────────────────────────────────────────────────────────
@@ -1645,6 +1695,22 @@ function filteredTracks() {
   return tracks;
 }
 
+// Returns the tracks that write operations (apply/color/delete) should target:
+// selected subset when any are checked, otherwise all filtered tracks.
+function activeTracks() {
+  const filtered = filteredTracks();
+  if (selectedTrackIds.size === 0) return filtered;
+  return filtered.filter(t => selectedTrackIds.has(t.id));
+}
+
+function updateSelectionBar() {
+  const count = selectedTrackIds.size;
+  const countEl = document.getElementById('selection-count');
+  if (countEl) countEl.textContent = count > 0 ? `${count} selected` : '';
+  const deselBtn = document.getElementById('deselect-all-btn');
+  if (deselBtn) deselBtn.style.display = count > 0 ? '' : 'none';
+}
+
 function sortedTracks() {
   const { by, order } = currentSort;
   const sorted = [...filteredTracks()].sort((a, b) => {
@@ -1674,6 +1740,22 @@ function buildTrackCard(track, cues, willSkip, opts = {}) {
 
   const cardTop = document.createElement('div');
   cardTop.className = 'card-top';
+
+  // Bulk-select checkbox (local mode only)
+  if (localMode) {
+    const cb = document.createElement('input');
+    cb.type = 'checkbox';
+    cb.className = 'track-select-cb';
+    cb.checked = selectedTrackIds.has(track.id);
+    if (selectedTrackIds.has(track.id)) card.classList.add('selected');
+    cb.addEventListener('change', e => {
+      e.stopPropagation();
+      if (e.target.checked) { selectedTrackIds.add(track.id); card.classList.add('selected'); }
+      else { selectedTrackIds.delete(track.id); card.classList.remove('selected'); }
+      updateSelectionBar();
+    });
+    cardTop.appendChild(cb);
+  }
 
   // Artwork
   const artWrap = document.createElement('div');
@@ -2018,6 +2100,7 @@ function renderTracks() {
   document.getElementById('tracks-count').textContent = countLabel;
   document.getElementById('dl-summary').textContent =
     `${tracksWithCues} track${tracksWithCues !== 1 ? 's' : ''} · ${totalCues} cue${totalCues !== 1 ? 's' : ''}`;
+  updateSelectionBar();
 }
 
 // ── XML export ─────────────────────────────────────────────────────────────────
@@ -2270,9 +2353,11 @@ document.getElementById('preview-cues-btn').addEventListener('click', async () =
 });
 
 document.getElementById('delete-cues-btn').addEventListener('click', () => {
-  const total = filteredTracks().length;
+  const total = activeTracks().length;
   if (!total) return;
-  const suffix = total < parsedTracks.length ? ` (${total} visible)` : '';
+  const suffix = selectedTrackIds.size > 0
+    ? ` (${total} selected)`
+    : total < parsedTracks.length ? ` (${total} visible)` : '';
   document.getElementById('delete-confirm-msg').textContent =
     `Delete all hot cues from ${total} track${total !== 1 ? 's' : ''}${suffix}?`;
   document.getElementById('delete-confirm-bar').classList.add('visible');
@@ -2291,7 +2376,7 @@ document.getElementById('delete-confirm-btn').addEventListener('click', async ()
   cancelBtn.disabled  = true;
   confirmBtn.textContent = 'Deleting…';
   try {
-    const trackIds = filteredTracks().map(t => parseInt(t.id));
+    const trackIds = activeTracks().map(t => parseInt(t.id));
     const r = await fetch('/api/delete-cues', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
