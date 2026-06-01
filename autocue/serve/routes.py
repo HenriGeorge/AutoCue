@@ -172,15 +172,17 @@ def track_audio(track_id: int, db=Depends(get_db)):
     content = db.get_content(ID=track_id)
     if content is None:
         raise HTTPException(404, "Track not found")
-    folder = getattr(content, "FolderPath", None) or ""
-    filename = getattr(content, "FileNameL", None) or getattr(content, "FileNameS", None) or ""
-    if not filename:
-        raise HTTPException(404, "No file path")
-    # Rekordbox on macOS sometimes uses /: prefix for volume paths
-    folder = folder.replace("/:", "/", 1) if folder.startswith("/:") else folder
-    full = Path(folder) / filename
+    # FolderPath stores the complete file path (despite the name)
+    raw = getattr(content, "FolderPath", None) or ""
+    if not raw:
+        raise HTTPException(404, "No file path in database")
+    # Rekordbox on macOS sometimes prefixes volume paths with /:
+    raw = raw.lstrip("/:") if raw.startswith("/:") else raw
+    if not raw.startswith("/"):
+        raw = "/" + raw
+    full = Path(raw)
     if not full.exists():
-        raise HTTPException(404, "Audio file not found on disk")
+        raise HTTPException(404, f"Audio file not found on disk: {full}")
     ext_types = {
         ".mp3": "audio/mpeg", ".wav": "audio/wav", ".aac": "audio/aac",
         ".m4a": "audio/mp4", ".flac": "audio/flac", ".ogg": "audio/ogg",
