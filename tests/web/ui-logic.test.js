@@ -14,17 +14,28 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 
 // ── 1. Sort button label map (docs/index.html ~line 2010) ──────────────────
 
-const SORT_LABELS = { title: 'Title', artist: 'Artist', album: 'Album', bpm: 'BPM', key: 'Key' }
+const SORT_LABELS = {
+  title: 'Title', artist: 'Artist', album: 'Album',
+  bpm: 'BPM', key: 'Key', rating: 'Rating', plays: 'Plays',
+}
 
 describe('SORT_LABELS', () => {
-  it('has an entry for every sort key', () => {
-    for (const k of ['title', 'artist', 'album', 'bpm', 'key']) {
+  it('has an entry for every sort key including rating and plays', () => {
+    for (const k of ['title', 'artist', 'album', 'bpm', 'key', 'rating', 'plays']) {
       expect(SORT_LABELS[k]).toBeDefined()
     }
   })
 
   it('key maps to "Key" (not undefined)', () => {
     expect(SORT_LABELS['key']).toBe('Key')
+  })
+
+  it('rating maps to "Rating"', () => {
+    expect(SORT_LABELS['rating']).toBe('Rating')
+  })
+
+  it('plays maps to "Plays"', () => {
+    expect(SORT_LABELS['plays']).toBe('Plays')
   })
 
   it('no entry produces undefined (sanity check for the lookup pattern)', () => {
@@ -302,5 +313,373 @@ describe('applyToRekordbox — SSE error handling and progress', () => {
     await applyToRekordbox_fn(failFetch, showToast)
     expect(messages[0]).toContain('Error applying cues')
     expect(messages[0]).toContain('Network error')
+  })
+})
+
+// ── 4. filteredTracks — new filter logic ─────────────────────────────────────
+// Extracted from docs/index.html; accepts (tracks, filterState) instead of
+// reading global variables, so it can be unit-tested without a DOM.
+
+function filteredTracks(parsedTracks, {
+  phraseOnlyFilter = false,
+  searchQuery = '',
+  ratingFilter = 0,
+  playsFilter = 'all',
+  lastPlayedFilter = 'all',
+  myTagFilter = '',
+} = {}) {
+  let tracks = parsedTracks
+  if (phraseOnlyFilter) tracks = tracks.filter(t => t.hasPhrase)
+  if (searchQuery) {
+    const q = searchQuery.toLowerCase()
+    tracks = tracks.filter(t =>
+      (t.name || '').toLowerCase().includes(q) ||
+      (t.artist || '').toLowerCase().includes(q)
+    )
+  }
+  if (ratingFilter > 0) tracks = tracks.filter(t => t.rating >= ratingFilter)
+  if (playsFilter === 'played') tracks = tracks.filter(t => t.playCount > 0)
+  else if (playsFilter === 'unplayed') tracks = tracks.filter(t => t.playCount === 0)
+  if (lastPlayedFilter !== 'all') {
+    if (lastPlayedFilter === 'never') {
+      tracks = tracks.filter(t => !t.lastPlayed)
+    } else {
+      const days = lastPlayedFilter === '7d' ? 7 : 30
+      const cutoff = new Date(Date.now() - days * 86400000).toISOString()
+      tracks = tracks.filter(t => t.lastPlayed && t.lastPlayed >= cutoff)
+    }
+  }
+  if (myTagFilter) tracks = tracks.filter(t => (t.myTags || []).includes(myTagFilter))
+  return tracks
+}
+
+const sampleTracks = [
+  { id: '1', name: 'Acid Rain', artist: 'Burial', hasPhrase: true,  rating: 5, playCount: 10, lastPlayed: new Date(Date.now() - 2 * 86400000).toISOString(), myTags: ['Techno'] },
+  { id: '2', name: 'Midnight',  artist: 'Aphex',  hasPhrase: false, rating: 3, playCount: 0,  lastPlayed: null, myTags: [] },
+  { id: '3', name: 'Flux',      artist: 'Burial', hasPhrase: true,  rating: 1, playCount: 5,  lastPlayed: new Date(Date.now() - 40 * 86400000).toISOString(), myTags: ['House', 'Techno'] },
+]
+
+describe('filteredTracks — phrase-only', () => {
+  it('returns all tracks when filter is off', () => {
+    expect(filteredTracks(sampleTracks)).toHaveLength(3)
+  })
+
+  it('returns only phrase tracks when phraseOnlyFilter is true', () => {
+    const result = filteredTracks(sampleTracks, { phraseOnlyFilter: true })
+    expect(result).toHaveLength(2)
+    expect(result.every(t => t.hasPhrase)).toBe(true)
+  })
+})
+
+describe('filteredTracks — search', () => {
+  it('filters by track name (case-insensitive)', () => {
+    const result = filteredTracks(sampleTracks, { searchQuery: 'acid' })
+    expect(result).toHaveLength(1)
+    expect(result[0].name).toBe('Acid Rain')
+  })
+
+  it('filters by artist name', () => {
+    const result = filteredTracks(sampleTracks, { searchQuery: 'burial' })
+    expect(result).toHaveLength(2)
+  })
+
+  it('empty query returns all tracks', () => {
+    expect(filteredTracks(sampleTracks, { searchQuery: '' })).toHaveLength(3)
+  })
+})
+
+describe('filteredTracks — rating filter', () => {
+  it('ratingFilter=0 returns all tracks', () => {
+    expect(filteredTracks(sampleTracks, { ratingFilter: 0 })).toHaveLength(3)
+  })
+
+  it('ratingFilter=3 returns tracks with rating >= 3', () => {
+    const result = filteredTracks(sampleTracks, { ratingFilter: 3 })
+    expect(result).toHaveLength(2)
+    expect(result.every(t => t.rating >= 3)).toBe(true)
+  })
+
+  it('ratingFilter=5 returns only 5-star tracks', () => {
+    const result = filteredTracks(sampleTracks, { ratingFilter: 5 })
+    expect(result).toHaveLength(1)
+    expect(result[0].rating).toBe(5)
+  })
+})
+
+describe('filteredTracks — plays filter', () => {
+  it('"played" keeps only tracks with playCount > 0', () => {
+    const result = filteredTracks(sampleTracks, { playsFilter: 'played' })
+    expect(result).toHaveLength(2)
+    expect(result.every(t => t.playCount > 0)).toBe(true)
+  })
+
+  it('"unplayed" keeps only tracks with playCount === 0', () => {
+    const result = filteredTracks(sampleTracks, { playsFilter: 'unplayed' })
+    expect(result).toHaveLength(1)
+    expect(result[0].playCount).toBe(0)
+  })
+
+  it('"all" returns all tracks', () => {
+    expect(filteredTracks(sampleTracks, { playsFilter: 'all' })).toHaveLength(3)
+  })
+})
+
+describe('filteredTracks — last-played filter', () => {
+  it('"never" keeps only tracks with no lastPlayed date', () => {
+    const result = filteredTracks(sampleTracks, { lastPlayedFilter: 'never' })
+    expect(result).toHaveLength(1)
+    expect(result[0].lastPlayed).toBeNull()
+  })
+
+  it('"7d" keeps only tracks played in the last 7 days', () => {
+    const result = filteredTracks(sampleTracks, { lastPlayedFilter: '7d' })
+    expect(result).toHaveLength(1)
+    expect(result[0].name).toBe('Acid Rain') // played 2 days ago
+  })
+
+  it('"30d" keeps tracks played in the last 30 days', () => {
+    const result = filteredTracks(sampleTracks, { lastPlayedFilter: '30d' })
+    expect(result).toHaveLength(1)
+    expect(result[0].name).toBe('Acid Rain') // the 40-day-old one is excluded
+  })
+
+  it('"all" returns all tracks', () => {
+    expect(filteredTracks(sampleTracks, { lastPlayedFilter: 'all' })).toHaveLength(3)
+  })
+})
+
+describe('filteredTracks — My Tag filter', () => {
+  it('returns only tracks that include the selected tag', () => {
+    const result = filteredTracks(sampleTracks, { myTagFilter: 'Techno' })
+    expect(result).toHaveLength(2)
+    expect(result.every(t => t.myTags.includes('Techno'))).toBe(true)
+  })
+
+  it('empty tag filter returns all tracks', () => {
+    expect(filteredTracks(sampleTracks, { myTagFilter: '' })).toHaveLength(3)
+  })
+
+  it('tag not present on any track returns empty', () => {
+    expect(filteredTracks(sampleTracks, { myTagFilter: 'Ambient' })).toHaveLength(0)
+  })
+})
+
+describe('filteredTracks — combined filters', () => {
+  it('phrase-only + rating + tag applied together', () => {
+    // phraseOnly: keeps ids 1,3 — rating>=3: keeps id 1 — tag Techno: keeps id 1
+    const result = filteredTracks(sampleTracks, {
+      phraseOnlyFilter: true, ratingFilter: 3, myTagFilter: 'Techno',
+    })
+    expect(result).toHaveLength(1)
+    expect(result[0].id).toBe('1')
+  })
+})
+
+// ── 5. colorTracksByBpm — skip_colored field ─────────────────────────────────
+
+async function colorTracksByBpm_with_skip_fn(trackIds, skipColored, fetchImpl, showToast) {
+  try {
+    const r = await fetchImpl('/api/color-tracks', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ track_ids: trackIds, dry_run: false, skip_colored: skipColored }),
+    })
+    const resp = await r.json()
+    if (!r.ok) {
+      showToast(`Color by BPM failed: ${resp.detail || r.statusText}`)
+    } else {
+      const backupNote = resp.backup_path ? ' — backup saved to ~/.autocue/backups/' : ''
+      showToast(`Colored ${resp.colored} track(s) by BPM${backupNote}`)
+    }
+  } catch (err) {
+    showToast(`Color by BPM failed: ${err.message}`)
+  }
+}
+
+describe('colorTracksByBpm — skip_colored field', () => {
+  it('sends skip_colored: true when checkbox is checked', async () => {
+    const { showToast } = makeToastCapture()
+    const fetchSpy = mockResponse({ colored: 5, skipped: 3, dry_run: false, backup_path: null })
+    await colorTracksByBpm_with_skip_fn([1, 2], true, fetchSpy, showToast)
+    const body = JSON.parse(fetchSpy.mock.calls[0][1].body)
+    expect(body.skip_colored).toBe(true)
+  })
+
+  it('sends skip_colored: false when checkbox is unchecked', async () => {
+    const { showToast } = makeToastCapture()
+    const fetchSpy = mockResponse({ colored: 8, skipped: 0, dry_run: false, backup_path: null })
+    await colorTracksByBpm_with_skip_fn([1], false, fetchSpy, showToast)
+    const body = JSON.parse(fetchSpy.mock.calls[0][1].body)
+    expect(body.skip_colored).toBe(false)
+  })
+
+  it('shows skipped count is implied in success toast', async () => {
+    const { showToast, messages } = makeToastCapture()
+    const fetchSpy = mockResponse({ colored: 5, skipped: 3, dry_run: false, backup_path: null })
+    await colorTracksByBpm_with_skip_fn([1, 2, 3, 4, 5, 6, 7, 8], true, fetchSpy, showToast)
+    expect(messages[0]).toContain('Colored 5 track(s)')
+  })
+})
+
+// ── 6. applyToRekordbox — add_fill_cues in request body ─────────────────────
+
+async function applyWithFillCues_fn(addFillCues, fetchImpl, showToast) {
+  try {
+    const r = await fetchImpl('/api/generate-apply-stream', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ track_ids: [1], add_fill_cues: addFillCues }),
+    })
+    if (!r.ok) { const e = await r.json().catch(() => ({})); throw new Error(e.detail || r.statusText) }
+    const reader = r.body.getReader()
+    const decoder = new TextDecoder()
+    let buf = '', finalData = null
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+      buf += decoder.decode(value, { stream: true })
+      const lines = buf.split('\n'); buf = lines.pop()
+      for (const line of lines) {
+        if (!line.startsWith('data: ')) continue
+        const ev = JSON.parse(line.slice(6))
+        if (ev.done) finalData = ev
+      }
+    }
+    if (finalData) showToast(`Applied ${finalData.applied} track(s)`)
+  } catch (err) { showToast(`Error: ${err.message}`) }
+}
+
+describe('applyToRekordbox — add_fill_cues in request body', () => {
+  it('sends add_fill_cues: true when checkbox checked', async () => {
+    const { showToast } = makeToastCapture()
+    const fetchSpy = mockSseResponse([{ done: true, applied: 1, skipped: 0, backup_path: null }])
+    await applyWithFillCues_fn(true, fetchSpy, showToast)
+    const body = JSON.parse(fetchSpy.mock.calls[0][1].body)
+    expect(body.add_fill_cues).toBe(true)
+  })
+
+  it('sends add_fill_cues: false when checkbox unchecked', async () => {
+    const { showToast } = makeToastCapture()
+    const fetchSpy = mockSseResponse([{ done: true, applied: 1, skipped: 0, backup_path: null }])
+    await applyWithFillCues_fn(false, fetchSpy, showToast)
+    const body = JSON.parse(fetchSpy.mock.calls[0][1].body)
+    expect(body.add_fill_cues).toBe(false)
+  })
+})
+
+// ── 7. ensureLocalAudio — fetch-based audio loading ──────────────────────────
+
+async function ensureLocalAudio_fn(trackId, audioState, fetchImpl, showToast) {
+  if (audioState[trackId]) return  // already loaded
+  try {
+    const resp = await fetchImpl(`/api/tracks/${trackId}/audio`)
+    if (!resp.ok) { showToast('Audio file not found on disk'); return }
+    const blob = await resp.blob()
+    const url = URL.createObjectURL(blob)
+    audioState[trackId] = { file: null, objectUrl: url, artworkUrl: null }
+  } catch (e) {
+    showToast(`Could not load audio: ${e.message}`)
+  }
+}
+
+// Minimal URL.createObjectURL stub for jsdom
+if (typeof URL.createObjectURL === 'undefined') {
+  URL.createObjectURL = () => 'blob:mock-url'
+}
+
+describe('ensureLocalAudio — fetch-based audio loading', () => {
+  it('does nothing if audio already loaded', async () => {
+    const audioState = { '42': { objectUrl: 'blob:existing' } }
+    const { showToast, messages } = makeToastCapture()
+    const fetchSpy = vi.fn()
+    await ensureLocalAudio_fn('42', audioState, fetchSpy, showToast)
+    expect(fetchSpy).not.toHaveBeenCalled()
+    expect(messages).toHaveLength(0)
+  })
+
+  it('fetches audio and stores objectUrl on success', async () => {
+    const audioState = {}
+    const { showToast } = makeToastCapture()
+    const fetchSpy = vi.fn().mockResolvedValue({
+      ok: true,
+      blob: async () => new Blob([new Uint8Array(4)], { type: 'audio/mpeg' }),
+    })
+    await ensureLocalAudio_fn('1', audioState, fetchSpy, showToast)
+    expect(audioState['1']).toBeDefined()
+    expect(audioState['1'].objectUrl).toBeDefined()
+  })
+
+  it('shows toast on 404', async () => {
+    const audioState = {}
+    const { showToast, messages } = makeToastCapture()
+    const fetchSpy = vi.fn().mockResolvedValue({ ok: false, status: 404 })
+    await ensureLocalAudio_fn('1', audioState, fetchSpy, showToast)
+    expect(messages[0]).toContain('not found on disk')
+    expect(audioState['1']).toBeUndefined()
+  })
+
+  it('shows toast on network error', async () => {
+    const audioState = {}
+    const { showToast, messages } = makeToastCapture()
+    const fetchSpy = vi.fn().mockRejectedValue(new Error('Network timeout'))
+    await ensureLocalAudio_fn('1', audioState, fetchSpy, showToast)
+    expect(messages[0]).toContain('Could not load audio')
+    expect(messages[0]).toContain('Network timeout')
+  })
+})
+
+// ── 8. Two-step restore confirmation (no confirm() dialog) ───────────────────
+// Tests the arming logic: first click arms, second click fires.
+
+function makeRestoreConfirmFlow(doRestore) {
+  let armed = false
+  return {
+    click: async () => {
+      if (!armed) { armed = true; return 'armed' }
+      armed = false
+      await doRestore()
+      return 'fired'
+    },
+    cancel: () => { armed = false },
+    isArmed: () => armed,
+  }
+}
+
+describe('restore confirm — two-step, no native dialog', () => {
+  it('first click arms without firing restore', async () => {
+    const restored = []
+    const flow = makeRestoreConfirmFlow(() => restored.push(1))
+    const result = await flow.click()
+    expect(result).toBe('armed')
+    expect(restored).toHaveLength(0)
+    expect(flow.isArmed()).toBe(true)
+  })
+
+  it('second click fires restore', async () => {
+    const restored = []
+    const flow = makeRestoreConfirmFlow(() => restored.push(1))
+    await flow.click()        // arm
+    await flow.click()        // fire
+    expect(restored).toHaveLength(1)
+    expect(flow.isArmed()).toBe(false)
+  })
+
+  it('cancel resets armed state without firing restore', async () => {
+    const restored = []
+    const flow = makeRestoreConfirmFlow(() => restored.push(1))
+    await flow.click()        // arm
+    flow.cancel()             // reset
+    expect(flow.isArmed()).toBe(false)
+    expect(restored).toHaveLength(0)
+  })
+
+  it('requires rearming after cancel', async () => {
+    const restored = []
+    const flow = makeRestoreConfirmFlow(() => restored.push(1))
+    await flow.click()        // arm
+    flow.cancel()
+    await flow.click()        // arms again (does not fire)
+    expect(restored).toHaveLength(0)
+    expect(flow.isArmed()).toBe(true)
   })
 })

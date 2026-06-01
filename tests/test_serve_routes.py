@@ -914,3 +914,312 @@ class TestCORS:
         client = TestClient(app, raise_server_exceptions=False)
         r = client.get("/api/status", headers={"Origin": "null"})
         assert r.headers.get("access-control-allow-origin") == "null"
+
+
+# ---------------------------------------------------------------------------
+# /api/tracks/{id}/audio
+# ---------------------------------------------------------------------------
+
+class TestAudioEndpoint:
+    def test_returns_404_when_track_not_found(self):
+        db = _make_db()
+        db.get_content.return_value = None
+        client = _make_client(db)
+        r = client.get("/api/tracks/9999/audio")
+        assert r.status_code == 404
+
+    def test_returns_404_when_folder_path_empty(self):
+        db = _make_db()
+        db.get_content.return_value = SimpleNamespace(ID=1, FolderPath="")
+        client = _make_client(db)
+        r = client.get("/api/tracks/1/audio")
+        assert r.status_code == 404
+
+    def test_returns_404_when_file_not_on_disk(self, tmp_path):
+        db = _make_db()
+        db.get_content.return_value = SimpleNamespace(
+            ID=1, FolderPath=str(tmp_path / "nonexistent.mp3"),
+        )
+        client = _make_client(db)
+        r = client.get("/api/tracks/1/audio")
+        assert r.status_code == 404
+        assert "not found on disk" in r.json()["detail"]
+
+    def test_returns_200_when_file_exists(self, tmp_path):
+        audio_file = tmp_path / "song.mp3"
+        audio_file.write_bytes(b"\xff\xfb\x90\x04" * 128)  # minimal MP3 bytes
+        db = _make_db()
+        db.get_content.return_value = SimpleNamespace(ID=1, FolderPath=str(audio_file))
+        client = _make_client(db)
+        r = client.get("/api/tracks/1/audio")
+        assert r.status_code == 200
+        assert r.headers["content-type"].startswith("audio/")
+
+    def test_strips_colon_volume_prefix(self, tmp_path):
+        audio_file = tmp_path / "song.flac"
+        audio_file.write_bytes(b"fLaC" + b"\x00" * 64)
+        db = _make_db()
+        # macOS volume paths start with /: — strip the colon
+        colon_path = "/:" + str(audio_file)[1:]  # e.g. /:/tmp/song.flac
+        db.get_content.return_value = SimpleNamespace(ID=1, FolderPath=colon_path)
+        client = _make_client(db)
+        r = client.get("/api/tracks/1/audio")
+        assert r.status_code == 200
+
+    def test_folder_path_is_full_path_not_folder(self, tmp_path):
+        # Regression: FolderPath is the full file path, not a directory.
+        # The old code appended FileNameL on top → always 404.
+        audio_file = tmp_path / "track.m4a"
+        audio_file.write_bytes(b"\x00\x00\x00\x1cftypM4A " + b"\x00" * 64)
+        db = _make_db()
+        db.get_content.return_value = SimpleNamespace(ID=1, FolderPath=str(audio_file))
+        client = _make_client(db)
+        r = client.get("/api/tracks/1/audio")
+        assert r.status_code == 200
+
+
+# ---------------------------------------------------------------------------
+# /api/tags
+# ---------------------------------------------------------------------------
+
+class TestTagsEndpoint:
+    def test_returns_list_of_tag_names(self):
+        db = _make_db()
+        tags = [SimpleNamespace(ID=1, Name="House"), SimpleNamespace(ID=2, Name="Techno")]
+        tag_q = MagicMock()
+        tag_q.filter.return_value = tag_q
+        tag_q.all.return_value = tags
+        db.query.return_value = tag_q
+        client = _make_client(db)
+        r = client.get("/api/tags")
+        assert r.status_code == 200
+        names = [item["name"] for item in r.json()]
+        assert "House" in names
+        assert "Techno" in names
+
+    def test_returns_empty_list_when_no_tags(self):
+        db = _make_db()
+        tag_q = MagicMock()
+        tag_q.filter.return_value = tag_q
+        tag_q.all.return_value = []
+        db.query.return_value = tag_q
+        client = _make_client(db)
+        r = client.get("/api/tags")
+        assert r.status_code == 200
+        assert r.json() == []
+
+    def test_filters_out_none_name_tags(self):
+        db = _make_db()
+        tags = [SimpleNamespace(ID=1, Name="House"), SimpleNamespace(ID=2, Name=None)]
+        tag_q = MagicMock()
+        tag_q.filter.return_value = tag_q
+        tag_q.all.return_value = tags
+        db.query.return_value = tag_q
+        client = _make_client(db)
+        r = client.get("/api/tags")
+        assert r.status_code == 200
+        names = [item["name"] for item in r.json()]
+        assert None not in names
+        assert "" not in names
+
+
+# ---------------------------------------------------------------------------
+# /api/tracks — new fields: rating, play_count, last_played, my_tags, color_name
+# ---------------------------------------------------------------------------
+
+class TestTrackNewFields:
+    """Verify that new metadata fields are included in TrackItem responses."""
+
+    def _make_track_q(self, db, track):
+        q = MagicMock()
+        q.count.return_value = 1
+        q.all.return_value = [track]
+        q.offset.return_value = q
+        q.limit.return_value = q
+        q.filter.return_value = q
+        q.order_by.return_value = q
+        db.get_content.return_value = q
+        return q
+
+    def _base_track(self, **kwargs):
+        defaults = dict(
+            ID=1, Title="Song", ArtistName="Artist", AlbumName="Album",
+            BPM=12800, Length=300, KeyID=None, Rating=0, DJPlayCount="0",
+            ColorID=None,
+        )
+        defaults.update(kwargs)
+        return SimpleNamespace(**defaults)
+
+    def _get_first_track(self, db, track):
+        self._make_track_q(db, track)
+        key_q = MagicMock(); key_q.all.return_value = []
+        db.query.return_value = key_q
+        db.get_anlz_path.return_value = ""
+        with patch("autocue.serve.routes.has_existing_hot_cues", return_value=0):
+            client = _make_client(db)
+            r = client.get("/api/tracks")
+        assert r.status_code == 200
+        return r.json()[0]
+
+    def test_rating_field_included(self):
+        db = _make_db()
+        item = self._get_first_track(db, self._base_track(Rating=4))
+        assert item["rating"] == 4
+
+    def test_play_count_field_included(self):
+        db = _make_db()
+        item = self._get_first_track(db, self._base_track(DJPlayCount="17"))
+        assert item["play_count"] == 17
+
+    def test_last_played_field_is_none_when_not_in_map(self):
+        db = _make_db()
+        item = self._get_first_track(db, self._base_track())
+        assert item["last_played"] is None
+
+    def test_my_tags_field_is_empty_when_not_in_map(self):
+        db = _make_db()
+        item = self._get_first_track(db, self._base_track())
+        assert item["my_tags"] == []
+
+    def test_color_name_field_is_empty_when_no_color(self):
+        db = _make_db()
+        item = self._get_first_track(db, self._base_track(ColorID=None))
+        assert item["color_name"] == ""
+
+
+# ---------------------------------------------------------------------------
+# /api/backups — created_at formatted date
+# ---------------------------------------------------------------------------
+
+class TestBackupsCreatedAt:
+    def test_created_at_parses_timestamp_from_filename(self, tmp_path):
+        backup_dir = tmp_path / "backups"
+        backup_dir.mkdir()
+        (backup_dir / "master_20260531T143000.db").write_bytes(b"x")
+        with patch("autocue.db_writer.BACKUP_DIR", backup_dir):
+            client = _make_client()
+            r = client.get("/api/backups")
+        assert r.status_code == 200
+        item = r.json()[0]
+        assert item["created_at"] == "2026-05-31 14:30:00"
+
+    def test_created_at_falls_back_to_mtime_for_odd_filenames(self, tmp_path):
+        backup_dir = tmp_path / "backups"
+        backup_dir.mkdir()
+        (backup_dir / "backup_manual.db").write_bytes(b"x")
+        with patch("autocue.db_writer.BACKUP_DIR", backup_dir):
+            client = _make_client()
+            r = client.get("/api/backups")
+        item = r.json()[0]
+        # Falls back to mtime — just verify it's a non-empty date string
+        assert len(item["created_at"]) == len("2026-01-01 00:00:00")
+
+
+# ---------------------------------------------------------------------------
+# /api/color-tracks — skip_colored option
+# ---------------------------------------------------------------------------
+
+class TestColorTracksSkipColored:
+    def _color_db(self, color_id=None):
+        db = _make_db()
+        color_q = MagicMock()
+        color_q.all.return_value = [SimpleNamespace(SortKey=i, ID=f"c{i}") for i in range(1, 9)]
+        db.query.return_value = color_q
+        db.get_content.return_value = SimpleNamespace(
+            ID=1, Title="T", BPM=12800, ColorID=color_id,
+        )
+        return db
+
+    def test_skip_colored_skips_already_colored_track(self):
+        db = self._color_db(color_id="c5")  # track already has a color
+        with patch("autocue.db_writer.rekordbox_is_running", return_value=False):
+            client = _make_client(db)
+            r = client.post("/api/color-tracks", json={"track_ids": [1], "dry_run": True, "skip_colored": True})
+        assert r.status_code == 200
+        assert r.json()["colored"] == 0
+        assert r.json()["skipped"] == 1
+
+    def test_skip_colored_false_colors_already_colored_track(self):
+        db = self._color_db(color_id="c5")
+        with patch("autocue.db_writer.rekordbox_is_running", return_value=False):
+            client = _make_client(db)
+            r = client.post("/api/color-tracks", json={"track_ids": [1], "dry_run": True, "skip_colored": False})
+        assert r.status_code == 200
+        assert r.json()["colored"] == 1
+
+    def test_skip_colored_default_is_false(self):
+        db = self._color_db(color_id="c5")
+        with patch("autocue.db_writer.rekordbox_is_running", return_value=False):
+            client = _make_client(db)
+            r = client.post("/api/color-tracks", json={"track_ids": [1], "dry_run": True})
+        assert r.status_code == 200
+        assert r.json()["colored"] == 1  # not skipped by default
+
+
+# ---------------------------------------------------------------------------
+# /api/generate — add_fill_cues option
+# ---------------------------------------------------------------------------
+
+class TestGenerateAddFillCues:
+    def test_add_fill_cues_passed_to_prefs_without_error(self):
+        """add_fill_cues=True must be accepted by /api/generate (no 422)."""
+        db = _make_db()
+        track = SimpleNamespace(ID=1, Title="T", BPM=12800, Length=300)
+        db.get_content.return_value = track
+        with patch("autocue.generator.analyze_track", return_value=[]):
+            client = _make_client(db)
+            r = client.post("/api/generate", json={
+                "track_ids": [1], "mode": "bar", "add_fill_cues": True,
+            })
+        assert r.status_code == 200
+
+    def test_add_fill_cues_false_is_default(self):
+        db = _make_db()
+        track = SimpleNamespace(ID=1, Title="T", BPM=12800, Length=300)
+        db.get_content.return_value = track
+        with patch("autocue.generator.analyze_track", return_value=[]):
+            client = _make_client(db)
+            r = client.post("/api/generate", json={"track_ids": [1]})
+        assert r.status_code == 200
+
+
+# ---------------------------------------------------------------------------
+# /api/generate-apply  — add_fill_cues and add_memory_cue options
+# ---------------------------------------------------------------------------
+
+class TestGenerateApplyOptions:
+    def _setup(self, tmp_path):
+        db = _make_db()
+        db._db_dir = tmp_path
+        (tmp_path / "master.db").write_bytes(b"db")
+        track = SimpleNamespace(ID=1, Title="T", BPM=12800, Length=300,
+                                ArtistName="A", AlbumName="", KeyID=None,
+                                Rating=0, DJPlayCount="0", ColorID=None)
+        db.get_content.return_value = track
+        db.session = MagicMock()
+        db.generate_unused_id = MagicMock(return_value="new-id")
+        return db
+
+    def test_add_memory_cue_accepted(self, tmp_path):
+        db = self._setup(tmp_path)
+        with patch("autocue.generator.analyze_track", return_value=[]):
+            with patch("autocue.db_writer.rekordbox_is_running", return_value=False):
+                with patch("autocue.db_writer.backup_database", return_value=tmp_path / "bak.db"):
+                    with patch("autocue.db_writer.write_cues_to_db", return_value=0):
+                        client = _make_client(db)
+                        r = client.post("/api/generate-apply", json={
+                            "track_ids": [1], "add_memory_cue": True, "dry_run": True,
+                        })
+        assert r.status_code == 200
+
+    def test_add_fill_cues_accepted(self, tmp_path):
+        db = self._setup(tmp_path)
+        with patch("autocue.generator.analyze_track", return_value=[]):
+            with patch("autocue.db_writer.rekordbox_is_running", return_value=False):
+                with patch("autocue.db_writer.backup_database", return_value=tmp_path / "bak.db"):
+                    with patch("autocue.db_writer.write_cues_to_db", return_value=0):
+                        client = _make_client(db)
+                        r = client.post("/api/generate-apply", json={
+                            "track_ids": [1], "add_fill_cues": True, "dry_run": True,
+                        })
+        assert r.status_code == 200

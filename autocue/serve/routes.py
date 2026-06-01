@@ -435,17 +435,25 @@ def generate_apply_stream(req: GenerateAndApplyRequest, db=Depends(get_db)):
 
 @router.get("/backups", response_model=list[BackupItem])
 def list_backups():
+    import re
+    from datetime import datetime
     from ..db_writer import BACKUP_DIR
     if not BACKUP_DIR.exists():
         return []
     items = []
     for p in sorted(BACKUP_DIR.glob("*.db"), key=lambda f: f.stat().st_mtime, reverse=True):
         stat = p.stat()
+        m = re.search(r"(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})", p.stem)
+        if m:
+            yr, mo, dy, hh, mm, ss = m.groups()
+            created_at = f"{yr}-{mo}-{dy} {hh}:{mm}:{ss}"
+        else:
+            created_at = datetime.fromtimestamp(stat.st_mtime).strftime("%Y-%m-%d %H:%M:%S")
         items.append(BackupItem(
             path=str(p),
             filename=p.name,
             size_mb=round(stat.st_size / (1024 * 1024), 2),
-            created_at=p.name,
+            created_at=created_at,
         ))
     return items
 

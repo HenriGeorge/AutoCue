@@ -1284,20 +1284,36 @@ document.getElementById('restore-btn').addEventListener('click', async () => {
     for (const b of backups) {
       const opt = document.createElement('option');
       opt.value = b.filename;
-      opt.textContent = `${b.filename} (${b.size_mb} MB)`;
+      opt.textContent = `${b.created_at} — ${b.size_mb} MB`;
       sel.appendChild(opt);
     }
   } catch (e) { showToast('Could not load backups'); return; }
   bar.style.display = 'flex';
 });
+
+function _resetRestoreBtn() {
+  const btn = document.getElementById('restore-confirm-btn');
+  btn.textContent = 'Restore';
+  btn.style.outline = '';
+  delete btn.dataset.armed;
+}
 document.getElementById('restore-cancel-btn').addEventListener('click', () => {
+  _resetRestoreBtn();
   document.getElementById('restore-bar').style.display = 'none';
 });
+document.getElementById('restore-select').addEventListener('change', _resetRestoreBtn);
 document.getElementById('restore-confirm-btn').addEventListener('click', async () => {
   const filename = document.getElementById('restore-select').value;
   if (!filename) { showToast('Select a backup first'); return; }
-  if (!confirm(`Restore "${filename}"? This will replace your current Rekordbox database.`)) return;
   const btn = document.getElementById('restore-confirm-btn');
+  // Two-step: first click arms, second click fires
+  if (btn.dataset.armed !== 'true') {
+    btn.dataset.armed = 'true';
+    btn.textContent = 'Yes, replace database ⚠';
+    btn.style.outline = '2px solid #ff4444';
+    return;
+  }
+  _resetRestoreBtn();
   btn.disabled = true; btn.textContent = 'Restoring…';
   try {
     const r = await fetch('/api/restore', {
