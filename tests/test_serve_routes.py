@@ -1557,6 +1557,7 @@ class TestLibraryHealthSSE:
         all_q.all.return_value = contents
         all_q.join.return_value = all_q
         all_q.filter.return_value = all_q
+        all_q.count.return_value = len(contents)
 
         cue_q = MagicMock()
         cue_q.filter.return_value = cue_q
@@ -1580,7 +1581,7 @@ class TestLibraryHealthSSE:
         with patch("os.path.exists", return_value=True):
             r = client.get("/api/health")
         events = _parse_sse(r.text)
-        assert len([e for e in events if not e.get("done")]) == 3
+        assert len([e for e in events if e.get("track_id") is not None]) == 3
         assert len([e for e in events if e.get("done")]) == 1
 
     def test_done_event_contains_summary_fields(self):
@@ -1623,7 +1624,7 @@ class TestLibraryHealthSSE:
         client = _make_client(db)
         with patch("os.path.exists", return_value=True):
             r = client.get("/api/health")
-        track_events = [e for e in _parse_sse(r.text) if not e.get("done")]
+        track_events = [e for e in _parse_sse(r.text) if e.get("track_id") is not None]
         assert len(track_events) == 1
         assert track_events[0]["score"] == 0
         assert any(i["code"] == "INTERNAL_ERROR" for i in track_events[0]["issues"])

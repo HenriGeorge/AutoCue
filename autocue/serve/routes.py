@@ -813,7 +813,27 @@ async def library_health(
         issue_counts: dict[str, int] = defaultdict(int)
         tier_counts: dict[str, int] = defaultdict(int)
 
-        for report in check_library_health(db, playlist_id=playlist_id):
+        gen = check_library_health(db, playlist_id=playlist_id)
+        # Peek at the total by fetching the underlying content count up-front.
+        # check_library_health already did the query; emit total before first track.
+        try:
+            from pyrekordbox.db6 import DjmdContent, DjmdSongPlaylist
+            if playlist_id is not None:
+                total_count = (
+                    db.query(DjmdContent)
+                    .join(DjmdSongPlaylist, DjmdSongPlaylist.ContentID == DjmdContent.ID)
+                    .filter(DjmdSongPlaylist.PlaylistID == str(playlist_id))
+                    .count()
+                )
+            else:
+                total_count = db.query(DjmdContent).count()
+        except Exception:
+            total_count = None
+
+        if total_count is not None:
+            yield f"data: {json.dumps({'total': total_count})}\n\n"
+
+        for report in gen:
             schema = _report_to_schema(report)
             if any(i.code == "NO_AUDIO_FILE" for i in schema.issues):
                 missing_audio.append(report.track_id)
@@ -1095,8 +1115,34 @@ def playlist_suggest(req: PlaylistSuggestRequest, db=Depends(get_db)):
         except Exception:
             pass
 
+    import random
     scored.sort(reverse=True)
-    top = scored[: req.count]
+    # Pick from the top pool with weighted randomness so repeated calls give variety.
+    # Pool size: 3× the requested count (min 60, capped at available).
+    pool_size = min(len(scored), max(req.count * 3, 60))
+    pool = scored[:pool_size]
+    if len(pool) <= req.count:
+        top = pool
+    else:
+        weights = [s ** 2 for s, _ in pool]  # square to favour high scorers
+        chosen: list[tuple[float, int]] = []
+        seen: set[int] = set()
+        for _ in range(req.count * 4):  # draw with replacement, dedup until we have enough
+            if len(chosen) >= req.count:
+                break
+            pick = random.choices(pool, weights=weights, k=1)[0]
+            if pick[1] not in seen:
+                seen.add(pick[1])
+                chosen.append(pick)
+        # If weighted draw didn't fill the quota, append remaining in score order
+        if len(chosen) < req.count:
+            for item in pool:
+                if len(chosen) >= req.count:
+                    break
+                if item[1] not in seen:
+                    seen.add(item[1])
+                    chosen.append(item)
+        top = chosen
 
     return PlaylistSuggestResponse(
         category=req.category,

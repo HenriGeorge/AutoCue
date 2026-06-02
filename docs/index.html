@@ -1282,6 +1282,8 @@
         <input type="number" id="ps-count" value="20" min="1" max="100" step="1">
       </div>
       <button id="ps-suggest-btn" class="primary" style="font-size:13px;">Suggest tracks</button>
+      <button id="ps-more-btn" class="secondary-btn" style="font-size:13px;display:none;">Suggest more</button>
+      <button id="ps-reset-btn" class="secondary-btn" style="font-size:13px;display:none;">Reset</button>
       <span id="ps-status" style="font-size:12px;color:var(--muted);"></span>
     </div>
     <div id="ps-result" style="display:none;margin-top:8px;">
@@ -1335,46 +1337,52 @@
     </div>
     <div id="tracks-sticky">
     <!-- F4: Search + F6: Phrase-only filter -->
-    <div id="filter-bar" style="display:none; margin-bottom:8px; gap:8px; align-items:center; flex-wrap:wrap;">
-      <input id="search-input" type="search" placeholder="Search title or artist…" style="flex:1;min-width:160px;background:var(--surface-card);color:var(--text);border:1px solid var(--border,#333);border-radius:6px;padding:5px 10px;font-size:13px;" />
-      <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;white-space:nowrap;" title="Show only tracks that have Rekordbox phrase data (ANLZ .EXT file). Useful to scope Apply to phrase-ready tracks so AutoCue can use Intro/Verse/Chorus/Outro labels instead of bar intervals.">
-        <input type="checkbox" id="phrase-only-cb" />
-        Phrase only
-      </label>
-      <select id="rating-filter" title="Min rating" style="background:var(--surface-card);color:var(--text);border:1px solid var(--border,#333);border-radius:6px;padding:4px 8px;font-size:12px;">
-        <option value="0">Any rating</option>
-        <option value="1">★+</option><option value="2">★★+</option>
-        <option value="3">★★★+</option><option value="4">★★★★+</option><option value="5">★★★★★</option>
-      </select>
-      <select id="plays-filter" style="background:var(--surface-card);color:var(--text);border:1px solid var(--border,#333);border-radius:6px;padding:4px 8px;font-size:12px;">
-        <option value="all">All plays</option>
-        <option value="played">Played</option>
-        <option value="unplayed">Never played</option>
-      </select>
-      <select id="lastplayed-filter" style="background:var(--surface-card);color:var(--text);border:1px solid var(--border,#333);border-radius:6px;padding:4px 8px;font-size:12px;">
-        <option value="all">Any time</option>
-        <option value="7d">Last 7 days</option>
-        <option value="30d">Last 30 days</option>
-        <option value="never">Never played</option>
-      </select>
-      <select id="tag-filter-select" style="background:var(--surface-card);color:var(--text);border:1px solid var(--border,#333);border-radius:6px;padding:4px 8px;font-size:12px;">
-        <option value="">All tags</option>
-      </select>
-      <div style="position:relative">
-        <button id="key-filter-btn">Key: Any ▾</button>
-        <div id="key-filter-popup">
-          <div style="font-size:11px;font-weight:700;color:var(--muted);margin-bottom:6px;text-transform:uppercase;letter-spacing:.06em">Camelot Key Filter</div>
-          <div class="camelot-grid" id="camelot-grid"><!-- populated by JS --></div>
-          <div class="camelot-footer">
-            <button class="secondary-btn" id="ck-clear-btn">Clear</button>
-            <button class="secondary-btn" id="ck-related-btn" title="Select the currently active keys plus their neighbours on the wheel">Neighbours</button>
+    <div id="filter-bar" style="display:none; margin-bottom:10px; flex-direction:column; gap:8px;">
+      <!-- Row 1: Search + phrase toggle + selection actions -->
+      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+        <input id="search-input" type="search" placeholder="Search title or artist…" style="flex:1;min-width:160px;background:var(--surface-card);color:var(--text);border:1px solid var(--border,#333);border-radius:8px;padding:6px 12px;font-size:13px;" />
+        <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;white-space:nowrap;padding:5px 10px;border:1px solid var(--border);border-radius:8px;background:var(--surface-card);" title="Show only tracks that have Rekordbox phrase data (ANLZ .EXT file).">
+          <input type="checkbox" id="phrase-only-cb" />
+          ✨ Phrase only
+        </label>
+        <button class="secondary-btn" id="select-all-btn" style="font-size:12px;padding:5px 12px;">Select all</button>
+        <button class="secondary-btn" id="deselect-all-btn" style="font-size:12px;padding:5px 12px;display:none">Deselect all</button>
+        <span id="selection-count" style="font-size:12px;color:var(--green);white-space:nowrap;font-weight:600;"></span>
+        <button id="transition-score-btn" style="display:none;font-size:12px;padding:5px 12px;background:none;border:1px solid var(--green);color:var(--green);border-radius:8px;cursor:pointer;" onclick="showTransitionScore()">⇌ Score transition</button>
+      </div>
+      <!-- Row 2: Facet filters -->
+      <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
+        <select id="rating-filter" title="Min rating" style="background:var(--surface-card);color:var(--text);border:1px solid var(--border,#333);border-radius:8px;padding:5px 10px;font-size:12px;">
+          <option value="0">Any rating</option>
+          <option value="1">★+</option><option value="2">★★+</option>
+          <option value="3">★★★+</option><option value="4">★★★★+</option><option value="5">★★★★★</option>
+        </select>
+        <select id="plays-filter" style="background:var(--surface-card);color:var(--text);border:1px solid var(--border,#333);border-radius:8px;padding:5px 10px;font-size:12px;">
+          <option value="all">All plays</option>
+          <option value="played">Played</option>
+          <option value="unplayed">Never played</option>
+        </select>
+        <select id="lastplayed-filter" style="background:var(--surface-card);color:var(--text);border:1px solid var(--border,#333);border-radius:8px;padding:5px 10px;font-size:12px;">
+          <option value="all">Any time</option>
+          <option value="7d">Last 7 days</option>
+          <option value="30d">Last 30 days</option>
+          <option value="never">Never played</option>
+        </select>
+        <select id="tag-filter-select" style="background:var(--surface-card);color:var(--text);border:1px solid var(--border,#333);border-radius:8px;padding:5px 10px;font-size:12px;">
+          <option value="">All tags</option>
+        </select>
+        <div style="position:relative">
+          <button id="key-filter-btn">Key: Any ▾</button>
+          <div id="key-filter-popup">
+            <div style="font-size:11px;font-weight:700;color:var(--muted);margin-bottom:6px;text-transform:uppercase;letter-spacing:.06em">Camelot Key Filter</div>
+            <div class="camelot-grid" id="camelot-grid"><!-- populated by JS --></div>
+            <div class="camelot-footer">
+              <button class="secondary-btn" id="ck-clear-btn">Clear</button>
+              <button class="secondary-btn" id="ck-related-btn" title="Select the currently active keys plus their neighbours on the wheel">Neighbours</button>
+            </div>
           </div>
         </div>
       </div>
-      <button class="secondary-btn" id="select-all-btn" style="font-size:12px;padding:4px 10px;">Select all</button>
-      <button class="secondary-btn" id="deselect-all-btn" style="font-size:12px;padding:4px 10px;display:none">Deselect all</button>
-      <span id="selection-count" style="font-size:12px;color:var(--green);white-space:nowrap;"></span>
-      <button id="transition-score-btn" style="display:none;font-size:12px;padding:4px 10px;background:none;border:1px solid var(--green);color:var(--green);border-radius:6px;cursor:pointer;" onclick="showTransitionScore()">⇌ Score transition</button>
     </div>
     <div class="sort-bar" id="sort-bar" style="display:none">
       <span>Sort:</span>
@@ -1756,14 +1764,16 @@ async function scanLibraryHealth() {
           receivedDone = true;
           healthLastSummary = ev.summary;
           total = ev.summary.total;
+          fill.style.width = '100%';
           _renderHealthSummary(ev.summary);
+        } else if (ev.total && !ev.track_id) {
+          total = ev.total;  // initial count event — enables linear progress from the start
         } else {
           processed++;
           healthData[String(ev.track_id)] = ev;
           label.textContent = `Scanning… ${processed.toLocaleString()}`;
-          // Use real total once known from done event, fall back to asymptote
           const pct = total
-            ? Math.min(97, processed / total * 100)
+            ? processed / total * 100
             : Math.min(97, processed / Math.max(processed + 50, 1) * 100);
           fill.style.width = `${pct}%`;
         }
@@ -2264,7 +2274,16 @@ detectLocalMode().then(async connected => {
     document.getElementById('cue-tools-section').style.display = '';
     _initCueTools();
     document.getElementById('playlist-suggest-section').style.display = '';
-    document.getElementById('ps-suggest-btn').addEventListener('click', suggestPlaylist);
+    document.getElementById('ps-suggest-btn').addEventListener('click', () => suggestPlaylist(false));
+    document.getElementById('ps-more-btn').addEventListener('click', () => suggestPlaylist(true));
+    document.getElementById('ps-reset-btn').addEventListener('click', () => {
+      _psExcludedIds = [];
+      document.getElementById('ps-tracklist').innerHTML = '';
+      document.getElementById('ps-result').style.display = 'none';
+      document.getElementById('ps-more-btn').style.display = 'none';
+      document.getElementById('ps-reset-btn').style.display = 'none';
+      document.getElementById('ps-summary').textContent = '';
+    });
     document.getElementById('setbuilder-section').style.display = '';
     document.getElementById('sb-build-btn').addEventListener('click', buildSet);
 
@@ -3938,12 +3957,31 @@ function renderTracks() {
       if (cues.length) { tracksWithCues++; totalCues += cues.length; }
       list.appendChild(buildTrackCard(track, cues, willSkip, {}));
     }
-    list.querySelectorAll('.track-card').forEach(function(card, i) {
+    var allCards = list.querySelectorAll('.track-card');
+    allCards.forEach(function(card, i) {
       if (i < 8) {
         card.style.animationDelay = (i * 30) + 'ms';
         card.classList.add('animate-in');
+      } else {
+        card.style.opacity = '0';
+        card.style.transform = 'translateY(10px)';
       }
     });
+    if (allCards.length > 8) {
+      var cardObserver = new IntersectionObserver(function(entries) {
+        entries.forEach(function(entry) {
+          if (entry.isIntersecting) {
+            entry.target.style.opacity = '';
+            entry.target.style.transform = '';
+            entry.target.classList.add('animate-in');
+            cardObserver.unobserve(entry.target);
+          }
+        });
+      }, { threshold: 0.05, rootMargin: '0px 0px -10px 0px' });
+      allCards.forEach(function(card, i) {
+        if (i >= 8) cardObserver.observe(card);
+      });
+    }
   }
 
   const visible = filteredTracks();
@@ -4654,8 +4692,13 @@ const _CAT_COLORS = {
   after_hours: '#9b5de5', closing: '#52b788', unknown: '#aaa',
 };
 
-async function suggestPlaylist() {
+let _psExcludedIds = [];
+let _psCategoryLast = null;
+
+async function suggestPlaylist(append) {
   const btn     = document.getElementById('ps-suggest-btn');
+  const moreBtn = document.getElementById('ps-more-btn');
+  const resetBtn = document.getElementById('ps-reset-btn');
   const status  = document.getElementById('ps-status');
   const result  = document.getElementById('ps-result');
   const summary = document.getElementById('ps-summary');
@@ -4664,15 +4707,28 @@ async function suggestPlaylist() {
   const category = document.getElementById('ps-category').value;
   const count    = parseInt(document.getElementById('ps-count').value, 10) || 20;
 
+  // Reset excluded list if category changed
+  if (category !== _psCategoryLast) {
+    _psExcludedIds = [];
+    _psCategoryLast = category;
+    list.innerHTML = '';
+  }
+
+  if (!append) {
+    _psExcludedIds = [];
+    list.innerHTML = '';
+  }
+
   btn.disabled = true;
+  moreBtn.disabled = true;
   status.textContent = 'Finding tracks…';
-  result.style.display = 'none';
+  if (!append) result.style.display = 'none';
 
   try {
     const r = await fetch('/api/playlists/suggest', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ category, count }),
+      body: JSON.stringify({ category, count, exclude_ids: _psExcludedIds }),
     });
     if (!r.ok) {
       const err = await r.json().catch(() => ({ detail: r.statusText }));
@@ -4680,10 +4736,11 @@ async function suggestPlaylist() {
     }
     const d = await r.json();
     status.textContent = '';
-    summary.textContent = `${d.results.length} tracks found for "${category}"`;
-    list.innerHTML = '';
+    const totalShown = (append ? list.children.length : 0) + d.results.length;
+    summary.textContent = `${totalShown} tracks for "${category}"${_psExcludedIds.length ? ' (excluding ' + _psExcludedIds.length + ' already shown)' : ''}`;
     const trackMap = Object.fromEntries((parsedTracks || []).map(t => [String(t.id), t]));
     for (const item of d.results) {
+      _psExcludedIds.push(item.track_id);
       const t = trackMap[String(item.track_id)];
       const li = document.createElement('li');
       li.className = 'sb-track-row';
@@ -4696,12 +4753,15 @@ async function suggestPlaylist() {
       list.appendChild(li);
     }
     result.style.display = '';
-    showToast(`Found ${d.results.length} ${category} tracks`);
+    moreBtn.style.display = d.results.length >= count ? '' : 'none';
+    resetBtn.style.display = _psExcludedIds.length > 0 ? '' : 'none';
+    showToast(append ? `Added ${d.results.length} more ${category} tracks` : `Found ${d.results.length} ${category} tracks`);
   } catch (err) {
     status.textContent = `Error: ${err.message}`;
     showToast(`Suggest failed: ${err.message}`, true);
   } finally {
     btn.disabled = false;
+    moreBtn.disabled = false;
   }
 }
 
