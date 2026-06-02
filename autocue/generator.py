@@ -16,6 +16,19 @@ from .models import CuePoint, LABEL_COLORS, PhraseLabel, SLOT_COLORS
 
 MAX_HOT_CUES = 8
 
+# Importance order for non-mix-in slots (lower = earlier slot).
+# Slot A is always the mix-in point (first non-Intro phrase). Slots B+ use this priority.
+_SMART_PRIORITY: dict[PhraseLabel, int] = {
+    PhraseLabel.CHORUS:  0,  # Drop
+    PhraseLabel.UP:      1,  # Build
+    PhraseLabel.OUTRO:   2,  # Outro
+    PhraseLabel.VERSE:   3,  # Verse
+    PhraseLabel.DOWN:    4,  # Break
+    PhraseLabel.BRIDGE:  5,  # Bridge
+    PhraseLabel.INTRO:   6,  # Intro — least useful as a hot cue
+    PhraseLabel.UNKNOWN: 7,
+}
+
 
 @dataclass
 class TrackCapability:
@@ -32,8 +45,60 @@ class GenerationPrefs:
     start_bar: int = 1
     max_cues: int = MAX_HOT_CUES
     inizio_ms: int = 0  # first-beat offset in milliseconds
-    add_memory_cue: bool = False
+    add_memory_cue: bool = False  # legacy alias for memory_cue_mode="load_only"
+    memory_cue_mode: Literal["none", "load_only", "all"] = "none"
     add_fill_cues: bool = False
+    # "smart": A=mix-in (first non-Intro), B=Drop, C=Build, … last=Intro
+    # "sequential": slots assigned in chronological order (legacy behaviour)
+    slot_priority: Literal["smart", "sequential"] = "smart"
+
+
+def _resolve_memory_cue_mode(prefs: GenerationPrefs) -> Literal["none", "load_only", "all"]:
+    """memory_cue_mode takes precedence; add_memory_cue=True is legacy alias for load_only."""
+    if prefs.memory_cue_mode != "none":
+        return prefs.memory_cue_mode
+    if prefs.add_memory_cue:
+        return "load_only"
+    return "none"
+
+
+def _apply_smart_slot_order(cues: list[CuePoint]) -> None:
+    """Reassign hot cue slot numbers: A = mix-in point, B+ by musical importance.
+
+    Slot A is always the first non-Intro phrase chronologically — the point a DJ
+    presses to start the track during a transition. Remaining slots are ordered by
+    _SMART_PRIORITY (Drop first, Intro last), with chronological tiebreaking.
+
+    Mutates slots in-place; memory cues (slot=-1) and list order are untouched.
+    """
+    hot = [c for c in cues if c.slot >= 0]
+    if not hot:
+        return
+
+    # Slot A = first non-Intro phrase in time (the mix-in point)
+    chronological = sorted(hot, key=lambda c: c.position_ms)
+    mix_in = next((c for c in chronological if c.label != PhraseLabel.INTRO), None)
+
+    if mix_in is None:
+        # All Intros — fall back to chronological order
+        for i, c in enumerate(chronological):
+            c.slot = i
+        return
+
+    mix_in.slot = 0
+    # When a non-Intro phrase is the mix-in point, mark it so DJs know A = entry, not mid-track re-cue
+    if mix_in.label != PhraseLabel.INTRO:
+        base = mix_in.name or ""
+        if base and "(Mix In)" not in base:
+            mix_in.name = f"{base} (Mix In)"
+        elif not base:
+            mix_in.name = "Mix In"
+
+    # Remaining slots sorted by importance, chronological within each tier
+    remaining = [c for c in hot if c is not mix_in]
+    remaining.sort(key=lambda c: (_SMART_PRIORITY.get(c.label, 7), c.position_ms))
+    for i, c in enumerate(remaining):
+        c.slot = i + 1
 
 
 def detect_capability(
@@ -74,7 +139,8 @@ def _bar_strategy(content, db, prefs: GenerationPrefs) -> tuple[list[CuePoint], 
             break
         bar_number = prefs.start_bar + i * prefs.bars_interval
         cues.append(CuePoint(position_ms=pos, label=PhraseLabel.UNKNOWN, slot=slot,
-                             name=f"Bar {bar_number}", color_id=SLOT_COLORS[slot]))
+                             name=f"Bar {bar_number}", color_id=SLOT_COLORS[slot],
+                             confidence=0.6))
         slot += 1
     return cues, "bar"
 
@@ -86,7 +152,8 @@ def _heuristic_strategy(content, db, prefs: GenerationPrefs) -> tuple[list[CuePo
     cues = [
         CuePoint(position_ms=i * step, label=PhraseLabel.UNKNOWN, slot=i,
                  name=f"{(i * 30) // 60}:{(i * 30) % 60:02d}",
-                 color_id=SLOT_COLORS[i] if i < len(SLOT_COLORS) else 0)
+                 color_id=SLOT_COLORS[i] if i < len(SLOT_COLORS) else 0,
+                 confidence=0.3)
         for i in range(prefs.max_cues)
         if i * step < dur_ms
     ]
@@ -119,6 +186,7 @@ def generate_cues_for_track(
         if phrase_cues:
             for c in phrase_cues:
                 c.color_id = LABEL_COLORS.get(c.label.value, 0)
+                # confidence=1.0 is the CuePoint default; phrase+beat data is fully reliable
             cues, mode_used = phrase_cues, "phrase"
         elif prefs.mode == "phrase":
             # Explicit phrase mode with no ANLZ data — return empty, skip memory cue too
@@ -146,7 +214,7 @@ def generate_cues_for_track(
                 break
             if all(abs(fill.position_ms - e) > 500 for e in existing_ms):
                 fill.slot = len([c for c in cues if c.slot >= 0])
-                fill.color_id = SLOT_COLORS[fill.slot % len(SLOT_COLORS)]
+                # color_id intentionally left as 0 here; set from final slot after smart ordering below
                 cues.append(fill)
                 existing_ms.add(fill.position_ms)
         cues = sorted(cues, key=lambda c: c.position_ms)
@@ -156,14 +224,72 @@ def generate_cues_for_track(
                 c.slot = slot_idx
                 slot_idx += 1
 
-    if prefs.add_memory_cue and cues:
-        mem_pos = cues[0].position_ms if mode_used == "phrase" else max(0, prefs.inizio_ms)
-        cues = [CuePoint(
-            position_ms=mem_pos,
-            label=PhraseLabel.UNKNOWN,
-            slot=-1,
-            name="Auto Cue",
-            color_id=0,
-        )] + cues
+    # Smart slot ordering: A=mix-in point, B=Drop, C=Build, … last=Intro (phrase mode only).
+    # Applied after fill cues so all slots are numbered before reordering.
+    if mode_used == "phrase" and prefs.slot_priority == "smart":
+        _apply_smart_slot_order(cues)
+
+    # Set fill cue colors using their final (post-smart-ordering) slot numbers.
+    # Must run after _apply_smart_slot_order so slot values are stable.
+    if prefs.add_fill_cues and mode_used == "phrase":
+        for c in cues:
+            if c.label == PhraseLabel.UNKNOWN and c.slot >= 0:
+                c.color_id = SLOT_COLORS[c.slot % len(SLOT_COLORS)]
+
+    effective_mcm = _resolve_memory_cue_mode(prefs)
+    if effective_mcm != "none" and cues:
+        mem_confidence = {"phrase": 1.0, "bar": 0.6, "heuristic": 0.3}.get(mode_used, 1.0)
+        hot = [c for c in cues if c.slot >= 0]
+        mem_cues: list[CuePoint] = []
+
+        # Load Point: always added — at first phrase (phrase mode) or inizio_ms (bar/heuristic)
+        load_pos = min(c.position_ms for c in hot) if hot else 0
+        if mode_used != "phrase":
+            load_pos = max(0, prefs.inizio_ms)
+        mem_cues.append(CuePoint(
+            position_ms=load_pos, label=PhraseLabel.UNKNOWN, slot=-1,
+            name="Load Point", color_id=0, confidence=mem_confidence,
+        ))
+
+        if effective_mcm == "all" and mode_used == "phrase":
+            # Mix-In: slot-0 hot cue (the mix-in point after smart ordering)
+            mix_in_cue = next((c for c in cues if c.slot == 0), None)
+            if mix_in_cue and abs(mix_in_cue.position_ms - load_pos) > 500:
+                mem_cues.append(CuePoint(
+                    position_ms=mix_in_cue.position_ms, label=PhraseLabel.UNKNOWN, slot=-1,
+                    name="Mix In", color_id=5, confidence=mem_confidence,  # Green
+                ))
+
+            # Mix-Out: last OUTRO phrase
+            outros = [c for c in hot if c.label == PhraseLabel.OUTRO]
+            if outros:
+                outro_pos = max(c.position_ms for c in outros)
+                mem_cues.append(CuePoint(
+                    position_ms=outro_pos, label=PhraseLabel.UNKNOWN, slot=-1,
+                    name="Mix Out", color_id=3, confidence=mem_confidence,  # Orange
+                ))
+
+            # Warning: 16 bars before track end, only when outro is short (< 8 bars) or absent
+            bpm_raw = float(getattr(content, "BPM", 0) or 0) / 100
+            track_end_ms = int(float(getattr(content, "Length", 0) or 0) * 1000)
+            if bpm_raw > 0 and track_end_ms > 0:
+                bar_ms = 60000.0 / bpm_raw * 4
+                outro_bars_approx = 0
+                if outros:
+                    outro_start_ms = max(c.position_ms for c in outros)
+                    outro_bars_approx = max(0, round((track_end_ms - outro_start_ms) / bar_ms))
+                if (not outros) or (outro_bars_approx < 8):
+                    warning_pos = int(track_end_ms - 16 * bar_ms)
+                    if warning_pos > 0:
+                        existing_ms = {c.position_ms for c in mem_cues}
+                        if all(abs(warning_pos - e) > 500 for e in existing_ms):
+                            mem_cues.append(CuePoint(
+                                position_ms=warning_pos, label=PhraseLabel.UNKNOWN, slot=-1,
+                                name="Warning", color_id=2, confidence=mem_confidence,  # Red
+                            ))
+
+        # Sort by position — CDJ orders memory cues by insertion order, so position order = display order
+        mem_cues.sort(key=lambda c: c.position_ms)
+        cues = mem_cues + cues
 
     return cues, mode_used

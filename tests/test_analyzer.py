@@ -24,7 +24,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 # _beat_to_ms is private but we import it directly to test its contract.
-from autocue.analyzer import _beat_to_ms, analyze_track
+from autocue.analyzer import _beat_to_ms, _get_anlz_tags_resilient, analyze_track
 from autocue.models import PhraseLabel
 
 
@@ -224,6 +224,23 @@ class TestAnalyzeTrackTwoPass:
         from autocue.models import CuePoint
         assert all(isinstance(c, CuePoint) for c in self.result)
 
+    def test_phrase_bars_populated_for_non_last_phrase(self):
+        # 300 beats at 500ms/beat → avg_ms_per_beat=500, bar=2000ms
+        # INTRO at 0ms, next phrase (VERSE) at 16000ms → 16000/2000 = 8 bars
+        intro = next(c for c in self.result if c.label is PhraseLabel.INTRO)
+        assert intro.phrase_bars == 8
+
+    def test_phrase_bars_zero_for_last_phrase(self):
+        # OUTRO has no next phrase in PSSI list → 0
+        outro = next(c for c in self.result if c.label is PhraseLabel.OUTRO)
+        assert outro.phrase_bars == 0
+
+    def test_phrase_bars_consistent_for_repeated_verse(self):
+        # Each VERSE phrase spans 32 beats = 16000ms → 8 bars
+        verses = [c for c in self.result if c.label is PhraseLabel.VERSE]
+        for v in verses[:-1]:  # all but last VERSE (which is followed by CHORUS)
+            assert v.phrase_bars == 8
+
 
 class TestAnalyzeTrackMissingData:
     def test_returns_empty_list_when_anlz_ext_is_none(self):
@@ -286,3 +303,252 @@ class TestAnalyzeTrackSmallInput:
         assert len(result) == 1
         assert result[0].label is PhraseLabel.INTRO
         assert result[0].slot == 0
+
+
+# ---------------------------------------------------------------------------
+# _get_anlz_tags_resilient
+# ---------------------------------------------------------------------------
+
+import struct as _struct
+import tempfile
+import os
+from pathlib import Path as _TPath
+
+
+def _build_pssi_bytes(mood: int = 2, entries=None) -> bytes:
+    """
+    Build a minimal but valid PSSI content blob (after the 12-byte tag header).
+    Each entry is 24 bytes: index(2)+beat(2)+kind(2)+u1(1)+k1(1)+u2(1)+k2(1)+
+                              u3(1)+b(1)+beat_2(2)+beat_3(2)+beat_4(2)+
+                              u4(1)+k3(1)+u5(1)+fill(1)+beat_fill(2)
+    """
+    entries = entries or [(1, 1), (33, 2)]  # (beat, kind) pairs
+    n = len(entries)
+    # PSSI header: len_entry_bytes=24(4), len_entries(2), mood(2), u1(6), end_beat(2), u2(2), bank(1), u3(1)
+    header = _struct.pack(">I", 24) + _struct.pack(">H", n) + _struct.pack(">H", mood)
+    header += b"\x00" * 6  # u1
+    header += _struct.pack(">H", 999)  # end_beat
+    header += b"\x00" * 2  # u2
+    header += b"\x01"  # bank
+    header += b"\x00"  # u3
+    entry_bytes = b""
+    for i, (beat, kind) in enumerate(entries):
+        entry_bytes += (
+            _struct.pack(">H", i)      # index
+            + _struct.pack(">H", beat) # beat
+            + _struct.pack(">H", kind) # kind
+            + b"\x00" * 12             # u1 k1 u2 k2 u3 b beat_2 beat_3 beat_4
+            + b"\x00" * 4             # u4 k3 u5 fill
+            + _struct.pack(">H", 0)    # beat_fill
+        )
+    return header + entry_bytes
+
+
+def _build_anlz_file(tags: list[tuple[str, bytes]], bad_pqt2: bool = False) -> bytes:
+    """
+    Build a minimal ANLZ file with a PMAI header and the given tag blobs.
+    If bad_pqt2=True, insert a PQT2 tag with version 0x02000002 before the real tags.
+    """
+    FILE_HEADER_LEN = 28
+    pmai = b"PMAI" + _struct.pack(">I", FILE_HEADER_LEN) + b"\x00" * (FILE_HEADER_LEN - 8)
+
+    tag_blobs = []
+    if bad_pqt2:
+        # PQT2 tag that pyrekordbox can't parse (wrong Const value)
+        bad_content = (
+            b"\x00" * 4          # Padding(4)
+            + _struct.pack(">I", 0x02000002)  # u1 — wrong version
+            + b"\x00" * 40       # rest of PQT2 header + minimal entries
+        )
+        tag_len = 12 + len(bad_content)
+        tag_blobs.append(b"PQT2" + _struct.pack(">I", 12) + _struct.pack(">I", tag_len) + bad_content)
+
+    for tag_type, content in tags:
+        tag_len = 12 + len(content)
+        tag_blobs.append(
+            tag_type.encode("ascii")
+            + _struct.pack(">I", 12)
+            + _struct.pack(">I", tag_len)
+            + content
+        )
+
+    file_body = b"".join(tag_blobs)
+    total_len = FILE_HEADER_LEN + len(file_body)
+    # Patch len_file into PMAI header
+    pmai = b"PMAI" + _struct.pack(">I", FILE_HEADER_LEN) + _struct.pack(">I", total_len) + b"\x00" * (FILE_HEADER_LEN - 12)
+    return pmai + file_body
+
+
+class TestResilientAnlzParser:
+    def _write_tmp(self, data: bytes) -> str:
+        fd, path = tempfile.mkstemp(suffix=".EXT")
+        os.write(fd, data)
+        os.close(fd)
+        return path
+
+    def test_parses_pssi_from_clean_file(self):
+        pssi_content = _build_pssi_bytes(mood=2, entries=[(1, 1), (33, 2)])
+        anlz = _build_anlz_file([("PSSI", pssi_content)])
+        path = self._write_tmp(anlz)
+        try:
+            tags = _get_anlz_tags_resilient(_TPath(path), {"PSSI"})
+            assert "PSSI" in tags
+            assert tags["PSSI"].mood == 2
+            assert len(tags["PSSI"].entries) == 2
+        finally:
+            os.unlink(path)
+
+    def test_parses_pssi_when_pqt2_has_wrong_version(self):
+        """Core regression: EXT file has bad PQT2 tag before PSSI."""
+        pssi_content = _build_pssi_bytes(mood=1, entries=[(1, 1), (17, 3), (65, 8)])
+        anlz = _build_anlz_file([("PSSI", pssi_content)], bad_pqt2=True)
+        path = self._write_tmp(anlz)
+        try:
+            tags = _get_anlz_tags_resilient(_TPath(path), {"PSSI"})
+            assert "PSSI" in tags
+            assert tags["PSSI"].mood == 1
+            assert len(tags["PSSI"].entries) == 3
+        finally:
+            os.unlink(path)
+
+    def test_returns_empty_dict_for_missing_tag(self):
+        anlz = _build_anlz_file([])
+        path = self._write_tmp(anlz)
+        try:
+            tags = _get_anlz_tags_resilient(_TPath(path), {"PSSI"})
+            assert tags == {}
+        finally:
+            os.unlink(path)
+
+    def test_returns_empty_dict_for_nonexistent_file(self):
+        from pathlib import Path as _Path
+        tags = _get_anlz_tags_resilient(_Path("/nonexistent/ANLZ0000.EXT"), {"PSSI"})
+        assert tags == {}
+
+    def test_returns_empty_dict_for_non_pmai_file(self):
+        path = self._write_tmp(b"NOPE" + b"\x00" * 100)
+        try:
+            tags = _get_anlz_tags_resilient(_TPath(path), {"PSSI"})
+            assert tags == {}
+        finally:
+            os.unlink(path)
+
+
+class TestAnalyzeTrackResilientFallback:
+    """analyze_track falls back to resilient parser when read_anlz_file raises."""
+
+    def test_fallback_recovers_pssi_after_const_error(self):
+        """Simulates a ConstError from pyrekordbox and checks the resilient path."""
+        from pathlib import Path as _Path
+        from unittest.mock import patch as _patch
+        from construct import ConstError
+
+        beat_entries = _make_fake_beat_entries(40, ms_per_beat=500)
+        phrase_entries = [(1, 1), (9, 2), (33, 8)]  # INTRO, VERSE, OUTRO (mood=2 Mid)
+
+        pssi_content = _build_pssi_bytes(mood=2, entries=phrase_entries)
+        anlz = _build_anlz_file([("PSSI", pssi_content)])
+
+        fd, ext_path = tempfile.mkstemp(suffix=".EXT")
+        os.write(fd, anlz)
+        os.close(fd)
+
+        # Build a dummy DAT file with PQTZ so the beat grid is available
+        # We use a minimal valid PQTZ: len_header=24, entry_count entries of 3 bytes each
+        pqtz_entries = b"".join(_struct.pack(">H", i * 500) + b"\x01" for i in range(40))
+        # Actual PQTZ parse is complex; just mock the DAT side via db.read_anlz_file
+        try:
+            db = MagicMock()
+            # EXT raises ConstError → triggers resilient path
+            def fake_read(content_arg, suffix):
+                if suffix == "EXT":
+                    raise ConstError("parsing expected 16777218 but parsed 33554434", path="u1")
+                # DAT returns normal PQTZ mock
+                anlz_dat = MagicMock()
+                pqtz_mock = MagicMock()
+                pqtz_mock.content.entries = beat_entries
+                anlz_dat.get_tag.return_value = pqtz_mock
+                return anlz_dat
+
+            db.read_anlz_file.side_effect = fake_read
+            db.get_anlz_path.return_value = _Path(ext_path)
+
+            content = MagicMock()
+            result = analyze_track(content, db)
+            assert len(result) > 0
+            labels = {c.label for c in result}
+            assert PhraseLabel.INTRO in labels
+        finally:
+            os.unlink(ext_path)
+
+
+# ---------------------------------------------------------------------------
+# Deduplication: same-position phrases
+# ---------------------------------------------------------------------------
+
+class TestAnalyzeTrackDeduplication:
+    def _make_db_with_phrases(self, phrase_entries, beat_entries):
+        pssi_content = SimpleNamespace(entries=phrase_entries, mood=3)
+        pssi = SimpleNamespace(content=pssi_content)
+        pqtz_content = SimpleNamespace(entries=beat_entries)
+        pqtz = SimpleNamespace(content=pqtz_content)
+
+        def fake_read(content_arg, suffix):
+            if suffix == "EXT":
+                anlz_ext = MagicMock()
+                anlz_ext.get_tag.side_effect = lambda tag: pssi if tag == "PSSI" else None
+                return anlz_ext
+            if suffix == "DAT":
+                anlz_dat = MagicMock()
+                anlz_dat.get_tag.side_effect = lambda tag: pqtz if tag == "PQTZ" else None
+                return anlz_dat
+            return None
+
+        db = MagicMock()
+        db.read_anlz_file.side_effect = fake_read
+        return db
+
+    def test_two_phrases_at_same_beat_produce_one_cue(self):
+        """Degenerate PSSI with two phrases at beat=1 must produce exactly one cue."""
+        beat_entries = _make_fake_beat_entries(100, ms_per_beat=500)
+        phrases = [
+            _make_phrase_entry(1, 1),   # INTRO at beat 1 (0ms)
+            _make_phrase_entry(1, 9),   # CHORUS also at beat 1 (0ms) — degenerate
+            _make_phrase_entry(33, 10), # OUTRO at beat 33
+        ]
+        db = self._make_db_with_phrases(phrases, beat_entries)
+        content = MagicMock()
+        cues = analyze_track(content, db)
+        # Should have 2 cues (0ms deduped to 1, 33→OUTRO), not 3
+        positions = [c.position_ms for c in cues]
+        assert positions.count(0) == 1, f"Duplicate 0ms cues: {positions}"
+
+    def test_dedup_preserves_pass1_label_over_pass2(self):
+        """When pass1 and pass2 produce cues at the same ms, the pass1 (unique label) is kept."""
+        beat_entries = _make_fake_beat_entries(100, ms_per_beat=500)
+        # Two INTRO phrases at same beat → pass1 takes first, pass2 would also take same beat
+        phrases = [
+            _make_phrase_entry(1, 1),   # INTRO (pass1 takes this)
+            _make_phrase_entry(1, 2),   # VERSE at same beat (would be pass2 candidate at 0ms)
+            _make_phrase_entry(33, 9),  # CHORUS
+        ]
+        db = self._make_db_with_phrases(phrases, beat_entries)
+        content = MagicMock()
+        cues = analyze_track(content, db)
+        cues_at_0 = [c for c in cues if c.position_ms == 0]
+        assert len(cues_at_0) == 1
+
+    def test_no_dedup_needed_returns_all_cues(self):
+        """Normal PSSI with unique positions passes through unchanged."""
+        beat_entries = _make_fake_beat_entries(100, ms_per_beat=500)
+        phrases = [
+            _make_phrase_entry(1,  1),   # INTRO
+            _make_phrase_entry(33, 9),   # CHORUS
+            _make_phrase_entry(65, 10),  # OUTRO
+        ]
+        db = self._make_db_with_phrases(phrases, beat_entries)
+        content = MagicMock()
+        cues = analyze_track(content, db)
+        assert len(cues) == 3
+        positions = [c.position_ms for c in cues]
+        assert len(set(positions)) == 3

@@ -111,7 +111,7 @@ class TestCuePointDataclass:
 
     def test_expected_fields(self):
         field_names = {f.name for f in dataclasses.fields(CuePoint)}
-        assert field_names == {"position_ms", "label", "slot", "name", "color_id"}
+        assert field_names == {"position_ms", "label", "slot", "name", "color_id", "confidence", "phrase_bars"}
 
     def test_value_equality(self):
         a = CuePoint(position_ms=1000, label=PhraseLabel.INTRO, slot=0)

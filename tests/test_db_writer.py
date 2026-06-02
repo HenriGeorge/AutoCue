@@ -15,6 +15,7 @@ from autocue.db_writer import (
     color_tracks_by_bpm,
     delete_cues_from_db,
     has_existing_hot_cues,
+    has_existing_memory_cues,
     rekordbox_is_running,
     write_cues_to_db,
 )
@@ -373,7 +374,13 @@ class TestColorTracksByBpm:
         # BPM=128 → sort_key=3 (Orange) → color-uuid-3
         db, content = _make_db_for_color(bpm_int=12800)
         colored, skipped = color_tracks_by_bpm([1], db)
-        assert content.ColorID == "color-uuid-3"
+        assert colored == 1
+        # Verify raw SQL UPDATE was executed with the correct color ID
+        call_args = db.session.execute.call_args
+        assert call_args is not None
+        params = call_args[0][1] if len(call_args[0]) > 1 else call_args[1]
+        assert params["cid"] == "color-uuid-3"
+        assert params["tid"] == 1  # integer ID passed directly to raw SQL
         db.session.commit.assert_called_once()
 
     def test_skips_missing_tracks(self):
@@ -397,3 +404,72 @@ class TestColorTracksByBpm:
         assert colored == 0
         assert skipped == 0
         db.session.begin_nested.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# has_existing_memory_cues
+# ---------------------------------------------------------------------------
+
+class TestHasExistingMemoryCues:
+    def test_returns_count_from_db(self):
+        content = _make_content()
+        db = _make_db(existing_hot_cues=2)  # _make_db returns same count for any query
+        assert has_existing_memory_cues(content, db) == 2
+
+    def test_returns_zero_when_no_memory_cues(self):
+        content = _make_content()
+        db = _make_db(existing_hot_cues=0)
+        assert has_existing_memory_cues(content, db) == 0
+
+
+# ---------------------------------------------------------------------------
+# Memory cue preservation in write_cues_to_db
+# ---------------------------------------------------------------------------
+
+class TestMemoryCuePreservation:
+    def _make_mem_cue(self, pos=0):
+        return CuePoint(position_ms=pos, label=PhraseLabel.UNKNOWN, slot=-1, name="Load Point")
+
+    def _make_hot_cue(self, slot=0, pos=1000):
+        return CuePoint(position_ms=pos, label=PhraseLabel.UNKNOWN, slot=slot)
+
+    def test_existing_memory_cues_preserved_without_overwrite(self):
+        content = _make_content()
+        cues = [self._make_mem_cue(), self._make_hot_cue()]
+        with patch("autocue.db_writer.has_existing_memory_cues", return_value=1):
+            db = _make_db(existing_hot_cues=0)
+            write_cues_to_db(content, cues, db, overwrite=False)
+        # Kind=0 DELETE should NOT have been called (existing memory cues preserved)
+        filter_calls = str(db.query.return_value.filter.call_args_list)
+        assert "Kind == 0" not in filter_calls
+
+    def test_existing_memory_cues_overwritten_with_overwrite_true(self):
+        content = _make_content()
+        cues = [self._make_mem_cue(), self._make_hot_cue()]
+        with patch("autocue.db_writer.has_existing_memory_cues", return_value=1):
+            db = _make_db(existing_hot_cues=0)
+            count = write_cues_to_db(content, cues, db, overwrite=True)
+        assert count == 2  # both hot and memory cue written
+
+    def test_no_existing_memory_cues_allows_write(self):
+        content = _make_content()
+        cues = [self._make_mem_cue(), self._make_hot_cue()]
+        with patch("autocue.db_writer.has_existing_memory_cues", return_value=0):
+            db = _make_db(existing_hot_cues=0)
+            count = write_cues_to_db(content, cues, db, overwrite=False)
+        assert count == 2  # both written since no prior memory cues
+
+    def test_hot_cue_delete_unaffected_by_memory_cue_logic(self):
+        content = _make_content()
+        cues = [self._make_hot_cue(slot=0), self._make_hot_cue(slot=1, pos=2000)]
+        db = _make_db(existing_hot_cues=0)
+        count = write_cues_to_db(content, cues, db, overwrite=False)
+        assert count == 2
+
+    def test_only_mem_cues_in_list_preserves_when_existing(self):
+        content = _make_content()
+        cues = [self._make_mem_cue()]
+        with patch("autocue.db_writer.has_existing_memory_cues", return_value=2):
+            db = _make_db(existing_hot_cues=0)
+            count = write_cues_to_db(content, cues, db, overwrite=False)
+        assert count == 0  # memory cue skipped, nothing written

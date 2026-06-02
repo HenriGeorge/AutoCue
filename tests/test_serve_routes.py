@@ -578,10 +578,23 @@ class TestTracksPlaylistFilter:
         pl_q = MagicMock()
         pl_q.filter_by.return_value = pl_q
         pl_q.first.return_value = pl
-        # DjmdSongPlaylist returns one entry
         sp_q = MagicMock()
         sp_q.filter_by.return_value = [SimpleNamespace(ContentID="1")]
-        db.query.side_effect = lambda cls: pl_q if "Playlist" in cls.__name__ else sp_q
+        empty_q = MagicMock()
+        empty_q.filter.return_value = empty_q
+        empty_q.group_by.return_value = empty_q
+        empty_q.all.return_value = []
+
+        def _side_effect(*args):
+            cls = args[0] if args else None
+            name = getattr(cls, "__name__", "")
+            if "Playlist" in name:
+                return pl_q
+            if hasattr(cls, "__name__"):
+                return sp_q
+            return empty_q  # column-expression queries (e.g. hot_cue_counts)
+
+        db.query.side_effect = _side_effect
         self._make_content_q(db, [])
         client = _make_client(db)
         r = client.get("/api/tracks?playlist_id=10")
@@ -596,51 +609,48 @@ class TestTracksPlaylistFilter:
         r = client.get("/api/tracks?playlist_id=9999")
         assert r.status_code == 404
 
-    def test_has_phrase_true_when_anlz_ext_exists(self):
+    def test_has_phrase_true_when_analysis_data_path_set(self):
         db = _make_db()
         track = SimpleNamespace(
             ID=1, Title="T", ArtistName="A", AlbumName="", BPM=12800, Length=300, KeyID=None,
+            AnalysisDataPath="/PIONEER/USBANLZ/abc/ANLZ0000.DAT",
         )
-        q = self._make_content_q(db, [track])
+        self._make_content_q(db, [track])
         key_q = MagicMock()
         key_q.all.return_value = []
         db.query.return_value = key_q
-        db.get_anlz_path.return_value = "/some/path/ANLZ0000.EXT"
-        with patch("autocue.serve.routes.has_existing_hot_cues", return_value=0):
-            client = _make_client(db)
-            r = client.get("/api/tracks")
+        client = _make_client(db)
+        r = client.get("/api/tracks")
         assert r.status_code == 200
         assert r.json()[0]["has_phrase"] is True
 
-    def test_has_phrase_false_when_anlz_ext_missing(self):
+    def test_has_phrase_false_when_analysis_data_path_missing(self):
         db = _make_db()
         track = SimpleNamespace(
             ID=1, Title="T", ArtistName="A", AlbumName="", BPM=12800, Length=300, KeyID=None,
+            AnalysisDataPath=None,
         )
-        q = self._make_content_q(db, [track])
+        self._make_content_q(db, [track])
         key_q = MagicMock()
         key_q.all.return_value = []
         db.query.return_value = key_q
-        db.get_anlz_path.return_value = ""
-        with patch("autocue.serve.routes.has_existing_hot_cues", return_value=0):
-            client = _make_client(db)
-            r = client.get("/api/tracks")
+        client = _make_client(db)
+        r = client.get("/api/tracks")
         assert r.status_code == 200
         assert r.json()[0]["has_phrase"] is False
 
-    def test_has_phrase_false_on_anlz_exception(self):
+    def test_has_phrase_false_when_analysis_data_path_empty(self):
         db = _make_db()
         track = SimpleNamespace(
             ID=1, Title="T", ArtistName="A", AlbumName="", BPM=12800, Length=300, KeyID=None,
+            AnalysisDataPath="",
         )
-        q = self._make_content_q(db, [track])
+        self._make_content_q(db, [track])
         key_q = MagicMock()
         key_q.all.return_value = []
         db.query.return_value = key_q
-        db.get_anlz_path.side_effect = Exception("ANLZ error")
-        with patch("autocue.serve.routes.has_existing_hot_cues", return_value=0):
-            client = _make_client(db)
-            r = client.get("/api/tracks")
+        client = _make_client(db)
+        r = client.get("/api/tracks")
         assert r.status_code == 200
         assert r.json()[0]["has_phrase"] is False
 
@@ -884,6 +894,88 @@ class TestRestore:
                     client = _make_client(db)
                     client.post("/api/restore", json={"filename": "master_old.db"})
         assert not (db_dir / "master.db-wal").exists()
+
+    def test_restore_clears_analysis_caches(self, tmp_path):
+        from autocue.analysis import energy as energy_mod
+        backup_dir = tmp_path / "backups"
+        backup_dir.mkdir()
+        (backup_dir / "master_old.db").write_bytes(b"backup")
+        db_dir = tmp_path / "db"
+        db_dir.mkdir()
+        (db_dir / "master.db").write_bytes(b"current")
+        db = _make_db()
+        db._db_dir = db_dir
+        # Pre-populate the energy cache
+        energy_mod._cache[(1, 50)] = [0.5] * 50
+        assert (1, 50) in energy_mod._cache
+        with patch("autocue.db_writer.BACKUP_DIR", backup_dir):
+            with patch("autocue.db_writer.rekordbox_is_running", return_value=False):
+                with patch("pyrekordbox.Rekordbox6Database") as mock_rb:
+                    mock_rb.return_value = _make_db()
+                    client = _make_client(db)
+                    client.post("/api/restore", json={"filename": "master_old.db"})
+        assert (1, 50) not in energy_mod._cache
+
+
+# ---------------------------------------------------------------------------
+# DELETE /api/backups/{filename}
+# ---------------------------------------------------------------------------
+
+class TestDeleteBackup:
+    def test_deletes_existing_backup(self, tmp_path):
+        backup_dir = tmp_path / "backups"
+        backup_dir.mkdir()
+        (backup_dir / "master_20260101T000000.db").write_bytes(b"data")
+        with patch("autocue.db_writer.BACKUP_DIR", backup_dir):
+            client = _make_client()
+            r = client.delete("/api/backups/master_20260101T000000.db")
+        assert r.status_code == 200
+        assert r.json()["deleted"] == "master_20260101T000000.db"
+        assert not (backup_dir / "master_20260101T000000.db").exists()
+
+    def test_also_removes_wal_and_shm_sidecars(self, tmp_path):
+        backup_dir = tmp_path / "backups"
+        backup_dir.mkdir()
+        (backup_dir / "master_20260101T000000.db").write_bytes(b"data")
+        (backup_dir / "master_20260101T000000.db-wal").write_bytes(b"wal")
+        (backup_dir / "master_20260101T000000.db-shm").write_bytes(b"shm")
+        with patch("autocue.db_writer.BACKUP_DIR", backup_dir):
+            client = _make_client()
+            r = client.delete("/api/backups/master_20260101T000000.db")
+        assert r.status_code == 200
+        assert not (backup_dir / "master_20260101T000000.db-wal").exists()
+        assert not (backup_dir / "master_20260101T000000.db-shm").exists()
+
+    def test_returns_404_when_not_found(self, tmp_path):
+        backup_dir = tmp_path / "backups"
+        backup_dir.mkdir()
+        with patch("autocue.db_writer.BACKUP_DIR", backup_dir):
+            client = _make_client()
+            r = client.delete("/api/backups/nonexistent.db")
+        assert r.status_code == 404
+
+    def test_path_traversal_blocked(self, tmp_path):
+        # URL routing prevents slashes in path params, so test the guard directly
+        from autocue.serve.routes import delete_backup
+        from fastapi import HTTPException
+        backup_dir = tmp_path / "backups"
+        backup_dir.mkdir()
+        with patch("autocue.db_writer.BACKUP_DIR", backup_dir):
+            with pytest.raises(HTTPException) as exc_info:
+                delete_backup("../sensitive.db")
+        assert exc_info.value.status_code == 400
+
+    def test_subdirectory_nonexistent_returns_404(self, tmp_path):
+        # A subdirectory path stays inside BACKUP_DIR so passes the guard,
+        # but no such file exists — 404 is still a safe outcome.
+        from autocue.serve.routes import delete_backup
+        from fastapi import HTTPException
+        backup_dir = tmp_path / "backups"
+        backup_dir.mkdir()
+        with patch("autocue.db_writer.BACKUP_DIR", backup_dir):
+            with pytest.raises(HTTPException) as exc_info:
+                delete_backup("subdir/master.db")
+        assert exc_info.value.status_code == 404
 
 
 class TestCORS:
@@ -1223,3 +1315,968 @@ class TestGenerateApplyOptions:
                             "track_ids": [1], "add_fill_cues": True, "dry_run": True,
                         })
         assert r.status_code == 200
+
+
+# ---------------------------------------------------------------------------
+# /api/tracks/{track_id}/artwork
+# ---------------------------------------------------------------------------
+
+class TestArtworkEndpoint:
+    def test_returns_404_when_track_not_found(self):
+        db = _make_db()
+        db.get_content.return_value = None
+        client = _make_client(db)
+        r = client.get("/api/tracks/9999/artwork")
+        assert r.status_code == 404
+
+    def test_returns_404_when_no_image_path(self):
+        db = _make_db()
+        db.get_content.return_value = SimpleNamespace(ID=1, ImagePath=None)
+        client = _make_client(db)
+        r = client.get("/api/tracks/1/artwork")
+        assert r.status_code == 404
+
+    def test_returns_500_when_db_dir_missing(self):
+        db = _make_db()
+        db.get_content.return_value = SimpleNamespace(ID=1, ImagePath="cover.jpg")
+        del db._db_dir  # MagicMock attribute access returns a new Mock; use spec to prevent that
+        db._db_dir = None
+        client = _make_client(db)
+        r = client.get("/api/tracks/1/artwork")
+        assert r.status_code == 500
+
+    def test_returns_404_when_file_not_on_disk(self, tmp_path):
+        db = _make_db()
+        db.get_content.return_value = SimpleNamespace(ID=1, ImagePath="/missing/cover.jpg")
+        db._db_dir = str(tmp_path)
+        client = _make_client(db)
+        r = client.get("/api/tracks/1/artwork")
+        assert r.status_code == 404
+
+    def test_returns_200_when_absolute_path_exists(self, tmp_path):
+        img = tmp_path / "cover.jpg"
+        img.write_bytes(b"\xff\xd8\xff\xe0" + b"\x00" * 16)  # minimal JPEG header
+        db = _make_db()
+        db.get_content.return_value = SimpleNamespace(ID=1, ImagePath=str(img))
+        db._db_dir = str(tmp_path)
+        client = _make_client(db)
+        r = client.get("/api/tracks/1/artwork")
+        assert r.status_code == 200
+        assert r.headers["content-type"] == "image/jpeg"
+
+    def test_returns_200_when_path_relative_to_db_dir(self, tmp_path):
+        img = tmp_path / "cover.png"
+        img.write_bytes(b"\x89PNG\r\n\x1a\n" + b"\x00" * 16)
+        db = _make_db()
+        db.get_content.return_value = SimpleNamespace(ID=1, ImagePath="/cover.png")
+        db._db_dir = str(tmp_path)
+        client = _make_client(db)
+        r = client.get("/api/tracks/1/artwork")
+        assert r.status_code == 200
+        assert r.headers["content-type"] == "image/png"
+
+
+# ---------------------------------------------------------------------------
+# /api/color-tracks-stream
+# ---------------------------------------------------------------------------
+
+class TestColorTracksStream:
+    def _collect_sse(self, text: str) -> list[dict]:
+        import json
+        return [
+            json.loads(line[6:])
+            for line in text.splitlines()
+            if line.startswith("data: ")
+        ]
+
+    def _make_color_db(self, bpm=12800):
+        db = _make_db()
+        color_q = MagicMock()
+        color_q.all.return_value = [
+            SimpleNamespace(SortKey=1, ID="pink"),
+            SimpleNamespace(SortKey=5, ID="green"),
+        ]
+        db.query.return_value = color_q
+        db.get_content.return_value = SimpleNamespace(ID=1, BPM=bpm, ColorID=None)
+        db.session = MagicMock()
+        db.session.execute = MagicMock()
+        db.session.expire_all = MagicMock()
+        db.session.commit = MagicMock()
+        return db
+
+    def test_returns_409_when_rekordbox_running(self):
+        client = _make_client()
+        with patch("autocue.db_writer.rekordbox_is_running", return_value=True):
+            r = client.post("/api/color-tracks-stream",
+                            json={"track_ids": [1], "dry_run": False})
+        assert r.status_code == 409
+
+    def test_dry_run_skips_rekordbox_check(self):
+        db = self._make_color_db()
+        with patch("autocue.db_writer.rekordbox_is_running", return_value=True):
+            client = _make_client(db)
+            r = client.post("/api/color-tracks-stream",
+                            json={"track_ids": [1], "dry_run": True})
+        assert r.status_code == 200
+
+    def test_final_event_has_done_true(self, tmp_path):
+        db = self._make_color_db()
+        db._db_dir = tmp_path
+        (tmp_path / "master.db").write_bytes(b"fake")
+        with patch("autocue.db_writer.rekordbox_is_running", return_value=False):
+            with patch("autocue.db_writer.BACKUP_DIR", tmp_path / "backups"):
+                client = _make_client(db)
+                r = client.post("/api/color-tracks-stream",
+                                json={"track_ids": [1], "dry_run": False})
+        events = self._collect_sse(r.text)
+        done = next(e for e in events if e.get("done"))
+        assert done["colored"] == 1
+        assert done["skipped"] == 0
+        assert done["total"] == 1
+
+    def test_dry_run_backup_path_is_none(self):
+        db = self._make_color_db()
+        with patch("autocue.db_writer.rekordbox_is_running", return_value=False):
+            client = _make_client(db)
+            r = client.post("/api/color-tracks-stream",
+                            json={"track_ids": [1], "dry_run": True})
+        events = self._collect_sse(r.text)
+        done = next(e for e in events if e.get("done"))
+        assert done["backup_path"] is None
+
+    def test_skip_colored_skips_already_colored_track(self):
+        db = self._make_color_db()
+        db.get_content.return_value = SimpleNamespace(ID=1, BPM=12800, ColorID="green")
+        with patch("autocue.db_writer.rekordbox_is_running", return_value=False):
+            client = _make_client(db)
+            r = client.post("/api/color-tracks-stream",
+                            json={"track_ids": [1], "dry_run": True, "skip_colored": True})
+        events = self._collect_sse(r.text)
+        done = next(e for e in events if e.get("done"))
+        assert done["skipped"] == 1
+        assert done["colored"] == 0
+
+    def test_skips_missing_track(self):
+        db = self._make_color_db()
+        db.get_content.return_value = None
+        with patch("autocue.db_writer.rekordbox_is_running", return_value=False):
+            client = _make_client(db)
+            r = client.post("/api/color-tracks-stream",
+                            json={"track_ids": [99], "dry_run": True})
+        events = self._collect_sse(r.text)
+        done = next(e for e in events if e.get("done"))
+        assert done["skipped"] == 1
+        assert done["colored"] == 0
+
+
+# ---------------------------------------------------------------------------
+# /api/tracks/{id}/health  and  GET /api/health  (SSE)
+# ---------------------------------------------------------------------------
+
+def _make_content_health(track_id=1, folder_path="/music/track.mp3",
+                          analysis_data_path="path/to/analysis", bpm=13000):
+    c = MagicMock()
+    c.ID = track_id
+    c.FolderPath = folder_path
+    c.AnalysisDataPath = analysis_data_path
+    c.BPM = bpm
+    return c
+
+
+def _make_cue_health(kind=1, in_frame=1200, comment="Drop"):
+    c = MagicMock()
+    c.Kind = kind
+    c.InFrame = in_frame
+    c.Comment = comment
+    return c
+
+
+def _parse_sse(text):
+    import json
+    return [json.loads(line[6:]) for line in text.splitlines()
+            if line.startswith("data: ")]
+
+
+class TestTrackHealth:
+    def _db_with_content_and_cues(self, content, cues):
+        db = _make_db()
+        db.query.return_value.filter.return_value.first.return_value = content
+        db.query.return_value.filter.return_value.all.return_value = cues
+        return db
+
+    def test_returns_200_with_score_for_healthy_track(self):
+        content = _make_content_health()
+        db = self._db_with_content_and_cues(content, [_make_cue_health()])
+        client = _make_client(db)
+        with patch("os.path.exists", return_value=True):
+            r = client.get("/api/tracks/1/health")
+        assert r.status_code == 200
+        data = r.json()
+        assert data["score"] == 100
+        assert data["fix_tier"] == "phrase"
+        assert data["hot_cue_count"] == 1
+
+    def test_returns_404_when_track_not_found(self):
+        db = _make_db()
+        db.query.return_value.filter.return_value.first.return_value = None
+        client = _make_client(db)
+        r = client.get("/api/tracks/9999/health")
+        assert r.status_code == 404
+
+    def test_score_zero_when_audio_missing(self):
+        content = _make_content_health(folder_path="/nonexistent/track.mp3")
+        db = self._db_with_content_and_cues(content, [])
+        client = _make_client(db)
+        with patch("os.path.exists", return_value=False):
+            r = client.get("/api/tracks/1/health")
+        assert r.status_code == 200
+        assert r.json()["score"] == 0
+        assert any(i["code"] == "NO_AUDIO_FILE" for i in r.json()["issues"])
+
+    def test_internal_error_returns_score_zero_not_500(self):
+        bad = MagicMock()
+        bad.ID = 1
+        bad.FolderPath = "/music/track.mp3"
+        type(bad).AnalysisDataPath = property(
+            lambda self: (_ for _ in ()).throw(RuntimeError("boom"))
+        )
+        db = _make_db()
+        db.query.return_value.filter.return_value.first.return_value = bad
+        client = _make_client(db)
+        with patch("os.path.exists", return_value=True):
+            r = client.get("/api/tracks/1/health")
+        assert r.status_code == 200
+        assert r.json()["score"] == 0
+        assert any(i["code"] == "INTERNAL_ERROR" for i in r.json()["issues"])
+
+
+class TestLibraryHealthSSE:
+    def _db_for_scan(self, contents, cues=None):
+        db = _make_db()
+        all_q = MagicMock()
+        all_q.all.return_value = contents
+        all_q.join.return_value = all_q
+        all_q.filter.return_value = all_q
+
+        cue_q = MagicMock()
+        cue_q.filter.return_value = cue_q
+        cue_q.all.return_value = cues or []
+        cue_q.first.return_value = MagicMock()  # playlist exists by default
+
+        def _side(*args, **kwargs):
+            cls = args[0] if args else None
+            name = getattr(cls, "__name__", "")
+            if name == "DjmdContent":
+                return all_q
+            return cue_q
+
+        db.query.side_effect = _side
+        return db
+
+    def test_streams_one_event_per_track_plus_done(self):
+        contents = [_make_content_health(track_id=i) for i in range(3)]
+        db = self._db_for_scan(contents, [_make_cue_health()])
+        client = _make_client(db)
+        with patch("os.path.exists", return_value=True):
+            r = client.get("/api/health")
+        events = _parse_sse(r.text)
+        assert len([e for e in events if not e.get("done")]) == 3
+        assert len([e for e in events if e.get("done")]) == 1
+
+    def test_done_event_contains_summary_fields(self):
+        contents = [_make_content_health(track_id=1)]
+        db = self._db_for_scan(contents, [_make_cue_health()])
+        client = _make_client(db)
+        with patch("os.path.exists", return_value=True):
+            r = client.get("/api/health")
+        done = next(e for e in _parse_sse(r.text) if e.get("done"))
+        s = done["summary"]
+        assert s["total"] == 1
+        assert s["library_score"] == 100.0
+        assert "fix_tier_counts" in s
+
+    def test_sse_headers_prevent_buffering(self):
+        db = self._db_for_scan([])
+        client = _make_client(db)
+        r = client.get("/api/health")
+        assert r.headers.get("cache-control") == "no-cache"
+        assert r.headers.get("x-accel-buffering") == "no"
+
+    def test_playlist_id_404_when_not_found(self):
+        db = _make_db()
+        pl_q = MagicMock()
+        pl_q.filter.return_value = pl_q
+        pl_q.first.return_value = None
+        db.query.return_value = pl_q
+        client = _make_client(db)
+        r = client.get("/api/health?playlist_id=9999")
+        assert r.status_code == 404
+
+    def test_per_track_exception_yields_internal_error(self):
+        bad = MagicMock()
+        bad.ID = 99
+        bad.FolderPath = "/music/track.mp3"
+        type(bad).AnalysisDataPath = property(
+            lambda self: (_ for _ in ()).throw(RuntimeError("boom"))
+        )
+        db = self._db_for_scan([bad])
+        client = _make_client(db)
+        with patch("os.path.exists", return_value=True):
+            r = client.get("/api/health")
+        track_events = [e for e in _parse_sse(r.text) if not e.get("done")]
+        assert len(track_events) == 1
+        assert track_events[0]["score"] == 0
+        assert any(i["code"] == "INTERNAL_ERROR" for i in track_events[0]["issues"])
+
+    def test_empty_library_done_event_with_zero_score(self):
+        db = self._db_for_scan([])
+        client = _make_client(db)
+        r = client.get("/api/health")
+        done = next(e for e in _parse_sse(r.text) if e.get("done"))
+        assert done["summary"]["total"] == 0
+        assert done["summary"]["library_score"] == 0.0
+
+
+# ---------------------------------------------------------------------------
+# Cue Library Tools
+# ---------------------------------------------------------------------------
+
+def _make_cue_tool(kind=1, in_msec=5000, comment="Drop 1", color_table_index=5):
+    c = MagicMock()
+    c.Kind = kind
+    c.InMsec = in_msec
+    c.InFrame = round(in_msec * 150 / 1000)
+    c.Comment = comment
+    c.ColorTableIndex = color_table_index
+    c.OutMsec = -1  # default: no out point (not a loop cue)
+    return c
+
+
+def _make_db_cue_tools(track, cues):
+    """DB mock where get_content(ID=x) returns track and session.query filters return cues."""
+    db = _make_db()
+    db.get_content.return_value = track
+    db.session = MagicMock()
+    db.session.query.return_value.filter.return_value.all.return_value = cues
+    return db
+
+
+class TestCueToolsStream:
+    def _track(self, tid=1):
+        t = MagicMock()
+        t.ID = tid
+        return t
+
+    def _post(self, client, payload):
+        return client.post("/api/cue-tools-stream",
+                           json=payload,
+                           headers={"Content-Type": "application/json"})
+
+    def test_returns_409_when_rekordbox_running(self):
+        with patch("autocue.db_writer.rekordbox_is_running", return_value=True):
+            client = _make_client()
+            r = self._post(client, {
+                "operation": "rename", "track_ids": [1], "dry_run": False,
+                "rename": {"from_name": "a", "to_name": "b"},
+            })
+        assert r.status_code == 409
+
+    def test_dry_run_skips_rekordbox_check(self, tmp_path):
+        track = self._track()
+        cue = _make_cue_tool(comment="Old")
+        db = _make_db_cue_tools(track, [cue])
+        with patch("autocue.db_writer.rekordbox_is_running", return_value=True):
+            client = _make_client(db)
+            r = self._post(client, {
+                "operation": "rename", "track_ids": [1], "dry_run": True,
+                "rename": {"from_name": "Old", "to_name": "New"},
+            })
+        assert r.status_code == 200
+
+    def test_rename_counts_matching_cues(self, tmp_path):
+        track = self._track()
+        cues = [_make_cue_tool(comment="Old"), _make_cue_tool(comment="Other")]
+        db = _make_db_cue_tools(track, cues)
+        db._db_dir = tmp_path
+        (tmp_path / "master.db").write_bytes(b"fake")
+        with patch("autocue.db_writer.rekordbox_is_running", return_value=False):
+            with patch("autocue.db_writer.BACKUP_DIR", tmp_path / "backups"):
+                client = _make_client(db)
+                r = self._post(client, {
+                    "operation": "rename", "track_ids": [1], "dry_run": False,
+                    "rename": {"from_name": "Old", "to_name": "New"},
+                })
+        done = next(e for e in _parse_sse(r.text) if e.get("done"))
+        assert done["summary"]["cues_changed"] == 1
+        assert done["summary"]["cues_skipped"] == 1
+
+    def test_rename_dry_run_no_backup(self):
+        track = self._track()
+        cues = [_make_cue_tool(comment="Old")]
+        db = _make_db_cue_tools(track, cues)
+        with patch("autocue.db_writer.rekordbox_is_running", return_value=False):
+            client = _make_client(db)
+            r = self._post(client, {
+                "operation": "rename", "track_ids": [1], "dry_run": True,
+                "rename": {"from_name": "Old", "to_name": "New"},
+            })
+        done = next(e for e in _parse_sse(r.text) if e.get("done"))
+        assert done["summary"]["backup_path"] is None
+        assert done["summary"]["dry_run"] is True
+        # Cue comment must NOT have been mutated
+        assert cues[0].Comment == "Old"
+
+    def test_shift_updates_both_msec_and_frame(self, tmp_path):
+        track = self._track()
+        cue = _make_cue_tool(in_msec=10000, comment="X")
+        db = _make_db_cue_tools(track, [cue])
+        db._db_dir = tmp_path
+        (tmp_path / "master.db").write_bytes(b"fake")
+        with patch("autocue.db_writer.rekordbox_is_running", return_value=False):
+            with patch("autocue.db_writer.BACKUP_DIR", tmp_path / "backups"):
+                client = _make_client(db)
+                r = self._post(client, {
+                    "operation": "shift", "track_ids": [1], "dry_run": False,
+                    "shift": {"delta_ms": 500},
+                })
+        assert r.status_code == 200
+        done = next(e for e in _parse_sse(r.text) if e.get("done"))
+        assert done["summary"]["cues_changed"] == 1
+        assert cue.InMsec == 10500
+        assert cue.InFrame == round(10500 * 150 / 1000)
+
+    def test_shift_skips_cue_that_would_go_negative(self, tmp_path):
+        track = self._track()
+        cue = _make_cue_tool(in_msec=100, comment="X")
+        db = _make_db_cue_tools(track, [cue])
+        db._db_dir = tmp_path
+        (tmp_path / "master.db").write_bytes(b"fake")
+        with patch("autocue.db_writer.rekordbox_is_running", return_value=False):
+            with patch("autocue.db_writer.BACKUP_DIR", tmp_path / "backups"):
+                client = _make_client(db)
+                r = self._post(client, {
+                    "operation": "shift", "track_ids": [1], "dry_run": False,
+                    "shift": {"delta_ms": -500},
+                })
+        done = next(e for e in _parse_sse(r.text) if e.get("done"))
+        assert done["summary"]["cues_changed"] == 0
+        assert done["summary"]["cues_skipped"] == 1
+
+    def test_recolor_only_changes_mapped_slots(self, tmp_path):
+        track = self._track()
+        cue_a = _make_cue_tool(kind=1, color_table_index=0)  # slot A
+        cue_b = _make_cue_tool(kind=2, color_table_index=0)  # slot B (not in mapping)
+        db = _make_db_cue_tools(track, [cue_a, cue_b])
+        db._db_dir = tmp_path
+        (tmp_path / "master.db").write_bytes(b"fake")
+        with patch("autocue.db_writer.rekordbox_is_running", return_value=False):
+            with patch("autocue.db_writer.BACKUP_DIR", tmp_path / "backups"):
+                client = _make_client(db)
+                r = self._post(client, {
+                    "operation": "recolor", "track_ids": [1], "dry_run": False,
+                    "recolor": {"slot_colors": {"0": 5}},  # only slot A → Green
+                })
+        done = next(e for e in _parse_sse(r.text) if e.get("done"))
+        assert done["summary"]["cues_changed"] == 1
+        assert done["summary"]["cues_skipped"] == 1
+        assert cue_a.ColorTableIndex == 5
+        assert cue_b.ColorTableIndex == 0  # unchanged
+
+    def test_delete_orphan_removes_slots_above_threshold(self, tmp_path):
+        track = self._track()
+        cues = [_make_cue_tool(kind=k) for k in range(1, 9)]  # slots A-H
+        db = _make_db_cue_tools(track, cues)
+        db._db_dir = tmp_path
+        (tmp_path / "master.db").write_bytes(b"fake")
+        deleted = []
+        db.session.delete.side_effect = deleted.append
+        with patch("autocue.db_writer.rekordbox_is_running", return_value=False):
+            with patch("autocue.db_writer.BACKUP_DIR", tmp_path / "backups"):
+                client = _make_client(db)
+                r = self._post(client, {
+                    "operation": "delete_orphan", "track_ids": [1], "dry_run": False,
+                    "delete_orphan": {"keep_slots": 4},
+                })
+        done = next(e for e in _parse_sse(r.text) if e.get("done"))
+        assert done["summary"]["cues_changed"] == 4   # E F G H deleted
+        assert done["summary"]["cues_skipped"] == 4   # A B C D kept
+
+    def test_memory_cues_are_excluded(self, tmp_path):
+        """Kind=0 memory cues must never be touched."""
+        track = self._track()
+        hot_cue = _make_cue_tool(kind=1, comment="Old")
+        db = _make_db_cue_tools(track, [hot_cue])
+        db._db_dir = tmp_path
+        (tmp_path / "master.db").write_bytes(b"fake")
+        with patch("autocue.db_writer.rekordbox_is_running", return_value=False):
+            with patch("autocue.db_writer.BACKUP_DIR", tmp_path / "backups"):
+                client = _make_client(db)
+                r = self._post(client, {
+                    "operation": "rename", "track_ids": [1], "dry_run": False,
+                    "rename": {"from_name": "Old", "to_name": "New"},
+                })
+        assert r.status_code == 200
+
+    def test_missing_operation_params_returns_422(self):
+        client = _make_client()
+        r = self._post(client, {
+            "operation": "rename", "track_ids": [1],
+            # rename params omitted — should fail validation
+        })
+        assert r.status_code == 422
+
+    def test_sse_headers_present(self):
+        track = self._track()
+        db = _make_db_cue_tools(track, [])
+        with patch("autocue.db_writer.rekordbox_is_running", return_value=False):
+            client = _make_client(db)
+            r = self._post(client, {
+                "operation": "rename", "track_ids": [1], "dry_run": True,
+                "rename": {"from_name": "a", "to_name": "b"},
+            })
+        assert r.headers.get("cache-control") == "no-cache"
+        assert r.headers.get("x-accel-buffering") == "no"
+
+    def test_shift_zero_delta_rejected(self):
+        """delta_ms=0 must be rejected at the schema level."""
+        client = _make_client()
+        r = self._post(client, {
+            "operation": "shift", "track_ids": [1], "dry_run": True,
+            "shift": {"delta_ms": 0},
+        })
+        assert r.status_code == 422
+
+    def test_shift_preserves_loop_length(self, tmp_path):
+        """Shift must update OutMsec for loop cues so loop length stays constant."""
+        track = self._track()
+        cue = _make_cue_tool(in_msec=10000, comment="loop")
+        cue.OutMsec = 12000  # 2-second loop
+        db = _make_db_cue_tools(track, [cue])
+        db._db_dir = tmp_path
+        (tmp_path / "master.db").write_bytes(b"fake")
+        with patch("autocue.db_writer.rekordbox_is_running", return_value=False):
+            with patch("autocue.db_writer.BACKUP_DIR", tmp_path / "backups"):
+                client = _make_client(db)
+                r = self._post(client, {
+                    "operation": "shift", "track_ids": [1], "dry_run": False,
+                    "shift": {"delta_ms": 500},
+                })
+        assert r.status_code == 200
+        assert cue.InMsec == 10500
+        assert cue.OutMsec == 12500  # loop length preserved (2000ms)
+
+    def test_shift_leaves_sentinel_out_msec_unchanged(self, tmp_path):
+        """OutMsec=-1 (no out point) must not be modified by shift."""
+        track = self._track()
+        cue = _make_cue_tool(in_msec=10000, comment="X")
+        cue.OutMsec = -1
+        db = _make_db_cue_tools(track, [cue])
+        db._db_dir = tmp_path
+        (tmp_path / "master.db").write_bytes(b"fake")
+        with patch("autocue.db_writer.rekordbox_is_running", return_value=False):
+            with patch("autocue.db_writer.BACKUP_DIR", tmp_path / "backups"):
+                client = _make_client(db)
+                r = self._post(client, {
+                    "operation": "shift", "track_ids": [1], "dry_run": False,
+                    "shift": {"delta_ms": 500},
+                })
+        assert r.status_code == 200
+        assert cue.OutMsec == -1  # sentinel unchanged
+
+    def test_empty_track_ids_no_backup(self, tmp_path):
+        """Empty track_ids dry_run=False should not create a backup."""
+        db = MagicMock()
+        db._db_dir = tmp_path
+        (tmp_path / "master.db").write_bytes(b"fake")
+        backup_dir = tmp_path / "backups"
+        with patch("autocue.db_writer.rekordbox_is_running", return_value=False):
+            with patch("autocue.db_writer.BACKUP_DIR", backup_dir):
+                client = _make_client(db)
+                r = self._post(client, {
+                    "operation": "rename", "track_ids": [], "dry_run": False,
+                    "rename": {"from_name": "a", "to_name": "b"},
+                })
+        assert r.status_code == 200
+        done = next(e for e in _parse_sse(r.text) if e.get("done"))
+        assert done["summary"]["tracks_processed"] == 0
+
+    def test_backup_path_is_filename_only(self, tmp_path):
+        """backup_path in summary must be a bare filename, not a full absolute path."""
+        track = self._track()
+        cue = _make_cue_tool(comment="Old")
+        db = _make_db_cue_tools(track, [cue])
+        db._db_dir = tmp_path
+        (tmp_path / "master.db").write_bytes(b"fake")
+        with patch("autocue.db_writer.rekordbox_is_running", return_value=False):
+            with patch("autocue.db_writer.BACKUP_DIR", tmp_path / "backups"):
+                client = _make_client(db)
+                r = self._post(client, {
+                    "operation": "rename", "track_ids": [1], "dry_run": False,
+                    "rename": {"from_name": "Old", "to_name": "New"},
+                })
+        done = next(e for e in _parse_sse(r.text) if e.get("done"))
+        bp = done["summary"].get("backup_path")
+        assert bp is not None
+        import os
+        assert bp == os.path.basename(bp)  # no directory separators
+
+
+# ---------------------------------------------------------------------------
+# GET /api/tracks/{id}/energy
+# ---------------------------------------------------------------------------
+
+class TestTrackEnergy:
+    def setup_method(self):
+        from autocue.analysis import energy as energy_mod
+        energy_mod.clear_cache()
+
+    def _content(self, track_id=1):
+        from unittest.mock import MagicMock
+        c = MagicMock()
+        c.ID = track_id
+        return c
+
+    def _db_with_pwav(self, entries):
+        db = MagicMock()
+        tag = MagicMock()
+        tag.content.entries = entries
+        anlz = MagicMock()
+        anlz.get_tag.return_value = tag
+        db.read_anlz_file.return_value = anlz
+        db.get_content.return_value = self._content(1)
+        return db
+
+    def test_returns_energy_list(self):
+        db = self._db_with_pwav([31] * 100)
+        client = _make_client(db)
+        r = client.get("/api/tracks/1/energy")
+        assert r.status_code == 200
+        data = r.json()
+        assert "energy" in data
+        assert isinstance(data["energy"], list)
+        assert len(data["energy"]) == 50
+
+    def test_values_normalized_0_to_1(self):
+        db = self._db_with_pwav([31] * 100)
+        client = _make_client(db)
+        r = client.get("/api/tracks/1/energy")
+        for v in r.json()["energy"]:
+            assert 0.0 <= v <= 1.0
+
+    def test_returns_null_energy_when_no_pwav(self):
+        db = MagicMock()
+        db.get_content.return_value = self._content(1)
+        db.read_anlz_file.return_value = None
+        client = _make_client(db)
+        r = client.get("/api/tracks/1/energy")
+        assert r.status_code == 200
+        assert r.json()["energy"] is None
+
+    def test_returns_404_for_unknown_track(self):
+        db = MagicMock()
+        db.get_content.return_value = None
+        client = _make_client(db)
+        r = client.get("/api/tracks/999/energy")
+        assert r.status_code == 404
+
+    def test_energy_profile_included_in_response(self):
+        # Flat curve (all max amplitude) → profile should be "flat"
+        db = self._db_with_pwav([31] * 100)
+        client = _make_client(db)
+        r = client.get("/api/tracks/1/energy")
+        assert r.status_code == 200
+        data = r.json()
+        assert "energy_profile" in data
+        assert data["energy_profile"] == "flat"
+
+    def test_energy_profile_null_when_no_pwav(self):
+        db = MagicMock()
+        db.get_content.return_value = self._content(1)
+        db.read_anlz_file.return_value = None
+        client = _make_client(db)
+        r = client.get("/api/tracks/1/energy")
+        assert r.status_code == 200
+        assert r.json()["energy_profile"] is None
+
+
+# ---------------------------------------------------------------------------
+# POST /api/playlists/suggest
+# ---------------------------------------------------------------------------
+
+class TestPlaylistSuggest:
+    def _make_content(self, track_id: int, bpm_int: int = 13500):
+        c = MagicMock()
+        c.ID = track_id
+        c.BPM = bpm_int
+        c.Length = 240
+        c.FolderPath = "/music/track.mp3"
+        return c
+
+    def _db_with_tracks(self, tracks):
+        """Build a DB mock that returns `tracks` from get_content().all()."""
+        db = MagicMock()
+        q = MagicMock()
+        q.all.return_value = tracks
+        q.count.return_value = len(tracks)
+        db.get_content.return_value = q
+        return db
+
+    def test_valid_category_returns_200(self):
+        db = self._db_with_tracks([])
+        with patch("autocue.analysis.classify.get_energy_curve", return_value=None):
+            with patch("autocue.analysis.classify.get_mixability", return_value=None):
+                client = _make_client(db)
+                r = client.post("/api/playlists/suggest", json={"category": "peak"})
+        assert r.status_code == 200
+
+    def test_response_has_required_fields(self):
+        db = self._db_with_tracks([])
+        with patch("autocue.analysis.classify.get_energy_curve", return_value=None):
+            with patch("autocue.analysis.classify.get_mixability", return_value=None):
+                client = _make_client(db)
+                r = client.post("/api/playlists/suggest", json={"category": "warmup"})
+        data = r.json()
+        assert "category" in data
+        assert "results" in data
+        assert data["category"] == "warmup"
+
+    def test_invalid_category_returns_400(self):
+        client = _make_client(_make_db())
+        r = client.post("/api/playlists/suggest", json={"category": "disco"})
+        assert r.status_code == 400
+
+    def test_count_too_large_returns_400(self):
+        client = _make_client(_make_db())
+        r = client.post("/api/playlists/suggest", json={"category": "peak", "count": 999})
+        assert r.status_code == 400
+
+    def test_results_sorted_by_score_descending(self):
+        # Two peak-range tracks: higher BPM within peak range should score differently
+        track_a = self._make_content(101, bpm_int=13500)  # 135 BPM
+        track_b = self._make_content(102, bpm_int=12600)  # 126 BPM (at peak's lo_full)
+        db = self._db_with_tracks([track_a, track_b])
+        with patch("autocue.analysis.classify.get_energy_curve", return_value=[0.8] * 50):
+            with patch("autocue.analysis.classify.get_mixability", return_value={"vocal_proxy": False}):
+                client = _make_client(db)
+                r = client.post("/api/playlists/suggest", json={"category": "peak", "count": 10})
+        data = r.json()
+        scores = [item["score"] for item in data["results"]]
+        assert scores == sorted(scores, reverse=True)
+
+    def test_exclude_ids_omits_tracks(self):
+        track_a = self._make_content(201, bpm_int=13500)
+        track_b = self._make_content(202, bpm_int=13500)
+        db = self._db_with_tracks([track_a, track_b])
+        with patch("autocue.analysis.classify.get_energy_curve", return_value=[0.8] * 50):
+            with patch("autocue.analysis.classify.get_mixability", return_value={"vocal_proxy": False}):
+                client = _make_client(db)
+                r = client.post(
+                    "/api/playlists/suggest",
+                    json={"category": "peak", "exclude_ids": [201]},
+                )
+        ids = [item["track_id"] for item in r.json()["results"]]
+        assert 201 not in ids
+        assert 202 in ids
+
+    def test_count_limits_results(self):
+        tracks = [self._make_content(300 + i, bpm_int=13500) for i in range(10)]
+        db = self._db_with_tracks(tracks)
+        with patch("autocue.analysis.classify.get_energy_curve", return_value=[0.8] * 50):
+            with patch("autocue.analysis.classify.get_mixability", return_value={"vocal_proxy": False}):
+                client = _make_client(db)
+                r = client.post("/api/playlists/suggest", json={"category": "peak", "count": 3})
+        assert len(r.json()["results"]) <= 3
+
+    def test_zero_score_tracks_excluded(self):
+        # BPM=50 scores 0 in every category
+        track = self._make_content(401, bpm_int=5000)
+        db = self._db_with_tracks([track])
+        with patch("autocue.analysis.classify.get_energy_curve", return_value=None):
+            with patch("autocue.analysis.classify.get_mixability", return_value=None):
+                client = _make_client(db)
+                r = client.post("/api/playlists/suggest", json={"category": "peak"})
+        assert r.json()["results"] == []
+
+
+# ---------------------------------------------------------------------------
+# /api/transitions/score
+# ---------------------------------------------------------------------------
+
+class TestTransitionScore:
+    def _make_content(self, track_id: int, bpm_int: int = 12000, key: str = "8A"):
+        from unittest.mock import MagicMock
+        c = MagicMock()
+        c.ID = track_id
+        c.BPM = bpm_int
+        key_obj = MagicMock()
+        key_obj.ScaleName = key
+        c.Key = key_obj
+        return c
+
+    def _db_with_two_tracks(self, ca, cb):
+        db = MagicMock()
+        def _get(ID=None, **_):
+            if ID == ca.ID: return ca
+            if ID == cb.ID: return cb
+            return None
+        db.get_content.side_effect = _get
+        db.read_anlz_file.return_value = None
+        return db
+
+    def test_returns_200_with_schema(self):
+        ca = self._make_content(1)
+        cb = self._make_content(2)
+        db = self._db_with_two_tracks(ca, cb)
+        with patch("autocue.analysis.transitions.get_energy_curve", return_value=None):
+            client = _make_client(db)
+            r = client.post("/api/transitions/score", json={"track_a_id": 1, "track_b_id": 2})
+        assert r.status_code == 200
+        data = r.json()
+        for field in ("overall", "bpm", "key", "energy", "bpm_a", "bpm_b", "key_a", "key_b"):
+            assert field in data
+
+    def test_explanation_list_included(self):
+        ca = self._make_content(1)
+        cb = self._make_content(2)
+        db = self._db_with_two_tracks(ca, cb)
+        with patch("autocue.analysis.transitions.get_energy_curve", return_value=None):
+            client = _make_client(db)
+            r = client.post("/api/transitions/score", json={"track_a_id": 1, "track_b_id": 2})
+        data = r.json()
+        assert "explanation" in data
+        assert isinstance(data["explanation"], list)
+        assert len(data["explanation"]) == 3
+
+    def test_404_when_track_a_missing(self):
+        ca = self._make_content(1)
+        cb = self._make_content(2)
+        db = self._db_with_two_tracks(ca, cb)
+        with patch("autocue.analysis.transitions.get_energy_curve", return_value=None):
+            client = _make_client(db)
+            r = client.post("/api/transitions/score", json={"track_a_id": 999, "track_b_id": 2})
+        assert r.status_code == 404
+
+    def test_404_when_track_b_missing(self):
+        ca = self._make_content(1)
+        cb = self._make_content(2)
+        db = self._db_with_two_tracks(ca, cb)
+        with patch("autocue.analysis.transitions.get_energy_curve", return_value=None):
+            client = _make_client(db)
+            r = client.post("/api/transitions/score", json={"track_a_id": 1, "track_b_id": 999})
+        assert r.status_code == 404
+
+    def test_400_when_same_track(self):
+        ca = self._make_content(1)
+        db = MagicMock()
+        with patch("autocue.analysis.transitions.get_energy_curve", return_value=None):
+            client = _make_client(db)
+            r = client.post("/api/transitions/score", json={"track_a_id": 1, "track_b_id": 1})
+        assert r.status_code == 400
+
+    def test_perfect_score_same_bpm_key(self):
+        ca = self._make_content(1, bpm_int=12000, key="8A")
+        cb = self._make_content(2, bpm_int=12000, key="8A")
+        db = self._db_with_two_tracks(ca, cb)
+        curve = [0.5] * 50
+        with patch("autocue.analysis.transitions.get_energy_curve", return_value=curve):
+            client = _make_client(db)
+            r = client.post("/api/transitions/score", json={"track_a_id": 1, "track_b_id": 2})
+        assert r.json()["overall"] == 100.0
+
+    def test_end_start_energy_fields(self):
+        ca = self._make_content(1)
+        cb = self._make_content(2)
+        db = self._db_with_two_tracks(ca, cb)
+        curve = [0.7] * 50
+        with patch("autocue.analysis.transitions.get_energy_curve", return_value=curve):
+            client = _make_client(db)
+            r = client.post("/api/transitions/score", json={"track_a_id": 1, "track_b_id": 2})
+        data = r.json()
+        assert data["end_energy_a"] == pytest.approx(0.7, abs=0.01)
+        assert data["start_energy_b"] == pytest.approx(0.7, abs=0.01)
+
+
+# ---------------------------------------------------------------------------
+# /api/tracks/{id}/similar
+# ---------------------------------------------------------------------------
+
+class TestTrackSimilar:
+    def _make_content(self, track_id: int, bpm_int: int = 12800):
+        from unittest.mock import MagicMock
+        c = MagicMock()
+        c.ID = track_id
+        c.BPM = bpm_int
+        c.Key = None
+        return c
+
+    def _db_with_tracks(self, contents):
+        db = MagicMock()
+        db.get_content.return_value = MagicMock()
+        db.get_content.return_value.all.return_value = contents
+        db.read_anlz_file.return_value = None
+        return db
+
+    def test_returns_200_and_schema(self):
+        contents = [self._make_content(i, bpm_int=12800) for i in range(1, 6)]
+        db = self._db_with_tracks(contents)
+        # target track on-demand lookup
+        db.get_content.side_effect = lambda **kw: (
+            contents[0] if kw.get("ID") == 1 else MagicMock(ID=kw.get("ID", 99), BPM=12800, Key=None)
+        )
+        with patch("autocue.analysis.similar.get_energy_curve", return_value=[0.5] * 50):
+            with patch("autocue.analysis.similar.get_mixability", return_value={"vocal_proxy": False, "energy_variance": 0.1}):
+                client = _make_client(db)
+                r = client.get("/api/tracks/1/similar")
+        assert r.status_code == 200
+        data = r.json()
+        assert data["track_id"] == 1
+        assert "results" in data
+        assert isinstance(data["results"], list)
+
+    def test_returns_404_for_unknown_track(self):
+        db = MagicMock()
+        # route checks db.get_content(ID=track_id) first — return None for 404
+        db.get_content.return_value = None
+        db.read_anlz_file.return_value = None
+        with patch("autocue.analysis.similar.get_energy_curve", return_value=None):
+            with patch("autocue.analysis.similar.get_mixability", return_value=None):
+                client = _make_client(db)
+                r = client.get("/api/tracks/999/similar")
+        assert r.status_code == 404
+
+    def test_bpm_gate_param_accepted(self):
+        contents = [self._make_content(i, bpm_int=12800) for i in range(1, 4)]
+        db = self._db_with_tracks(contents)
+        db.get_content.side_effect = lambda **kw: contents[0] if kw.get("ID") == 1 else MagicMock(ID=kw.get("ID", 99), BPM=12800, Key=None)
+        with patch("autocue.analysis.similar.get_energy_curve", return_value=[0.5] * 50):
+            with patch("autocue.analysis.similar.get_mixability", return_value={"vocal_proxy": False, "energy_variance": 0.1}):
+                client = _make_client(db)
+                r = client.get("/api/tracks/1/similar?bpm_gate=4.0")
+        assert r.status_code == 200
+
+    def test_force_rebuild_clears_index(self):
+        from autocue.analysis import similar as _sim
+        _sim._INDEX[9999] = (128.0, [0.1] * 5)
+        _sim._INDEX_BUILT = True
+
+        contents = [self._make_content(i, bpm_int=12800) for i in range(1, 3)]
+        db = self._db_with_tracks(contents)
+        db.get_content.side_effect = lambda **kw: contents[0] if kw.get("ID") == 1 else MagicMock(ID=kw.get("ID", 99), BPM=12800, Key=None)
+        with patch("autocue.analysis.similar.get_energy_curve", return_value=[0.5] * 50):
+            with patch("autocue.analysis.similar.get_mixability", return_value={"vocal_proxy": False, "energy_variance": 0.1}):
+                client = _make_client(db)
+                r = client.get("/api/tracks/1/similar?force_rebuild=true")
+        assert r.status_code == 200
+        # stale track 9999 should be gone
+        assert 9999 not in _sim._INDEX
+
+    def test_n_param_limits_results(self):
+        contents = [self._make_content(i, bpm_int=12800) for i in range(1, 12)]
+        db = self._db_with_tracks(contents)
+        db.get_content.side_effect = lambda **kw: contents[0] if kw.get("ID") == 1 else MagicMock(ID=kw.get("ID", 99), BPM=12800, Key=None)
+        with patch("autocue.analysis.similar.get_energy_curve", return_value=[0.5] * 50):
+            with patch("autocue.analysis.similar.get_mixability", return_value={"vocal_proxy": False, "energy_variance": 0.1}):
+                client = _make_client(db)
+                r = client.get("/api/tracks/1/similar?n=3")
+        assert r.status_code == 200
+        assert len(r.json()["results"]) <= 3

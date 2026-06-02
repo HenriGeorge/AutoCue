@@ -5,6 +5,7 @@ import logging
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from fastapi.responses import FileResponse
 
+from ..analysis.quality import check_library_health, check_track_health
 from ..db_writer import has_existing_hot_cues
 from ..generator import GenerationPrefs, generate_cues_for_track
 from .deps import get_db
@@ -14,16 +15,35 @@ from .schemas import (
     BackupItem,
     ColorTracksRequest,
     ColorTracksResponse,
+    CueIssueSchema,
     CueItem,
+    CueToolsRequest,
+    CueToolsSummary,
     DeleteRequest,
     DeleteResponse,
+    ClassificationResponse,
+    EnergyResponse,
+    MixabilityComponents,
+    MixabilityResponse,
+    PlaylistSuggestItem,
+    PlaylistSuggestRequest,
+    PlaylistSuggestResponse,
+    SetBuilderRequest,
+    SetBuilderResponse,
+    SetBuilderTrackItem,
+    SimilarTrackItem,
+    SimilarTracksResponse,
+    TransitionRequest,
+    TransitionResponse,
     GenerateAndApplyRequest,
     GenerateRequest,
     GenerateResponse,
+    LibraryHealthSummary,
     PlaylistItem,
     RestoreRequest,
     RestoreResponse,
     StatusResponse,
+    TrackHealthReport,
     TrackItem,
     TrackResult,
 )
@@ -136,8 +156,18 @@ def tracks(
     except Exception:
         pass
 
+    # Pre-load hot cue counts in one GROUP BY query instead of one COUNT per track
+    from pyrekordbox.db6 import DjmdCue
+    from sqlalchemy import func as _func
+    hot_cue_counts: dict = dict(
+        db.query(DjmdCue.ContentID, _func.count(DjmdCue.ID))
+        .filter(DjmdCue.Kind >= 1, DjmdCue.Kind <= 8)
+        .group_by(DjmdCue.ContentID)
+        .all()
+    )
+
     response.headers["X-Total-Count"] = str(total)
-    return [_to_item(t, db, key_map, last_played_map, my_tags_map, color_name_map) for t in rows]
+    return [_to_item(t, db, key_map, last_played_map, my_tags_map, color_name_map, hot_cue_counts) for t in rows]
 
 
 @router.get("/tracks/{track_id}/artwork")
@@ -209,6 +239,7 @@ def generate(req: GenerateRequest, db=Depends(get_db)):
         start_bar=req.start_bar,
         max_cues=req.max_cues,
         add_memory_cue=req.add_memory_cue,
+        memory_cue_mode=req.memory_cue_mode,
         add_fill_cues=req.add_fill_cues,
     )
     results = []
@@ -224,7 +255,8 @@ def generate(req: GenerateRequest, db=Depends(get_db)):
                 cues=[
                     CueItem(slot=c.slot, label=c.label.value, position_ms=c.position_ms,
                             is_phrase=(mode_used == "phrase"), name=c.name,
-                            color_id=c.color_id)
+                            color_id=c.color_id, confidence=c.confidence,
+                            phrase_bars=c.phrase_bars)
                     for c in cues
                 ],
                 mode_used=mode_used,
@@ -310,6 +342,7 @@ def generate_apply(req: GenerateAndApplyRequest, db=Depends(get_db)):
         start_bar=req.start_bar,
         max_cues=req.max_cues,
         add_memory_cue=req.add_memory_cue,
+        memory_cue_mode=req.memory_cue_mode,
         add_fill_cues=req.add_fill_cues,
     )
 
@@ -380,6 +413,7 @@ def generate_apply_stream(req: GenerateAndApplyRequest, db=Depends(get_db)):
         start_bar=req.start_bar,
         max_cues=req.max_cues,
         add_memory_cue=req.add_memory_cue,
+        memory_cue_mode=req.memory_cue_mode,
         add_fill_cues=req.add_fill_cues,
     )
 
@@ -401,6 +435,9 @@ def generate_apply_stream(req: GenerateAndApplyRequest, db=Depends(get_db)):
     def event_stream():
         applied = skipped = 0
         for i, tid in enumerate(req.track_ids):
+            # Expire session identity map every 100 tracks to prevent memory accumulation
+            if i % 100 == 0 and i > 0:
+                db.session.expire_all()
             content = db.get_content(ID=tid)
             if content is None:
                 skipped += 1
@@ -510,7 +547,32 @@ def restore_backup(req: RestoreRequest, request_obj: Request, db=Depends(get_db)
             request_obj.app.state.db = None
             raise HTTPException(500, f"Restore succeeded but could not reopen database: {e}")
 
+    # Invalidate all analysis caches — the restored DB may have different tracks/cues
+    from ..analysis import energy as _energy_mod, classify as _classify_mod, score as _score_mod
+    from ..analysis import similar as _similar_mod
+    _energy_mod.clear_cache()
+    _classify_mod._class_cache.clear()
+    _score_mod._mixability_cache.clear()
+    _similar_mod.clear_index()
+
     return RestoreResponse(restored=True, message=f"Restored from {req.filename}")
+
+
+@router.delete("/backups/{filename}")
+def delete_backup(filename: str):
+    from ..db_writer import BACKUP_DIR
+    from pathlib import Path
+    backup_path = (BACKUP_DIR / filename).resolve()
+    if not str(backup_path).startswith(str(BACKUP_DIR.resolve())):
+        raise HTTPException(400, "Invalid backup filename")
+    if not backup_path.exists():
+        raise HTTPException(404, f"Backup not found: {filename}")
+    backup_path.unlink()
+    for suf in ("-wal", "-shm"):
+        sidecar = Path(str(backup_path) + suf)
+        if sidecar.exists():
+            sidecar.unlink()
+    return {"deleted": filename}
 
 
 @router.post("/delete-cues", response_model=DeleteResponse)
@@ -584,22 +646,93 @@ def color_tracks_ep(req: ColorTracksRequest, db=Depends(get_db)):
     )
 
 
+@router.post("/color-tracks-stream")
+def color_tracks_stream_ep(req: ColorTracksRequest, db=Depends(get_db)):
+    import json as _json
+    from fastapi.responses import StreamingResponse
+    from ..db_writer import backup_database, rekordbox_is_running, _bpm_to_color_sort_key
+
+    if rekordbox_is_running() and not req.dry_run:
+        raise HTTPException(409, "Rekordbox is running — close it before coloring tracks")
+
+    backup_path = None
+    if not req.dry_run:
+        try:
+            from pathlib import Path
+            db_dir = getattr(db, "_db_dir", None)
+            if db_dir is None:
+                raise RuntimeError("Cannot locate master.db")
+            db_path = Path(db_dir) / "master.db"
+            backup_path = str(backup_database(db_path))
+        except Exception as e:
+            raise HTTPException(500, f"Backup failed — aborting: {e}")
+
+    from pyrekordbox.db6 import DjmdColor
+    color_by_sort_key: dict = {
+        c.SortKey: c.ID for c in db.query(DjmdColor).all() if c.SortKey is not None
+    }
+
+    track_ids = req.track_ids
+    skip_colored = req.skip_colored
+    dry_run = req.dry_run
+    total = len(track_ids)
+
+    def event_stream():
+        from sqlalchemy import text as _text
+        stmt = _text("UPDATE djmdContent SET ColorID = :cid WHERE ID = :tid")
+        colored = skipped = 0
+        BATCH = 50
+
+        for i, tid in enumerate(track_ids):
+            content = db.get_content(ID=tid)
+            if content is None:
+                skipped += 1
+            elif skip_colored and getattr(content, "ColorID", None) not in (None, "", "0"):
+                skipped += 1
+            else:
+                bpm_raw = getattr(content, "BPM", None)
+                bpm = float(bpm_raw) / 100 if bpm_raw else 0.0
+                sort_key = _bpm_to_color_sort_key(bpm)
+                color_id = color_by_sort_key.get(sort_key)
+                if not dry_run:
+                    db.session.execute(stmt, {"cid": color_id, "tid": tid})
+                colored += 1
+
+            if (i + 1) % BATCH == 0:
+                if not dry_run:
+                    db.session.expire_all()
+                    db.session.commit()
+                yield f"data: {_json.dumps({'colored': colored, 'skipped': skipped, 'total': total})}\n\n"
+
+        if not dry_run:
+            db.session.expire_all()
+            db.session.commit()
+
+        yield f"data: {_json.dumps({'done': True, 'colored': colored, 'skipped': skipped, 'total': total, 'backup_path': backup_path, 'dry_run': dry_run})}\n\n"
+
+    return StreamingResponse(event_stream(), media_type="text/event-stream")
+
+
 def _to_item(
     t, db,
     key_map: dict | None = None,
     last_played_map: dict | None = None,
     my_tags_map: dict | None = None,
     color_name_map: dict | None = None,
+    hot_cue_counts: dict | None = None,
 ) -> TrackItem:
     bpm_raw = getattr(t, "BPM", None)
     key_id = getattr(t, "KeyID", None)
     key = key_map.get(key_id, "") if key_map and key_id else ""
-    try:
-        ext_path = db.get_anlz_path(t, "EXT")
-        has_phrase = bool(ext_path)
-    except Exception:
-        has_phrase = False
+    # AnalysisDataPath being present means the EXT file was written by Rekordbox —
+    # avoids a per-track iterdir() call (3764× faster than db.get_anlz_path).
+    has_phrase = bool(getattr(t, "AnalysisDataPath", None))
     color_id = str(getattr(t, "ColorID", None) or "")
+    # Use pre-loaded counts map; fall back to live query only when map unavailable.
+    if hot_cue_counts is not None:
+        existing = hot_cue_counts.get(t.ID, 0)
+    else:
+        existing = has_existing_hot_cues(t, db)
     return TrackItem(
         id=t.ID,
         title=t.Title or "",
@@ -609,11 +742,496 @@ def _to_item(
         duration=float(t.Length or 0),
         has_phrase=has_phrase,
         has_beats=bool(bpm_raw and float(bpm_raw) > 0),
-        existing_hot_cues=has_existing_hot_cues(t, db),
+        existing_hot_cues=existing,
         key=key,
         rating=int(getattr(t, "Rating", 0) or 0),
         play_count=int(str(getattr(t, "DJPlayCount", None) or "0") or "0"),
         last_played=(last_played_map or {}).get(str(t.ID)),
         my_tags=(my_tags_map or {}).get(str(t.ID), []),
         color_name=(color_name_map or {}).get(color_id, "") if color_id else "",
+    )
+
+
+# ---------------------------------------------------------------------------
+# Cue Quality Checker
+# ---------------------------------------------------------------------------
+
+def _report_to_schema(report) -> TrackHealthReport:
+    return TrackHealthReport(
+        track_id=report.track_id,
+        score=report.score,
+        issues=[CueIssueSchema(code=i.code, severity=i.severity, message=i.message)
+                for i in report.issues],
+        fix_tier=report.fix_tier,
+        hot_cue_count=report.hot_cue_count,
+        memory_cue_count=report.memory_cue_count,
+    )
+
+
+@router.get("/tracks/{track_id}/health", response_model=TrackHealthReport)
+def track_health(track_id: int, db=Depends(get_db)):
+    """Return health score and issues for a single track."""
+    from pyrekordbox.db6 import DjmdContent
+    content = db.query(DjmdContent).filter(DjmdContent.ID == track_id).first()
+    if content is None:
+        raise HTTPException(404, "Track not found")
+    try:
+        return _report_to_schema(check_track_health(content, db))
+    except Exception as exc:
+        from ..analysis.quality import CueIssue, TrackHealthReport as _THR
+        return _report_to_schema(
+            _THR(track_id=track_id, score=0,
+                 issues=[CueIssue("INTERNAL_ERROR", "error", str(exc))],
+                 fix_tier="none")
+        )
+
+
+@router.get("/health")
+async def library_health(
+    request: Request,
+    playlist_id: int | None = Query(None),
+    db=Depends(get_db),
+):
+    """Stream library health as SSE. One JSON event per track, then a summary event.
+
+    Optional ?playlist_id=N limits scan to that playlist — use for incremental rescans
+    after re-analyzing a subset of tracks in Rekordbox.
+    """
+    import json
+    from collections import defaultdict
+    from fastapi.responses import StreamingResponse
+
+    if playlist_id is not None:
+        from pyrekordbox.db6 import DjmdPlaylist
+        pl = db.query(DjmdPlaylist).filter(DjmdPlaylist.ID == str(playlist_id)).first()
+        if pl is None:
+            raise HTTPException(404, f"Playlist {playlist_id} not found")
+
+    def event_stream():
+        scores: list[int] = []
+        missing_audio: list[int] = []
+        issue_counts: dict[str, int] = defaultdict(int)
+        tier_counts: dict[str, int] = defaultdict(int)
+
+        for report in check_library_health(db, playlist_id=playlist_id):
+            schema = _report_to_schema(report)
+            if any(i.code == "NO_AUDIO_FILE" for i in schema.issues):
+                missing_audio.append(report.track_id)
+            else:
+                scores.append(report.score)
+            for issue in report.issues:
+                issue_counts[issue.code] += 1
+            tier_counts[report.fix_tier] += 1
+            yield f"data: {schema.model_dump_json()}\n\n"
+
+        library_score = round(sum(scores) / len(scores), 1) if scores else 0.0
+        summary = LibraryHealthSummary(
+            total=len(scores) + len(missing_audio),
+            excluded_missing_audio=len(missing_audio),
+            library_score=library_score,
+            no_cues=issue_counts.get("NO_CUES", 0),
+            no_phrase=issue_counts.get("NO_PHRASE", 0),
+            no_beatgrid=issue_counts.get("NO_BEATGRID", 0),
+            duplicate_cues=issue_counts.get("DUPLICATE_CUE", 0),
+            unnamed_cues=issue_counts.get("UNNAMED_CUES", 0),
+            no_memory_cue=issue_counts.get("NO_MEMORY_CUE", 0),
+            fix_tier_counts=dict(tier_counts),
+        )
+        yield f"data: {json.dumps({'done': True, 'summary': summary.model_dump()})}\n\n"
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
+# ---------------------------------------------------------------------------
+# Cue Library Tools
+# ---------------------------------------------------------------------------
+
+@router.post("/cue-tools-stream")
+def cue_tools_stream(req: CueToolsRequest, db=Depends(get_db)):
+    """Stream bulk cue edits (rename / recolor / shift / delete_orphan) as SSE.
+
+    All operations exclude Kind=0 (memory cues). Per-track events carry
+    {processed, affected, total}. Final event carries {done:true, summary:{...}}.
+    """
+    import json as _json
+    from fastapi.responses import StreamingResponse
+    from ..db_writer import backup_database, rekordbox_is_running
+    from pyrekordbox.db6 import DjmdCue
+
+    if rekordbox_is_running() and not req.dry_run:
+        raise HTTPException(409, "Rekordbox is running — close it before editing cues")
+
+    if not req.track_ids:
+        # Nothing to process — return empty summary immediately, no backup needed
+        import json as _json
+        from fastapi.responses import StreamingResponse
+
+        def _empty():
+            from ..serve.schemas import CueToolsSummary
+            summary = CueToolsSummary(
+                operation=req.operation, tracks_processed=0, tracks_affected=0,
+                cues_changed=0, cues_skipped=0, dry_run=req.dry_run,
+            )
+            yield f"data: {_json.dumps({'done': True, 'summary': summary.model_dump()})}\n\n"
+
+        return StreamingResponse(
+            _empty(),
+            media_type="text/event-stream",
+            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+        )
+
+    backup_path = None
+    if not req.dry_run:
+        try:
+            from pathlib import Path
+            db_dir = getattr(db, "_db_dir", None)
+            if db_dir is None:
+                raise RuntimeError("Cannot locate master.db: no _db_dir on db object")
+            db_path = Path(db_dir) / "master.db"
+            if not db_path.exists():
+                raise FileNotFoundError(f"master.db not found at {db_path}")
+            backup_path = Path(backup_database(db_path)).name  # filename only, not full path
+        except Exception as e:
+            raise HTTPException(500, f"Backup failed — aborting: {e}")
+
+    operation = req.operation
+    track_ids = req.track_ids
+    dry_run = req.dry_run
+    total = len(track_ids)
+    BATCH = 50
+
+    def _process_track(content_id: int) -> tuple[int, int]:
+        """Return (cues_changed, cues_skipped) for one track."""
+        hot_cues = (
+            db.session.query(DjmdCue)
+            .filter(DjmdCue.ContentID == content_id,
+                    DjmdCue.Kind >= 1, DjmdCue.Kind <= 8)
+            .all()
+        )
+        changed = skipped = 0
+
+        if operation == "rename":
+            p = req.rename
+            for cue in hot_cues:
+                if (cue.Comment or "") == p.from_name:
+                    if not dry_run:
+                        cue.Comment = p.to_name
+                    changed += 1
+                else:
+                    skipped += 1
+
+        elif operation == "recolor":
+            p = req.recolor
+            for cue in hot_cues:
+                slot_str = str(cue.Kind - 1)  # Kind=1 → slot 0 (A)
+                if slot_str in p.slot_colors:
+                    if not dry_run:
+                        cue.ColorTableIndex = p.slot_colors[slot_str]
+                    changed += 1
+                else:
+                    skipped += 1
+
+        elif operation == "shift":
+            p = req.shift
+            for cue in hot_cues:
+                new_ms = int(cue.InMsec or 0) + p.delta_ms
+                if new_ms < 0:
+                    skipped += 1
+                    continue
+                if not dry_run:
+                    cue.InMsec = new_ms
+                    cue.InFrame = round(new_ms * 150 / 1000)
+                    # Preserve loop length: shift OutMsec by the same delta
+                    out_ms = cue.OutMsec if cue.OutMsec is not None else -1
+                    if out_ms >= 0:
+                        cue.OutMsec = out_ms + p.delta_ms
+                changed += 1
+
+        elif operation == "delete_orphan":
+            p = req.delete_orphan
+            for cue in hot_cues:
+                if cue.Kind > p.keep_slots:
+                    if not dry_run:
+                        db.session.delete(cue)
+                    changed += 1
+                else:
+                    skipped += 1
+
+        return changed, skipped
+
+    def event_stream():
+        processed = affected = total_changed = total_skipped = 0
+
+        for i, tid in enumerate(track_ids):
+            content = db.get_content(ID=tid)
+            if content is None:
+                processed += 1
+            else:
+                try:
+                    changed, skipped_count = _process_track(content.ID)
+                    processed += 1
+                    if changed > 0:
+                        affected += 1
+                    total_changed += changed
+                    total_skipped += skipped_count
+                except Exception as exc:
+                    db.session.rollback()
+                    logger.error("cue-tools %s failed for track %d: %s", operation, tid, exc)
+                    processed += 1
+
+            if (i + 1) % BATCH == 0:
+                if not dry_run:
+                    db.session.commit()
+                yield f"data: {_json.dumps({'processed': processed, 'affected': affected, 'total': total})}\n\n"
+
+        if not dry_run:
+            db.session.commit()
+
+        summary = CueToolsSummary(
+            operation=operation,
+            tracks_processed=processed,
+            tracks_affected=affected,
+            cues_changed=total_changed,
+            cues_skipped=total_skipped,
+            dry_run=dry_run,
+            backup_path=backup_path,
+        )
+        yield f"data: {_json.dumps({'done': True, 'summary': summary.model_dump()})}\n\n"
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
+@router.get("/tracks/{track_id}/energy", response_model=EnergyResponse)
+def track_energy(track_id: int, db=Depends(get_db)):
+    from ..analysis.energy import classify_energy_profile, get_energy_curve
+    content = db.get_content(ID=track_id)
+    if content is None:
+        raise HTTPException(404, f"Track {track_id} not found")
+    curve = get_energy_curve(content, db)
+    return EnergyResponse(
+        track_id=track_id,
+        energy=curve,
+        n_points=len(curve) if curve else 0,
+        energy_profile=classify_energy_profile(curve) if curve else None,
+    )
+
+
+@router.get("/tracks/{track_id}/mixability", response_model=MixabilityResponse)
+def track_mixability(track_id: int, db=Depends(get_db)):
+    from ..analysis.score import get_mixability
+    content = db.get_content(ID=track_id)
+    if content is None:
+        raise HTTPException(404, f"Track {track_id} not found")
+    data = get_mixability(content, db)
+    if data is None:
+        return MixabilityResponse(track_id=track_id, score=None)
+    return MixabilityResponse(
+        track_id=track_id,
+        score=data["score"],
+        intro_bars=data["intro_bars"],
+        outro_bars=data["outro_bars"],
+        phrase_count=data["phrase_count"],
+        vocal_proxy=data["vocal_proxy"],
+        energy_variance=data["energy_variance"],
+        components=MixabilityComponents(**data["components"]),
+    )
+
+
+@router.get("/tracks/{track_id}/classification", response_model=ClassificationResponse)
+def track_classification(track_id: int, db=Depends(get_db)):
+    from ..analysis.classify import get_classification
+    content = db.get_content(ID=track_id)
+    if content is None:
+        raise HTTPException(404, f"Track {track_id} not found")
+    data = get_classification(content, db)
+    return ClassificationResponse(track_id=track_id, **data)
+
+
+@router.post("/playlists/suggest", response_model=PlaylistSuggestResponse)
+def playlist_suggest(req: PlaylistSuggestRequest, db=Depends(get_db)):
+    """Return top tracks for a DJ set category, sorted by category score."""
+    from ..analysis.classify import CATEGORIES, get_classification
+
+    if req.category not in CATEGORIES:
+        raise HTTPException(
+            400, f"Unknown category '{req.category}'. Valid: {list(CATEGORIES)}"
+        )
+    if req.count < 1 or req.count > 500:
+        raise HTTPException(400, "count must be between 1 and 500")
+
+    if req.playlist_id is not None:
+        from pyrekordbox.db6 import DjmdPlaylist, DjmdSongPlaylist
+        pl = db.query(DjmdPlaylist).filter(DjmdPlaylist.ID == str(req.playlist_id)).first()
+        if pl is None:
+            raise HTTPException(404, f"Playlist {req.playlist_id} not found")
+        ids = [
+            e.ContentID
+            for e in db.query(DjmdSongPlaylist).filter_by(PlaylistID=str(req.playlist_id)).all()
+        ]
+        contents = [db.get_content(ID=i) for i in ids if i]
+        contents = [c for c in contents if c is not None]
+    else:
+        contents = db.get_content().all()
+
+    exclude = set(req.exclude_ids)
+    scored: list[tuple[float, int]] = []
+    for content in contents:
+        cid = int(content.ID)
+        if cid in exclude:
+            continue
+        try:
+            data = get_classification(content, db)
+            cat_score = data["scores"].get(req.category, 0.0)
+            if cat_score > 0:
+                scored.append((cat_score, cid))
+        except Exception:
+            pass
+
+    scored.sort(reverse=True)
+    top = scored[: req.count]
+
+    return PlaylistSuggestResponse(
+        category=req.category,
+        results=[PlaylistSuggestItem(track_id=tid, score=round(s, 3)) for s, tid in top],
+    )
+
+
+@router.get("/classify")
+async def classify_library(
+    playlist_id: int | None = None,
+    force_refresh: bool = False,
+    db=Depends(get_db),
+):
+    """SSE stream: one ClassificationResponse JSON event per track, then done summary."""
+    import json as _json
+    from ..analysis.classify import get_classification, CATEGORIES, _class_cache
+    from pyrekordbox.db6 import DjmdPlaylist, DjmdSongPlaylist
+
+    if force_refresh:
+        _class_cache.clear()
+
+    if playlist_id is not None:
+        pl = db.query(DjmdPlaylist).filter(DjmdPlaylist.ID == str(playlist_id)).first()
+        if pl is None:
+            raise HTTPException(404, f"Playlist {playlist_id} not found")
+
+    def event_stream():
+        if playlist_id is not None:
+            ids = [
+                e.ContentID
+                for e in db.query(DjmdSongPlaylist).filter_by(PlaylistID=str(playlist_id)).all()
+            ]
+            contents = [db.get_content(ID=i) for i in ids if i]
+            contents = [c for c in contents if c is not None]
+        else:
+            contents = db.get_content().all()
+
+        counts: dict[str, int] = {c: 0 for c in CATEGORIES}
+        counts["unknown"] = 0
+        total = 0
+        for content in contents:
+            total += 1
+            try:
+                data = get_classification(content, db)
+                resp = ClassificationResponse(track_id=content.ID, **data)
+                counts[data["primary"]] = counts.get(data["primary"], 0) + 1
+                yield f"data: {resp.model_dump_json()}\n\n"
+            except Exception as exc:
+                logger.exception("classify error track %s: %s", content.ID, exc)
+        yield f"data: {{\"done\":true,\"total\":{total},\"counts\":{_json.dumps(counts)}}}\n\n"
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
+@router.get("/tracks/{track_id}/similar", response_model=SimilarTracksResponse)
+def track_similar(
+    track_id: int,
+    n: int = 10,
+    bpm_gate: float = 8.0,
+    force_rebuild: bool = False,
+    db=Depends(get_db),
+):
+    from ..analysis.similar import clear_index, find_similar
+
+    content = db.get_content(ID=track_id)
+    if content is None:
+        raise HTTPException(status_code=404, detail="Track not found")
+    if force_rebuild:
+        clear_index()
+    results = find_similar(track_id, db, n=n, bpm_gate=bpm_gate)
+    return SimilarTracksResponse(
+        track_id=track_id,
+        results=[SimilarTrackItem(**r) for r in results],
+    )
+
+
+@router.post("/transitions/score", response_model=TransitionResponse)
+def transition_score(req: TransitionRequest, db=Depends(get_db)):
+    from ..analysis.transitions import score_transition
+
+    if req.track_a_id == req.track_b_id:
+        raise HTTPException(400, detail="track_a_id and track_b_id must be different")
+    content_a = db.get_content(ID=req.track_a_id)
+    content_b = db.get_content(ID=req.track_b_id)
+    if content_a is None:
+        raise HTTPException(404, detail=f"Track {req.track_a_id} not found")
+    if content_b is None:
+        raise HTTPException(404, detail=f"Track {req.track_b_id} not found")
+
+    data = score_transition(content_a, content_b, db)
+    return TransitionResponse(
+        track_a_id=req.track_a_id,
+        track_b_id=req.track_b_id,
+        **data,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Set Builder
+# ---------------------------------------------------------------------------
+
+@router.post("/setbuilder", response_model=SetBuilderResponse)
+def build_set_endpoint(req: SetBuilderRequest, db=Depends(get_db)):
+    """Build a DJ set via beam search over the track library."""
+    from ..analysis.setbuilder import build_set
+
+    tracks = build_set(
+        db,
+        start_bpm=req.start_bpm,
+        end_bpm=req.end_bpm,
+        duration_minutes=req.duration_minutes,
+        energy_mode=req.energy_mode,
+        bpm_step_max=req.bpm_step_max,
+        seed_track_id=req.seed_track_id,
+    )
+
+    if not tracks:
+        raise HTTPException(422, "No valid set could be built with the given constraints")
+
+    # Estimate total duration from track lengths
+    total_duration_s = 0.0
+    for t in tracks:
+        try:
+            content = db.get_content(ID=t["track_id"])
+            if content is not None:
+                total_duration_s += float(getattr(content, "Length", 0) or 0)
+        except Exception:
+            pass
+
+    return SetBuilderResponse(
+        tracks=[SetBuilderTrackItem(**t) for t in tracks],
+        total_tracks=len(tracks),
+        estimated_duration_minutes=round(total_duration_s / 60.0, 1),
     )

@@ -26,11 +26,29 @@ autocue/
   db_writer.py   — writes CuePoints directly to DjmdCue; backup + Rekordbox-running check
   cli.py         — argparse CLI; --track / --track-id / --library; `autocue serve` subcommand
   __main__.py    — entry point
+  analysis/
+    quality.py      — Cue Quality Checker: check_track_health(), check_library_health()
+                      Pure DB reads (DjmdCue + DjmdContent). No ANLZ parsing.
+                      Scores tracks 0–100; yields fix_tier: phrase/bar/heuristic/none.
+    energy.py       — PWAV waveform reader: get_energy_curve() → list[float] per PWAV column (~150ms each)
+    score.py        — Mixability score (0–100): intro/outro bars + energy variance + vocal proxy
+    classify.py     — Track classification: get_classification() → {primary, scores, bpm, energy_mean}
+                      Five categories: warmup/build/peak/after_hours/closing. Cached in _class_cache.
+    similar.py      — Cosine similarity on 5-dim feature vector (key, energy, vocal proxy). BPM gate ±8.
+                      Builds in-process index on first call; pre-warms _class_cache via _index_track().
+    transitions.py  — score_transition(a, b, db) → {overall, bpm, key, energy, end_energy_a, start_energy_b}
+    setbuilder.py   — Beam search set builder (width=5). Uses find_similar per step (O(n×K) not O(n²)).
+                      build_set(db, start_bpm, end_bpm, duration_minutes, energy_mode, bpm_step_max) → list[dict]
   serve/
     app.py       — FastAPI app factory + uvicorn launcher; CORS whitelist (localhost only)
-    routes.py    — /api/status, /api/playlists, /api/tracks, /api/generate, /api/apply,
+    routes.py    — /api/status, /api/playlists, /api/tracks, /api/tracks/{id}/artwork,
+                   /api/tracks/{id}/audio, /api/tags, /api/generate, /api/apply,
                    /api/generate-apply, /api/generate-apply-stream (SSE),
-                   /api/delete-cues, /api/color-tracks, /api/backups, /api/restore
+                   /api/delete-cues, /api/color-tracks, /api/color-tracks-stream (SSE),
+                   /api/backups, /api/restore, /api/backups/{filename} (DELETE),
+                   /api/tracks/{id}/health, /api/health (SSE, ?playlist_id=N),
+                   /api/tracks/{id}/similar, /api/tracks/{id}/classification,
+                   /api/transitions/score, /api/setbuilder
     schemas.py   — Pydantic models for all request/response types
     deps.py      — lifespan DB connection + get_db dependency
 
@@ -38,17 +56,29 @@ docs/
   index.html     — entire web app (CSS + JS inline, no dependencies except CDN)
                    Local mode: detects /api/status on load, hides XML drop zone, loads
                    tracks from server, Apply button writes directly to Rekordbox DB.
+                   _explainCue(cue): returns {confidence, reasons[]} for cue badge ℹ panel.
+                   Cue reason panel: click ℹ on any cue badge to see placement explanation.
 
 tests/
-  test_models.py             — 36 tests
-  test_analyzer.py           — 25 tests (mocked pyrekordbox objects)
-  test_generator.py          — 34 tests (includes memory cue / add_memory_cue prefs)
-  test_writer.py             — 37 tests
-  test_db_writer.py          — 32 tests (includes BPM→color mapping, color_tracks_by_bpm)
-  test_serve_routes.py       — 54 tests (FastAPI TestClient, mocked DB)
+  conftest.py                — autouse fixture clears energy._cache + classify._class_cache before each test
+  test_models.py             — 48 tests
+  test_analyzer.py           — 36 tests (mocked pyrekordbox objects)
+  test_generator.py          — 60 tests (smart slot order: A=mix-in, B+=importance; confidence scores)
+  test_writer.py             — 39 tests
+  test_db_writer.py          — 42 tests (BPM→color mapping, color_tracks_by_bpm, skip_colored)
+  test_quality.py            — 47 tests (health scores, fix tiers, duplicate detection, SSE generator)
+  test_energy.py             — 21 tests (PWAV waveform reading, caching, fallback)
+  test_score.py              — 16 tests (mixability formula, components, phrase fallback)
+  test_classify.py           — 29 tests (category scoring, trapezoidal membership, cache)
+  test_similar.py            — 24 tests (cosine similarity, BPM gate, index build)
+  test_transitions.py        — 45 tests (BPM/key/energy compatibility, Camelot wheel)
+  test_setbuilder.py         — 26 tests (beam search, category order, energy penalty, deduplication)
+  test_serve_routes.py       — 121 tests (FastAPI TestClient, mocked DB; covers all endpoints)
   web/
     xml-processing.test.js  — 65 Vitest tests for parseRekordboxXml, generateCues, pickCueColor
-    ui-logic.test.js        — 17 Vitest tests for sort labels, memory cue, HTTP error handling
+    ui-logic.test.js        — 155 Vitest tests: filteredTracks, backup multi-select, SSE apply,
+                               sort labels, memory cue, colorTracksByBpm, HTTP error handling,
+                               _explainCue (phrase/bar/heuristic/memory/manual modes)
 
 package.json      — dev tooling only (vitest + jsdom); the deployed app has no build step
 vitest.config.js  — jsdom environment for web tests
@@ -58,9 +88,9 @@ vitest.config.js  — jsdom environment for web tests
 
 ```bash
 pip install -e ".[dev]"              # install with test deps (includes fastapi, uvicorn, psutil, httpx)
-pytest                               # run all 238 Python tests
+pytest                               # run all 554 Python tests
 npm install                          # one-time: install JS test deps
-npm test                             # run 82 Vitest tests for the web app
+npm test                             # run 155 Vitest tests for the web app
 
 autocue serve --no-browser           # start local server on localhost:7432
 autocue --library --dry-run          # preview CLI output without writing
@@ -90,9 +120,20 @@ autocue --library --overwrite        # re-generate for all tracks
 - **has_phrase**: Populated via `db.get_anlz_path(content, "EXT")` — a fast file-existence check with no parsing. `True` if the .EXT ANLZ file exists on disk.
 - **filteredTracks()**: Client-side function that applies search query and phrase-only filter to `parsedTracks`. All write operations (apply, delete, color) use `filteredTracks()` — not `parsedTracks` directly. `parsedTracks` is never mutated by filters.
 - **pendingCues**: JS map of `String(trackId) → [{slot,posSec,label,...}]` populated by the "Preview cues" button (calls `/api/generate`). Cleared after Apply completes. Rendered as a secondary timeline bar in each track card.
+- **Scroll header**: `<div id="scroll-header">` is `position:fixed` with `transform:translateY(-110%)` and slides in via CSS transition when `#settings-section` scrolls out of the viewport. `#tracks-sticky` wraps the filter/sort/legend bar with `position:sticky`. `initScrollHeader()` IIFE handles the scroll listener, two-way sync between scroll-header controls and their main-page counterparts (playlist select, search, sort buttons, mode buttons), and shifts `#tracks-sticky` top down when the scroll header is visible.
+- **Multi-select backup delete**: `DELETE /api/backups/{filename}` removes one backup; path traversal is blocked (only bare filenames accepted). The UI uses `_populateChecklist()`, `_updateSelectionCount()`, and `_checkedBackups()` helpers; `deleteCheckedBackups()` calls DELETE once per selected filename and shows a consolidated toast.
+- **Smart slot ordering**: `_apply_smart_slot_order()` in `generator.py` assigns slot A to the first non-Intro phrase chronologically (the DJ mix-in point). Slots B+ are ordered by `_SMART_PRIORITY` (CHORUS=0, UP=1, OUTRO=2, VERSE=3, DOWN=4, BRIDGE=5, INTRO=6). Only applied in phrase mode.
+- **Cue Quality Checker**: `autocue/analysis/quality.py`. Score: -30 NO_CUES, -10 NO_PHRASE, -10 NO_BEATGRID, -5 DUPLICATE_CUE, -5 UNNAMED_CUES. NO_AUDIO_FILE forces score=0 and skips all other checks. NO_MEMORY_CUE is info-only (zero score impact). Duplicate detection compares `InFrame` values directly (threshold < 2 frames ≈ <13ms). FolderPath on DjmdContent stores the complete audio file path (not just folder).
+- **`/api/health` SSE**: Streams one JSON event per track (TrackHealthReport), then `{"done":true,"summary":{...}}`. Accepts `?playlist_id=N` for incremental rescans. Per-track exceptions yield `{"score":0,"fix_tier":"none","issues":[{"code":"INTERNAL_ERROR",...}]}` — one bad row never aborts the scan.
+- **Analysis module caches**: `energy._cache` (dict, keyed by content.ID) and `classify._class_cache` (dict, keyed by content.ID) are module-level. The `conftest.py` autouse fixture clears both before every test to prevent contamination. `score.py` has NO cache — `get_mixability` is always computed fresh.
+- **similar._INDEX / _INDEX_BUILT**: The similarity index is module-level in `similar.py`. To check from `setbuilder.py` whether the index is built, import the module (`from . import similar as _similar_mod`) and check `_similar_mod._INDEX_BUILT` — do NOT import `_INDEX_BUILT` directly (that creates a copy that never updates).
+- **PWAV energy curve**: `get_energy_curve()` returns one float per PWAV column (~150ms each). To map a `position_ms` to an index: `idx = min(int(position_ms // 150), len(curve) - 1)`. Returns `[]` when PWAV tag is absent or ANLZ read fails.
+- **Transition scoring**: `score_transition(a, b, db)` returns `{overall, bpm, key, energy, end_energy_a, start_energy_b}`. The `end_energy_a` and `start_energy_b` fields are scalars (or None) — pass them directly to energy-penalty functions; do not re-read ANLZ curves.
+- **Set Builder beam search**: `build_set()` in `setbuilder.py`. Uses `find_similar(track_id, db, n=20)` per step (O(n×K) not O(n²)). Deduplication via `visited: set[int]` per beam. BPM monotonic step gated by `bpm_step_max` (default 8%). `get_classification()` is pre-warmed during `_index_track()` so beam search lookup is O(1).
+- **Cue explanation panel**: `_explainCue(cue)` in `index.html` returns `{confidence: str, reasons: str[]}`. Cue objects need `{slot, confidence, phraseMode, phraseBars, label, name}`. If `confidence == null && phraseMode == null` → "Manually placed cue". Explanation panel uses click-toggle (not hover) for mobile compatibility.
 
 ## Testing approach
 
 Tests mock pyrekordbox objects rather than hitting a real database. When adding tests for `analyzer.py`, mock `db.read_anlz_file()` and the returned `AnlzFile` objects with a `.get_tag()` method returning objects that have the expected `.content` structure (`entries`, `mood`, `beat`, `kind`, `time` fields).
 
-JS tests in `tests/web/` copy functions verbatim from `docs/index.html` and run them in jsdom via Vitest. If you change `parseRekordboxXml`, `generateCues`, `computeCues`, `colorTracksByBpm`, or `applyToRekordbox` in `index.html`, update the corresponding copies in the test files. The `ui-logic.test.js` file tests sort label lookup, memory cue prepend logic, and fetch HTTP error handling using `vi.fn()` mocked responses.
+JS tests in `tests/web/` copy functions verbatim from `docs/index.html` and run them in jsdom via Vitest. If you change `parseRekordboxXml`, `generateCues`, `computeCues`, `colorTracksByBpm`, `applyToRekordbox`, or `_explainCue` in `index.html`, update the corresponding copies in the test files. The `ui-logic.test.js` file tests sort label lookup, memory cue prepend logic, fetch HTTP error handling, and `_explainCue` all explanation modes (phrase/bar/heuristic/memory/manual).

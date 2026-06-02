@@ -36,7 +36,12 @@ def _make_cue(pos=0, slot=0):
     return CuePoint(position_ms=pos, label=PhraseLabel.UNKNOWN, slot=slot)
 
 
-FAKE_CUES = [_make_cue(0, 0), _make_cue(30_000, 1)]
+def _make_fake_cues():
+    """Return fresh CuePoint objects each call — avoids in-place slot mutation across tests."""
+    return [_make_cue(0, 0), _make_cue(30_000, 1)]
+
+
+FAKE_CUES = _make_fake_cues()  # kept for tests that do NOT exercise smart ordering
 
 
 # ---------------------------------------------------------------------------
@@ -386,6 +391,22 @@ class TestGenerateCuesForTrack:
         db = MagicMock()
         with patch("autocue.generator.analyze_track", return_value=phrase_cues):
             cues, mode = generate_cues_for_track(content, db, GenerationPrefs(mode="phrase"))
+        labels = {c.label for c in cues}
+        assert PhraseLabel.INTRO in labels
+        assert PhraseLabel.CHORUS in labels
+
+    def test_phrase_cues_sequential_order_preserved(self):
+        """sequential slot_priority keeps chronological order."""
+        from autocue.models import CuePoint
+        phrase_cues = [
+            CuePoint(position_ms=0, label=PhraseLabel.INTRO, slot=0),
+            CuePoint(position_ms=30_000, label=PhraseLabel.CHORUS, slot=1),
+        ]
+        content = _content(bpm=12800, length=300)
+        db = MagicMock()
+        prefs = GenerationPrefs(mode="phrase", slot_priority="sequential")
+        with patch("autocue.generator.analyze_track", return_value=phrase_cues):
+            cues, mode = generate_cues_for_track(content, db, prefs)
         assert cues[0].label == PhraseLabel.INTRO
         assert cues[1].label == PhraseLabel.CHORUS
 
@@ -401,7 +422,7 @@ class TestMemoryCue:
         prefs = GenerationPrefs(mode="bar", add_memory_cue=True)
         cues, _ = generate_cues_for_track(content, db, prefs)
         assert cues[0].slot == -1
-        assert cues[0].name == "Auto Cue"
+        assert cues[0].name == "Load Point"
 
     def test_memory_cue_position_is_inizio_for_bar_mode(self):
         content = _content(bpm=12800, length=600)
@@ -456,3 +477,437 @@ class TestMemoryCue:
         cues, _ = generate_cues_for_track(content, db, prefs)
         hot_cues = [c for c in cues if c.slot >= 0]
         assert [c.slot for c in hot_cues] == [0, 1, 2, 3]
+
+    def test_memory_cue_anchors_to_min_position_with_smart_order(self):
+        """Smart ordering reorders slots but memory cue must still be at earliest phrase."""
+        from autocue.models import CuePoint
+        phrase_cues = [
+            CuePoint(position_ms=0, label=PhraseLabel.INTRO, slot=0),
+            CuePoint(position_ms=32_000, label=PhraseLabel.CHORUS, slot=1),
+        ]
+        content = _content(bpm=12800, length=300)
+        db = MagicMock()
+        prefs = GenerationPrefs(mode="phrase", add_memory_cue=True, slot_priority="smart")
+        with patch("autocue.generator.analyze_track", return_value=phrase_cues):
+            cues, _ = generate_cues_for_track(content, db, prefs)
+        mem = next(c for c in cues if c.slot == -1)
+        assert mem.position_ms == 0  # earliest phrase (Intro), not the smart slot-0 (Chorus)
+
+
+# ---------------------------------------------------------------------------
+# memory_cue_mode ("load_only" / "all") tests
+# ---------------------------------------------------------------------------
+
+class TestMemoryCueMode:
+    def _phrase_cues_with_outro(self):
+        from autocue.models import CuePoint
+        return [
+            CuePoint(position_ms=0,      label=PhraseLabel.INTRO,  slot=0),
+            CuePoint(position_ms=32_000, label=PhraseLabel.CHORUS, slot=1),
+            CuePoint(position_ms=96_000, label=PhraseLabel.OUTRO,  slot=2),
+        ]
+
+    def test_load_only_mode_generates_one_memory_cue(self):
+        content = _content(bpm=12800, length=600)
+        db = MagicMock()
+        prefs = GenerationPrefs(mode="bar", memory_cue_mode="load_only")
+        cues, _ = generate_cues_for_track(content, db, prefs)
+        mem = [c for c in cues if c.slot == -1]
+        assert len(mem) == 1
+        assert mem[0].name == "Load Point"
+
+    def test_add_memory_cue_bool_is_load_only_alias(self):
+        content = _content(bpm=12800, length=600)
+        db = MagicMock()
+        prefs_bool = GenerationPrefs(mode="bar", add_memory_cue=True)
+        prefs_mode = GenerationPrefs(mode="bar", memory_cue_mode="load_only")
+        cues_bool, _ = generate_cues_for_track(content, db, prefs_bool)
+        cues_mode, _ = generate_cues_for_track(content, db, prefs_mode)
+        mem_bool = [c for c in cues_bool if c.slot == -1]
+        mem_mode = [c for c in cues_mode if c.slot == -1]
+        assert len(mem_bool) == len(mem_mode) == 1
+        assert mem_bool[0].name == mem_mode[0].name == "Load Point"
+
+    def test_none_mode_no_memory_cues(self):
+        content = _content(bpm=12800, length=600)
+        db = MagicMock()
+        prefs = GenerationPrefs(mode="bar", memory_cue_mode="none", add_memory_cue=False)
+        cues, _ = generate_cues_for_track(content, db, prefs)
+        assert all(c.slot >= 0 for c in cues)
+
+    def test_all_mode_phrase_generates_load_and_mixout(self):
+        phrase_cues = self._phrase_cues_with_outro()
+        content = _content(bpm=12800, length=300)
+        db = MagicMock()
+        prefs = GenerationPrefs(mode="phrase", memory_cue_mode="all")
+        with patch("autocue.generator.analyze_track", return_value=phrase_cues):
+            cues, _ = generate_cues_for_track(content, db, prefs)
+        mem = [c for c in cues if c.slot == -1]
+        names = {c.name for c in mem}
+        assert "Load Point" in names
+        assert "Mix Out" in names
+
+    def test_all_mode_load_point_color_is_zero(self):
+        phrase_cues = self._phrase_cues_with_outro()
+        content = _content(bpm=12800, length=300)
+        db = MagicMock()
+        prefs = GenerationPrefs(mode="phrase", memory_cue_mode="all")
+        with patch("autocue.generator.analyze_track", return_value=phrase_cues):
+            cues, _ = generate_cues_for_track(content, db, prefs)
+        load = next(c for c in cues if c.slot == -1 and c.name == "Load Point")
+        assert load.color_id == 0
+
+    def test_all_mode_mix_out_color_is_orange(self):
+        phrase_cues = self._phrase_cues_with_outro()
+        content = _content(bpm=12800, length=300)
+        db = MagicMock()
+        prefs = GenerationPrefs(mode="phrase", memory_cue_mode="all")
+        with patch("autocue.generator.analyze_track", return_value=phrase_cues):
+            cues, _ = generate_cues_for_track(content, db, prefs)
+        mix_out = next(c for c in cues if c.slot == -1 and c.name == "Mix Out")
+        assert mix_out.color_id == 3  # Orange
+
+    def test_all_mode_warning_added_when_outro_short(self):
+        from autocue.models import CuePoint
+        # Outro at 280s, track ends at 290s → 10s outro. At 128BPM: bar_ms=1875ms → outro_bars≈5 (<8)
+        phrase_cues = [
+            CuePoint(position_ms=0,       label=PhraseLabel.INTRO,  slot=0),
+            CuePoint(position_ms=32_000,  label=PhraseLabel.CHORUS, slot=1),
+            CuePoint(position_ms=280_000, label=PhraseLabel.OUTRO,  slot=2),
+        ]
+        content = _content(bpm=12800, length=290)  # BPM 128.0, 290s track
+        db = MagicMock()
+        prefs = GenerationPrefs(mode="phrase", memory_cue_mode="all")
+        with patch("autocue.generator.analyze_track", return_value=phrase_cues):
+            cues, _ = generate_cues_for_track(content, db, prefs)
+        mem = [c for c in cues if c.slot == -1]
+        names = {c.name for c in mem}
+        assert "Warning" in names
+        warning = next(c for c in mem if c.name == "Warning")
+        assert warning.color_id == 2  # Red
+
+    def test_all_mode_no_warning_when_outro_long(self):
+        from autocue.models import CuePoint
+        # Outro at 100s, track ends at 300s → 200s outro. At 128BPM ≈ 100+ bars (>>8)
+        phrase_cues = [
+            CuePoint(position_ms=0,       label=PhraseLabel.INTRO,  slot=0),
+            CuePoint(position_ms=32_000,  label=PhraseLabel.CHORUS, slot=1),
+            CuePoint(position_ms=100_000, label=PhraseLabel.OUTRO,  slot=2),
+        ]
+        content = _content(bpm=12800, length=300)
+        db = MagicMock()
+        prefs = GenerationPrefs(mode="phrase", memory_cue_mode="all")
+        with patch("autocue.generator.analyze_track", return_value=phrase_cues):
+            cues, _ = generate_cues_for_track(content, db, prefs)
+        mem = [c for c in cues if c.slot == -1]
+        names = {c.name for c in mem}
+        assert "Warning" not in names
+
+    def test_all_mode_no_mix_out_without_outro_phrase(self):
+        from autocue.models import CuePoint
+        phrase_cues = [
+            CuePoint(position_ms=0,      label=PhraseLabel.INTRO,  slot=0),
+            CuePoint(position_ms=32_000, label=PhraseLabel.CHORUS, slot=1),
+        ]
+        content = _content(bpm=12800, length=300)
+        db = MagicMock()
+        prefs = GenerationPrefs(mode="phrase", memory_cue_mode="all")
+        with patch("autocue.generator.analyze_track", return_value=phrase_cues):
+            cues, _ = generate_cues_for_track(content, db, prefs)
+        mem = [c for c in cues if c.slot == -1]
+        names = {c.name for c in mem}
+        assert "Mix Out" not in names
+        assert "Warning" in names  # no outro → warning added
+
+    def test_all_mode_bar_mode_only_load_point(self):
+        content = _content(bpm=12800, length=600)
+        db = MagicMock()
+        prefs = GenerationPrefs(mode="bar", memory_cue_mode="all")
+        cues, _ = generate_cues_for_track(content, db, prefs)
+        mem = [c for c in cues if c.slot == -1]
+        assert len(mem) == 1
+        assert mem[0].name == "Load Point"
+
+    def test_memory_cues_sorted_by_position_before_hot_cues(self):
+        from autocue.models import CuePoint
+        phrase_cues = [
+            CuePoint(position_ms=0,       label=PhraseLabel.INTRO,  slot=0),
+            CuePoint(position_ms=32_000,  label=PhraseLabel.CHORUS, slot=1),
+            CuePoint(position_ms=280_000, label=PhraseLabel.OUTRO,  slot=2),
+        ]
+        content = _content(bpm=12800, length=290)
+        db = MagicMock()
+        prefs = GenerationPrefs(mode="phrase", memory_cue_mode="all")
+        with patch("autocue.generator.analyze_track", return_value=phrase_cues):
+            cues, _ = generate_cues_for_track(content, db, prefs)
+        mem = [c for c in cues if c.slot == -1]
+        assert mem == sorted(mem, key=lambda c: c.position_ms)
+
+    def test_warning_skipped_when_bpm_zero(self):
+        from autocue.models import CuePoint
+        phrase_cues = [
+            CuePoint(position_ms=0,      label=PhraseLabel.INTRO,  slot=0),
+            CuePoint(position_ms=32_000, label=PhraseLabel.CHORUS, slot=1),
+        ]
+        content = _content(bpm=0, length=300)
+        db = MagicMock()
+        prefs = GenerationPrefs(mode="phrase", memory_cue_mode="all")
+        with patch("autocue.generator.analyze_track", return_value=phrase_cues):
+            cues, _ = generate_cues_for_track(content, db, prefs)
+        mem = [c for c in cues if c.slot == -1]
+        assert all(c.name != "Warning" for c in mem)
+
+
+# ---------------------------------------------------------------------------
+# Smart slot ordering
+# ---------------------------------------------------------------------------
+
+class TestSmartSlotOrder:
+    def _phrase_cues(self, labels_ms):
+        from autocue.models import CuePoint
+        return [
+            CuePoint(position_ms=ms, label=lbl, slot=i)
+            for i, (lbl, ms) in enumerate(labels_ms)
+        ]
+
+    def test_first_non_intro_is_mix_in_slot_a(self):
+        """Slot A = first non-Intro phrase (mix-in point), regardless of type."""
+        phrase_cues = self._phrase_cues([
+            (PhraseLabel.INTRO,  0),
+            (PhraseLabel.CHORUS, 32_000),
+            (PhraseLabel.OUTRO,  96_000),
+        ])
+        content = _content(bpm=12800, length=300)
+        db = MagicMock()
+        with patch("autocue.generator.analyze_track", return_value=phrase_cues):
+            cues, _ = generate_cues_for_track(content, db, GenerationPrefs(mode="phrase"))
+        by_slot = {c.slot: c for c in cues}
+        # CHORUS is first non-Intro → gets slot A as mix-in (not because it's a Drop)
+        assert by_slot[0].label == PhraseLabel.CHORUS
+
+    def test_verse_before_chorus_verse_gets_slot_a(self):
+        """When VERSE precedes CHORUS, VERSE is the mix-in (A), CHORUS is slot B."""
+        phrase_cues = self._phrase_cues([
+            (PhraseLabel.INTRO,  0),
+            (PhraseLabel.VERSE,  8_000),   # first non-Intro → mix-in
+            (PhraseLabel.CHORUS, 32_000),  # most important but not first
+        ])
+        content = _content(bpm=12800, length=300)
+        db = MagicMock()
+        with patch("autocue.generator.analyze_track", return_value=phrase_cues):
+            cues, _ = generate_cues_for_track(content, db, GenerationPrefs(mode="phrase"))
+        by_slot = {c.slot: c for c in cues}
+        assert by_slot[0].label == PhraseLabel.VERSE    # mix-in → A
+        assert by_slot[1].label == PhraseLabel.CHORUS   # Drop → B
+        assert by_slot[2].label == PhraseLabel.INTRO    # Intro → last
+
+    def test_intro_gets_last_slot(self):
+        phrase_cues = self._phrase_cues([
+            (PhraseLabel.INTRO,  0),
+            (PhraseLabel.UP,     16_000),
+            (PhraseLabel.CHORUS, 32_000),
+        ])
+        content = _content(bpm=12800, length=300)
+        db = MagicMock()
+        with patch("autocue.generator.analyze_track", return_value=phrase_cues):
+            cues, _ = generate_cues_for_track(content, db, GenerationPrefs(mode="phrase"))
+        by_slot = {c.slot: c for c in cues}
+        assert by_slot[2].label == PhraseLabel.INTRO
+
+    def test_two_choruses_in_slot_order(self):
+        """Multiple Chorus phrases get consecutive low slots, chronologically ordered."""
+        phrase_cues = self._phrase_cues([
+            (PhraseLabel.CHORUS, 32_000),
+            (PhraseLabel.CHORUS, 80_000),
+            (PhraseLabel.OUTRO,  120_000),
+        ])
+        content = _content(bpm=12800, length=300)
+        db = MagicMock()
+        with patch("autocue.generator.analyze_track", return_value=phrase_cues):
+            cues, _ = generate_cues_for_track(content, db, GenerationPrefs(mode="phrase"))
+        by_slot = {c.slot: c for c in cues}
+        assert by_slot[0].position_ms == 32_000  # first Chorus
+        assert by_slot[1].position_ms == 80_000  # second Chorus
+        assert by_slot[2].label == PhraseLabel.OUTRO
+
+    def test_sequential_mode_preserves_chronological_order(self):
+        phrase_cues = self._phrase_cues([
+            (PhraseLabel.INTRO,  0),
+            (PhraseLabel.CHORUS, 32_000),
+            (PhraseLabel.OUTRO,  96_000),
+        ])
+        content = _content(bpm=12800, length=300)
+        db = MagicMock()
+        prefs = GenerationPrefs(mode="phrase", slot_priority="sequential")
+        with patch("autocue.generator.analyze_track", return_value=phrase_cues):
+            cues, _ = generate_cues_for_track(content, db, prefs)
+        # Chronological: Intro=slot0, Chorus=slot1, Outro=slot2
+        by_slot = {c.slot: c for c in cues}
+        assert by_slot[0].label == PhraseLabel.INTRO
+        assert by_slot[1].label == PhraseLabel.CHORUS
+
+    def test_smart_ordering_not_applied_to_bar_cues(self):
+        """Bar cues always use sequential (chronological) slot order."""
+        content = _content(bpm=12800, length=600)
+        db = MagicMock()
+        prefs = GenerationPrefs(mode="bar", bars_interval=16, max_cues=4)
+        cues, mode = generate_cues_for_track(content, db, prefs)
+        assert mode == "bar"
+        assert [c.slot for c in cues] == [0, 1, 2, 3]
+
+    def test_smart_list_order_unchanged(self):
+        """Smart ordering changes slot numbers but NOT the list order (stays chronological)."""
+        phrase_cues = self._phrase_cues([
+            (PhraseLabel.INTRO,  0),
+            (PhraseLabel.CHORUS, 32_000),
+        ])
+        content = _content(bpm=12800, length=300)
+        db = MagicMock()
+        with patch("autocue.generator.analyze_track", return_value=phrase_cues):
+            cues, _ = generate_cues_for_track(content, db, GenerationPrefs(mode="phrase"))
+        # List still in position order (Intro first, Chorus second)
+        assert cues[0].position_ms == 0        # Intro at index 0
+        assert cues[1].position_ms == 32_000   # Chorus at index 1
+        # Chorus is first non-Intro → mix-in = slot A; Intro pushed to slot B
+        assert cues[0].slot == 1  # Intro → slot 1
+        assert cues[1].slot == 0  # Chorus → slot 0 (mix-in)
+
+
+# ---------------------------------------------------------------------------
+# Confidence values
+# ---------------------------------------------------------------------------
+
+class TestConfidence:
+    def test_phrase_cues_have_confidence_1(self):
+        from autocue.models import CuePoint
+        phrase_cues = [CuePoint(position_ms=0, label=PhraseLabel.INTRO, slot=0)]
+        content = _content(bpm=12800, length=300)
+        db = MagicMock()
+        with patch("autocue.generator.analyze_track", return_value=phrase_cues):
+            cues, _ = generate_cues_for_track(content, db, GenerationPrefs(mode="phrase"))
+        assert all(c.confidence == 1.0 for c in cues if c.slot >= 0)
+
+    def test_bar_cues_have_confidence_0_6(self):
+        content = _content(bpm=12800, length=600)
+        db = MagicMock()
+        cues, mode = generate_cues_for_track(content, db, GenerationPrefs(mode="bar"))
+        assert mode == "bar"
+        assert all(c.confidence == pytest.approx(0.6) for c in cues)
+
+    def test_heuristic_cues_have_confidence_0_3(self):
+        content = _content(length=300)  # no BPM → heuristic
+        db = MagicMock()
+        with patch("autocue.generator.analyze_track", return_value=[]):
+            cues, mode = generate_cues_for_track(content, db, GenerationPrefs(mode="auto"))
+        assert mode == "heuristic"
+        assert all(c.confidence == pytest.approx(0.3) for c in cues)
+
+    def test_memory_cue_bar_mode_confidence_0_6(self):
+        content = _content(bpm=12800, length=600)
+        db = MagicMock()
+        prefs = GenerationPrefs(mode="bar", add_memory_cue=True)
+        cues, _ = generate_cues_for_track(content, db, prefs)
+        mem = next(c for c in cues if c.slot == -1)
+        assert mem.confidence == pytest.approx(0.6)
+
+    def test_memory_cue_heuristic_mode_confidence_0_3(self):
+        content = _content(length=300)  # no BPM → heuristic
+        db = MagicMock()
+        prefs = GenerationPrefs(mode="auto", add_memory_cue=True)
+        with patch("autocue.generator.analyze_track", return_value=[]):
+            cues, mode = generate_cues_for_track(content, db, prefs)
+        assert mode == "heuristic"
+        mem = next(c for c in cues if c.slot == -1)
+        assert mem.confidence == pytest.approx(0.3)
+
+    def test_memory_cue_phrase_mode_confidence_1_0(self):
+        from autocue.models import CuePoint
+        phrase_cues = [CuePoint(position_ms=0, label=PhraseLabel.INTRO, slot=0)]
+        content = _content(bpm=12800, length=300)
+        db = MagicMock()
+        prefs = GenerationPrefs(mode="phrase", add_memory_cue=True)
+        with patch("autocue.generator.analyze_track", return_value=phrase_cues):
+            cues, _ = generate_cues_for_track(content, db, prefs)
+        mem = next(c for c in cues if c.slot == -1)
+        assert mem.confidence == pytest.approx(1.0)
+
+
+# ---------------------------------------------------------------------------
+# Slot A "Mix In" naming
+# ---------------------------------------------------------------------------
+
+class TestSlotAMixInNaming:
+    def _phrase_cues_named(self, labels_names_ms):
+        from autocue.models import CuePoint
+        return [
+            CuePoint(position_ms=ms, label=lbl, slot=i, name=name)
+            for i, (lbl, name, ms) in enumerate(labels_names_ms)
+        ]
+
+    def test_non_intro_slot_a_with_name_gets_mix_in_suffix(self):
+        """Slot A that is a Chorus (DJ name 'Drop') gets '(Mix In)' appended."""
+        phrase_cues = self._phrase_cues_named([
+            (PhraseLabel.INTRO,  "Intro", 0),
+            (PhraseLabel.CHORUS, "Drop",  32_000),
+        ])
+        content = _content(bpm=12800, length=300)
+        db = MagicMock()
+        with patch("autocue.generator.analyze_track", return_value=phrase_cues):
+            cues, _ = generate_cues_for_track(content, db, GenerationPrefs(mode="phrase"))
+        by_slot = {c.slot: c for c in cues}
+        assert by_slot[0].name == "Drop (Mix In)"
+
+    def test_non_intro_slot_a_without_name_becomes_mix_in(self):
+        """Slot A with no name gets renamed to 'Mix In'."""
+        phrase_cues = self._phrase_cues_named([
+            (PhraseLabel.INTRO,  "Intro", 0),
+            (PhraseLabel.CHORUS, "",      32_000),
+        ])
+        content = _content(bpm=12800, length=300)
+        db = MagicMock()
+        with patch("autocue.generator.analyze_track", return_value=phrase_cues):
+            cues, _ = generate_cues_for_track(content, db, GenerationPrefs(mode="phrase"))
+        by_slot = {c.slot: c for c in cues}
+        assert by_slot[0].name == "Mix In"
+
+    def test_intro_slot_a_name_unchanged(self):
+        """When all phrases are Intro (degenerate), slot A keeps its name."""
+        phrase_cues = self._phrase_cues_named([
+            (PhraseLabel.INTRO, "Intro", 0),
+            (PhraseLabel.INTRO, "Intro 2", 16_000),
+        ])
+        content = _content(bpm=12800, length=300)
+        db = MagicMock()
+        with patch("autocue.generator.analyze_track", return_value=phrase_cues):
+            cues, _ = generate_cues_for_track(content, db, GenerationPrefs(mode="phrase"))
+        by_slot = {c.slot: c for c in cues}
+        # All Intros → fall back to chronological; slot A = first Intro, no Mix In suffix
+        assert "(Mix In)" not in by_slot[0].name
+
+    def test_mix_in_suffix_not_duplicated(self):
+        """Re-running smart ordering on already-suffixed names does not double-append."""
+        phrase_cues = self._phrase_cues_named([
+            (PhraseLabel.INTRO,  "Intro",         0),
+            (PhraseLabel.CHORUS, "Drop (Mix In)", 32_000),
+        ])
+        content = _content(bpm=12800, length=300)
+        db = MagicMock()
+        with patch("autocue.generator.analyze_track", return_value=phrase_cues):
+            cues, _ = generate_cues_for_track(content, db, GenerationPrefs(mode="phrase"))
+        by_slot = {c.slot: c for c in cues}
+        assert by_slot[0].name == "Drop (Mix In)"
+        assert "(Mix In) (Mix In)" not in by_slot[0].name
+
+    def test_sequential_mode_no_mix_in_suffix(self):
+        """Sequential slot priority does not add Mix In suffix."""
+        phrase_cues = self._phrase_cues_named([
+            (PhraseLabel.INTRO,  "Intro", 0),
+            (PhraseLabel.CHORUS, "Drop",  32_000),
+        ])
+        content = _content(bpm=12800, length=300)
+        db = MagicMock()
+        prefs = GenerationPrefs(mode="phrase", slot_priority="sequential")
+        with patch("autocue.generator.analyze_track", return_value=phrase_cues):
+            cues, _ = generate_cues_for_track(content, db, prefs)
+        for c in cues:
+            assert "(Mix In)" not in c.name

@@ -68,7 +68,7 @@ function generateCues(track, barsInterval, startBar, maxCues) {
   return cues
 }
 
-function computeCues(track, { addMemoryCue = false, skipExisting = false, analysisMode = 'bar',
+function computeCues(track, { memoryCueMode = 'none', skipExisting = false, analysisMode = 'bar',
                               phraseCueState = {}, barsInterval = 16, startBar = 1, maxCues = 8 } = {}) {
   if (skipExisting && track.existingHotCues > 0) return []
   let cues
@@ -80,9 +80,25 @@ function computeCues(track, { addMemoryCue = false, skipExisting = false, analys
   } else {
     cues = generateCues(track, barsInterval, startBar, maxCues)
   }
-  if (addMemoryCue && cues.length) {
-    const memPos = analysisMode === 'phrase' ? cues[0].posSec : 0
-    cues = [{ slot: -1, posSec: memPos, label: '', name: 'Auto Cue' }, ...cues]
+  if (memoryCueMode !== 'none' && cues.length) {
+    const hotCues = cues.filter(c => c.slot !== -1)
+    const loadPos = analysisMode === 'phrase' && hotCues.length
+      ? Math.min(...hotCues.map(c => c.posSec))
+      : 0
+    const memCues = [{ slot: -1, posSec: loadPos, label: '', name: 'Load Point', color_id: 0 }]
+    if (memoryCueMode === 'all' && analysisMode === 'phrase') {
+      const mixIn = hotCues.find(c => c.slot === 0)
+      if (mixIn && Math.abs(mixIn.posSec - loadPos) > 0.5) {
+        memCues.push({ slot: -1, posSec: mixIn.posSec, label: '', name: 'Mix In', color_id: 5 })
+      }
+      const outros = hotCues.filter(c => c.label === 'Outro')
+      if (outros.length) {
+        const outroPos = Math.max(...outros.map(c => c.posSec))
+        memCues.push({ slot: -1, posSec: outroPos, label: '', name: 'Mix Out', color_id: 3 })
+      }
+    }
+    memCues.sort((a, b) => a.posSec - b.posSec)
+    cues = [...memCues, ...cues]
   }
   return cues
 }
@@ -93,28 +109,29 @@ const baseTrack = {
 }
 
 describe('computeCues — memory cue', () => {
-  it('no memory cue by default', () => {
+  it('no memory cue by default (memoryCueMode=none)', () => {
     const cues = computeCues(baseTrack)
     expect(cues.every(c => c.slot !== -1)).toBe(true)
   })
 
-  it('prepends slot=-1 cue when addMemoryCue=true', () => {
-    const cues = computeCues(baseTrack, { addMemoryCue: true })
+  it('prepends Load Point when memoryCueMode=load_only', () => {
+    const cues = computeCues(baseTrack, { memoryCueMode: 'load_only' })
     expect(cues[0].slot).toBe(-1)
-    expect(cues[0].name).toBe('Auto Cue')
+    expect(cues[0].name).toBe('Load Point')
+    expect(cues[0].color_id).toBe(0)
   })
 
-  it('memory cue is at posSec=0 in bar mode', () => {
-    const cues = computeCues(baseTrack, { addMemoryCue: true, analysisMode: 'bar' })
+  it('Load Point is at posSec=0 in bar mode', () => {
+    const cues = computeCues(baseTrack, { memoryCueMode: 'load_only', analysisMode: 'bar' })
     expect(cues[0].posSec).toBe(0)
   })
 
-  it('memory cue anchors to first phrase position in phrase mode', () => {
+  it('Load Point anchors to first phrase position in phrase mode', () => {
     const phraseCueState = {
       '1': [{ slot: 0, position_ms: 5000, label: 'Intro', name: 'Intro' }],
     }
     const cues = computeCues(baseTrack, {
-      addMemoryCue: true, analysisMode: 'phrase', phraseCueState,
+      memoryCueMode: 'load_only', analysisMode: 'phrase', phraseCueState,
     })
     expect(cues[0].slot).toBe(-1)
     expect(cues[0].posSec).toBe(5)
@@ -122,20 +139,76 @@ describe('computeCues — memory cue', () => {
 
   it('does not prepend memory cue when cues list is empty', () => {
     const noBpmTrack = { ...baseTrack, tempo: null }
-    const cues = computeCues(noBpmTrack, { addMemoryCue: true })
+    const cues = computeCues(noBpmTrack, { memoryCueMode: 'load_only' })
     expect(cues).toHaveLength(0)
   })
 
   it('hot cue slots are unaffected and start at 0', () => {
-    const cues = computeCues(baseTrack, { addMemoryCue: true })
+    const cues = computeCues(baseTrack, { memoryCueMode: 'load_only' })
     expect(cues[1].slot).toBe(0)
     expect(cues[1].name).toBe('Bar 1')
   })
 
   it('returns empty when skipExisting and track has hot cues', () => {
     const track = { ...baseTrack, existingHotCues: 3 }
-    const cues = computeCues(track, { addMemoryCue: true, skipExisting: true })
+    const cues = computeCues(track, { memoryCueMode: 'load_only', skipExisting: true })
     expect(cues).toHaveLength(0)
+  })
+
+  it('all mode in phrase adds Mix-In and Mix-Out', () => {
+    // Intro at 0 → Load Point; Drop at 8s → Mix-In (slot 0); Outro → Mix-Out
+    const phraseCueState = {
+      '1': [
+        { slot: 1, position_ms: 0,     label: 'Intro',  name: 'Intro' },
+        { slot: 0, position_ms: 8000,  label: 'Chorus', name: 'Drop (Mix In)' },
+        { slot: 2, position_ms: 60000, label: 'Outro',  name: 'Outro' },
+      ],
+    }
+    const cues = computeCues(baseTrack, {
+      memoryCueMode: 'all', analysisMode: 'phrase', phraseCueState,
+    })
+    const memNames = cues.filter(c => c.slot === -1).map(c => c.name)
+    expect(memNames).toContain('Load Point')
+    expect(memNames).toContain('Mix In')
+    expect(memNames).toContain('Mix Out')
+  })
+
+  it('all mode Mix-In is green (color_id=5)', () => {
+    // Intro at 0ms (→ Load Point), slot-0 = Drop at 8000ms (→ Mix-In)
+    const phraseCueState = {
+      '1': [
+        { slot: 1, position_ms: 0,     label: 'Intro',  name: 'Intro' },
+        { slot: 0, position_ms: 8000,  label: 'Chorus', name: 'Drop (Mix In)' },
+        { slot: 2, position_ms: 60000, label: 'Outro',  name: 'Outro' },
+      ],
+    }
+    const cues = computeCues(baseTrack, {
+      memoryCueMode: 'all', analysisMode: 'phrase', phraseCueState,
+    })
+    const mixIn = cues.find(c => c.slot === -1 && c.name === 'Mix In')
+    expect(mixIn?.color_id).toBe(5)
+  })
+
+  it('all mode Mix-Out is orange (color_id=3)', () => {
+    const phraseCueState = {
+      '1': [
+        { slot: 1, position_ms: 0,     label: 'Intro',  name: 'Intro' },
+        { slot: 0, position_ms: 8000,  label: 'Chorus', name: 'Drop (Mix In)' },
+        { slot: 2, position_ms: 60000, label: 'Outro',  name: 'Outro' },
+      ],
+    }
+    const cues = computeCues(baseTrack, {
+      memoryCueMode: 'all', analysisMode: 'phrase', phraseCueState,
+    })
+    const mixOut = cues.find(c => c.slot === -1 && c.name === 'Mix Out')
+    expect(mixOut?.color_id).toBe(3)
+  })
+
+  it('all mode in bar mode only adds Load Point', () => {
+    const cues = computeCues(baseTrack, { memoryCueMode: 'all', analysisMode: 'bar' })
+    const memCues = cues.filter(c => c.slot === -1)
+    expect(memCues).toHaveLength(1)
+    expect(memCues[0].name).toBe('Load Point')
   })
 })
 
@@ -628,7 +701,218 @@ describe('ensureLocalAudio — fetch-based audio loading', () => {
   })
 })
 
-// ── 8. Two-step restore confirmation (no confirm() dialog) ───────────────────
+// ── 8. Backup checklist DOM logic ────────────────────────────────────────────
+// Inline copies of _populateChecklist, _updateSelectionCount, _checkedBackups
+// extracted from docs/index.html. If you change them there, update here.
+
+function setupBackupDOM() {
+  document.body.innerHTML = `
+    <div id="backup-checklist"></div>
+    <input type="checkbox" id="backup-select-all">
+    <span id="backup-select-count"></span>
+  `
+}
+
+const sampleBackups = [
+  { filename: 'master_20260601T120000.db', created_at: '2026-06-01 12:00:00', size_mb: '2.3' },
+  { filename: 'master_20260531T080000.db', created_at: '2026-05-31 08:00:00', size_mb: '2.1' },
+]
+
+function _updateSelectionCount_fn() {
+  const checkboxes = document.querySelectorAll('#backup-checklist input[type=checkbox]')
+  const checked = [...checkboxes].filter(c => c.checked)
+  const count = checked.length, total = checkboxes.length
+  const allCb = document.getElementById('backup-select-all')
+  allCb.checked = count === total && total > 0
+  allCb.indeterminate = count > 0 && count < total
+  const countSpan = document.getElementById('backup-select-count')
+  countSpan.textContent = count > 0 ? `${count} selected` : ''
+}
+
+function _checkedBackups_fn() {
+  return [...document.querySelectorAll('#backup-checklist input[type=checkbox]:checked')].map(c => c.value)
+}
+
+function _populateChecklist_fn(backups) {
+  const list = document.getElementById('backup-checklist')
+  list.innerHTML = ''
+  const allCb = document.getElementById('backup-select-all')
+  allCb.checked = false; allCb.indeterminate = false
+  _updateSelectionCount_fn()
+  for (const b of backups) {
+    const row = document.createElement('div')
+    row.className = 'backup-row'
+    const cb = document.createElement('input')
+    cb.type = 'checkbox'; cb.value = b.filename
+    cb.addEventListener('change', _updateSelectionCount_fn)
+    const name = document.createElement('span')
+    name.className = 'backup-name'; name.textContent = b.created_at
+    const size = document.createElement('span')
+    size.className = 'backup-size'; size.textContent = b.size_mb + ' MB'
+    row.append(cb, name, size)
+    row.addEventListener('click', e => { if (e.target === cb) return; cb.checked = !cb.checked; cb.dispatchEvent(new Event('change')) })
+    list.appendChild(row)
+  }
+}
+
+describe('_populateChecklist', () => {
+  beforeEach(setupBackupDOM)
+
+  it('renders one row per backup', () => {
+    _populateChecklist_fn(sampleBackups)
+    expect(document.querySelectorAll('.backup-row')).toHaveLength(2)
+  })
+
+  it('each row checkbox has correct filename value', () => {
+    _populateChecklist_fn(sampleBackups)
+    const cbs = document.querySelectorAll('#backup-checklist input[type=checkbox]')
+    expect(cbs[0].value).toBe('master_20260601T120000.db')
+    expect(cbs[1].value).toBe('master_20260531T080000.db')
+  })
+
+  it('no checkboxes are checked after population', () => {
+    _populateChecklist_fn(sampleBackups)
+    expect(document.querySelectorAll('#backup-checklist input[type=checkbox]:checked')).toHaveLength(0)
+  })
+
+  it('resets select-all checkbox to unchecked', () => {
+    document.getElementById('backup-select-all').checked = true
+    _populateChecklist_fn(sampleBackups)
+    expect(document.getElementById('backup-select-all').checked).toBe(false)
+  })
+
+  it('displays created_at as backup name text', () => {
+    _populateChecklist_fn(sampleBackups)
+    expect(document.querySelectorAll('.backup-name')[0].textContent).toBe('2026-06-01 12:00:00')
+  })
+})
+
+describe('_updateSelectionCount', () => {
+  beforeEach(() => { setupBackupDOM(); _populateChecklist_fn(sampleBackups) })
+
+  it('count span is empty when nothing selected', () => {
+    _updateSelectionCount_fn()
+    expect(document.getElementById('backup-select-count').textContent).toBe('')
+  })
+
+  it('shows "1 selected" when one checkbox is checked', () => {
+    document.querySelectorAll('#backup-checklist input[type=checkbox]')[0].checked = true
+    _updateSelectionCount_fn()
+    expect(document.getElementById('backup-select-count').textContent).toBe('1 selected')
+  })
+
+  it('shows "2 selected" when all are checked', () => {
+    document.querySelectorAll('#backup-checklist input[type=checkbox]').forEach(c => { c.checked = true })
+    _updateSelectionCount_fn()
+    expect(document.getElementById('backup-select-count').textContent).toBe('2 selected')
+  })
+
+  it('select-all is checked when all rows are checked', () => {
+    document.querySelectorAll('#backup-checklist input[type=checkbox]').forEach(c => { c.checked = true })
+    _updateSelectionCount_fn()
+    expect(document.getElementById('backup-select-all').checked).toBe(true)
+    expect(document.getElementById('backup-select-all').indeterminate).toBe(false)
+  })
+
+  it('select-all is indeterminate when some but not all are checked', () => {
+    document.querySelectorAll('#backup-checklist input[type=checkbox]')[0].checked = true
+    _updateSelectionCount_fn()
+    expect(document.getElementById('backup-select-all').indeterminate).toBe(true)
+    expect(document.getElementById('backup-select-all').checked).toBe(false)
+  })
+})
+
+describe('_checkedBackups', () => {
+  beforeEach(() => { setupBackupDOM(); _populateChecklist_fn(sampleBackups) })
+
+  it('returns empty array when nothing checked', () => {
+    expect(_checkedBackups_fn()).toEqual([])
+  })
+
+  it('returns filenames of checked items', () => {
+    document.querySelectorAll('#backup-checklist input[type=checkbox]')[0].checked = true
+    expect(_checkedBackups_fn()).toEqual(['master_20260601T120000.db'])
+  })
+
+  it('returns all filenames when all checked', () => {
+    document.querySelectorAll('#backup-checklist input[type=checkbox]').forEach(c => { c.checked = true })
+    expect(_checkedBackups_fn()).toEqual([
+      'master_20260601T120000.db',
+      'master_20260531T080000.db',
+    ])
+  })
+})
+
+// deleteCheckedBackups logic (extracted from delete-backup-btn handler)
+async function deleteCheckedBackups_fn(filenames, fetchImpl, showToast, onRefresh) {
+  let deletedCount = 0
+  try {
+    for (const filename of filenames) {
+      const r = await fetchImpl(`/api/backups/${encodeURIComponent(filename)}`, { method: 'DELETE' })
+      if (!r.ok) { const e = await r.json().catch(() => ({})); throw new Error(e.detail || r.statusText) }
+      deletedCount++
+    }
+    showToast(`Deleted ${deletedCount} backup${deletedCount > 1 ? 's' : ''}`)
+    await onRefresh()
+  } catch (e) { showToast(`Delete failed: ${e.message}`) }
+}
+
+describe('deleteCheckedBackups — multi-delete logic', () => {
+  it('calls DELETE once per selected file', async () => {
+    const { showToast } = makeToastCapture()
+    const fetchSpy = vi.fn().mockResolvedValue({ ok: true, json: async () => ({}) })
+    await deleteCheckedBackups_fn(['a.db', 'b.db'], fetchSpy, showToast, vi.fn())
+    expect(fetchSpy).toHaveBeenCalledTimes(2)
+    expect(fetchSpy.mock.calls[0][0]).toContain('a.db')
+    expect(fetchSpy.mock.calls[1][0]).toContain('b.db')
+  })
+
+  it('shows "Deleted 1 backup" for single deletion', async () => {
+    const { showToast, messages } = makeToastCapture()
+    const fetchSpy = vi.fn().mockResolvedValue({ ok: true, json: async () => ({}) })
+    await deleteCheckedBackups_fn(['a.db'], fetchSpy, showToast, vi.fn())
+    expect(messages[0]).toBe('Deleted 1 backup')
+  })
+
+  it('shows "Deleted 3 backups" (plural) for multiple', async () => {
+    const { showToast, messages } = makeToastCapture()
+    const fetchSpy = vi.fn().mockResolvedValue({ ok: true, json: async () => ({}) })
+    await deleteCheckedBackups_fn(['a.db', 'b.db', 'c.db'], fetchSpy, showToast, vi.fn())
+    expect(messages[0]).toBe('Deleted 3 backups')
+  })
+
+  it('shows error toast on server 404', async () => {
+    const { showToast, messages } = makeToastCapture()
+    const fetchSpy = vi.fn().mockResolvedValue({
+      ok: false, statusText: 'Not Found',
+      json: async () => ({ detail: 'Backup not found: a.db' }),
+    })
+    await deleteCheckedBackups_fn(['a.db'], fetchSpy, showToast, vi.fn())
+    expect(messages[0]).toContain('Delete failed')
+    expect(messages[0]).toContain('Backup not found: a.db')
+  })
+
+  it('calls onRefresh after successful deletion', async () => {
+    const { showToast } = makeToastCapture()
+    const fetchSpy = vi.fn().mockResolvedValue({ ok: true, json: async () => ({}) })
+    const refreshFn = vi.fn()
+    await deleteCheckedBackups_fn(['a.db'], fetchSpy, showToast, refreshFn)
+    expect(refreshFn).toHaveBeenCalledOnce()
+  })
+
+  it('does not call onRefresh when deletion fails', async () => {
+    const { showToast } = makeToastCapture()
+    const fetchSpy = vi.fn().mockResolvedValue({
+      ok: false, statusText: 'Not Found',
+      json: async () => ({ detail: 'not found' }),
+    })
+    const refreshFn = vi.fn()
+    await deleteCheckedBackups_fn(['a.db'], fetchSpy, showToast, refreshFn)
+    expect(refreshFn).not.toHaveBeenCalled()
+  })
+})
+
+// ── 9. Two-step restore confirmation (no confirm() dialog) ───────────────────
 // Tests the arming logic: first click arms, second click fires.
 
 function makeRestoreConfirmFlow(doRestore) {
@@ -681,5 +965,177 @@ describe('restore confirm — two-step, no native dialog', () => {
     await flow.click()        // arms again (does not fire)
     expect(restored).toHaveLength(0)
     expect(flow.isArmed()).toBe(true)
+  })
+})
+
+// ── _explainCue — cue explanation panel (docs/index.html ~line 3042) ─────────
+
+function _explainCue(cue) {
+  const slot = cue.slot;
+  const label = cue.label || '';
+  const conf = cue.confidence ?? 1.0;
+  const mode = cue.phraseMode || (conf >= 0.9 ? 'phrase' : conf >= 0.5 ? 'bar' : 'heuristic');
+  const bars = cue.phraseBars ?? 0;
+
+  if (slot === -1) {
+    return {
+      confidence: 'Auto',
+      reasons: [
+        'CDJ load point (Auto Cue)',
+        'Anchored to earliest phrase boundary',
+      ],
+    };
+  }
+
+  if (cue.confidence == null && cue.phraseMode == null) {
+    return { confidence: '—', reasons: ['Manually placed cue'] };
+  }
+
+  const confLabel = conf >= 0.9 ? 'High' : conf >= 0.5 ? 'Medium' : 'Low';
+  const reasons = [];
+
+  if (mode === 'heuristic') {
+    reasons.push('No BPM or phrase data — 30-second interval estimate');
+    reasons.push(`Position: ${cue.name || ''}`);
+    return { confidence: confLabel, reasons };
+  }
+
+  if (mode === 'bar') {
+    reasons.push('Bar-interval fallback (no Rekordbox phrase analysis)');
+    reasons.push(`Position: ${cue.name || ''}`);
+    return { confidence: confLabel, reasons };
+  }
+
+  const LABEL_REASONS = {
+    'Drop':   'Rekordbox phrase: Chorus (high-energy section)',
+    'Build':  'Rekordbox phrase: Up (energy rise)',
+    'Break':  'Rekordbox phrase: Down (low-energy break)',
+    'Intro':  'Rekordbox phrase: Intro',
+    'Verse':  'Rekordbox phrase: Verse',
+    'Bridge': 'Rekordbox phrase: Bridge',
+    'Outro':  'Rekordbox phrase: Outro',
+    'Fill':   'Rekordbox fill beat marker',
+  };
+
+  const baseName = (cue.name || label).replace(/\s+\d+$/, '');
+  const phraseReason = LABEL_REASONS[baseName] || `Rekordbox phrase: ${baseName || label}`;
+  reasons.push(phraseReason);
+
+  if (bars > 0) reasons.push(`${bars}-bar phrase`);
+
+  if (slot === 0) reasons.push('Slot A: mix-in point (first non-Intro phrase)');
+  else if (baseName === 'Drop' || label === 'Chorus') reasons.push('Priority slot: main drop');
+  else if (baseName === 'Build' || label === 'Up')    reasons.push('Priority slot: energy build');
+  else if (baseName === 'Outro')                       reasons.push('Priority slot: outro/mix-out');
+
+  return { confidence: confLabel, reasons };
+}
+
+describe('_explainCue — memory cue', () => {
+  it('returns Auto confidence for memory cue (slot=-1)', () => {
+    const result = _explainCue({ slot: -1, confidence: null, phraseMode: null })
+    expect(result.confidence).toBe('Auto')
+    expect(result.reasons).toContain('CDJ load point (Auto Cue)')
+    expect(result.reasons).toContain('Anchored to earliest phrase boundary')
+  })
+})
+
+describe('_explainCue — manually placed cue', () => {
+  it('returns dash confidence when no AutoCue metadata present', () => {
+    const result = _explainCue({ slot: 0, confidence: null, phraseMode: null })
+    expect(result.confidence).toBe('—')
+    expect(result.reasons).toEqual(['Manually placed cue'])
+  })
+})
+
+describe('_explainCue — heuristic mode', () => {
+  it('returns Low confidence for heuristic cues (conf=0.3)', () => {
+    const result = _explainCue({ slot: 0, confidence: 0.3, phraseMode: 'heuristic', name: '0:30' })
+    expect(result.confidence).toBe('Low')
+    expect(result.reasons[0]).toContain('30-second interval estimate')
+    expect(result.reasons[1]).toContain('0:30')
+  })
+
+  it('infers heuristic mode from conf < 0.5 when phraseMode absent', () => {
+    const result = _explainCue({ slot: 0, confidence: 0.3, name: 'Bar 1' })
+    expect(result.reasons[0]).toContain('30-second interval estimate')
+  })
+})
+
+describe('_explainCue — bar mode', () => {
+  it('returns Medium confidence for bar cues (conf=0.6)', () => {
+    const result = _explainCue({ slot: 0, confidence: 0.6, phraseMode: 'bar', name: 'Bar 1' })
+    expect(result.confidence).toBe('Medium')
+    expect(result.reasons[0]).toContain('Bar-interval fallback')
+    expect(result.reasons[1]).toContain('Bar 1')
+  })
+
+  it('infers bar mode from conf in [0.5, 0.9) when phraseMode absent', () => {
+    const result = _explainCue({ slot: 0, confidence: 0.6, name: 'Bar 17' })
+    expect(result.reasons[0]).toContain('Bar-interval fallback')
+  })
+
+  it('reasons list is never empty for bar cues', () => {
+    const result = _explainCue({ slot: 3, confidence: 0.6, phraseMode: 'bar', name: '' })
+    expect(result.reasons.length).toBeGreaterThan(0)
+  })
+})
+
+describe('_explainCue — phrase mode', () => {
+  it('High confidence for phrase cues (conf=1.0)', () => {
+    const result = _explainCue({ slot: 1, confidence: 1.0, phraseMode: 'phrase', label: 'Chorus', name: 'Drop', phraseBars: 8 })
+    expect(result.confidence).toBe('High')
+  })
+
+  it('Drop cue includes Chorus phrase reason', () => {
+    const result = _explainCue({ slot: 1, confidence: 1.0, phraseMode: 'phrase', label: 'Chorus', name: 'Drop', phraseBars: 0 })
+    expect(result.reasons[0]).toContain('Chorus')
+    expect(result.reasons[0]).toContain('high-energy')
+  })
+
+  it('Drop on non-slot-0 includes priority slot note', () => {
+    const result = _explainCue({ slot: 1, confidence: 1.0, phraseMode: 'phrase', label: 'Chorus', name: 'Drop', phraseBars: 0 })
+    expect(result.reasons).toContain('Priority slot: main drop')
+  })
+
+  it('slot 0 cue gets mix-in point annotation instead of priority slot', () => {
+    const result = _explainCue({ slot: 0, confidence: 1.0, phraseMode: 'phrase', label: 'Up', name: 'Build', phraseBars: 0 })
+    expect(result.reasons).toContain('Slot A: mix-in point (first non-Intro phrase)')
+    expect(result.reasons).not.toContain('Priority slot: energy build')
+  })
+
+  it('phraseBars > 0 adds bar count reason', () => {
+    const result = _explainCue({ slot: 0, confidence: 1.0, phraseMode: 'phrase', label: 'Intro', name: 'Intro', phraseBars: 16 })
+    expect(result.reasons).toContain('16-bar phrase')
+  })
+
+  it('phraseBars = 0 does not add bar count reason', () => {
+    const result = _explainCue({ slot: 0, confidence: 1.0, phraseMode: 'phrase', label: 'Intro', name: 'Intro', phraseBars: 0 })
+    expect(result.reasons.some(r => r.includes('-bar phrase'))).toBe(false)
+  })
+
+  it('strips trailing number from cue name for label lookup (Drop 2 → Drop)', () => {
+    const result = _explainCue({ slot: 2, confidence: 1.0, phraseMode: 'phrase', label: 'Chorus', name: 'Drop 2', phraseBars: 0 })
+    expect(result.reasons[0]).toContain('Chorus')
+  })
+
+  it('unknown label falls back to generic phrase reason', () => {
+    const result = _explainCue({ slot: 1, confidence: 1.0, phraseMode: 'phrase', label: '?', name: 'Unknown', phraseBars: 0 })
+    expect(result.reasons[0]).toContain('Rekordbox phrase')
+  })
+
+  it('reasons list is never empty for phrase cues', () => {
+    const result = _explainCue({ slot: 3, confidence: 1.0, phraseMode: 'phrase', label: '', name: '', phraseBars: 0 })
+    expect(result.reasons.length).toBeGreaterThan(0)
+  })
+
+  it('Build cue on non-slot-0 includes energy build note', () => {
+    const result = _explainCue({ slot: 2, confidence: 1.0, phraseMode: 'phrase', label: 'Up', name: 'Build', phraseBars: 0 })
+    expect(result.reasons).toContain('Priority slot: energy build')
+  })
+
+  it('Outro cue includes mix-out annotation', () => {
+    const result = _explainCue({ slot: 2, confidence: 1.0, phraseMode: 'phrase', label: 'Outro', name: 'Outro', phraseBars: 0 })
+    expect(result.reasons).toContain('Priority slot: outro/mix-out')
   })
 })

@@ -95,6 +95,10 @@ class CuePoint:
     name: str = ""
     # DjmdColor table ID: 0=none, 1=Pink, 2=Red, 3=Orange, 4=Yellow, 5=Green, 6=Aqua, 7=Blue, 8=Purple
     color_id: int = 0
+    # Source reliability: 1.0=phrase+beat, 0.6=bar-interval, 0.3=heuristic
+    confidence: float = 1.0
+    # Number of bars in the phrase (PSSI-derived); 0 = unknown (bar/heuristic modes)
+    phrase_bars: int = 0
 
     @property
     def position_sec(self) -> float:

@@ -43,6 +43,15 @@ def has_existing_hot_cues(content, db) -> int:
     )
 
 
+def has_existing_memory_cues(content, db) -> int:
+    from pyrekordbox.db6 import DjmdCue
+    return (
+        db.query(DjmdCue)
+        .filter(DjmdCue.ContentID == content.ID, DjmdCue.Kind == 0)
+        .count()
+    )
+
+
 def delete_cues_from_db(content, db, *, dry_run: bool = False) -> int:
     """Delete all hot cues (Kind 1-8) for a track. Returns count deleted."""
     from pyrekordbox.db6 import DjmdCue
@@ -122,10 +131,12 @@ def color_tracks_by_bpm(track_ids: list, db, *, dry_run: bool = False, skip_colo
         return colored, skipped
 
     try:
-        sp = db.session.begin_nested()
+        from sqlalchemy import text as _text
+        stmt = _text("UPDATE djmdContent SET ColorID = :cid WHERE ID = :tid")
         for content, color_id in pending:
-            content.ColorID = color_id
-        sp.commit()
+            db.session.execute(stmt, {"cid": color_id, "tid": content.ID})
+        # Expire all loaded ORM objects so autoflush cannot overwrite the raw UPDATEs
+        db.session.expire_all()
         db.session.commit()
         logger.info("Colored %d tracks by BPM", colored)
     except Exception:
@@ -165,19 +176,34 @@ def write_cues_to_db(
     # In DjmdCue: Kind encodes the hot cue slot — Kind=slot+1 (A=1, B=2, …, H=8).
     # Kind=0 is a memory cue. There is no separate "Num" column.
     from uuid import uuid4
-    kinds_to_write = {c.slot + 1 for c in cues}
+    mem_cues = [c for c in cues if c.slot == -1]
+    hot_cue_list = [c for c in cues if c.slot >= 0]
+    hot_kinds = {c.slot + 1 for c in hot_cue_list}  # Kind 1-8 only — never includes 0
+
+    # Memory cues are only overwritten when explicitly requested or none exist yet.
+    # This prevents silently destroying manually-placed DJ memory cues.
+    write_memory = bool(mem_cues) and (overwrite or has_existing_memory_cues(content, db) == 0)
+    cues_to_write = hot_cue_list + (mem_cues if write_memory else [])
+
     content_uuid = getattr(content, "UUID", None) or ""
     try:
         sp = db.session.begin_nested()
-        (
-            db.session.query(DjmdCue)
-            .filter(
-                DjmdCue.ContentID == content.ID,
-                DjmdCue.Kind.in_(kinds_to_write),
+        if hot_kinds:
+            (
+                db.session.query(DjmdCue)
+                .filter(
+                    DjmdCue.ContentID == content.ID,
+                    DjmdCue.Kind.in_(hot_kinds),
+                )
+                .delete(synchronize_session=False)
             )
-            .delete(synchronize_session=False)
-        )
-        for cue in cues:
+        if write_memory:
+            (
+                db.session.query(DjmdCue)
+                .filter(DjmdCue.ContentID == content.ID, DjmdCue.Kind == 0)
+                .delete(synchronize_session=False)
+            )
+        for cue in cues_to_write:
             # InFrame: CDJ uses 150 sub-frames per second for cue precision
             in_frame = int(round(cue.position_ms * 150.0 / 1000.0))
             db.session.add(
@@ -205,8 +231,8 @@ def write_cues_to_db(
             )
         sp.commit()
         db.session.commit()
-        logger.info("Wrote %d cues to %r", len(cues), content.Title)
-        return len(cues)
+        logger.info("Wrote %d cues to %r", len(cues_to_write), content.Title)
+        return len(cues_to_write)
     except Exception:
         db.session.rollback()
         logger.exception("Write failed for %r — rolled back", content.Title)

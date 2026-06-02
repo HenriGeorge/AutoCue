@@ -1,0 +1,122 @@
+"""
+PWAV waveform energy curve extraction.
+
+Reads Rekordbox's waveform preview (PWAV tag, .DAT analysis files).
+Each PWAV entry is a single byte: amplitude = byte & 0x1F (0–31), color = (byte & 0xE0) >> 5.
+"""
+from __future__ import annotations
+
+from typing import Literal
+
+# Session-level in-memory cache: (track_id, n_points) → list[float] | None
+_cache: dict[tuple, list[float] | None] = {}
+
+
+def _read_pwav_amplitudes(anlz_dat) -> list[int] | None:
+    """Return raw PWAV amplitude values (each 0–31) or None if unavailable."""
+    try:
+        tag = anlz_dat.get_tag("PWAV")
+        if tag is None:
+            return None
+        entries = tag.content.entries
+        if not entries:
+            return None
+        return [int(e) & 0x1F for e in entries]
+    except Exception:
+        return None
+
+
+def _smooth_3(values: list[float]) -> list[float]:
+    """3-sample symmetric rolling average (preserves length)."""
+    n = len(values)
+    if n < 3:
+        return list(values)
+    out = [values[0]]
+    for i in range(1, n - 1):
+        out.append((values[i - 1] + values[i] + values[i + 1]) / 3.0)
+    out.append(values[-1])
+    return out
+
+
+def _downsample_avg(values: list[float], n: int) -> list[float]:
+    """Chunk-average a list of floats to exactly n values."""
+    total = len(values)
+    if total == 0:
+        return []
+    if total <= n:
+        return list(values)
+    result: list[float] = []
+    for i in range(n):
+        start = int(i * total / n)
+        end = int((i + 1) * total / n)
+        end = max(end, start + 1)
+        chunk = values[start:end]
+        result.append(sum(chunk) / len(chunk))
+    return result
+
+
+def classify_energy_profile(
+    curve: list[float],
+) -> Literal["flat", "build", "drop-then-flat", "wave"]:
+    """
+    Classify an energy curve into one of four profiles.
+
+    flat          — low variance throughout
+    build         — energy rises in the second half
+    drop-then-flat — early peak, lower energy in second half
+    wave          — two or more distinct energy crests
+    """
+    if len(curve) < 4:
+        return "flat"
+    n = len(curve)
+    mean = sum(curve) / n
+    variance = sum((v - mean) ** 2 for v in curve) / n
+    if variance < 0.05:
+        return "flat"
+
+    # Count local maxima (strict peaks)
+    peaks = [
+        i for i in range(1, n - 1)
+        if curve[i] > curve[i - 1] and curve[i] > curve[i + 1]
+    ]
+    if len(peaks) >= 2:
+        return "wave"
+
+    first_mean = sum(curve[: n // 2]) / (n // 2)
+    second_mean = sum(curve[n // 2 :]) / (n - n // 2)
+
+    if second_mean > first_mean + 0.05:
+        return "build"
+
+    return "drop-then-flat"
+
+
+def get_energy_curve(content, db, n_points: int = 50) -> list[float] | None:
+    """
+    Return a normalized energy curve of length n_points (values 0.0–1.0).
+    Returns None if PWAV data is unavailable for this track.
+    Results are cached in memory keyed by (track_id, n_points).
+    """
+    cache_key = (content.ID, n_points)
+    if cache_key in _cache:
+        return _cache[cache_key]
+
+    curve: list[float] | None = None
+    try:
+        anlz_dat = db.read_anlz_file(content, "DAT")
+        if anlz_dat is not None:
+            raw = _read_pwav_amplitudes(anlz_dat)
+            if raw and len(raw) >= 2:
+                normalized = [v / 31.0 for v in raw]
+                smoothed = _smooth_3(normalized)
+                curve = _downsample_avg(smoothed, n_points)
+    except Exception:
+        pass
+
+    _cache[cache_key] = curve
+    return curve
+
+
+def clear_cache() -> None:
+    """Clear the energy cache (e.g., after a DB restore)."""
+    _cache.clear()
