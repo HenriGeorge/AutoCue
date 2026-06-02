@@ -18,6 +18,7 @@ from __future__ import annotations
 import logging
 import math
 import re
+import threading
 from typing import Optional
 
 from .energy import get_energy_curve
@@ -86,28 +87,36 @@ def _dot(a: list[float], b: list[float]) -> float:
 # track_id → (bpm, vector, has_energy)
 _INDEX: dict[int, tuple[float, list[float], bool]] = {}
 _INDEX_BUILT = False
+_INDEX_LOCK = threading.Lock()
 
 
 def _build_index(db) -> None:
     global _INDEX, _INDEX_BUILT
-    _INDEX = {}
+    if not _INDEX_LOCK.acquire(blocking=False):
+        with _INDEX_LOCK:  # wait for the in-progress build to finish, then return
+            return
     try:
-        contents = db.get_content().all()
-    except Exception as exc:
-        _log.warning("similar index: get_content failed: %s", exc)
-        _INDEX_BUILT = True
-        return
-
-    errors = 0
-    for content in contents:
+        if _INDEX_BUILT:
+            return
+        _INDEX = {}
         try:
-            _index_track(content, db)
+            contents = db.get_content().all()
         except Exception as exc:
-            errors += 1
-            if errors <= 3:
-                _log.warning("similar index: _index_track %s failed: %s", getattr(content, 'ID', '?'), exc)
-    _log.info("similar index built: %d tracks, %d errors", len(_INDEX), errors)
-    _INDEX_BUILT = True
+            _log.warning("similar index: get_content failed: %s", exc)
+            _INDEX_BUILT = True
+            return
+        errors = 0
+        for content in contents:
+            try:
+                _index_track(content, db)
+            except Exception as exc:
+                errors += 1
+                if errors <= 3:
+                    _log.warning("similar index: _index_track %s failed: %s", getattr(content, 'ID', '?'), exc)
+        _log.info("similar index built: %d tracks, %d errors", len(_INDEX), errors)
+        _INDEX_BUILT = True
+    finally:
+        _INDEX_LOCK.release()
 
 
 def _index_track(content, db) -> None:
@@ -153,8 +162,9 @@ def _index_track(content, db) -> None:
 
 def clear_index() -> None:
     global _INDEX, _INDEX_BUILT
-    _INDEX = {}
-    _INDEX_BUILT = False
+    with _INDEX_LOCK:
+        _INDEX = {}
+        _INDEX_BUILT = False
 
 
 # ---------------------------------------------------------------------------
