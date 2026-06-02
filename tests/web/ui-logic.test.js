@@ -78,7 +78,10 @@ function computeCues(track, { memoryCueMode = 'none', skipExisting = false, anal
       label: c.label, isPhrase: true, name: c.name || '',
     }))
   } else {
-    cues = generateCues(track, barsInterval, startBar, maxCues)
+    cues = generateCues(track, barsInterval, startBar, maxCues).map(c => ({
+      ...c,
+      hasPhrase: !!(track.has_phrase),
+    }))
   }
   if (memoryCueMode !== 'none' && cues.length) {
     const hotCues = cues.filter(c => c.slot !== -1)
@@ -1001,7 +1004,12 @@ function _explainCue(cue) {
   }
 
   if (mode === 'bar') {
-    reasons.push('Bar-interval fallback (no Rekordbox phrase analysis)');
+    if (cue.hasPhrase) {
+      reasons.push('Using bar intervals — switch to ✨ Phrase mode to use Rekordbox phrase data');
+    } else {
+      reasons.push('Bar-interval fallback (no Rekordbox phrase analysis)');
+      reasons.push('Run analysis in Rekordbox to enable phrase-based cues');
+    }
     reasons.push(`Position: ${cue.name || ''}`);
     return { confidence: confLabel, reasons };
   }
@@ -1067,7 +1075,7 @@ describe('_explainCue — bar mode', () => {
     const result = _explainCue({ slot: 0, confidence: 0.6, phraseMode: 'bar', name: 'Bar 1' })
     expect(result.confidence).toBe('Medium')
     expect(result.reasons[0]).toContain('Bar-interval fallback')
-    expect(result.reasons[1]).toContain('Bar 1')
+    expect(result.reasons.some(r => r.includes('Bar 1'))).toBe(true)
   })
 
   it('infers bar mode from conf in [0.5, 0.9) when phraseMode absent', () => {
@@ -1078,6 +1086,19 @@ describe('_explainCue — bar mode', () => {
   it('reasons list is never empty for bar cues', () => {
     const result = _explainCue({ slot: 3, confidence: 0.6, phraseMode: 'bar', name: '' })
     expect(result.reasons.length).toBeGreaterThan(0)
+  })
+
+  it('bar mode with hasPhrase=true suggests switching to Phrase mode', () => {
+    const cue = { slot: 0, confidence: 0.6, phraseMode: 'bar', phraseBars: 4, label: '', name: 'Cue 1', hasPhrase: true };
+    const result = _explainCue(cue);
+    expect(result.reasons.some(r => r.includes('switch') || r.includes('Phrase mode'))).toBe(true);
+    expect(result.reasons.some(r => r.includes('no Rekordbox phrase analysis'))).toBe(false);
+  })
+
+  it('bar mode with hasPhrase=false shows no phrase analysis message', () => {
+    const cue = { slot: 0, confidence: 0.6, phraseMode: 'bar', phraseBars: 4, label: '', name: 'Cue 1', hasPhrase: false };
+    const result = _explainCue(cue);
+    expect(result.reasons.some(r => r.includes('no Rekordbox phrase analysis'))).toBe(true);
   })
 })
 

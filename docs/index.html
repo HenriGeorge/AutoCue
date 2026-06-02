@@ -478,7 +478,7 @@
     .mix-breakdown-bar-bg {
       flex: 1; height: 5px; background: var(--border); border-radius: 3px; overflow: hidden;
     }
-    .mix-breakdown-bar { height: 5px; background: var(--green); border-radius: 3px; }
+    .mix-breakdown-bar { height: 5px; background: var(--green); border-radius: 3px; animation: fillBar 0.7s cubic-bezier(0.25, 0.46, 0.45, 0.94) forwards; }
     .mix-breakdown-val { width: 28px; text-align: right; color: var(--fg); }
 
     /* category chip */
@@ -490,12 +490,33 @@
     .category-chip.loading { color: var(--muted); border-color: var(--border); opacity: .4; }
 
     /* similar tracks */
-    .similar-btn {
-      font-size: 10px; padding: 1px 7px; border-radius: 10px;
-      border: 1px solid var(--border); background: none; cursor: pointer;
-      color: var(--muted); white-space: nowrap;
+    @keyframes fillBar {
+      from { width: 0% }
+      to   { width: var(--tw, 0%) }
     }
-    .similar-btn:hover { border-color: var(--green); color: var(--green); }
+    @keyframes fadeSlideIn {
+      from { opacity: 0; transform: translateY(10px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+    .panel-card {
+      background: var(--surface2); border: 1px solid var(--border);
+      border-radius: 14px; padding: 20px 24px; margin-bottom: 20px;
+      transition: box-shadow 0.2s ease;
+    }
+    .panel-card:hover { box-shadow: 0 4px 20px rgba(0,0,0,0.08); }
+    .panel-card.animate-in { animation: fadeSlideIn 0.35s ease-out forwards; }
+    .track-card.animate-in { animation: fadeSlideIn 0.35s ease-out forwards; }
+    .mix-score-row { justify-content: flex-start; }
+    .similar-btn { margin-left: auto; transition: all 0.18s ease; border: 1px solid var(--border); border-radius: 20px; padding: 2px 10px; font-size: 11px; background: transparent; color: var(--muted); cursor: pointer; }
+    button.primary { transition: all 0.18s ease; }
+    button.primary:hover { background: #33ff18; box-shadow: 0 0 16px color-mix(in srgb, var(--green) 40%, transparent); transform: translateY(-1px); }
+    button.primary:active { transform: translateY(0); box-shadow: none; }
+    .secondary-btn { transition: all 0.18s ease; }
+    .secondary-btn:hover { border-color: var(--green); color: var(--green); transform: translateY(-1px); box-shadow: 0 2px 8px rgba(0,0,0,0.12); }
+    .secondary-btn:active { transform: translateY(0); box-shadow: none; }
+    .mode-btn.active { box-shadow: 0 0 0 2px var(--green), 0 4px 12px color-mix(in srgb, var(--green) 25%, transparent); }
+    select, input[type="number"] { transition: border-color 0.15s, box-shadow 0.15s; }
+    select:hover, select:focus, input[type="number"]:hover, input[type="number"]:focus { border-color: var(--green); box-shadow: 0 0 0 2px color-mix(in srgb, var(--green) 20%, transparent); outline: none; }
     .similar-panel {
       display: none; margin-top: 6px;
       background: var(--surface2); border: 1px solid var(--border);
@@ -1149,7 +1170,7 @@
   </section>
 
   <!-- Library Health (local mode only) -->
-  <section id="health-section" style="display:none">
+  <section id="health-section" class="panel-card" style="display:none">
     <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px;">
       <h2 style="margin:0;font-size:15px;font-weight:700;">Library Health</h2>
       <button id="health-scan-btn" class="secondary-btn" style="font-size:12px;padding:4px 12px;">Scan</button>
@@ -1172,7 +1193,7 @@
   </section>
 
   <!-- Cue Library Tools (local mode only) -->
-  <section id="cue-tools-section" style="display:none">
+  <section id="cue-tools-section" class="panel-card" style="display:none">
     <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px;">
       <h2 style="margin:0;font-size:15px;font-weight:700;">Cue Library Tools</h2>
       <span style="font-size:12px;color:var(--muted)">Bulk edit cues across your library</span>
@@ -1241,7 +1262,7 @@
   </section>
 
   <!-- Playlist Suggest (local mode only) -->
-  <section id="playlist-suggest-section" style="display:none">
+  <section id="playlist-suggest-section" class="panel-card" style="display:none">
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
       <h2 style="margin:0;font-size:15px;font-weight:700;">Playlist Suggest</h2>
     </div>
@@ -1260,7 +1281,7 @@
         <label>Count</label>
         <input type="number" id="ps-count" value="20" min="1" max="100" step="1">
       </div>
-      <button id="ps-suggest-btn" class="primary-btn" style="font-size:13px;">Suggest tracks</button>
+      <button id="ps-suggest-btn" class="primary" style="font-size:13px;">Suggest tracks</button>
       <span id="ps-status" style="font-size:12px;color:var(--muted);"></span>
     </div>
     <div id="ps-result" style="display:none;margin-top:8px;">
@@ -1270,7 +1291,7 @@
   </section>
 
   <!-- Set Builder (local mode only) -->
-  <section id="setbuilder-section" style="display:none">
+  <section id="setbuilder-section" class="panel-card" style="display:none">
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
       <h2 style="margin:0;font-size:15px;font-weight:700;">Set Builder</h2>
     </div>
@@ -1297,7 +1318,7 @@
       </div>
     </div>
     <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
-      <button id="sb-build-btn" class="primary-btn" style="font-size:13px;">Build Set</button>
+      <button id="sb-build-btn" class="primary" style="font-size:13px;">Build Set</button>
       <span id="sb-status" style="font-size:12px;color:var(--muted);"></span>
     </div>
     <div id="sb-result" style="display:none;margin-top:14px;">
@@ -3118,7 +3139,12 @@ function _explainCue(cue) {
   }
 
   if (mode === 'bar') {
-    reasons.push('Bar-interval fallback (no Rekordbox phrase analysis)');
+    if (cue.hasPhrase) {
+      reasons.push('Using bar intervals — switch to ✨ Phrase mode to use Rekordbox phrase data');
+    } else {
+      reasons.push('Bar-interval fallback (no Rekordbox phrase analysis)');
+      reasons.push('Run analysis in Rekordbox to enable phrase-based cues');
+    }
     reasons.push(`Position: ${cue.name || ''}`);
     return { confidence: confLabel, reasons };
   }
@@ -3171,7 +3197,19 @@ async function _toggleSimilarPanel(btn, panel, trackId) {
     // Build a lookup of track id → title/artist from parsedTracks
     const lookup = {};
     for (const t of parsedTracks) lookup[String(t.id)] = t;
-    for (const item of d.results) {
+    const seen = new Set();
+    const deduped = d.results.filter(item => {
+      const t = lookup[String(item.track_id)];
+      if (!t) return true;
+      const artistStr = (t.artist || '').toLowerCase().trim();
+      const titleStr  = (t.title  || '').toLowerCase().trim();
+      const key = `${artistStr}|||${titleStr}`;
+      if (!artistStr && !titleStr) return true;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+    for (const item of deduped) {
       const t = lookup[String(item.track_id)];
       const row = document.createElement('div');
       row.className = 'similar-row';
@@ -3214,6 +3252,22 @@ async function _renderCategoryChip(chip) {
   }
 }
 
+var _mixCountRafId = null;
+function _animateCount(el, to, prefix, suffix, duration) {
+  duration = duration || 600;
+  if (_mixCountRafId) { cancelAnimationFrame(_mixCountRafId); _mixCountRafId = null; }
+  var start = performance.now();
+  function step(ts) {
+    if (!document.contains(el)) return;
+    var p = Math.min((ts - start) / duration, 1);
+    var ease = 1 - Math.pow(1 - p, 3);
+    el.textContent = prefix + Math.round(to * ease) + suffix;
+    if (p < 1) { _mixCountRafId = requestAnimationFrame(step); }
+    else { _mixCountRafId = null; }
+  }
+  _mixCountRafId = requestAnimationFrame(step);
+}
+
 async function _renderMixabilityChip(chip, breakdown) {
   const trackId = chip.dataset.trackId;
   if (!trackId) return;
@@ -3226,8 +3280,8 @@ async function _renderMixabilityChip(chip, breakdown) {
       chip.className = 'mix-score-chip no-data';
       return;
     }
-    chip.textContent = `Mix ${d.score}/100`;
     chip.className = 'mix-score-chip';
+    _animateCount(chip, d.score, 'Mix ', '/100');
     const comp = d.components || {};
     const rows = [
       { label: 'Intro', key: 'intro', extra: d.intro_bars > 0 ? `${d.intro_bars} bars` : '' },
@@ -3248,7 +3302,7 @@ async function _renderMixabilityChip(chip, breakdown) {
       barBg.className = 'mix-breakdown-bar-bg';
       const bar = document.createElement('div');
       bar.className = 'mix-breakdown-bar';
-      bar.style.width = `${val}%`;
+      bar.style.setProperty('--tw', `${val}%`);
       barBg.appendChild(bar);
       const valEl = document.createElement('span');
       valEl.className = 'mix-breakdown-val';
@@ -3745,7 +3799,10 @@ function renderTracks() {
         phraseBars: c.phrase_bars ?? 0,
       }));
     } else {
-      cues = generateCues(track, barsInterval, startBar, maxCues);
+      cues = generateCues(track, barsInterval, startBar, maxCues).map(c => ({
+        ...c,
+        hasPhrase: !!(track.has_phrase),
+      }));
     }
     const mcMode = document.getElementById('memory-cue-mode').value;
     if (mcMode !== 'none' && cues.length) {
@@ -3881,6 +3938,12 @@ function renderTracks() {
       if (cues.length) { tracksWithCues++; totalCues += cues.length; }
       list.appendChild(buildTrackCard(track, cues, willSkip, {}));
     }
+    list.querySelectorAll('.track-card').forEach(function(card, i) {
+      if (i < 8) {
+        card.style.animationDelay = (i * 30) + 'ms';
+        card.classList.add('animate-in');
+      }
+    });
   }
 
   const visible = filteredTracks();
@@ -4699,6 +4762,28 @@ async function buildSet() {
     btn.disabled = false;
   }
 }
+
+document.addEventListener('DOMContentLoaded', function() {
+  var cards = document.querySelectorAll('.panel-card');
+  var sectionObserver = new IntersectionObserver(function(entries) {
+    entries.forEach(function(e) {
+      if (e.isIntersecting) {
+        e.target.style.opacity = '';
+        e.target.style.transform = '';
+        e.target.classList.add('animate-in');
+        sectionObserver.unobserve(e.target);
+      }
+    });
+  }, { threshold: 0.05 });
+  cards.forEach(function(el) {
+    var rect = el.getBoundingClientRect();
+    if (rect.top > window.innerHeight) {
+      el.style.opacity = '0';
+      el.style.transform = 'translateY(10px)';
+    }
+    sectionObserver.observe(el);
+  });
+});
 
 // ── Theme toggle ───────────────────────────────────────────────────────────────
 const root = document.documentElement;

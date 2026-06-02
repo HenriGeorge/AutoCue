@@ -57,29 +57,29 @@ class TestCamelotAngle:
 
 class TestBuildVector:
     def test_output_length(self):
-        v = _build_vector("8A", 0.5, 0.1, False)
-        assert len(v) == 5
+        v = _build_vector("8A", 0.5, 0.1, False, 120.0)
+        assert len(v) == 6
 
     def test_unit_length(self):
-        v = _build_vector("8A", 0.5, 0.1, False)
+        v = _build_vector("8A", 0.5, 0.1, False, 120.0)
         mag = math.sqrt(sum(x * x for x in v))
         assert mag == pytest.approx(1.0)
 
     def test_vocal_proxy_changes_vector(self):
-        v1 = _build_vector("8A", 0.5, 0.1, False)
-        v2 = _build_vector("8A", 0.5, 0.1, True)
+        v1 = _build_vector("8A", 0.5, 0.1, False, 120.0)
+        v2 = _build_vector("8A", 0.5, 0.1, True, 120.0)
         assert v1 != v2
 
     def test_same_inputs_same_vector(self):
-        v1 = _build_vector("8A", 0.6, 0.2, True)
-        v2 = _build_vector("8A", 0.6, 0.2, True)
+        v1 = _build_vector("8A", 0.6, 0.2, True, 120.0)
+        v2 = _build_vector("8A", 0.6, 0.2, True, 120.0)
         assert v1 == v2
 
     def test_zero_vector_safe(self):
         # All-zero raw vector shouldn't crash (returns zeros)
-        v = _build_vector("", 0.0, 0.0, False)
+        v = _build_vector("", 0.0, 0.0, False, 0.0)
         assert isinstance(v, list)
-        assert len(v) == 5
+        assert len(v) == 6
 
 
 # ---------------------------------------------------------------------------
@@ -228,3 +228,39 @@ class TestFindSimilar:
             with patch(f"{MODULE}.get_mixability", return_value=None):
                 result = find_similar(1, db)
         assert isinstance(result, list)
+
+
+# ---------------------------------------------------------------------------
+# TestDataQualityCap
+# ---------------------------------------------------------------------------
+
+class TestDataQualityCap:
+    """Score is capped based on whether tracks have real energy data."""
+
+    def _make_index(self, tracks):
+        """tracks: list of (id, bpm, has_energy, key_str)"""
+        from autocue.analysis.similar import _build_vector
+        idx = {}
+        for tid, bpm, has_e, key in tracks:
+            vec = _build_vector(key, 0.0 if not has_e else 0.5, 0.0, False, bpm)
+            idx[tid] = (bpm, vec, has_e)
+        return idx
+
+    def test_both_no_energy_capped_at_65(self):
+        with patch(f"{MODULE}._INDEX", self._make_index([(1, 120.0, False, ""), (2, 120.0, False, "")])), \
+             patch(f"{MODULE}._INDEX_BUILT", True):
+            results = find_similar(1, MagicMock(), n=5)
+        assert all(r["score"] <= 0.65 for r in results)
+
+    def test_one_has_energy_capped_at_82(self):
+        with patch(f"{MODULE}._INDEX", self._make_index([(1, 120.0, True, "8A"), (2, 120.0, False, "")])), \
+             patch(f"{MODULE}._INDEX_BUILT", True):
+            results = find_similar(1, MagicMock(), n=5)
+        assert all(r["score"] <= 0.82 for r in results)
+
+    def test_both_have_energy_can_exceed_82(self):
+        with patch(f"{MODULE}._INDEX", self._make_index([(1, 120.0, True, "8A"), (2, 120.0, True, "8A")])), \
+             patch(f"{MODULE}._INDEX_BUILT", True):
+            results = find_similar(1, MagicMock(), n=5)
+        # Should be close to 1.0 for identical key/energy
+        assert any(r["score"] > 0.82 for r in results)

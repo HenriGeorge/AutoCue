@@ -1,15 +1,15 @@
 """
-Similar Track Discovery — cosine similarity on a 5-dim feature vector.
+Similar Track Discovery — cosine similarity on a 6-dim feature vector.
 
 Vector dimensions (L2-normalized):
   [0] key_cos  = cos(camelot_angle)   circular Camelot key
   [1] key_sin  = sin(camelot_angle)
-  [2] energy_mean
-  [3] energy_variance (min×10, 1.0)
+  [2] energy_mean (0.0 when no ANLZ data)
+  [3] energy_variance (×10, capped 1.0)
   [4] vocal_proxy (0 or 1.0)
+  [5] bpm_norm  = bpm / 200.0 (capped 1.0)
 
 BPM gate: candidates must be within ±8 BPM of the target.
-BPM is excluded from the vector to avoid double-counting.
 Intro/outro bars are excluded — they require PSSI; absence would cluster
 every non-analyzed track at the origin.
 """
@@ -58,6 +58,7 @@ def _build_vector(
     energy_mean: float,
     energy_variance: float,
     vocal_proxy: bool,
+    bpm: float,
 ) -> list[float]:
     angle = _camelot_angle(key_str)
     v = [
@@ -66,8 +67,8 @@ def _build_vector(
         float(energy_mean),
         min(energy_variance * 10.0, 1.0),
         1.0 if vocal_proxy else 0.0,
+        min(float(bpm) / 200.0, 1.0),
     ]
-    # L2-normalize
     mag = math.sqrt(sum(x * x for x in v))
     if mag < 1e-9:
         return [0.0] * len(v)
@@ -82,8 +83,8 @@ def _dot(a: list[float], b: list[float]) -> float:
 # In-process index
 # ---------------------------------------------------------------------------
 
-# track_id → (bpm, vector)
-_INDEX: dict[int, tuple[float, list[float]]] = {}
+# track_id → (bpm, vector, has_energy)
+_INDEX: dict[int, tuple[float, list[float], bool]] = {}
 _INDEX_BUILT = False
 
 
@@ -124,7 +125,7 @@ def _index_track(content, db) -> None:
     except Exception:
         pass
 
-    energy_mean = 0.5
+    energy_mean = 0.0
     energy_variance = 0.0
     vocal_proxy = False
 
@@ -140,8 +141,8 @@ def _index_track(content, db) -> None:
         if mix.get("energy_variance") is not None:
             energy_variance = mix["energy_variance"]
 
-    vector = _build_vector(key_str, energy_mean, energy_variance, vocal_proxy)
-    _INDEX[int(content.ID)] = (bpm, vector)
+    vector = _build_vector(key_str, energy_mean, energy_variance, vocal_proxy, bpm)
+    _INDEX[int(content.ID)] = (bpm, vector, bool(curve))
 
     # Pre-populate the classification cache so setbuilder beam search is O(1)
     try:
@@ -188,17 +189,25 @@ def find_similar(
         if target is None:
             return []
 
-    target_bpm, target_vec = target
+    target_bpm, target_vec, target_has_e = target
 
     results: list[tuple[float, int, float]] = []  # (score, id, bpm_diff)
-    for tid, (bpm, vec) in _INDEX.items():
+    for tid, (bpm, vec, has_e) in _INDEX.items():
         if tid == track_id:
             continue
         bpm_diff = abs(bpm - target_bpm)
         if bpm_diff > bpm_gate:
             continue
-        score = _dot(target_vec, vec)  # both L2-normalized → cosine similarity
+        score = _dot(target_vec, vec)
         score = max(0.0, min(1.0, score))
+        # Data-quality cap: prevents same-BPM no-data tracks from all scoring 100%
+        if not target_has_e and not has_e:
+            score = min(score, 0.65)
+        elif not target_has_e or not has_e:
+            score = min(score, 0.82)
+        # BPM distance penalty (capped at 15% to avoid double-penalising setbuilder)
+        bpm_penalty = min(bpm_diff / 20.0, 0.15)
+        score = round(score * (1.0 - bpm_penalty), 3)
         results.append((score, tid, bpm_diff))
 
     results.sort(key=lambda x: -x[0])

@@ -104,6 +104,34 @@ class TestScoreCategory:
 
 
 # ---------------------------------------------------------------------------
+# TestNoEnergyPenalty
+# ---------------------------------------------------------------------------
+
+class TestNoEnergyPenalty:
+    """Tracks without energy data (energy_mean=None) must score ≤ 0.70 for any category."""
+
+    def test_after_hours_no_energy_capped(self):
+        # BPM 110 near after_hours peak (107); no energy → capped at bpm_s * 0.70
+        score = _score_category(110.0, None, None, False, "after_hours")
+        assert score <= 0.70 + 1e-9
+
+    def test_build_no_energy_capped(self):
+        # BPM 123 is in build full zone (118-128); no energy → max 70%
+        score = _score_category(123.0, None, None, False, "build")
+        assert score <= 0.70 + 1e-9
+
+    def test_with_energy_can_exceed_70(self):
+        # after_hours BPM 110, real energy 0.35 (near peak 0.32) → eng_s=0.9+ → score > 0.70
+        score = _score_category(110.0, 0.35, None, False, "after_hours")
+        assert score > 0.70
+
+    def test_no_energy_not_zero(self):
+        # Must still return a positive score based on BPM alone
+        score = _score_category(110.0, None, None, False, "after_hours")
+        assert score > 0.0
+
+
+# ---------------------------------------------------------------------------
 # get_classification
 # ---------------------------------------------------------------------------
 

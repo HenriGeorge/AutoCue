@@ -50,43 +50,37 @@ def _score_category(
     vocal_proxy: bool,
     category: str,
 ) -> float:
-    """Return a 0.0–1.0 score for how well a track fits the given category."""
-    neutral_energy = 0.5  # fallback when PWAV unavailable
+    """Return a 0.0–1.0 score for how well a track fits the given category.
 
-    # All formulas: bpm_s acts as a gate (bpm_s=0 → score=0).
-    # Energy/vocals only modulate within a valid BPM range.
+    When energy_mean is None (no ANLZ data), eng_s defaults to 0.5, capping
+    the score at ~0.70 — tracks are scored on BPM alone with uncertainty.
+    """
     if category == "warmup":
-        bpm_s = _trap(bpm, 75, 90, 120, 130)
-        eng_s = _trap(energy_mean if energy_mean is not None else neutral_energy,
-                      -0.1, 0.0, 0.35, 0.55)
+        bpm_s = _trap(bpm, 75, 100, 100, 130)
+        eng_s = _trap(energy_mean, -0.1, 0.12, 0.12, 0.55) if energy_mean is not None else 0.5
         return bpm_s * (eng_s * 0.60 + 0.40)
 
     if category == "build":
-        bpm_s   = _trap(bpm, 108, 118, 128, 140)
-        eng_s   = _trap(energy_mean if energy_mean is not None else neutral_energy,
-                        0.1, 0.3, 0.60, 0.75)
+        bpm_s   = _trap(bpm, 108, 123, 123, 140)
+        eng_s   = _trap(energy_mean, 0.1, 0.45, 0.45, 0.72) if energy_mean is not None else 0.5
         vocal_f = 0.85 if vocal_proxy else 1.0
         return bpm_s * (eng_s * 0.60 + 0.40) * vocal_f
 
     if category == "peak":
-        # Use peak energy (max of curve) — tracks with big drops classify correctly
-        epeak  = energy_peak if energy_peak is not None else neutral_energy
-        bpm_s  = _trap(bpm, 116, 126, 145, 158)
-        eng_s  = _trap(epeak, 0.40, 0.60, 1.0, 1.01)
+        epeak  = energy_peak
+        eng_s  = _trap(epeak, 0.40, 0.60, 1.0, 1.01) if epeak is not None else 0.5
+        bpm_s  = _trap(bpm, 116, 136, 136, 158)
         vocal_f = 0.80 if vocal_proxy else 1.0
         return bpm_s * (eng_s * 0.60 + 0.40) * vocal_f
 
     if category == "after_hours":
-        bpm_s   = _trap(bpm, 88, 100, 122, 134)
-        eng_s   = _trap(energy_mean if energy_mean is not None else neutral_energy,
-                        0.05, 0.2, 0.50, 0.65)
-        vocal_f = 1.05 if vocal_proxy else 1.0  # slight boost — vocals fit after-hours
-        return min(bpm_s * (eng_s * 0.60 + 0.40) * vocal_f, 1.0)
+        bpm_s = _trap(bpm, 88, 107, 107, 132)
+        eng_s = _trap(energy_mean, 0.05, 0.32, 0.32, 0.62) if energy_mean is not None else 0.5
+        return bpm_s * (eng_s * 0.60 + 0.40)
 
     if category == "closing":
-        bpm_s = _trap(bpm, 55, 70, 105, 118)
-        eng_s = _trap(energy_mean if energy_mean is not None else neutral_energy,
-                      -0.1, 0.0, 0.35, 0.55)
+        bpm_s = _trap(bpm, 55, 88, 88, 118)
+        eng_s = _trap(energy_mean, -0.1, 0.12, 0.12, 0.55) if energy_mean is not None else 0.5
         return bpm_s * (eng_s * 0.60 + 0.40)
 
     return 0.0
