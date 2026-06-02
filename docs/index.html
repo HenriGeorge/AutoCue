@@ -27,6 +27,12 @@
       --cue-g: #c8006a; --cue-h: #9900cc;
       --font: 'Inter', system-ui, sans-serif;
       --mono: 'JetBrains Mono', 'Fira Code', monospace;
+      /* spacing scale */
+      --sp-1: 4px; --sp-2: 8px; --sp-3: 12px; --sp-4: 16px; --sp-5: 24px; --sp-6: 40px;
+      /* radius scale */
+      --radius-sm: 4px; --radius-md: 8px; --radius-lg: 12px; --radius-pill: 999px;
+      /* type scale */
+      --text-xs: 10px; --text-sm: 12px; --text-base: 14px; --text-lg: 16px; --text-xl: 20px;
     }
 
     html.dark {
@@ -221,6 +227,12 @@
       font-size: 13px; color: var(--text); cursor: pointer; user-select: none;
     }
     .skip-cues-label input[type=checkbox] { cursor: pointer; }
+    .settings-divider {
+      font-size: 11px; font-weight: 700; color: var(--muted);
+      text-transform: uppercase; letter-spacing: .08em;
+      padding-top: 14px; margin-top: 6px; border-top: 1px solid var(--border);
+      grid-column: 1 / -1;
+    }
 
     /* ── Track list ── */
     #tracks-section { display: none; }
@@ -381,10 +393,11 @@
       margin-bottom: 10px; flex-wrap: wrap;
     }
     .track-name {
-      font-size: 14px; font-weight: 600; flex: 1; min-width: 0;
+      font-size: 15px; font-weight: 700; flex: 1; min-width: 0;
       white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+      letter-spacing: -0.2px;
     }
-    .track-artist { font-size: 13px; color: var(--muted); white-space: nowrap; }
+    .track-artist { font-size: 12px; color: var(--muted); white-space: nowrap; font-weight: 500; }
     .track-bpm {
       font-family: var(--mono); font-size: 12px; color: var(--green);
       background: rgba(40,226,20,.08); border: 1px solid rgba(40,226,20,.2);
@@ -600,15 +613,6 @@
       border: 1px solid var(--border); border-radius: 6px;
       padding: 3px 8px; font-size: 12px; width: 150px;
     }
-    #scroll-header .sh-sorts { display: flex; gap: 2px; flex-shrink: 0; }
-    #scroll-header .sh-sort-btn {
-      font-size: 11px; padding: 3px 7px; border-radius: 5px;
-      border: 1px solid transparent; background: transparent;
-      color: var(--muted); cursor: pointer;
-      transition: background 120ms, color 120ms, border-color 120ms;
-    }
-    #scroll-header .sh-sort-btn:hover { background: var(--surface); color: var(--text); }
-    #scroll-header .sh-sort-btn.active { background: var(--surface-card); color: var(--green); border-color: var(--green); font-weight: 600; }
     /* Sticky tracks controls */
     #tracks-sticky {
       position: sticky; top: 0; z-index: 50;
@@ -944,6 +948,56 @@
       white-space: nowrap;
     }
     #toast.show { opacity: 1; }
+
+    /* ── Keyboard focus rings ── */
+    :focus-visible { outline: 2px solid var(--green); outline-offset: 2px; border-radius: 3px; }
+
+    /* ── Active filter indicator ── */
+    #active-filters-chip {
+      display: none; align-items: center; gap: 4px;
+      font-size: 11px; font-weight: 600; color: var(--green);
+      background: color-mix(in srgb, var(--green) 10%, var(--surface2));
+      border: 1px solid color-mix(in srgb, var(--green) 30%, var(--border));
+      border-radius: var(--radius-pill); padding: 2px 9px;
+      cursor: pointer; white-space: nowrap;
+    }
+    #active-filters-chip.visible { display: inline-flex; }
+    #active-filters-chip:hover { background: color-mix(in srgb, var(--green) 18%, var(--surface2)); }
+
+    /* ── Copy track list button ── */
+    .copy-list-btn {
+      font-size: 11px; color: var(--muted);
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: var(--radius-pill); padding: 2px 10px;
+      cursor: pointer; transition: border-color .15s, color .15s;
+      font-family: var(--font);
+    }
+    .copy-list-btn:hover { border-color: var(--green); color: var(--green); }
+    .copy-list-btn.copied { color: var(--green); border-color: var(--green); }
+
+    /* ── Empty state (richer) ── */
+    .empty-state {
+      text-align: center; padding: 56px 24px; color: var(--muted);
+    }
+    .empty-state-icon { font-size: 36px; margin-bottom: 12px; opacity: .4; }
+    .empty-state-title { font-size: 15px; font-weight: 600; color: var(--text); margin-bottom: 6px; }
+    .empty-state-sub { font-size: 13px; }
+
+    /* ── Mobile breakpoints ── */
+    @media (max-width: 900px) {
+      main { padding: 24px 16px 80px; }
+      header { padding: 14px 20px; }
+      .panel-card { padding: 16px 18px; }
+    }
+    @media (max-width: 600px) {
+      main { padding: 16px 12px 80px; }
+      header { padding: 10px 16px; gap: 8px; }
+      .logo-text { font-size: 17px; }
+      .settings-grid { grid-template-columns: 1fr; }
+      .panel-card { padding: 12px 14px; }
+      #scroll-header { flex-wrap: wrap; gap: 6px; padding: 8px 12px; }
+      .tracks-header { flex-wrap: wrap; }
+    }
   </style>
 </head>
 <body>
@@ -960,15 +1014,6 @@
   </div>
   <span class="sh-sep">·</span>
   <input type="search" id="sh-search" class="sh-search" placeholder="Search…">
-  <div class="sh-sorts" id="sh-sorts">
-    <button class="sh-sort-btn active" data-sort="title">Title</button>
-    <button class="sh-sort-btn" data-sort="artist">Artist</button>
-    <button class="sh-sort-btn" data-sort="album">Album</button>
-    <button class="sh-sort-btn" data-sort="bpm">BPM</button>
-    <button class="sh-sort-btn" data-sort="key">Key</button>
-    <button class="sh-sort-btn" data-sort="rating">Rating</button>
-    <button class="sh-sort-btn" data-sort="plays">Plays</button>
-  </div>
 </div>
 
 <header>
@@ -1127,6 +1172,7 @@
   <section id="settings-section">
     <div class="settings-title">Cue settings</div>
     <div class="settings-grid" id="bar-mode-fields">
+      <div class="settings-divider">Timing</div>
       <div class="field">
         <label for="bars-interval">Place a cue every N bars</label>
         <input type="number" id="bars-interval" value="16" min="1" max="128" />
@@ -1143,6 +1189,7 @@
       </div>
     </div>
     <div class="settings-grid" style="margin-top:10px">
+      <div class="settings-divider">Slots &amp; Labels</div>
       <div class="field" style="grid-column:1/-1">
         <label style="display:flex;align-items:center;gap:8px" title="Memory cues (Kind=0) don't use hot cue slots and are shown separately on CDJs. 'Load Point only' writes one marker at the track start so your CDJ loads at the right position. 'Full set' also adds a green Mix-In marker at the first drop, an orange Mix-Out at the last Outro phrase, and a red Warning cue 16 bars before the end (when the outro is short).">
           Memory cues:
@@ -1287,7 +1334,10 @@
       <span id="ps-status" style="font-size:12px;color:var(--muted);"></span>
     </div>
     <div id="ps-result" style="display:none;margin-top:8px;">
-      <div style="font-size:12px;color:var(--muted);margin-bottom:8px;" id="ps-summary"></div>
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
+        <div style="font-size:12px;color:var(--muted);flex:1;" id="ps-summary"></div>
+        <button class="copy-list-btn" id="ps-copy-btn">Copy list</button>
+      </div>
       <ol id="ps-tracklist" style="margin:0;padding-left:22px;list-style:decimal;"></ol>
     </div>
   </section>
@@ -1324,7 +1374,10 @@
       <span id="sb-status" style="font-size:12px;color:var(--muted);"></span>
     </div>
     <div id="sb-result" style="display:none;margin-top:14px;">
-      <div style="font-size:12px;color:var(--muted);margin-bottom:8px;" id="sb-summary"></div>
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
+        <div style="font-size:12px;color:var(--muted);flex:1;" id="sb-summary"></div>
+        <button class="copy-list-btn" id="sb-copy-btn">Copy list</button>
+      </div>
       <ol id="sb-tracklist" style="margin:0;padding-left:22px;list-style:decimal;"></ol>
     </div>
   </section>
@@ -1349,6 +1402,7 @@
         <button class="secondary-btn" id="deselect-all-btn" style="font-size:12px;padding:5px 12px;display:none">Deselect all</button>
         <span id="selection-count" style="font-size:12px;color:var(--green);white-space:nowrap;font-weight:600;"></span>
         <button id="transition-score-btn" style="display:none;font-size:12px;padding:5px 12px;background:none;border:1px solid var(--green);color:var(--green);border-radius:8px;cursor:pointer;" onclick="showTransitionScore()">⇌ Score transition</button>
+        <span id="active-filters-chip" title="Clear all filters" onclick="clearAllFilters()">✕ Filters active</span>
       </div>
       <!-- Row 2: Facet filters -->
       <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
@@ -2248,12 +2302,23 @@ async function applyToRekordbox() {
       }
       const backupNote = finalData.backup_path ? ' — backup saved to ~/.autocue/backups/' : '';
       showToast(`Applied ${finalData.applied} track(s)${backupNote}`);
+      // Success flash: turn button green for 2.5s
+      btn.textContent = '✓ Applied';
+      btn.style.background = 'var(--green)';
+      btn.style.color = '#000';
+      btn.style.borderColor = 'var(--green)';
+      setTimeout(() => {
+        btn.textContent = 'Apply to Rekordbox';
+        btn.style.background = '';
+        btn.style.color = '';
+        btn.style.borderColor = '';
+      }, 2500);
     }
   } catch (err) {
     showToast(`Error applying cues: ${err.message}`);
   } finally {
-    btn.textContent = 'Apply to Rekordbox';
     btn.disabled = false;
+    if (!btn.textContent.startsWith('✓')) btn.textContent = 'Apply to Rekordbox';
   }
 }
 
@@ -2286,6 +2351,23 @@ detectLocalMode().then(async connected => {
     });
     document.getElementById('setbuilder-section').style.display = '';
     document.getElementById('sb-build-btn').addEventListener('click', buildSet);
+
+    // Copy track list buttons
+    function makeCopyHandler(listId, btnId) {
+      const btn = document.getElementById(btnId);
+      if (!btn) return;
+      btn.addEventListener('click', () => {
+        const items = document.querySelectorAll(`#${listId} li`);
+        const text = Array.from(items).map((li, i) => `${i + 1}. ${li.textContent.trim()}`).join('\n');
+        navigator.clipboard.writeText(text).then(() => {
+          btn.textContent = '✓ Copied';
+          btn.classList.add('copied');
+          setTimeout(() => { btn.textContent = 'Copy list'; btn.classList.remove('copied'); }, 2000);
+        }).catch(() => showToast('Copy failed'));
+      });
+    }
+    makeCopyHandler('ps-tracklist', 'ps-copy-btn');
+    makeCopyHandler('sb-tracklist', 'sb-copy-btn');
 
     // F2: Load playlists into dropdown
     document.getElementById('playlist-filter-bar').style.display = 'flex';
@@ -2482,6 +2564,7 @@ document.getElementById('search-input').addEventListener('input', e => {
   clearTimeout(_searchTimer);
   _searchTimer = setTimeout(() => {
     searchQuery = e.target.value.trim();
+    updateActiveFiltersChip();
     if (parsedTracks.length) renderTracks();
   }, 200);
 });
@@ -2489,26 +2572,65 @@ document.getElementById('search-input').addEventListener('input', e => {
 // F6: Phrase-only filter
 document.getElementById('phrase-only-cb').addEventListener('change', e => {
   phraseOnlyFilter = e.target.checked;
+  updateActiveFiltersChip();
   if (parsedTracks.length) renderTracks();
 });
 
 // Rating / plays / last-played / tag filters
 document.getElementById('rating-filter').addEventListener('change', e => {
   ratingFilter = parseInt(e.target.value) || 0;
+  updateActiveFiltersChip();
   if (parsedTracks.length) renderTracks();
 });
 document.getElementById('plays-filter').addEventListener('change', e => {
   playsFilter = e.target.value;
+  updateActiveFiltersChip();
   if (parsedTracks.length) renderTracks();
 });
 document.getElementById('lastplayed-filter').addEventListener('change', e => {
   lastPlayedFilter = e.target.value;
+  updateActiveFiltersChip();
   if (parsedTracks.length) renderTracks();
 });
 document.getElementById('tag-filter-select').addEventListener('change', e => {
   myTagFilter = e.target.value;
+  updateActiveFiltersChip();
   if (parsedTracks.length) renderTracks();
 });
+
+function updateActiveFiltersChip() {
+  const active = ratingFilter > 0 || playsFilter !== 'all' || lastPlayedFilter !== 'all' || myTagFilter || selectedKeys.size > 0 || phraseOnlyFilter || searchQuery;
+  const chip = document.getElementById('active-filters-chip');
+  if (chip) chip.classList.toggle('visible', !!active);
+}
+
+function clearAllFilters() {
+  searchQuery = '';
+  phraseOnlyFilter = false;
+  ratingFilter = 0;
+  playsFilter = 'all';
+  lastPlayedFilter = 'all';
+  myTagFilter = '';
+  selectedKeys.clear();
+  const si = document.getElementById('search-input');
+  if (si) si.value = '';
+  const pc = document.getElementById('phrase-only-cb');
+  if (pc) pc.checked = false;
+  const rf = document.getElementById('rating-filter');
+  if (rf) rf.value = '0';
+  const pf = document.getElementById('plays-filter');
+  if (pf) pf.value = 'all';
+  const lpf = document.getElementById('lastplayed-filter');
+  if (lpf) lpf.value = 'all';
+  const tf = document.getElementById('tag-filter-select');
+  if (tf) tf.value = '';
+  // Update Camelot key buttons
+  document.querySelectorAll('#camelot-grid button').forEach(b => b.classList.remove('selected'));
+  const kfb = document.getElementById('key-filter-btn');
+  if (kfb) { kfb.textContent = 'Key: Any ▾'; kfb.classList.remove('active'); }
+  updateActiveFiltersChip();
+  if (parsedTracks.length) renderTracks();
+}
 
 // F7: Bulk selection — Select all / Deselect all
 document.getElementById('select-all-btn').addEventListener('click', () => {
@@ -3797,11 +3919,22 @@ function renderTracks() {
   const list = document.getElementById('track-list');
   list.innerHTML = '';
   if (!parsedTracks.length) {
-    const empty = document.createElement('p');
-    empty.style.cssText = 'text-align:center;color:var(--muted);padding:48px 0;font-size:14px;';
-    empty.textContent = activePlaylistId != null
-      ? 'No tracks in this playlist.'
-      : 'No tracks found.';
+    const empty = document.createElement('div');
+    empty.className = 'empty-state';
+    const icon = document.createElement('div');
+    icon.className = 'empty-state-icon';
+    icon.textContent = '♪';
+    const title = document.createElement('div');
+    title.className = 'empty-state-title';
+    title.textContent = activePlaylistId != null ? 'No tracks in this playlist' : 'No library loaded';
+    const sub = document.createElement('div');
+    sub.className = 'empty-state-sub';
+    sub.textContent = activePlaylistId != null
+      ? 'Switch to a different playlist or load your Rekordbox library.'
+      : 'Start the local server and reload, or drop a Rekordbox XML file above.';
+    empty.appendChild(icon);
+    empty.appendChild(title);
+    empty.appendChild(sub);
     list.appendChild(empty);
     return;
   }
@@ -3852,9 +3985,20 @@ function renderTracks() {
   const sorted = sortedTracks();
 
   if (!sorted.length) {
-    const empty = document.createElement('p');
-    empty.style.cssText = 'text-align:center;color:var(--muted);padding:48px 0;font-size:14px;';
-    empty.textContent = 'No tracks match the current filters.';
+    const empty = document.createElement('div');
+    empty.className = 'empty-state';
+    const icon = document.createElement('div');
+    icon.className = 'empty-state-icon';
+    icon.textContent = '⊘';
+    const title = document.createElement('div');
+    title.className = 'empty-state-title';
+    title.textContent = 'No tracks match';
+    const sub = document.createElement('div');
+    sub.className = 'empty-state-sub';
+    sub.textContent = 'Try adjusting your search or clearing the active filters.';
+    empty.appendChild(icon);
+    empty.appendChild(title);
+    empty.appendChild(sub);
     list.appendChild(empty);
     return;
   }
@@ -4514,6 +4658,7 @@ async function loadPhraseFromServer() {
     if (selectedKeys.has(key)) selectedKeys.delete(key);
     else selectedKeys.add(key);
     updateKeyUI();
+    updateActiveFiltersChip();
     if (parsedTracks.length) renderTracks();
   }
 
@@ -4534,6 +4679,7 @@ async function loadPhraseFromServer() {
   document.getElementById('ck-clear-btn').addEventListener('click', () => {
     selectedKeys.clear();
     updateKeyUI();
+    updateActiveFiltersChip();
     if (parsedTracks.length) renderTracks();
   });
 
@@ -4606,15 +4752,6 @@ async function loadPhraseFromServer() {
     sh.value = main.value;
   }
 
-  // Sync sort button active state into scroll header
-  function syncSortButtons() {
-    const active = document.querySelector('#sort-bar .sort-btn.active');
-    const sortVal = active ? active.dataset.sort : 'title';
-    document.querySelectorAll('#sh-sorts .sh-sort-btn').forEach(b => {
-      b.classList.toggle('active', b.dataset.sort === sortVal);
-    });
-  }
-
   // Show/hide scroll header based on whether settings section is above viewport
   let rafPending = false;
   function onScroll() {
@@ -4629,7 +4766,6 @@ async function loadPhraseFromServer() {
       tracksSticky.classList.toggle('sh-active', shouldShow);
       if (shouldShow) {
         syncPlaylistOptions();
-        syncSortButtons();
         scrollHdr.classList.add('sh-ready');
         // Shift tracks-sticky down below the scroll header
         tracksSticky.style.top = scrollHdr.offsetHeight + 'px';
@@ -4663,14 +4799,6 @@ async function loadPhraseFromServer() {
       main.dispatchEvent(new Event('input'));
     });
   }
-
-  document.querySelectorAll('#sh-sorts .sh-sort-btn').forEach(btn => {
-    btn.addEventListener('click', () => {
-      const main = document.querySelector(`#sort-bar .sort-btn[data-sort="${btn.dataset.sort}"]`);
-      if (main) main.click();
-      syncSortButtons();
-    });
-  });
 
   document.getElementById('sh-bar-btn')?.addEventListener('click', () => {
     document.getElementById('mode-bar-btn')?.click();
