@@ -25,9 +25,14 @@ class TestCamelotAngle:
     def test_1a_is_zero(self):
         assert _camelot_angle("1A") == pytest.approx(0.0)
 
-    def test_1b_is_zero(self):
-        # A and B keys share the same number position
-        assert _camelot_angle("1B") == pytest.approx(0.0)
+    def test_1b_is_offset_by_pi_over_12(self):
+        # B-ring keys are offset by +π/12 (15°) from the A-ring base position
+        assert _camelot_angle("1B") == pytest.approx(math.pi / 12.0)
+
+    def test_a_and_b_same_number_differ(self):
+        # 8A and 8B must no longer share the same angle
+        assert _camelot_angle("8A") != pytest.approx(_camelot_angle("8B"))
+        assert _camelot_angle("8B") - _camelot_angle("8A") == pytest.approx(math.pi / 12.0)
 
     def test_7_is_half_circle(self):
         # 7A: (7-1)/12 * 2π = π

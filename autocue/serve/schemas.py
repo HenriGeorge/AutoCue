@@ -263,7 +263,11 @@ class CueRecolorParams(BaseModel):
 
 class CueShiftParams(BaseModel):
     delta_ms: int  # positive = shift later, negative = shift earlier
-                   # Must be non-zero. Cues that would shift to < 0 ms are skipped.
+    negative_policy: Literal["skip", "clamp_to_zero", "abort_track"] = "abort_track"
+    # abort_track (default): if ANY cue on a track would go negative, leave the whole
+    # track untouched — preserves internal cue-set consistency.
+    # skip: silently drop cues that would go negative, shift the rest.
+    # clamp_to_zero: place cues that would go negative at 0 ms instead.
 
     @field_validator("delta_ms")
     @classmethod
@@ -301,6 +305,9 @@ class CueToolsSummary(BaseModel):
     tracks_affected: int
     cues_changed: int
     cues_skipped: int
+    skip_reasons: dict[str, int] = {}
+    # Stable reason keys: "would_be_negative" (shift/skip policy), "no_match" (rename/recolor),
+    # "track_aborted" (shift/abort_track policy), "beyond_keep_slots" (delete_orphan)
     dry_run: bool
     backup_path: str | None = None
 
@@ -347,9 +354,122 @@ class SetBuilderTrackItem(BaseModel):
     key: str
     category: str
     transition_score: float | None = None
+    relaxed: bool = False  # True if this track was placed via relaxed constraints
 
 
 class SetBuilderResponse(BaseModel):
     tracks: list[SetBuilderTrackItem]
     total_tracks: int
     estimated_duration_minutes: float
+    terminated_reason: Literal[
+        "target_duration_reached",
+        "no_candidates_passed_thresholds",
+        "safety_cap_hit",
+    ] = "target_duration_reached"
+
+
+class AutoTagRequest(BaseModel):
+    track_ids: list[int]
+    tag_types: list[str] = ["category"]  # subset of: category, vocal, energy_level, energy_profile, intro_outro
+    overwrite: bool = True
+    dry_run: bool = False
+
+
+class AutoTagUndoData(BaseModel):
+    removed: list[dict] = []
+    added: list[str] = []
+
+
+class AutoTagResponse(BaseModel):
+    tagged: int
+    skipped_no_data: int = 0
+    errors: int
+    dry_run: bool
+    undo_data: AutoTagUndoData | None = None
+
+
+class AutoTagUndoRequest(BaseModel):
+    undo_data: AutoTagUndoData
+
+
+class AutoTagUndoResponse(BaseModel):
+    removed: int
+    restored: int
+
+
+class DiscogsTagRequest(BaseModel):
+    track_ids: list[int]
+    token: str  # Discogs personal access token
+    dry_run: bool = False
+
+
+class DiscogsTagEvent(BaseModel):
+    processed: int
+    total: int
+    track_id: int | None = None
+    artist: str | None = None
+    title: str | None = None
+    styles: list[str] = []
+    error: str | None = None
+    done: bool = False
+    tagged: int = 0
+    skipped: int = 0
+    errors: int = 0
+
+
+# ---------------------------------------------------------------------------
+# Set Builder — playlist export + alternatives
+# ---------------------------------------------------------------------------
+
+class CreatePlaylistRequest(BaseModel):
+    name: str
+    track_ids: list[int]
+
+
+class CreatePlaylistResponse(BaseModel):
+    playlist_id: int
+    name: str
+    track_count: int
+
+
+class SetAlternativeItem(BaseModel):
+    track_id: int
+    title: str
+    artist: str
+    bpm: float
+    key: str
+    score: float          # combined fit score
+    from_prev: float | None = None  # transition score from previous track
+    to_next: float | None = None    # transition score to next track
+
+
+class SetAlternativesResponse(BaseModel):
+    alternatives: list[SetAlternativeItem]
+
+
+# ---------------------------------------------------------------------------
+# Comment enrichment
+# ---------------------------------------------------------------------------
+
+class EnrichCommentsRequest(BaseModel):
+    track_ids: list[int]
+    overwrite: bool = False
+    dry_run: bool = False
+
+
+class EnrichCommentsResponse(BaseModel):
+    enriched: int
+    skipped: int
+    errors: int
+    dry_run: bool
+    backup_path: str | None = None
+
+
+class CommentPreviewRequest(BaseModel):
+    track_id: int
+
+
+class CommentPreviewResponse(BaseModel):
+    track_id: int
+    current_comment: str
+    preview: str  # what the comment would become after enrichment

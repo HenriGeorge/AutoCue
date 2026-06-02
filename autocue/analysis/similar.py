@@ -12,6 +12,9 @@ Vector dimensions (L2-normalized):
 BPM gate: candidates must be within ±8 BPM of the target.
 Intro/outro bars are excluded — they require PSSI; absence would cluster
 every non-analyzed track at the origin.
+
+A-ring and B-ring keys at the same number position are offset by π/12 (15°)
+so that relative major/minor pairs are distinguished geometrically.
 """
 from __future__ import annotations
 
@@ -36,8 +39,10 @@ _CAMELOT_RE = re.compile(r"^(\d{1,2})([AB])$", re.IGNORECASE)
 def _camelot_angle(key_str: str) -> float:
     """Return angle in radians for a Camelot key string (e.g. '8A', '11B').
 
-    A-keys and B-keys share the same number position on the wheel; adjacent
-    numbers are ±30° apart. Missing / unparseable key → 0.0.
+    A-ring keys map to base positions (0, π/6, π/3, …).
+    B-ring keys are offset by +π/12 (15°) — encodes relative major/minor
+    proximity without adding a separate dimension.
+    Missing / unparseable key → 0.0.
     """
     if not key_str:
         return 0.0
@@ -45,9 +50,10 @@ def _camelot_angle(key_str: str) -> float:
     if not m:
         return 0.0
     number = int(m.group(1))   # 1–12
-    # Letter distinguishes inner (A) and outer (B) ring — treat as same position
-    # for BPM-gated similarity; the key compatibility detail belongs in Transition Assistant.
-    return 2 * math.pi * (number - 1) / 12.0
+    letter = m.group(2).upper()
+    base_angle = 2 * math.pi * (number - 1) / 12.0
+    ring_offset = math.pi / 12.0 if letter == 'B' else 0.0
+    return base_angle + ring_offset
 
 
 # ---------------------------------------------------------------------------

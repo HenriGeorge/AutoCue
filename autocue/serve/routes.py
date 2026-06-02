@@ -8,7 +8,7 @@ from fastapi.responses import FileResponse
 from ..analysis.quality import check_library_health, check_track_health
 from ..db_writer import has_existing_hot_cues
 from ..generator import GenerationPrefs, generate_cues_for_track
-from .deps import get_db
+from .deps import get_db, get_ro_db
 from .schemas import (
     ApplyRequest,
     ApplyResponse,
@@ -28,8 +28,22 @@ from .schemas import (
     PlaylistSuggestItem,
     PlaylistSuggestRequest,
     PlaylistSuggestResponse,
+    AutoTagRequest,
+    AutoTagResponse,
+    AutoTagUndoRequest,
+    AutoTagUndoResponse,
+    DiscogsTagRequest,
+    DiscogsTagEvent,
     SetBuilderRequest,
+    CreatePlaylistRequest,
+    CreatePlaylistResponse,
+    SetAlternativeItem,
+    SetAlternativesResponse,
     SetBuilderResponse,
+    EnrichCommentsRequest,
+    EnrichCommentsResponse,
+    CommentPreviewRequest,
+    CommentPreviewResponse,
     SetBuilderTrackItem,
     SimilarTrackItem,
     SimilarTracksResponse,
@@ -53,13 +67,13 @@ router = APIRouter(prefix="/api")
 
 
 @router.get("/status", response_model=StatusResponse)
-def status(db=Depends(get_db)):
+def status(db=Depends(get_ro_db)):
     count = db.get_content().count()
     return StatusResponse(connected=True, track_count=count)
 
 
 @router.get("/playlists", response_model=list[PlaylistItem])
-def playlists(db=Depends(get_db)):
+def playlists(db=Depends(get_ro_db)):
     from pyrekordbox.db6 import DjmdPlaylist, DjmdSongPlaylist
     rows = db.query(DjmdPlaylist).filter(DjmdPlaylist.Name.isnot(None)).all()
     return [
@@ -80,7 +94,7 @@ def tracks(
     sort_order: str = Query("asc"),
     limit: int = Query(5000),
     offset: int = 0,
-    db=Depends(get_db),
+    db=Depends(get_ro_db),
 ):
     from pyrekordbox.db6 import DjmdAlbum, DjmdArtist, DjmdContent, DjmdKey, DjmdPlaylist, DjmdSongPlaylist
     from sqlalchemy import asc, desc, func
@@ -175,7 +189,7 @@ _FOLDER_ART_NAMES = ["cover.jpg", "folder.jpg", "artwork.jpg", "front.jpg",
                      "cover.png", "folder.png", "artwork.png", "front.png"]
 
 @router.get("/tracks/{track_id}/artwork")
-def track_artwork(track_id: int, db=Depends(get_db)):
+def track_artwork(track_id: int, db=Depends(get_ro_db)):
     from pathlib import Path
 
     content = db.get_content(ID=track_id)
@@ -213,7 +227,7 @@ def track_artwork(track_id: int, db=Depends(get_db)):
 
 
 @router.get("/tracks/{track_id}/audio")
-def track_audio(track_id: int, db=Depends(get_db)):
+def track_audio(track_id: int, db=Depends(get_ro_db)):
     from pathlib import Path
 
     content = db.get_content(ID=track_id)
@@ -239,7 +253,7 @@ def track_audio(track_id: int, db=Depends(get_db)):
 
 
 @router.get("/tags")
-def list_tags(db=Depends(get_db)):
+def list_tags(db=Depends(get_ro_db)):
     try:
         from pyrekordbox.db6 import DjmdMyTag
         tags = db.query(DjmdMyTag).filter(DjmdMyTag.Name.isnot(None)).all()
@@ -249,7 +263,7 @@ def list_tags(db=Depends(get_db)):
 
 
 @router.post("/generate", response_model=GenerateResponse)
-def generate(req: GenerateRequest, db=Depends(get_db)):
+def generate(req: GenerateRequest, db=Depends(get_ro_db)):
     prefs = GenerationPrefs(
         mode=req.mode,
         bars_interval=req.bars_interval,
@@ -700,30 +714,32 @@ def color_tracks_stream_ep(req: ColorTracksRequest, db=Depends(get_db)):
         colored = skipped = 0
         BATCH = 50
 
-        for i, tid in enumerate(track_ids):
-            content = db.get_content(ID=tid)
-            if content is None:
-                skipped += 1
-            elif skip_colored and getattr(content, "ColorID", None) not in (None, "", "0"):
-                skipped += 1
-            else:
-                bpm_raw = getattr(content, "BPM", None)
-                bpm = float(bpm_raw) / 100 if bpm_raw else 0.0
-                sort_key = _bpm_to_color_sort_key(bpm)
-                color_id = color_by_sort_key.get(sort_key)
-                if not dry_run:
-                    db.session.execute(stmt, {"cid": color_id, "tid": tid})
-                colored += 1
+        try:
+            for i, tid in enumerate(track_ids):
+                content = db.get_content(ID=tid)
+                if content is None:
+                    skipped += 1
+                elif skip_colored and getattr(content, "ColorID", None) not in (None, "", "0"):
+                    skipped += 1
+                else:
+                    bpm_raw = getattr(content, "BPM", None)
+                    bpm = float(bpm_raw) / 100 if bpm_raw else 0.0
+                    sort_key = _bpm_to_color_sort_key(bpm)
+                    color_id = color_by_sort_key.get(sort_key)
+                    if not dry_run:
+                        db.session.execute(stmt, {"cid": color_id, "tid": tid})
+                    colored += 1
 
-            if (i + 1) % BATCH == 0:
-                if not dry_run:
-                    db.session.expire_all()
-                    db.session.commit()
-                yield f"data: {_json.dumps({'colored': colored, 'skipped': skipped, 'total': total})}\n\n"
+                if (i + 1) % BATCH == 0:
+                    yield f"data: {_json.dumps({'colored': colored, 'skipped': skipped, 'total': total})}\n\n"
 
-        if not dry_run:
-            db.session.expire_all()
-            db.session.commit()
+            if not dry_run:
+                db.session.expire_all()
+                db.session.commit()  # single commit for entire batch
+
+        except BaseException:  # includes GeneratorExit (client disconnect)
+            db.session.rollback()
+            raise
 
         yield f"data: {_json.dumps({'done': True, 'colored': colored, 'skipped': skipped, 'total': total, 'backup_path': backup_path, 'dry_run': dry_run})}\n\n"
 
@@ -786,7 +802,7 @@ def _report_to_schema(report) -> TrackHealthReport:
 
 
 @router.get("/tracks/{track_id}/health", response_model=TrackHealthReport)
-def track_health(track_id: int, db=Depends(get_db)):
+def track_health(track_id: int, db=Depends(get_ro_db)):
     """Return health score and issues for a single track."""
     from pyrekordbox.db6 import DjmdContent
     content = db.query(DjmdContent).filter(DjmdContent.ID == track_id).first()
@@ -807,7 +823,7 @@ def track_health(track_id: int, db=Depends(get_db)):
 async def library_health(
     request: Request,
     playlist_id: int | None = Query(None),
-    db=Depends(get_db),
+    db=Depends(get_ro_db),
 ):
     """Stream library health as SSE. One JSON event per track, then a summary event.
 
@@ -941,8 +957,8 @@ def cue_tools_stream(req: CueToolsRequest, db=Depends(get_db)):
     total = len(track_ids)
     BATCH = 50
 
-    def _process_track(content_id: int) -> tuple[int, int]:
-        """Return (cues_changed, cues_skipped) for one track."""
+    def _process_track(content_id: int) -> tuple[int, int, dict]:
+        """Return (cues_changed, cues_skipped, skip_reasons) for one track."""
         hot_cues = (
             db.session.query(DjmdCue)
             .filter(DjmdCue.ContentID == content_id,
@@ -950,6 +966,7 @@ def cue_tools_stream(req: CueToolsRequest, db=Depends(get_db)):
             .all()
         )
         changed = skipped = 0
+        reasons: dict[str, int] = {}
 
         if operation == "rename":
             p = req.rename
@@ -960,6 +977,7 @@ def cue_tools_stream(req: CueToolsRequest, db=Depends(get_db)):
                     changed += 1
                 else:
                     skipped += 1
+                    reasons["no_match"] = reasons.get("no_match", 0) + 1
 
         elif operation == "recolor":
             p = req.recolor
@@ -971,21 +989,34 @@ def cue_tools_stream(req: CueToolsRequest, db=Depends(get_db)):
                     changed += 1
                 else:
                     skipped += 1
+                    reasons["no_match"] = reasons.get("no_match", 0) + 1
 
         elif operation == "shift":
             p = req.shift
+            policy = p.negative_policy
+            if policy == "abort_track":
+                # Check first: if any cue would go negative, skip the whole track
+                if any(int(cue.InMsec or 0) + p.delta_ms < 0 for cue in hot_cues):
+                    reasons["track_aborted"] = reasons.get("track_aborted", 0) + len(hot_cues)
+                    return 0, len(hot_cues), reasons
             for cue in hot_cues:
-                new_ms = int(cue.InMsec or 0) + p.delta_ms
+                original_in_ms = int(cue.InMsec or 0)
+                new_ms = original_in_ms + p.delta_ms
                 if new_ms < 0:
-                    skipped += 1
-                    continue
+                    if policy == "clamp_to_zero":
+                        new_ms = 0
+                    else:  # "skip"
+                        skipped += 1
+                        reasons["would_be_negative"] = reasons.get("would_be_negative", 0) + 1
+                        continue
                 if not dry_run:
                     cue.InMsec = new_ms
                     cue.InFrame = round(new_ms * 150 / 1000)
-                    # Preserve loop length: shift OutMsec by the same delta
                     out_ms = cue.OutMsec if cue.OutMsec is not None else -1
                     if out_ms >= 0:
-                        cue.OutMsec = out_ms + p.delta_ms
+                        # Use effective shift to keep loop length intact
+                        effective_shift = new_ms - original_in_ms
+                        cue.OutMsec = max(0, out_ms + effective_shift)
                 changed += 1
 
         elif operation == "delete_orphan":
@@ -997,36 +1028,42 @@ def cue_tools_stream(req: CueToolsRequest, db=Depends(get_db)):
                     changed += 1
                 else:
                     skipped += 1
+                    reasons["beyond_keep_slots"] = reasons.get("beyond_keep_slots", 0) + 1
 
-        return changed, skipped
+        return changed, skipped, reasons
 
     def event_stream():
         processed = affected = total_changed = total_skipped = 0
+        total_reasons: dict[str, int] = {}
 
-        for i, tid in enumerate(track_ids):
-            content = db.get_content(ID=tid)
-            if content is None:
-                processed += 1
-            else:
-                try:
-                    changed, skipped_count = _process_track(content.ID)
+        try:
+            for i, tid in enumerate(track_ids):
+                content = db.get_content(ID=tid)
+                if content is None:
                     processed += 1
-                    if changed > 0:
-                        affected += 1
-                    total_changed += changed
-                    total_skipped += skipped_count
-                except Exception as exc:
-                    db.session.rollback()
-                    logger.error("cue-tools %s failed for track %d: %s", operation, tid, exc)
-                    processed += 1
+                else:
+                    try:
+                        changed, skipped_count, reasons = _process_track(content.ID)
+                        processed += 1
+                        if changed > 0:
+                            affected += 1
+                        total_changed += changed
+                        total_skipped += skipped_count
+                        for k, v in reasons.items():
+                            total_reasons[k] = total_reasons.get(k, 0) + v
+                    except Exception as exc:
+                        logger.error("cue-tools %s failed for track %d: %s", operation, tid, exc)
+                        processed += 1
 
-            if (i + 1) % BATCH == 0:
-                if not dry_run:
-                    db.session.commit()
-                yield f"data: {_json.dumps({'processed': processed, 'affected': affected, 'total': total})}\n\n"
+                if (i + 1) % BATCH == 0:
+                    yield f"data: {_json.dumps({'processed': processed, 'affected': affected, 'total': total})}\n\n"
 
-        if not dry_run:
-            db.session.commit()
+            if not dry_run:
+                db.session.commit()  # single commit for entire batch
+
+        except BaseException:  # includes GeneratorExit (client disconnect) — must not leave dirty session
+            db.session.rollback()
+            raise
 
         summary = CueToolsSummary(
             operation=operation,
@@ -1034,6 +1071,7 @@ def cue_tools_stream(req: CueToolsRequest, db=Depends(get_db)):
             tracks_affected=affected,
             cues_changed=total_changed,
             cues_skipped=total_skipped,
+            skip_reasons=total_reasons,
             dry_run=dry_run,
             backup_path=backup_path,
         )
@@ -1047,7 +1085,7 @@ def cue_tools_stream(req: CueToolsRequest, db=Depends(get_db)):
 
 
 @router.get("/tracks/{track_id}/energy", response_model=EnergyResponse)
-def track_energy(track_id: int, db=Depends(get_db)):
+def track_energy(track_id: int, db=Depends(get_ro_db)):
     from ..analysis.energy import classify_energy_profile, get_energy_curve
     content = db.get_content(ID=track_id)
     if content is None:
@@ -1062,7 +1100,7 @@ def track_energy(track_id: int, db=Depends(get_db)):
 
 
 @router.get("/tracks/{track_id}/mixability", response_model=MixabilityResponse)
-def track_mixability(track_id: int, db=Depends(get_db)):
+def track_mixability(track_id: int, db=Depends(get_ro_db)):
     from ..analysis.score import get_mixability
     content = db.get_content(ID=track_id)
     if content is None:
@@ -1083,7 +1121,7 @@ def track_mixability(track_id: int, db=Depends(get_db)):
 
 
 @router.get("/tracks/{track_id}/classification", response_model=ClassificationResponse)
-def track_classification(track_id: int, db=Depends(get_db)):
+def track_classification(track_id: int, db=Depends(get_ro_db)):
     from ..analysis.classify import get_classification
     content = db.get_content(ID=track_id)
     if content is None:
@@ -1093,7 +1131,7 @@ def track_classification(track_id: int, db=Depends(get_db)):
 
 
 @router.post("/playlists/suggest", response_model=PlaylistSuggestResponse)
-def playlist_suggest(req: PlaylistSuggestRequest, db=Depends(get_db)):
+def playlist_suggest(req: PlaylistSuggestRequest, db=Depends(get_ro_db)):
     """Return top tracks for a DJ set category, sorted by category score."""
     from ..analysis.classify import CATEGORIES, get_classification
 
@@ -1171,7 +1209,7 @@ def playlist_suggest(req: PlaylistSuggestRequest, db=Depends(get_db)):
 async def classify_library(
     playlist_id: int | None = None,
     force_refresh: bool = False,
-    db=Depends(get_db),
+    db=Depends(get_ro_db),
 ):
     """SSE stream: one ClassificationResponse JSON event per track, then done summary."""
     import json as _json
@@ -1224,7 +1262,7 @@ def track_similar(
     n: int = 10,
     bpm_gate: float = 8.0,
     force_rebuild: bool = False,
-    db=Depends(get_db),
+    db=Depends(get_ro_db),
 ):
     from ..analysis.similar import clear_index, find_similar
 
@@ -1241,7 +1279,7 @@ def track_similar(
 
 
 @router.post("/transitions/score", response_model=TransitionResponse)
-def transition_score(req: TransitionRequest, db=Depends(get_db)):
+def transition_score(req: TransitionRequest, db=Depends(get_ro_db)):
     from ..analysis.transitions import score_transition
 
     if req.track_a_id == req.track_b_id:
@@ -1266,11 +1304,11 @@ def transition_score(req: TransitionRequest, db=Depends(get_db)):
 # ---------------------------------------------------------------------------
 
 @router.post("/setbuilder", response_model=SetBuilderResponse)
-def build_set_endpoint(req: SetBuilderRequest, db=Depends(get_db)):
+def build_set_endpoint(req: SetBuilderRequest, db=Depends(get_ro_db)):
     """Build a DJ set via beam search over the track library."""
     from ..analysis.setbuilder import build_set
 
-    tracks = build_set(
+    result = build_set(
         db,
         start_bpm=req.start_bpm,
         end_bpm=req.end_bpm,
@@ -1279,6 +1317,9 @@ def build_set_endpoint(req: SetBuilderRequest, db=Depends(get_db)):
         bpm_step_max=req.bpm_step_max,
         seed_track_id=req.seed_track_id,
     )
+
+    tracks = result["tracks"]
+    terminated_reason = result["terminated_reason"]
 
     if not tracks:
         raise HTTPException(422, "No valid set could be built with the given constraints")
@@ -1297,4 +1338,318 @@ def build_set_endpoint(req: SetBuilderRequest, db=Depends(get_db)):
         tracks=[SetBuilderTrackItem(**t) for t in tracks],
         total_tracks=len(tracks),
         estimated_duration_minutes=round(total_duration_s / 60.0, 1),
+        terminated_reason=terminated_reason,
+    )
+
+
+@router.get("/setbuilder/alternatives", response_model=SetAlternativesResponse)
+def setbuilder_alternatives(
+    track_id: int,
+    prev_id: int | None = Query(None),
+    next_id: int | None = Query(None),
+    exclude_ids: str = Query(""),
+    n: int = Query(8, ge=1, le=20),
+    db=Depends(get_ro_db),
+):
+    """Return best replacement candidates for a track given its neighbours in the set."""
+    from ..analysis.similar import find_similar, _build_index
+    from ..analysis import similar as _sim_mod
+    from ..analysis.transitions import score_transition
+
+    if not _sim_mod._INDEX_BUILT:
+        _build_index(db)
+
+    exclude: set[int] = {track_id}
+    for x in exclude_ids.split(","):
+        x = x.strip()
+        if x:
+            try:
+                exclude.add(int(x))
+            except ValueError:
+                pass
+
+    # Gather candidates from similarity to prev, next, and current track
+    candidate_ids: set[int] = set()
+    for ref_id in filter(None, [prev_id, next_id, track_id]):
+        try:
+            for item in find_similar(ref_id, db, n=25):
+                candidate_ids.add(item["track_id"])
+        except Exception:
+            pass
+    candidate_ids -= exclude
+
+    prev_content = db.get_content(ID=prev_id) if prev_id else None
+    next_content = db.get_content(ID=next_id) if next_id else None
+
+    results: list[SetAlternativeItem] = []
+    for cid in list(candidate_ids)[:60]:
+        try:
+            cand = db.get_content(ID=cid)
+            if cand is None:
+                continue
+            from_prev = score_transition(prev_content, cand, db)["overall"] if prev_content else None
+            to_next   = score_transition(cand, next_content, db)["overall"] if next_content else None
+            scores = [s for s in [from_prev, to_next] if s is not None]
+            combined = sum(scores) / len(scores) if scores else 50.0
+            raw_bpm = getattr(cand, "BPM", 0) or 0
+            bpm = float(raw_bpm) / 100.0
+            key = ""
+            try:
+                k = getattr(cand, "Key", None)
+                if k:
+                    key = str(getattr(k, "ScaleName", "") or "")
+            except Exception:
+                pass
+            results.append(SetAlternativeItem(
+                track_id=cid,
+                title=str(getattr(cand, "Title", "") or ""),
+                artist=str(getattr(cand, "ArtistName", "") or ""),
+                bpm=round(bpm, 2),
+                key=key,
+                score=round(combined, 1),
+                from_prev=round(from_prev, 1) if from_prev is not None else None,
+                to_next=round(to_next, 1) if to_next is not None else None,
+            ))
+        except Exception:
+            pass
+
+    results.sort(key=lambda x: -x.score)
+    return SetAlternativesResponse(alternatives=results[:n])
+
+
+@router.post("/playlists", response_model=CreatePlaylistResponse)
+def create_playlist(req: CreatePlaylistRequest, db=Depends(get_db)):
+    """Create a new Rekordbox playlist from a list of track IDs."""
+    import os
+    from datetime import datetime
+    from uuid import uuid4
+    from sqlalchemy import func as _func
+
+    if not req.name.strip():
+        raise HTTPException(400, "Playlist name is required")
+    if not req.track_ids:
+        raise HTTPException(400, "No tracks provided")
+
+    try:
+        from pyrekordbox.db6.tables import DjmdPlaylist, DjmdSongPlaylist
+
+        max_seq = db.session.query(_func.max(DjmdPlaylist.Seq)).scalar() or 0
+        now = datetime.utcnow()
+
+        pl_id = db.generate_unused_id(DjmdPlaylist)
+        playlist = DjmdPlaylist(
+            ID=str(pl_id),
+            Seq=int(max_seq) + 1,
+            Name=req.name.strip(),
+            Attribute=0,
+            ParentID="root",
+            UUID=str(uuid4()),
+            created_at=now,
+            updated_at=now,
+        )
+        db.session.add(playlist)
+
+        for track_no, tid in enumerate(req.track_ids, start=1):
+            sp_id = db.generate_unused_id(DjmdSongPlaylist)
+            db.session.add(DjmdSongPlaylist(
+                ID=str(sp_id),
+                PlaylistID=str(pl_id),
+                ContentID=str(tid),
+                TrackNo=track_no,
+                UUID=str(uuid4()),
+                created_at=now,
+                updated_at=now,
+            ))
+
+        db.session.commit()
+        return CreatePlaylistResponse(
+            playlist_id=pl_id,
+            name=req.name.strip(),
+            track_count=len(req.track_ids),
+        )
+    except Exception as exc:
+        db.session.rollback()
+        raise HTTPException(500, f"Failed to create playlist: {exc}")
+
+
+# ── Auto-Tag ────────────────────────────────────────────────────────────────
+
+@router.post("/auto-tag", response_model=AutoTagResponse)
+def auto_tag(req: AutoTagRequest, db=Depends(get_db)):
+    from ..analysis.auto_tag import apply_tags
+
+    try:
+        result = apply_tags(
+            db,
+            track_ids=req.track_ids,
+            tag_types=req.tag_types,
+            overwrite=req.overwrite,
+            dry_run=req.dry_run,
+        )
+        if not req.dry_run:
+            db.session.commit()
+        return AutoTagResponse(**result)
+    except Exception as exc:
+        db.session.rollback()
+        raise HTTPException(500, str(exc)) from exc
+
+
+@router.get("/config")
+def get_config():
+    """Return non-sensitive client config, including Discogs token from env (local server only)."""
+    import os as _os
+    # Load .env from the project root if present (one-time, lightweight)
+    env_path = _os.path.join(_os.path.dirname(_os.path.dirname(_os.path.dirname(__file__))), ".env")
+    token = ""
+    try:
+        if _os.path.exists(env_path):
+            with open(env_path) as f:
+                for line in f:
+                    line = line.strip()
+                    if line.startswith("DISCOGS_TOKEN="):
+                        token = line.split("=", 1)[1].strip()
+                        break
+    except Exception:
+        pass
+    # Also check actual environment (takes precedence)
+    token = _os.environ.get("DISCOGS_TOKEN", token)
+    return {"discogs_token": token}
+
+
+@router.post("/auto-tag/discogs/test")
+def auto_tag_discogs_test(req: dict):
+    """Verify a Discogs personal access token by calling the identity endpoint."""
+    import json as _json
+    import urllib.request as _urlreq
+    token = (req.get("token") or "").strip()
+    if not token:
+        raise HTTPException(400, "token is required")
+    try:
+        request = _urlreq.Request(
+            "https://api.discogs.com/oauth/identity",
+            headers={"Authorization": f"Discogs token={token}", "User-Agent": "AutoCue/1.0"},
+        )
+        with _urlreq.urlopen(request, timeout=8) as resp:
+            data = _json.loads(resp.read().decode())
+        return {"ok": True, "username": data.get("username", "")}
+    except Exception as exc:
+        raise HTTPException(400, str(exc)) from exc
+
+
+@router.post("/auto-tag/discogs")
+def auto_tag_discogs(req: DiscogsTagRequest, db=Depends(get_db)):
+    """Stream Discogs style tags to Rekordbox My Tags via SSE.
+
+    Each event: data: {"processed":N,"total":M,"track_id":ID,"styles":[...]}
+    Final event: data: {"done":true,"tagged":T,"skipped":S,"errors":E}
+    """
+    import json as _json
+    from fastapi.responses import StreamingResponse
+    from ..analysis.discogs import search_styles
+    from ..analysis.auto_tag import ensure_tag_by_name
+
+    def event_stream():
+        from pyrekordbox.db6 import DjmdContent
+        total   = len(req.track_ids)
+        tagged  = 0
+        skipped = 0
+        errors  = 0
+
+        for i, tid in enumerate(req.track_ids):
+            try:
+                content = db.get_content(ID=tid)
+                if content is None:
+                    skipped += 1
+                    yield f"data: {_json.dumps({'processed': i+1, 'total': total, 'track_id': tid, 'styles': [], 'skipped': skipped})}\n\n"
+                    continue
+
+                artist = str(getattr(content, "ArtistName", "") or "")
+                title  = str(getattr(content, "Title", "") or "")
+                styles = search_styles(artist, title, req.token)
+
+                if not styles:
+                    skipped += 1
+                    yield f"data: {_json.dumps({'processed': i+1, 'total': total, 'track_id': tid, 'artist': artist, 'title': title, 'styles': [], 'skipped': skipped})}\n\n"
+                    continue
+
+                if not req.dry_run:
+                    for style in styles:
+                        tag_id = ensure_tag_by_name(db, style)
+                        from pyrekordbox.db6 import DjmdSongMyTag
+                        existing = db.session.query(DjmdSongMyTag).filter(
+                            DjmdSongMyTag.ContentID == str(tid),
+                            DjmdSongMyTag.MyTagID   == str(tag_id),
+                        ).first()
+                        if not existing:
+                            new_id = db.generate_unused_id(DjmdSongMyTag)
+                            row = DjmdSongMyTag(
+                                ID=str(new_id),
+                                ContentID=str(tid),
+                                MyTagID=str(tag_id),
+                            )
+                            db.session.add(row)
+                    db.session.commit()
+
+                tagged += 1
+                yield f"data: {_json.dumps({'processed': i+1, 'total': total, 'track_id': tid, 'artist': artist, 'title': title, 'styles': styles, 'tagged': tagged})}\n\n"
+
+            except Exception as exc:
+                errors += 1
+                logger.warning("Discogs tag error for track %d: %s", tid, exc)
+                try:
+                    db.session.rollback()
+                except Exception:
+                    pass
+                yield f"data: {_json.dumps({'processed': i+1, 'total': total, 'track_id': tid, 'error': str(exc), 'errors': errors})}\n\n"
+
+        yield f"data: {_json.dumps({'done': True, 'tagged': tagged, 'skipped': skipped, 'errors': errors})}\n\n"
+
+    return StreamingResponse(event_stream(), media_type="text/event-stream")
+
+
+@router.post("/auto-tag/undo", response_model=AutoTagUndoResponse)
+def auto_tag_undo(req: AutoTagUndoRequest, db=Depends(get_db)):
+    from ..analysis.auto_tag import undo_tag_run
+
+    try:
+        result = undo_tag_run(db, req.undo_data.model_dump())
+        db.session.commit()
+        return AutoTagUndoResponse(**result)
+    except Exception as exc:
+        db.session.rollback()
+        raise HTTPException(500, str(exc)) from exc
+
+
+# ---------------------------------------------------------------------------
+# Comment enrichment
+# ---------------------------------------------------------------------------
+
+@router.post("/enrich-comments", response_model=EnrichCommentsResponse)
+def enrich_comments(req: EnrichCommentsRequest, db=Depends(get_db)):
+    from ..analysis.comment import enrich_comments_batch
+    try:
+        result = enrich_comments_batch(
+            req.track_ids, db,
+            overwrite=req.overwrite,
+            dry_run=req.dry_run,
+        )
+        return EnrichCommentsResponse(dry_run=req.dry_run, **result)
+    except Exception as exc:
+        raise HTTPException(500, str(exc)) from exc
+
+
+@router.post("/enrich-comments/preview", response_model=CommentPreviewResponse)
+def enrich_comments_preview(req: CommentPreviewRequest, db=Depends(get_ro_db)):
+    from ..analysis.comment import build_comment_string, enrich_comment
+    content = db.get_content(ID=req.track_id)
+    if content is None:
+        raise HTTPException(404, f"Track {req.track_id} not found")
+    current = str(getattr(content, "Comment", "") or "")
+    enrichment = build_comment_string(content, db)
+    # Compute preview without writing
+    preview = enrich_comment(content, db, overwrite=False, dry_run=True) or current
+    return CommentPreviewResponse(
+        track_id=req.track_id,
+        current_comment=current,
+        preview=preview or enrichment,
     )

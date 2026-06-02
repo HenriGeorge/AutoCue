@@ -1,5 +1,12 @@
 # AutoCue — Claude Code Guide
 
+## Browser testing
+
+When doing browser testing or UI verification with Chrome DevTools tools:
+- **Always send screenshots to the user** using `SendUserFile` after every meaningful state change (before action, after action, result visible). Do not just describe what you see.
+- **Screenshots are pre-approved** — take them freely without asking permission. The `mcp__plugin_chrome-devtools-mcp_chrome-devtools__take_screenshot` tool is always allowed.
+- Save screenshots to `/var/folders/kg/k03ymsv51sjd109wm__rfyt40000gn/T/` (the allowed temp dir).
+
 ## What this project is
 
 AutoCue places hot cues on Rekordbox 7 tracks automatically using three tools:

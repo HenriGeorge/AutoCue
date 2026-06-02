@@ -45,8 +45,9 @@ def _make_client(db=None, connected: bool = True):
     if connected:
         if db is None:
             db = _make_db()
-        from autocue.serve.deps import get_db
+        from autocue.serve.deps import get_db, get_ro_db
         app.dependency_overrides[get_db] = lambda: db
+        app.dependency_overrides[get_ro_db] = lambda: db  # same mock for tests
     return TestClient(app, raise_server_exceptions=False)
 
 
@@ -2281,3 +2282,132 @@ class TestTrackSimilar:
                 r = client.get("/api/tracks/1/similar?n=3")
         assert r.status_code == 200
         assert len(r.json()["results"]) <= 3
+
+
+# ---------------------------------------------------------------------------
+# /api/auto-tag  &  /api/auto-tag/undo
+# ---------------------------------------------------------------------------
+
+class TestAutoTagEndpoint:
+    MODULE = "autocue.serve.routes"
+
+    def _patch_auto_tag(self, result):
+        return patch(
+            "autocue.analysis.auto_tag.apply_tags",
+            return_value=result,
+        )
+
+    def test_returns_200_on_success(self):
+        db = _make_db()
+        payload = {"tagged": 3, "skipped_no_data": 1,
+                   "errors": 0, "dry_run": False,
+                   "undo_data": {"removed": [], "added": ["101", "102", "103"]}}
+        with self._patch_auto_tag(payload):
+            client = _make_client(db)
+            r = client.post("/api/auto-tag", json={"track_ids": [1, 2, 3, 4]})
+        assert r.status_code == 200
+        data = r.json()
+        assert data["tagged"] == 3
+        assert data["skipped_no_data"] == 1
+
+    def test_dry_run_no_commit(self):
+        db = _make_db()
+        payload = {"tagged": 2, "skipped_no_data": 0,
+                   "errors": 0, "dry_run": True, "undo_data": None}
+        with self._patch_auto_tag(payload):
+            client = _make_client(db)
+            r = client.post("/api/auto-tag", json={"track_ids": [1, 2], "dry_run": True})
+        assert r.status_code == 200
+        assert r.json()["dry_run"] is True
+        db.session.commit.assert_not_called()
+
+    def test_commits_on_success(self):
+        db = _make_db()
+        payload = {"tagged": 1, "skipped_no_data": 0,
+                   "errors": 0, "dry_run": False,
+                   "undo_data": {"removed": [], "added": ["50"]}}
+        with self._patch_auto_tag(payload):
+            client = _make_client(db)
+            r = client.post("/api/auto-tag", json={"track_ids": [1]})
+        assert r.status_code == 200
+        db.session.commit.assert_called_once()
+
+    def test_tag_types_passed_through(self):
+        db = _make_db()
+        payload = {"tagged": 1, "skipped_no_data": 0, "errors": 0, "dry_run": False,
+                   "undo_data": {"removed": [], "added": ["60"]}}
+        with self._patch_auto_tag(payload) as mock_fn:
+            client = _make_client(db)
+            r = client.post("/api/auto-tag", json={"track_ids": [1], "tag_types": ["vocal", "energy_level"]})
+        assert r.status_code == 200
+        call_kwargs = mock_fn.call_args
+        assert "vocal" in call_kwargs.kwargs.get("tag_types", []) or \
+               "vocal" in (call_kwargs.args[2] if len(call_kwargs.args) > 2 else [])
+
+    def test_returns_500_on_exception(self):
+        db = _make_db()
+        with patch(
+            "autocue.analysis.auto_tag.apply_tags",
+            side_effect=Exception("DB exploded"),
+        ):
+            client = _make_client(db)
+            r = client.post("/api/auto-tag", json={"track_ids": [1]})
+        assert r.status_code == 500
+        db.session.rollback.assert_called()
+
+    def test_empty_track_ids_returns_200(self):
+        db = _make_db()
+        payload = {"tagged": 0, "skipped_no_data": 0,
+                   "errors": 0, "dry_run": False,
+                   "undo_data": {"removed": [], "added": []}}
+        with self._patch_auto_tag(payload):
+            client = _make_client(db)
+            r = client.post("/api/auto-tag", json={"track_ids": []})
+        assert r.status_code == 200
+
+
+class TestAutoTagUndoEndpoint:
+    def _patch_undo(self, result):
+        return patch(
+            "autocue.analysis.auto_tag.undo_tag_run",
+            return_value=result,
+        )
+
+    def test_returns_200_on_success(self):
+        db = _make_db()
+        with self._patch_undo({"removed": 2, "restored": 1}):
+            client = _make_client(db)
+            r = client.post(
+                "/api/auto-tag/undo",
+                json={"undo_data": {"added": ["101", "102"], "removed": [
+                    {"ID": "50", "MyTagID": "10", "ContentID": "1", "TrackNo": 0, "UUID": None}
+                ]}},
+            )
+        assert r.status_code == 200
+        assert r.json()["removed"] == 2
+        assert r.json()["restored"] == 1
+
+    def test_commits_on_success(self):
+        db = _make_db()
+        with self._patch_undo({"removed": 0, "restored": 0}):
+            client = _make_client(db)
+            r = client.post(
+                "/api/auto-tag/undo",
+                json={"undo_data": {"added": [], "removed": []}},
+            )
+        assert r.status_code == 200
+        db.session.commit.assert_called_once()
+
+    def test_returns_500_on_exception(self):
+        db = _make_db()
+        with patch(
+            "autocue.analysis.auto_tag.undo_tag_run",
+            side_effect=RuntimeError("undo boom"),
+        ):
+            client = _make_client(db)
+            r = client.post(
+                "/api/auto-tag/undo",
+                json={"undo_data": {"added": [], "removed": []}},
+            )
+        assert r.status_code == 500
+        db.session.rollback.assert_called()

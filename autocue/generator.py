@@ -16,8 +16,8 @@ from .models import CuePoint, LABEL_COLORS, PhraseLabel, SLOT_COLORS
 
 MAX_HOT_CUES = 8
 
-# Importance order for non-mix-in slots (lower = earlier slot).
-# Slot A is always the mix-in point (first non-Intro phrase). Slots B+ use this priority.
+# Importance order for remaining slots after A (mix-in) and B (outro) are reserved.
+# Slots C+ are filled using this priority order.
 _SMART_PRIORITY: dict[PhraseLabel, int] = {
     PhraseLabel.CHORUS:  0,  # Drop
     PhraseLabel.UP:      1,  # Build
@@ -63,10 +63,11 @@ def _resolve_memory_cue_mode(prefs: GenerationPrefs) -> Literal["none", "load_on
 
 
 def _apply_smart_slot_order(cues: list[CuePoint]) -> None:
-    """Reassign hot cue slot numbers: A = mix-in point, B+ by musical importance.
+    """Reassign hot cue slot numbers: A = mix-in point, B = outro start, C+ by musical importance.
 
     Slot A is always the first non-Intro phrase chronologically — the point a DJ
-    presses to start the track during a transition. Remaining slots are ordered by
+    presses to start the track during a transition. Slot B is reserved for the
+    first Outro phrase (the start of the mix-out window). Slots C+ are ordered by
     _SMART_PRIORITY (Drop first, Intro last), with chronological tiebreaking.
 
     Mutates slots in-place; memory cues (slot=-1) and list order are untouched.
@@ -86,7 +87,6 @@ def _apply_smart_slot_order(cues: list[CuePoint]) -> None:
         return
 
     mix_in.slot = 0
-    # When a non-Intro phrase is the mix-in point, mark it so DJs know A = entry, not mid-track re-cue
     if mix_in.label != PhraseLabel.INTRO:
         base = mix_in.name or ""
         if base and "(Mix In)" not in base:
@@ -94,11 +94,31 @@ def _apply_smart_slot_order(cues: list[CuePoint]) -> None:
         elif not base:
             mix_in.name = "Mix In"
 
-    # Remaining slots sorted by importance, chronological within each tier
     remaining = [c for c in hot if c is not mix_in]
+
+    # Slot B = first Outro phrase chronologically (the mix-out window start).
+    # Having the outro at a fixed slot lets DJs build muscle memory: B = safe-to-mix-out.
+    outros = sorted(
+        [c for c in remaining if c.label == PhraseLabel.OUTRO],
+        key=lambda c: c.position_ms,
+    )
+    outro_b = outros[0] if outros else None
+    next_slot = 1
+
+    if outro_b is not None:
+        outro_b.slot = 1
+        base = outro_b.name or ""
+        if not base:
+            outro_b.name = "Outro"
+        elif "Outro" not in base:
+            outro_b.name = f"{base} (Outro)"
+        remaining = [c for c in remaining if c is not outro_b]
+        next_slot = 2
+
+    # Remaining slots sorted by importance, chronological within each tier
     remaining.sort(key=lambda c: (_SMART_PRIORITY.get(c.label, 7), c.position_ms))
     for i, c in enumerate(remaining):
-        c.slot = i + 1
+        c.slot = next_slot + i
 
 
 def detect_capability(

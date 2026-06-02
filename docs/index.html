@@ -7,21 +7,28 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jsmediatags/3.9.5/jsmediatags.min.js"
           crossorigin="anonymous"
           onerror="window.jsmediatags=null;console.warn('jsmediatags CDN unavailable — artwork disabled')"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
     :root {
-      /* light theme (default) */
-      --bg:          #ffffff;
-      --surface:     #f5f5f8;
-      --surface2:    #eaeaef;
-      --border:      #e0e0e8;
-      --border-hover:#c4c4d0;
+      /* ElevenLabs clean light theme */
+      --bg:          #fafafa;
+      --surface:     #ffffff;
+      --surface2:    #f2f2f2;
+      --surface-card:#ffffff;
+      --border:      #e8e8e8;
+      --border-hover:#c8c8c8;
       --green:       #159a05;
       --green-dim:   #0f6e03;
-      --text:        #111118;
-      --muted:       #888898;
-      --dl-bg:       rgba(255,255,255,.94);
+      --text:        #1a1a1a;
+      --muted:       #737373;
+      --muted-soft:  #a3a3a3;
+      --dl-bg:       rgba(255,255,255,.96);
+      --shadow-sm:   0 1px 3px rgba(0,0,0,.06), 0 0 0 1px rgba(0,0,0,.03);
+      --shadow-md:   0 4px 14px rgba(0,0,0,.08), 0 0 0 1px rgba(0,0,0,.04);
       --cue-a: #18a80c; --cue-b: #2246e0; --cue-c: #0099bb;
       --cue-d: #c07800; --cue-e: #c84800; --cue-f: #c02010;
       --cue-g: #c8006a; --cue-h: #9900cc;
@@ -36,19 +43,38 @@
     }
 
     html.dark {
-      --bg:          #0d0d0f;
-      --surface:     #16161a;
-      --surface2:    #1e1e24;
-      --border:      #2a2a35;
-      --border-hover:#3a3a48;
+      --bg:          #0c0a09;
+      --surface:     #1c1917;
+      --surface2:    #231f1d;
+      --surface-card:#1c1917;
+      --border:      #292524;
+      --border-hover:#3d3830;
       --green:       #28e214;
       --green-dim:   #1a9a0d;
-      --text:        #e8e8f0;
-      --muted:       #6b6b80;
-      --dl-bg:       rgba(13,13,15,.92);
+      --text:        #fafaf9;
+      --muted:       #a8a29e;
+      --muted-soft:  #78716c;
+      --dl-bg:       rgba(12,10,9,.95);
       --cue-a: #28e214; --cue-b: #305aff; --cue-c: #00e0ff;
       --cue-d: #ffa000; --cue-e: #ff6400; --cue-f: #e0301e;
       --cue-g: #f51e8c; --cue-h: #e600ff;
+    }
+
+    /* ── Global button reset ── */
+    button { border-radius: 9999px; font-family: var(--font); cursor: pointer; transition: all .15s; }
+
+    /* ── Scrollbar ── */
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: var(--bg); }
+    ::-webkit-scrollbar-thumb { background: var(--border-hover); border-radius: 9999px; }
+    ::-webkit-scrollbar-thumb:hover { background: var(--muted-soft); }
+
+    /* ── Input/select focus ── */
+    input[type="number"]:focus, input[type="text"]:focus, input[type="search"]:focus,
+    input[type="password"]:focus, select:focus, textarea:focus {
+      outline: none;
+      border-color: var(--green) !important;
+      box-shadow: 0 0 0 2px rgba(40,226,20,.12);
     }
 
     body {
@@ -64,10 +90,13 @@
     /* ── Header ── */
     header {
       border-bottom: 1px solid var(--border);
-      padding: 20px 40px;
+      padding: 16px 40px;
       display: flex;
       align-items: center;
       gap: 16px;
+      background: rgba(255,255,255,.92);
+      position: sticky; top: 0; z-index: 100;
+      backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
     }
     .logo {
       display: flex;
@@ -76,23 +105,24 @@
       text-decoration: none;
     }
     .logo-icon {
-      width: 36px; height: 36px;
-      background: var(--green);
+      width: 32px; height: 32px;
+      background: var(--surface2); border: 1px solid var(--border-hover);
       border-radius: 8px;
       display: flex; align-items: center; justify-content: center;
     }
     .logo-icon svg { width: 20px; height: 20px; }
     .logo-text {
-      font-size: 20px;
+      font-size: 17px;
       font-weight: 700;
       color: var(--text);
-      letter-spacing: -0.5px;
+      letter-spacing: -0.4px;
     }
     header nav { margin-left: auto; }
     header a {
-      color: var(--muted);
+      color: var(--muted-soft, #78716c);
       text-decoration: none;
-      font-size: 14px;
+      font-size: 13px;
+      font-weight: 500;
       transition: color .15s;
     }
     header a:hover { color: var(--text); }
@@ -196,7 +226,7 @@
     /* ── Settings ── */
     #settings-section {
       background: var(--surface); border: 1px solid var(--border);
-      border-radius: 12px; padding: 24px; margin-bottom: 24px; display: none;
+      border-radius: 12px; padding: 20px 24px; margin-bottom: 16px; display: none;
     }
     #settings-section.visible { display: block; }
     .settings-title {
@@ -211,7 +241,7 @@
     }
     .field label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 6px; font-weight: 500; }
     .field input[type=number], .field select {
-      width: 100%; background: var(--surface2); border: 1px solid var(--border);
+      width: 100%; background: var(--surface); border: 1px solid var(--border);
       border-radius: 8px; color: var(--text); font-size: 14px;
       padding: 8px 12px; outline: none; transition: border-color .15s; font-family: var(--font);
     }
@@ -228,9 +258,10 @@
     }
     .skip-cues-label input[type=checkbox] { cursor: pointer; }
     .settings-divider {
-      font-size: 11px; font-weight: 700; color: var(--muted);
-      text-transform: uppercase; letter-spacing: .08em;
+      font-size: 10px; font-weight: 800; color: var(--text);
+      text-transform: uppercase; letter-spacing: .1em;
       padding-top: 14px; margin-top: 6px; border-top: 1px solid var(--border);
+      margin-bottom: 8px; padding-bottom: 6px; border-bottom: 1px solid var(--border);
       grid-column: 1 / -1;
     }
 
@@ -245,10 +276,11 @@
     }
     .sort-bar span { flex-shrink: 0; }
     .sort-btn {
-      background: var(--surface2); border: 1px solid var(--border);
-      border-radius: 4px; padding: 3px 10px; cursor: pointer;
-      font-family: var(--font); font-size: 12px; color: var(--muted);
-      transition: border-color .15s, color .15s;
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 9999px; padding: 4px 12px;
+      font-size: 12px; color: var(--muted); font-weight: 500;
+      cursor: pointer; transition: all .15s;
+      font-family: var(--font);
     }
     .sort-btn:hover { border-color: var(--border-hover); color: var(--text); }
     .sort-btn.active { border-color: var(--green); color: var(--green); font-weight: 600; }
@@ -259,7 +291,7 @@
       border-bottom: 1px solid var(--border); user-select: none;
     }
     .backup-row:last-child { border-bottom: none; }
-    .backup-row:hover { background: rgba(255,255,255,.04); }
+    .backup-row:hover { background: var(--surface2); }
     .backup-row.selected { background: rgba(40,226,20,.07); }
     .backup-row input[type=checkbox] { accent-color: var(--green); flex-shrink: 0; }
     .backup-row .backup-name { color: var(--muted); font-family: var(--mono); }
@@ -322,14 +354,19 @@
 
     /* ── Track card ── */
     .track-card {
-      background: var(--surface); border: 1px solid var(--border);
+      background: var(--surface);
+      border: 1px solid var(--border);
       border-left-width: 3px;
-      border-radius: 10px; padding: 14px 16px; margin-bottom: 10px;
-      transition: border-color .15s;
+      border-radius: 10px;
+      padding: 12px 16px;
+      margin-bottom: 6px;
+      box-shadow: var(--shadow-sm);
+      transition: box-shadow .18s, border-color .18s, transform .18s;
+      cursor: pointer;
     }
-    .track-card:hover { border-color: var(--border-hover); }
+    .track-card:hover { border-color: var(--border-hover); background: var(--surface); box-shadow: var(--shadow-md); transform: translateY(-1px); }
     .track-card.now-playing { border-color: var(--green); }
-    .track-card.selected { border-color: var(--green); background: color-mix(in srgb, var(--green) 6%, var(--surface)); }
+    .track-card.selected { border-color: var(--green); background: rgba(40,226,20,.04); }
     /* Rekordbox BPM color accents — left border + dot */
     .track-card[data-color="Pink"]   { border-left-color: #e4849b; }
     .track-card[data-color="Red"]    { border-left-color: #e4384e; }
@@ -363,11 +400,18 @@
     .art-play-overlay svg { opacity:0; transition:opacity .15s; width:22px; height:22px; color:#fff; }
     .art-play-overlay:hover svg, .art-play-overlay.playing svg { opacity:1; }
     .art-play-overlay.playing { background:rgba(0,0,0,.35); }
+    /* tag filter chips (popup) */
+    .tf-chip.selected { outline: 2px solid var(--green); outline-offset: 1px; }
+    .tf-chip:hover { opacity: .85; transform: translateY(-1px); }
+
     /* tag pills */
-    .tag-pill { font-size:11px; padding:2px 8px; border-radius:10px;
-      background:color-mix(in srgb, var(--green) 12%, var(--surface2));
-      border:1px solid color-mix(in srgb, var(--green) 25%, var(--border));
-      color:var(--green-dim); white-space:nowrap; font-weight:500; }
+    .tag-pill {
+      font-size: 11px; padding: 2px 8px; border-radius: 9999px;
+      border: 1px solid var(--border-hover); background: var(--surface2);
+      color: var(--muted); display: inline-block;
+      font-weight: 500; white-space: nowrap;
+    }
+    .tag-pill:hover { filter: brightness(1.2); transform: translateY(-1px); transition: filter .12s, transform .1s; }
     /* rating + play count */
     .track-rating { font-size:11px; color:#f0b429; letter-spacing:-1px; white-space:nowrap; }
     .track-plays { font-size:11px; color:var(--muted); white-space:nowrap; }
@@ -405,7 +449,7 @@
     }
     .track-key {
       font-family: var(--mono); font-size: 12px; color: var(--text);
-      background: rgba(255,255,255,.06); border: 1px solid var(--border);
+      background: var(--surface2); border: 1px solid var(--border);
       border-radius: 4px; padding: 2px 7px; white-space: nowrap;
     }
     .track-time { font-family: var(--mono); font-size: 12px; color: var(--muted); white-space: nowrap; }
@@ -512,24 +556,23 @@
       to   { opacity: 1; transform: translateY(0); }
     }
     .panel-card {
-      background: var(--surface2); border: 1px solid var(--border);
-      border-radius: 14px; padding: 20px 24px; margin-bottom: 20px;
-      transition: box-shadow 0.2s ease;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 20px 24px;
+      margin-bottom: 16px;
+      box-shadow: var(--shadow-sm);
+      transition: box-shadow .2s, border-color .2s;
     }
-    .panel-card:hover { box-shadow: 0 4px 20px rgba(0,0,0,0.08); }
+    .panel-card:hover { border-color: var(--border-hover); box-shadow: var(--shadow-md); }
     .panel-card.animate-in { animation: fadeSlideIn 0.35s ease-out forwards; }
     .track-card.animate-in { animation: fadeSlideIn 0.35s ease-out forwards; }
     .mix-score-row { justify-content: flex-start; }
     .similar-btn { margin-left: auto; transition: all 0.18s ease; border: 1px solid var(--border); border-radius: 20px; padding: 2px 10px; font-size: 11px; background: transparent; color: var(--muted); cursor: pointer; }
-    button.primary { transition: all 0.18s ease; }
-    button.primary:hover { background: #33ff18; box-shadow: 0 0 16px color-mix(in srgb, var(--green) 40%, transparent); transform: translateY(-1px); }
-    button.primary:active { transform: translateY(0); box-shadow: none; }
-    .secondary-btn { transition: all 0.18s ease; }
-    .secondary-btn:hover { border-color: var(--green); color: var(--green); transform: translateY(-1px); box-shadow: 0 2px 8px rgba(0,0,0,0.12); }
+    /* primary button handled below */
     .secondary-btn:active { transform: translateY(0); box-shadow: none; }
-    .mode-btn.active { box-shadow: 0 0 0 2px var(--green), 0 4px 12px color-mix(in srgb, var(--green) 25%, transparent); }
+    /* mode-btn.active styles are consolidated above */
     select, input[type="number"] { transition: border-color 0.15s, box-shadow 0.15s; }
-    select:hover, select:focus, input[type="number"]:hover, input[type="number"]:focus { border-color: var(--green); box-shadow: 0 0 0 2px color-mix(in srgb, var(--green) 20%, transparent); outline: none; }
     .similar-panel {
       display: none; margin-top: 6px;
       background: var(--surface2); border: 1px solid var(--border);
@@ -630,11 +673,12 @@
 
     /* Camelot key filter */
     #key-filter-btn {
-      background: var(--surface-card); color: var(--text);
-      border: 1px solid var(--border,#333); border-radius: 6px;
-      padding: 4px 8px; font-size: 12px; cursor: pointer; white-space: nowrap;
-      transition: border-color .15s;
+      background: var(--surface); color: var(--muted);
+      border: 1px solid var(--border); border-radius: 9999px;
+      padding: 6px 12px; font-size: 12px; cursor: pointer; white-space: nowrap;
+      transition: all .15s; font-weight: 500; font-family: var(--font);
     }
+    #key-filter-btn:hover { border-color: var(--border-hover); color: var(--text); }
     #key-filter-btn.active { border-color: var(--green); color: var(--green); }
     #key-filter-popup {
       display: none; position: fixed; z-index: 9999;
@@ -702,12 +746,12 @@
 
     /* ── Download bar ── */
     #download-bar {
-      position: sticky; bottom: 0;
-      background: var(--dl-bg); backdrop-filter: blur(12px);
-      border-top: 1px solid var(--border);
+      position: fixed; bottom: 0; left: 0; right: 0; z-index: 200;
+      background: rgba(255,255,255,.96); border-top: 1px solid var(--border);
+      box-shadow: 0 -4px 20px rgba(0,0,0,.06);
       padding: 12px 24px;
       display: none; align-items: center; gap: 12px;
-      flex-wrap: nowrap; min-height: 64px;
+      flex-wrap: wrap; backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
     }
     #download-bar.visible { display: flex; }
     .dl-info { flex: 1; font-size: 13px; color: var(--muted); min-width: 0; }
@@ -760,25 +804,30 @@
       #mini-track-info { max-width: 100px; }
     }
 
-    /* ── Download button ── */
+    /* ── Primary button — ElevenLabs black pill ── */
     button.primary {
-      background: var(--green); color: #000;
-      font-weight: 700; font-size: 14px; padding: 10px 24px;
-      border: none; border-radius: 8px; cursor: pointer;
-      font-family: var(--font); transition: background .15s, transform .1s;
+      background: #0a0a0a; color: #fafafa;
+      border: none; padding: 9px 22px;
+      font-size: 13px; font-weight: 600; border-radius: 9999px;
+      cursor: pointer; font-family: var(--font);
+      transition: all .18s ease;
       flex-shrink: 0;
+      box-shadow: 0 1px 3px rgba(0,0,0,.2);
     }
-    button.primary:hover { background: #33ff18; }
-    button.primary:active { transform: scale(.97); }
+    button.primary:hover { background: #2a2a2a; transform: translateY(-1px); box-shadow: 0 4px 14px rgba(0,0,0,.22); }
+    button.primary:active { transform: translateY(0); box-shadow: 0 1px 3px rgba(0,0,0,.2); }
+    html.dark button.primary { background: #fafafa; color: #0a0a0a; box-shadow: 0 1px 3px rgba(0,0,0,.3); }
+    html.dark button.primary:hover { background: #e2e2e2; }
     button.danger {
-      background: #c0392b; color: #fff;
-      font-weight: 700; font-size: 14px; padding: 10px 20px;
-      border: none; border-radius: 8px; cursor: pointer;
-      font-family: var(--font); transition: background .15s, transform .1s;
+      background: transparent; color: #e74c3c;
+      border: 1px solid rgba(231,76,60,.3); padding: 8px 16px;
+      font-size: 13px; font-weight: 500; border-radius: 9999px;
+      cursor: pointer; font-family: var(--font);
+      transition: all .15s;
       flex-shrink: 0;
     }
-    button.danger:hover { background: #e74c3c; }
-    button.danger:active { transform: scale(.97); }
+    button.danger:hover { background: rgba(231,76,60,.08); border-color: rgba(231,76,60,.6); }
+    button.danger:active { transform: translateY(0); }
     button.danger:disabled { opacity: .5; cursor: not-allowed; }
     #delete-confirm-bar {
       display: none; align-items: center; gap: 10px; flex-shrink: 0;
@@ -830,9 +879,9 @@
     /* ── Theme toggle ── */
     #theme-toggle {
       background: var(--surface); border: 1px solid var(--border);
-      border-radius: 8px; width: 36px; height: 36px; cursor: pointer;
+      border-radius: 9999px; width: 36px; height: 36px; cursor: pointer;
       display: flex; align-items: center; justify-content: center;
-      color: var(--muted); transition: background .15s, border-color .15s, color .15s; flex-shrink: 0;
+      color: var(--muted); transition: all .15s; flex-shrink: 0;
     }
     #theme-toggle:hover { border-color: var(--border-hover); color: var(--text); }
     #theme-toggle svg { width: 18px; height: 18px; }
@@ -853,24 +902,41 @@
       line-height: 1.5;
     }
     html.dark .warning-banner { background: #332900; border-color: #f9a825; color: #ffe082; }
+    /* ── Secondary button — ElevenLabs white pill ── */
     .secondary-btn {
-      background: var(--surface2); border: 1px solid var(--border);
-      border-radius: 6px; color: var(--text); font-size: 13px;
-      padding: 6px 14px; cursor: pointer; font-family: var(--font);
-      transition: border-color .15s;
+      background: var(--surface); color: var(--text);
+      border: 1px solid var(--border); padding: 8px 16px;
+      font-size: 13px; font-weight: 500; border-radius: 9999px;
+      cursor: pointer; font-family: var(--font);
+      transition: all .18s ease;
+      box-shadow: var(--shadow-sm);
     }
-    .secondary-btn:hover { border-color: var(--border-hover); }
+    .secondary-btn:hover { border-color: var(--border-hover); box-shadow: var(--shadow-md); transform: translateY(-1px); }
+    .secondary-btn:active { transform: translateY(0); box-shadow: var(--shadow-sm); }
+    html.dark .secondary-btn { background: var(--surface2); box-shadow: none; }
+    html.dark .secondary-btn:hover { box-shadow: 0 4px 12px rgba(0,0,0,.3); }
 
-    /* ── Mode buttons ── */
-    .mode-btn {
-      background: var(--surface2); border: 1px solid var(--border);
-      border-radius: 6px; color: var(--muted); font-size: 13px;
-      padding: 5px 14px; cursor: pointer; font-family: var(--font);
-      transition: background .15s, border-color .15s, color .15s;
-      margin-right: 4px;
+    /* ── Mode buttons — segmented control ── */
+    .mode-group {
+      display: inline-flex;
+      background: var(--surface2);
+      border-radius: 9999px;
+      padding: 3px;
+      gap: 2px;
     }
-    .mode-btn:hover { border-color: var(--border-hover); color: var(--text); }
-    .mode-btn.active { background: var(--green); border-color: var(--green); color: #000; font-weight: 600; }
+    .mode-btn {
+      background: transparent; border: none;
+      border-radius: 9999px; color: var(--muted); font-size: 13px;
+      padding: 7px 18px; cursor: pointer; font-family: var(--font);
+      font-weight: 500; white-space: nowrap; line-height: 1;
+      transition: all .18s ease;
+    }
+    .mode-btn:hover { color: var(--text); }
+    .mode-btn.active {
+      background: var(--surface); color: var(--text); font-weight: 600;
+      box-shadow: 0 1px 6px rgba(0,0,0,.10), 0 0 0 1px rgba(0,0,0,.04);
+    }
+    html.dark .mode-btn.active { box-shadow: 0 1px 6px rgba(0,0,0,.35); }
 
     /* ── Existing cue chips ── */
     .existing-cue-chip {
@@ -927,27 +993,74 @@
 
     /* ── Set Builder ── */
     #setbuilder-section { margin: 0 auto 28px; max-width: 860px; }
-    .sb-track-row { display:flex; gap:8px; align-items:baseline; padding:5px 0; border-bottom:1px solid var(--border); font-size:13px; }
-    .sb-track-row:last-child { border-bottom:none; }
+    /* ── Set Builder interactive rows ── */
+    .sb-row {
+      display:flex; align-items:center; gap:10px;
+      background:var(--surface); border:1px solid var(--border);
+      border-radius:10px; padding:10px 14px; margin-bottom:4px;
+      box-shadow:var(--shadow-sm); transition:box-shadow .15s, border-color .15s;
+      cursor:grab; user-select:none;
+    }
+    .sb-row:active { cursor:grabbing; }
+    .sb-row.drag-over { border-color:var(--green); box-shadow:0 0 0 2px color-mix(in srgb,var(--green) 25%,transparent); }
+    .sb-row.dragging { opacity:.45; }
+    .sb-row-num { font-size:11px; color:var(--muted-soft); min-width:18px; text-align:right; font-variant-numeric:tabular-nums; }
+    .sb-drag-handle { color:var(--border-hover); font-size:14px; cursor:grab; flex-shrink:0; line-height:1; }
+    .sb-row-main { flex:1; min-width:0; }
+    .sb-row-title { font-size:13px; font-weight:600; color:var(--text); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .sb-row-artist { font-size:11px; color:var(--muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .sb-row-meta { display:flex; align-items:center; gap:6px; flex-shrink:0; }
+    .sb-track-bpm { font-size:11px; color:var(--muted); font-family:var(--mono); white-space:nowrap; }
+    .sb-track-key { font-size:11px; color:var(--text); font-family:var(--mono); background:var(--surface2); border:1px solid var(--border); border-radius:4px; padding:1px 5px; white-space:nowrap; }
+    .sb-track-cat { font-size:10px; padding:2px 6px; border-radius:9999px; border:1px solid; white-space:nowrap; font-weight:500; }
+    .sb-row-replace { background:none; border:1px solid var(--border); color:var(--muted); font-size:12px; border-radius:9999px; padding:3px 8px; cursor:pointer; transition:all .15s; flex-shrink:0; white-space:nowrap; }
+    .sb-row-replace:hover { border-color:var(--green); color:var(--green); }
+    /* Transition connector between rows */
+    .sb-connector {
+      display:flex; align-items:center; gap:8px;
+      padding:3px 14px 3px 42px; margin-bottom:4px;
+    }
+    .sb-connector-line { width:1px; height:16px; background:var(--border); flex-shrink:0; }
+    .sb-connector-info { font-size:11px; color:var(--muted-soft); display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+    .sb-conn-score { font-weight:600; color:var(--green); }
+    .sb-conn-score.low { color:#e07000; }
+    .sb-conn-score.bad { color:#c03030; }
+    /* Alternatives panel */
+    .sb-alt-panel {
+      background:var(--surface2); border:1px solid var(--border);
+      border-radius:10px; padding:10px 12px; margin:4px 0 6px;
+      box-shadow:var(--shadow-sm);
+    }
+    .sb-alt-panel-title { font-size:11px; color:var(--muted); font-weight:600; margin-bottom:8px; display:flex; align-items:center; gap:6px; }
+    .sb-alt-item {
+      display:flex; align-items:center; gap:8px;
+      padding:6px 8px; border-radius:8px; cursor:pointer;
+      transition:background .12s;
+    }
+    .sb-alt-item:hover { background:var(--surface); }
+    .sb-alt-main { flex:1; min-width:0; }
+    .sb-alt-title { font-size:12px; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .sb-alt-artist { font-size:11px; color:var(--muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .sb-alt-meta { display:flex; align-items:center; gap:5px; flex-shrink:0; font-size:11px; color:var(--muted); white-space:nowrap; }
+    .sb-alt-score { font-weight:700; color:var(--green); }
+    /* Legacy (playlist suggest re-uses these) */
     .sb-track-score { font-size:11px; color:var(--green); font-weight:700; min-width:36px; text-align:right; }
     .sb-track-score.none { color:var(--muted); }
-    .sb-track-bpm { font-size:11px; color:var(--muted); min-width:52px; }
-    .sb-track-key { font-size:11px; color:var(--muted); min-width:36px; }
-    .sb-track-cat { font-size:10px; padding:1px 5px; border-radius:4px; background:var(--surface-card,#1e1e2e); border:1px solid var(--border); }
-    .sb-track-title { flex:1; }
-    .sb-track-artist { color:var(--muted); font-size:12px; }
+    .sb-track-row { display:flex; gap:8px; align-items:baseline; padding:5px 0; border-bottom:1px solid var(--border); font-size:13px; }
+    .sb-track-row:last-child { border-bottom:none; }
 
     /* ── Toast ── */
     #toast {
-      position: fixed; bottom: 80px; left: 50%;
-      transform: translateX(-50%);
-      background: var(--text); color: var(--bg);
-      padding: 8px 18px; border-radius: 6px;
-      font-size: 13px; z-index: 9999;
-      opacity: 0; transition: opacity .2s; pointer-events: none;
+      position: fixed; bottom: 72px; left: 50%; transform: translateX(-50%);
+      background: #292524; color: #fafaf9;
+      border-radius: 9999px; padding: 10px 20px;
+      font-size: 13px; font-weight: 600;
+      box-shadow: 0 4px 24px rgba(0,0,0,.4);
+      z-index: 9999; opacity: 0; pointer-events: none; transition: opacity .2s;
       white-space: nowrap;
     }
     #toast.show { opacity: 1; }
+    html.dark #toast { background: #fafaf9; color: #0c0a09; }
 
     /* ── Keyboard focus rings ── */
     :focus-visible { outline: 2px solid var(--green); outline-offset: 2px; border-radius: 3px; }
@@ -998,7 +1111,40 @@
       #scroll-header { flex-wrap: wrap; gap: 6px; padding: 8px 12px; }
       .tracks-header { flex-wrap: wrap; }
     }
+  /* ── Tab navigation — ElevenLabs segmented control ── */
+  #tab-nav {
+    padding: 12px 32px;
+    background: var(--bg);
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+  }
+  #tab-group {
+    display: inline-flex;
+    background: var(--surface2);
+    border-radius: 9999px;
+    padding: 3px;
+    gap: 2px;
+  }
+  .tab-btn {
+    background: transparent; border: none;
+    border-radius: 9999px; padding: 7px 20px;
+    font-size: 13px; font-weight: 500; color: var(--muted);
+    cursor: pointer; transition: all .18s ease; font-family: var(--font);
+    white-space: nowrap; line-height: 1;
+  }
+  .tab-btn:hover { color: var(--text); }
+  .tab-btn.active {
+    background: var(--surface);
+    color: var(--text); font-weight: 600;
+    box-shadow: 0 1px 6px rgba(0,0,0,.10), 0 0 0 1px rgba(0,0,0,.04);
+  }
+  html.dark .tab-btn.active {
+    box-shadow: 0 1px 6px rgba(0,0,0,.35);
+  }
   </style>
+<script src="https://cdn.tailwindcss.com"></script>
+<script>tailwind.config = { corePlugins: { preflight: false }, darkMode: 'class' }</script>
 </head>
 <body>
 
@@ -1019,7 +1165,7 @@
 <header>
   <a class="logo" href="#">
     <div class="logo-icon">
-      <svg viewBox="0 0 20 20" fill="none" stroke="#000" stroke-width="2.2" stroke-linecap="round">
+      <svg viewBox="0 0 20 20" fill="none" stroke="var(--green)" stroke-width="2.2" stroke-linecap="round">
         <line x1="4"  y1="10" x2="4"  y2="10"/>
         <line x1="7"  y1="6"  x2="7"  y2="14"/>
         <line x1="10" y1="3"  x2="10" y2="17"/>
@@ -1046,6 +1192,13 @@
     </button>
   </nav>
 </header>
+
+<div id="tab-nav" style="display:none">
+  <div id="tab-group">
+    <button id="tab-cues" class="tab-btn active">Cues</button>
+    <button id="tab-library" class="tab-btn">Library</button>
+  </div>
+</div>
 
 <main>
   <div class="steps" id="steps">
@@ -1141,10 +1294,12 @@
   </div>
 
   <!-- Analysis mode toggle (shown after XML loaded) -->
-  <div id="analysis-mode-bar" style="display:none; margin-bottom:16px;">
-    <span style="font-size:13px;color:var(--muted);margin-right:10px;">Analysis mode:</span>
-    <button id="mode-bar-btn" class="mode-btn active">Bar intervals</button>
-    <button id="mode-phrase-btn" class="mode-btn">✨ Phrase analysis</button>
+  <div id="analysis-mode-bar" style="display:none; margin-bottom:16px; align-items:center; gap:12px;">
+    <span style="font-size:13px;color:var(--muted);">Analysis mode:</span>
+    <div class="mode-group">
+      <button id="mode-bar-btn" class="mode-btn active">Bar intervals</button>
+      <button id="mode-phrase-btn" class="mode-btn">✨ Phrase analysis</button>
+    </div>
   </div>
 
   <!-- ANLZ analysis folder drop (shown in phrase mode) -->
@@ -1167,6 +1322,8 @@
     </div>
     <div id="pyodide-status" style="font-size:12px;color:var(--muted);margin-top:8px;"></div>
   </section>
+
+  <div id="cues-tab-content">
 
   <!-- Settings -->
   <section id="settings-section">
@@ -1216,171 +1373,6 @@
     </div>
   </section>
 
-  <!-- Library Health (local mode only) -->
-  <section id="health-section" class="panel-card" style="display:none">
-    <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px;">
-      <h2 style="margin:0;font-size:15px;font-weight:700;">Library Health</h2>
-      <button id="health-scan-btn" class="secondary-btn" style="font-size:12px;padding:4px 12px;">Scan</button>
-      <span id="health-scanning-label" style="display:none;font-size:12px;color:var(--muted);"></span>
-    </div>
-    <div id="health-progress-bar" class="health-progress-bar" style="display:none">
-      <div id="health-progress-fill" class="health-progress-fill" style="width:0%"></div>
-    </div>
-    <div id="health-summary" style="display:none">
-      <div class="health-header">
-        <div id="health-score-ring" class="health-score-ring hsr-none">—</div>
-        <div>
-          <div class="health-summary-title" id="health-summary-title">—</div>
-          <div class="health-summary-sub" id="health-summary-sub"></div>
-        </div>
-      </div>
-      <div class="health-issue-list" id="health-issue-list"></div>
-      <div class="health-fix-row" id="health-fix-row"></div>
-    </div>
-  </section>
-
-  <!-- Cue Library Tools (local mode only) -->
-  <section id="cue-tools-section" class="panel-card" style="display:none">
-    <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px;">
-      <h2 style="margin:0;font-size:15px;font-weight:700;">Cue Library Tools</h2>
-      <span style="font-size:12px;color:var(--muted)">Bulk edit cues across your library</span>
-    </div>
-
-    <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
-      <select id="cue-tools-op" style="padding:6px 10px;border:1px solid var(--border);border-radius:6px;background:var(--bg);color:var(--text);font-size:13px;">
-        <option value="rename">Rename cues</option>
-        <option value="recolor">Recolor cues by slot</option>
-        <option value="shift">Shift cue positions</option>
-        <option value="delete_orphan">Delete orphaned cues</option>
-      </select>
-      <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;">
-        <input type="checkbox" id="cue-tools-dry-run" checked>
-        Dry run (preview only)
-      </label>
-    </div>
-
-    <!-- Rename params -->
-    <div id="cue-tools-params-rename" class="cue-tools-params">
-      <div class="cue-tools-param-group">
-        <label>Find (exact match)</label>
-        <input type="text" id="cue-rename-from" placeholder="e.g. Cue 1">
-      </div>
-      <div class="cue-tools-param-group">
-        <label>Replace with</label>
-        <input type="text" id="cue-rename-to" placeholder="e.g. Drop 1">
-      </div>
-    </div>
-
-    <!-- Recolor params -->
-    <div id="cue-tools-params-recolor" class="cue-tools-params" style="display:none">
-      <div>
-        <div style="font-size:12px;color:var(--muted);margin-bottom:6px;">Set color per slot (leave "—" to skip that slot)</div>
-        <div class="slot-color-row" id="cue-recolor-slots"></div>
-      </div>
-    </div>
-
-    <!-- Shift params -->
-    <div id="cue-tools-params-shift" class="cue-tools-params" style="display:none">
-      <div class="cue-tools-param-group">
-        <label>Shift by (ms, use − to shift earlier)</label>
-        <input type="number" id="cue-shift-ms" value="0" step="10" style="width:120px">
-      </div>
-    </div>
-
-    <!-- Delete orphan params -->
-    <div id="cue-tools-params-delete-orphan" class="cue-tools-params" style="display:none">
-      <div class="cue-tools-param-group">
-        <label>Keep up to slot # (1=A … 8=H)</label>
-        <input type="number" id="cue-keep-slots" value="4" min="1" max="8" style="width:80px">
-      </div>
-      <div style="font-size:12px;color:var(--muted);align-self:flex-end;padding-bottom:4px;">
-        Cues in slots beyond this number will be deleted.
-      </div>
-    </div>
-
-    <div style="margin-top:14px;display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
-      <button id="cue-tools-run-btn" class="secondary-btn" style="font-size:13px;">Run on visible tracks</button>
-      <span id="cue-tools-status" style="font-size:12px;color:var(--muted);display:none"></span>
-    </div>
-    <div class="cue-tools-progress" id="cue-tools-progress">
-      <div class="cue-tools-progress-fill" id="cue-tools-progress-fill" style="width:0%"></div>
-    </div>
-    <div class="cue-tools-result" id="cue-tools-result"></div>
-  </section>
-
-  <!-- Playlist Suggest (local mode only) -->
-  <section id="playlist-suggest-section" class="panel-card" style="display:none">
-    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
-      <h2 style="margin:0;font-size:15px;font-weight:700;">Playlist Suggest</h2>
-    </div>
-    <div style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap;margin-bottom:12px;">
-      <div class="cue-tools-param-group" style="min-width:140px;">
-        <label>Category</label>
-        <select id="ps-category" style="padding:4px 8px;border:1px solid var(--border);border-radius:6px;background:var(--bg);color:var(--text);font-size:13px;">
-          <option value="warmup">Warm-up</option>
-          <option value="build">Build</option>
-          <option value="peak" selected>Peak</option>
-          <option value="after_hours">After-hours</option>
-          <option value="closing">Closing</option>
-        </select>
-      </div>
-      <div class="cue-tools-param-group" style="min-width:80px;">
-        <label>Count</label>
-        <input type="number" id="ps-count" value="20" min="1" max="100" step="1">
-      </div>
-      <button id="ps-suggest-btn" class="primary" style="font-size:13px;">Suggest tracks</button>
-      <button id="ps-more-btn" class="secondary-btn" style="font-size:13px;display:none;">Suggest more</button>
-      <button id="ps-reset-btn" class="secondary-btn" style="font-size:13px;display:none;">Reset</button>
-      <span id="ps-status" style="font-size:12px;color:var(--muted);"></span>
-    </div>
-    <div id="ps-result" style="display:none;margin-top:8px;">
-      <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
-        <div style="font-size:12px;color:var(--muted);flex:1;" id="ps-summary"></div>
-        <button class="copy-list-btn" id="ps-copy-btn">Copy list</button>
-      </div>
-      <ol id="ps-tracklist" style="margin:0;padding-left:22px;list-style:decimal;"></ol>
-    </div>
-  </section>
-
-  <!-- Set Builder (local mode only) -->
-  <section id="setbuilder-section" class="panel-card" style="display:none">
-    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
-      <h2 style="margin:0;font-size:15px;font-weight:700;">Set Builder</h2>
-    </div>
-    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px;margin-bottom:12px;">
-      <div class="cue-tools-param-group">
-        <label>Start BPM</label>
-        <input type="number" id="sb-start-bpm" value="110" min="60" max="200" step="1">
-      </div>
-      <div class="cue-tools-param-group">
-        <label>End BPM</label>
-        <input type="number" id="sb-end-bpm" value="135" min="60" max="200" step="1">
-      </div>
-      <div class="cue-tools-param-group">
-        <label>Duration (min)</label>
-        <input type="number" id="sb-duration" value="60" min="10" max="300" step="5">
-      </div>
-      <div class="cue-tools-param-group">
-        <label>Energy mode</label>
-        <select id="sb-energy-mode" style="padding:4px 8px;border:1px solid var(--border);border-radius:6px;background:var(--bg);color:var(--text);font-size:13px;">
-          <option value="build">Build (ascending)</option>
-          <option value="flat">Flat</option>
-          <option value="drop">Drop (descending)</option>
-        </select>
-      </div>
-    </div>
-    <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
-      <button id="sb-build-btn" class="primary" style="font-size:13px;">Build Set</button>
-      <span id="sb-status" style="font-size:12px;color:var(--muted);"></span>
-    </div>
-    <div id="sb-result" style="display:none;margin-top:14px;">
-      <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
-        <div style="font-size:12px;color:var(--muted);flex:1;" id="sb-summary"></div>
-        <button class="copy-list-btn" id="sb-copy-btn">Copy list</button>
-      </div>
-      <ol id="sb-tracklist" style="margin:0;padding-left:22px;list-style:decimal;"></ol>
-    </div>
-  </section>
 
   <!-- Track list -->
   <section id="tracks-section">
@@ -1422,9 +1414,16 @@
           <option value="30d">Last 30 days</option>
           <option value="never">Never played</option>
         </select>
-        <select id="tag-filter-select" style="background:var(--surface-card);color:var(--text);border:1px solid var(--border,#333);border-radius:8px;padding:5px 10px;font-size:12px;">
-          <option value="">All tags</option>
-        </select>
+        <div style="position:relative">
+          <button id="tag-filter-btn" style="background:var(--surface-card);color:var(--text);border:1px solid var(--border,#333);border-radius:6px;padding:4px 8px;font-size:12px;cursor:pointer;white-space:nowrap;transition:border-color .15s;">Tags: Any ▾</button>
+          <div id="tag-filter-popup" style="display:none;position:fixed;z-index:9999;background:var(--surface-card);border:1px solid var(--border,#333);border-radius:10px;padding:10px;box-shadow:0 8px 32px rgba(0,0,0,.32);width:320px;max-height:300px;display:none;flex-direction:column;">
+            <input id="tag-search" type="search" placeholder="Search tags…" autocomplete="off"
+              style="width:100%;padding:5px 8px;margin-bottom:8px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;font-size:12px;color:var(--text);box-sizing:border-box;flex-shrink:0;">
+            <div style="font-size:11px;font-weight:700;color:var(--muted);margin-bottom:6px;text-transform:uppercase;letter-spacing:.06em;flex-shrink:0;">Tag Filter</div>
+            <div id="tag-filter-chips" style="display:flex;flex-wrap:wrap;gap:5px;margin-bottom:8px;overflow-y:auto;flex:1;padding-right:2px;"></div>
+            <button class="secondary-btn" id="tf-clear-btn" style="font-size:11px;padding:3px 8px;flex-shrink:0;align-self:flex-start;">Clear</button>
+          </div>
+        </div>
         <div style="position:relative">
           <button id="key-filter-btn">Key: Any ▾</button>
           <div id="key-filter-popup">
@@ -1566,6 +1565,303 @@ autocue --library --mode bar --bars-interval 8 --start-bar 1</pre>
       <p style="margin-top:10px;"><a href="https://github.com/HenriGeorge/AutoCue" target="_blank" rel="noopener" style="color:var(--green);">GitHub: HenriGeorge/AutoCue ↗</a></p>
     </div>
   </details>
+
+  </div><!-- /#cues-tab-content -->
+
+  <div id="library-tab-content" style="display:none">
+
+  <!-- Library Health (local mode only) -->
+  <section id="health-section" class="panel-card" style="display:none">
+    <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px;">
+      <h2 style="margin:0;font-size:15px;font-weight:700;">Library Health</h2>
+      <button id="health-scan-btn" class="secondary-btn" style="font-size:12px;padding:4px 12px;">Scan</button>
+      <span id="health-scanning-label" style="display:none;font-size:12px;color:var(--muted);"></span>
+    </div>
+    <div id="health-progress-bar" class="health-progress-bar" style="display:none">
+      <div id="health-progress-fill" class="health-progress-fill" style="width:0%"></div>
+    </div>
+    <div id="health-summary" style="display:none">
+      <div class="health-header">
+        <div id="health-score-ring" class="health-score-ring hsr-none">—</div>
+        <div>
+          <div class="health-summary-title" id="health-summary-title">—</div>
+          <div class="health-summary-sub" id="health-summary-sub"></div>
+        </div>
+      </div>
+      <div class="health-issue-list" id="health-issue-list"></div>
+      <div class="health-fix-row" id="health-fix-row"></div>
+    </div>
+  </section>
+
+  <!-- Cue Library Tools (local mode only) -->
+  <section id="cue-tools-section" class="panel-card" style="display:none">
+    <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px;">
+      <h2 style="margin:0;font-size:15px;font-weight:700;">Cue Library Tools</h2>
+      <span style="font-size:12px;color:var(--muted)">Bulk edit cues across your library</span>
+    </div>
+
+    <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+      <select id="cue-tools-op" style="padding:6px 10px;border:1px solid var(--border);border-radius:6px;background:var(--bg);color:var(--text);font-size:13px;">
+        <option value="rename">Rename cues</option>
+        <option value="recolor">Recolor cues by slot</option>
+        <option value="shift">Shift cue positions</option>
+        <option value="delete_orphan">Delete orphaned cues</option>
+        <option value="auto_classify">Auto-classify tracks</option>
+      </select>
+      <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;">
+        <input type="checkbox" id="cue-tools-dry-run" checked>
+        Dry run (preview only)
+      </label>
+    </div>
+
+    <!-- Rename params -->
+    <div id="cue-tools-params-rename" class="cue-tools-params">
+      <div class="cue-tools-param-group">
+        <label>Find (exact match)</label>
+        <input type="text" id="cue-rename-from" placeholder="e.g. Cue 1">
+      </div>
+      <div class="cue-tools-param-group">
+        <label>Replace with</label>
+        <input type="text" id="cue-rename-to" placeholder="e.g. Drop 1">
+      </div>
+    </div>
+
+    <!-- Recolor params -->
+    <div id="cue-tools-params-recolor" class="cue-tools-params" style="display:none">
+      <div>
+        <div style="font-size:12px;color:var(--muted);margin-bottom:6px;">Set color per slot (leave "—" to skip that slot)</div>
+        <div class="slot-color-row" id="cue-recolor-slots"></div>
+      </div>
+    </div>
+
+    <!-- Shift params -->
+    <div id="cue-tools-params-shift" class="cue-tools-params" style="display:none">
+      <div class="cue-tools-param-group">
+        <label>Shift by (ms, use − to shift earlier)</label>
+        <input type="number" id="cue-shift-ms" value="0" step="10" style="width:120px">
+      </div>
+    </div>
+
+    <!-- Delete orphan params -->
+    <div id="cue-tools-params-delete-orphan" class="cue-tools-params" style="display:none">
+      <div class="cue-tools-param-group">
+        <label>Keep up to slot # (1=A … 8=H)</label>
+        <input type="number" id="cue-keep-slots" value="4" min="1" max="8" style="width:80px">
+      </div>
+      <div style="font-size:12px;color:var(--muted);align-self:flex-end;padding-bottom:4px;">
+        Cues in slots beyond this number will be deleted.
+      </div>
+    </div>
+
+    <!-- Auto-classify params -->
+    <div id="cue-tools-params-auto-classify" class="cue-tools-params" style="display:none;flex-direction:column;gap:10px;">
+      <div style="font-size:12px;color:var(--muted);">Select which tags to write to Rekordbox My Tags:</div>
+      <div style="display:flex;flex-wrap:wrap;gap:8px 20px;">
+        <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;">
+          <input type="checkbox" id="at-category" checked>
+          <span>DJ Category</span>
+          <span style="font-size:11px;color:var(--muted)">(Warmup / Build / Peak / After Hours / Closing)</span>
+        </label>
+        <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;">
+          <input type="checkbox" id="at-vocal">
+          <span>Vocal / Instrumental</span>
+          <span style="font-size:11px;color:var(--muted)">(requires phrase analysis)</span>
+        </label>
+        <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;">
+          <input type="checkbox" id="at-energy-level">
+          <span>Energy Level</span>
+          <span style="font-size:11px;color:var(--muted)">(High / Mid / Low — requires ANLZ)</span>
+        </label>
+        <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;">
+          <input type="checkbox" id="at-energy-profile">
+          <span>Energy Profile</span>
+          <span style="font-size:11px;color:var(--muted)">(Build / Wave / Flat / Drop Track)</span>
+        </label>
+        <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;">
+          <input type="checkbox" id="at-intro-outro">
+          <span>Intro / Outro Length</span>
+          <span style="font-size:11px;color:var(--muted)">(Long/Short Intro · Long/Short Outro)</span>
+        </label>
+        <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;">
+          <input type="checkbox" id="at-decade">
+          <span>Decade</span>
+          <span style="font-size:11px;color:var(--muted)">(60s / 70s / 80s / 90s / 00s / 10s / 20s — from release year)</span>
+        </label>
+        <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;">
+          <input type="checkbox" id="at-bpm-tier">
+          <span>BPM Tier</span>
+          <span style="font-size:11px;color:var(--muted)">(&lt;120 / 120–124 / 125–128 / 129–135 / 136–144 / &gt;144)</span>
+        </label>
+        <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;">
+          <input type="checkbox" id="at-play-history">
+          <span>Play History</span>
+          <span style="font-size:11px;color:var(--muted)">(Never / Rarely / Frequently Played)</span>
+        </label>
+      </div>
+    </div>
+    <div id="auto-tag-undo-row" style="display:none;margin-top:8px;gap:8px;align-items:center;flex-wrap:wrap;">
+      <button id="auto-tag-undo-btn" class="secondary-btn" style="font-size:12px;">Undo last tag run</button>
+      <span id="auto-tag-undo-status" style="font-size:12px;color:var(--muted);"></span>
+    </div>
+
+    <div style="margin-top:14px;display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+      <button id="cue-tools-run-btn" class="secondary-btn" style="font-size:13px;">Run on visible tracks</button>
+      <span id="cue-tools-status" style="font-size:12px;color:var(--muted);display:none"></span>
+    </div>
+    <div class="cue-tools-progress" id="cue-tools-progress">
+      <div class="cue-tools-progress-fill" id="cue-tools-progress-fill" style="width:0%"></div>
+    </div>
+    <div class="cue-tools-result" id="cue-tools-result"></div>
+  </section>
+
+  <!-- Discogs Tag Enrichment (local mode only) -->
+  <section id="discogs-section" class="panel-card" style="display:none">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
+      <h2 style="margin:0;font-size:15px;font-weight:700;">Discogs Genre Tags</h2>
+      <span style="font-size:11px;color:var(--muted);">Fetches styles from Discogs and writes them to Rekordbox My Tags</span>
+    </div>
+    <div style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap;margin-bottom:12px;">
+      <div style="display:flex;flex-direction:column;gap:4px;flex:1;min-width:220px;">
+        <label style="font-size:11px;color:var(--muted);">Discogs Personal Access Token</label>
+        <input type="password" id="discogs-token" placeholder="Paste token from discogs.com/settings/developers"
+               style="background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:6px 10px;font-size:13px;color:var(--text);width:100%;box-sizing:border-box;">
+      </div>
+      <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;white-space:nowrap;">
+        <input type="checkbox" id="discogs-dry-run">
+        <span>Dry run</span>
+      </label>
+    </div>
+    <div style="display:flex;gap:8px;align-items:center;margin-bottom:12px;flex-wrap:wrap;">
+      <button id="discogs-save-btn" class="secondary-btn" style="font-size:12px;padding:4px 10px;">Save &amp; Test</button>
+      <span id="discogs-save-status" style="font-size:12px;color:var(--muted);"></span>
+    </div>
+    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+      <button id="discogs-run-btn" class="secondary-btn" style="font-size:13px;">Tag visible tracks from Discogs</button>
+      <span id="discogs-status" style="font-size:12px;color:var(--muted);"></span>
+    </div>
+    <div class="cue-tools-progress" id="discogs-progress" style="margin-top:8px;">
+      <div class="cue-tools-progress-fill" id="discogs-progress-fill" style="width:0%"></div>
+    </div>
+    <div id="discogs-result" style="font-size:12px;color:var(--muted);margin-top:8px;"></div>
+  </section>
+
+  <!-- Comment Enrichment (local mode only) -->
+  <section id="comment-enrich-section" class="panel-card" style="display:none">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
+      <div>
+        <h2 style="margin:0;font-size:15px;font-weight:700;">Comment Enrichment</h2>
+        <p style="margin:4px 0 0;font-size:12px;color:var(--muted);">Writes key · energy · category · intro length to the Comment field — visible on CDJ screens. Non-destructive: appends to existing comments.</p>
+      </div>
+    </div>
+    <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:12px;">
+      <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;">
+        <input type="checkbox" id="ce-overwrite">
+        <span>Overwrite existing comments</span>
+      </label>
+      <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;">
+        <input type="checkbox" id="ce-dry-run">
+        <span>Dry run</span>
+      </label>
+    </div>
+    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+      <button id="ce-run-btn" class="secondary-btn" style="font-size:13px;">Enrich comments for visible tracks</button>
+      <span id="ce-status" style="font-size:12px;color:var(--muted);"></span>
+    </div>
+    <div id="ce-result" style="font-size:12px;color:var(--muted);margin-top:8px;display:none;">
+      <span id="ce-result-text"></span>
+    </div>
+    <div style="margin-top:12px;border-top:1px solid var(--border);padding-top:10px;">
+      <p style="margin:0 0 6px;font-size:11px;color:var(--muted);">Preview a single track's comment</p>
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+        <select id="ce-preview-track" style="flex:1;min-width:180px;padding:4px 8px;border:1px solid var(--border);border-radius:6px;background:var(--bg);color:var(--text);font-size:12px;">
+          <option value="">— select a track —</option>
+        </select>
+        <button id="ce-preview-btn" class="secondary-btn" style="font-size:12px;padding:4px 10px;">Preview</button>
+      </div>
+      <div id="ce-preview-result" style="margin-top:8px;font-size:12px;display:none;">
+        <div style="color:var(--muted);margin-bottom:3px;">Current: <span id="ce-preview-current" style="font-family:var(--mono);color:var(--text)"></span></div>
+        <div style="color:var(--green);">After: <span id="ce-preview-after" style="font-family:var(--mono);color:var(--text)"></span></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Playlist Suggest (local mode only) -->
+  <section id="playlist-suggest-section" class="panel-card" style="display:none">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
+      <h2 style="margin:0;font-size:15px;font-weight:700;">Playlist Suggest</h2>
+    </div>
+    <div style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap;margin-bottom:12px;">
+      <div class="cue-tools-param-group" style="min-width:140px;">
+        <label>Category</label>
+        <select id="ps-category" style="padding:4px 8px;border:1px solid var(--border);border-radius:6px;background:var(--bg);color:var(--text);font-size:13px;">
+          <option value="warmup">Warm-up</option>
+          <option value="build">Build</option>
+          <option value="peak" selected>Peak</option>
+          <option value="after_hours">After-hours</option>
+          <option value="closing">Closing</option>
+        </select>
+      </div>
+      <div class="cue-tools-param-group" style="min-width:80px;">
+        <label>Count</label>
+        <input type="number" id="ps-count" value="20" min="1" max="100" step="1">
+      </div>
+      <button id="ps-suggest-btn" class="primary" style="font-size:13px;">Suggest tracks</button>
+      <button id="ps-more-btn" class="secondary-btn" style="font-size:13px;display:none;">Suggest more</button>
+      <button id="ps-reset-btn" class="secondary-btn" style="font-size:13px;display:none;">Reset</button>
+      <span id="ps-status" style="font-size:12px;color:var(--muted);"></span>
+    </div>
+    <div id="ps-result" style="display:none;margin-top:8px;">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;flex-wrap:wrap;">
+        <div style="font-size:12px;color:var(--muted);flex:1;" id="ps-summary"></div>
+        <button class="copy-list-btn" id="ps-copy-btn">Copy list</button>
+        <button class="secondary-btn" id="ps-save-playlist-btn" style="font-size:12px;padding:5px 14px;">Save as Rekordbox playlist</button>
+      </div>
+      <div id="ps-tracklist"></div>
+    </div>
+  </section>
+
+  <!-- Set Builder (local mode only) -->
+  <section id="setbuilder-section" class="panel-card" style="display:none">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
+      <h2 style="margin:0;font-size:15px;font-weight:700;">Set Builder</h2>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px;margin-bottom:12px;">
+      <div class="cue-tools-param-group">
+        <label>Start BPM</label>
+        <input type="number" id="sb-start-bpm" value="110" min="60" max="200" step="1">
+      </div>
+      <div class="cue-tools-param-group">
+        <label>End BPM</label>
+        <input type="number" id="sb-end-bpm" value="135" min="60" max="200" step="1">
+      </div>
+      <div class="cue-tools-param-group">
+        <label>Duration (min)</label>
+        <input type="number" id="sb-duration" value="60" min="10" max="300" step="5">
+      </div>
+      <div class="cue-tools-param-group">
+        <label>Energy mode</label>
+        <select id="sb-energy-mode" style="padding:4px 8px;border:1px solid var(--border);border-radius:6px;background:var(--bg);color:var(--text);font-size:13px;">
+          <option value="build">Build (ascending)</option>
+          <option value="flat">Flat</option>
+          <option value="drop">Drop (descending)</option>
+        </select>
+      </div>
+    </div>
+    <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+      <button id="sb-build-btn" class="primary" style="font-size:13px;">Build Set</button>
+      <span id="sb-status" style="font-size:12px;color:var(--muted);"></span>
+    </div>
+    <div id="sb-result" style="display:none;margin-top:14px;">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;flex-wrap:wrap;">
+        <div style="font-size:12px;color:var(--muted);flex:1;" id="sb-summary"></div>
+        <button class="copy-list-btn" id="sb-copy-btn">Copy list</button>
+        <button class="secondary-btn" id="sb-save-playlist-btn" style="font-size:12px;padding:5px 14px;">Save as Rekordbox playlist</button>
+      </div>
+      <div id="sb-tracklist"></div>
+    </div>
+  </section>
+
+  </div><!-- /#library-tab-content -->
 </main>
 
 <!-- Sticky download bar with mini player -->
@@ -1586,22 +1882,29 @@ autocue --library --mode bar --bars-interval 8 --start-bar 1</pre>
     </div>
   </div>
   <div class="mini-sep" id="mini-sep" style="display:none"></div>
-  <div class="dl-info">
-    Ready to import: <strong id="dl-summary">— tracks · — cues</strong>
+  <!-- Left group: status + undo -->
+  <div style="display:flex;align-items:center;gap:8px;flex:1;min-width:0;">
+    <div class="dl-info">
+      Ready to import: <strong id="dl-summary">— tracks · — cues</strong>
+    </div>
+    <button class="secondary-btn" id="undo-btn" style="display:none">↩ Undo last apply</button>
   </div>
-  <div id="delete-confirm-bar">
-    <span class="confirm-msg" id="delete-confirm-msg">Delete all hot cues from X tracks?</span>
-    <button class="danger" id="delete-confirm-btn">Confirm delete</button>
-    <button class="secondary-btn" id="delete-cancel-btn">Cancel</button>
+  <!-- Right group: color tools + separator + apply + delete -->
+  <div style="display:flex;align-items:center;gap:8px;flex-shrink:0;">
+    <label id="skip-colored-label" style="display:none;font-size:12px;color:var(--text);cursor:pointer;white-space:nowrap;gap:6px;align-items:center;padding:4px 8px;border:1px solid var(--border);border-radius:6px;background:var(--surface-card);" title="Leave tracks that already have a color set in Rekordbox unchanged. Only color currently uncolored tracks.">
+      <input type="checkbox" id="skip-colored-cb"> Skip already colored
+    </label>
+    <button class="secondary-btn" id="color-by-bpm-btn" style="display:none">Color tracks by BPM</button>
+    <button class="secondary-btn" id="preview-cues-btn" style="display:none">Preview cues</button>
+    <div class="mini-sep" style="display:none" id="apply-sep"></div>
+    <div id="delete-confirm-bar">
+      <span class="confirm-msg" id="delete-confirm-msg">Delete all hot cues from X tracks?</span>
+      <button class="danger" id="delete-confirm-btn">Confirm delete</button>
+      <button class="secondary-btn" id="delete-cancel-btn">Cancel</button>
+    </div>
+    <button class="secondary-btn" id="delete-cues-btn" style="display:none;color:#e74c3c;border-color:#e74c3c33;font-size:12px;">Delete all cues</button>
+    <button class="primary" id="download-btn">Download XML</button>
   </div>
-  <button class="secondary-btn" id="undo-btn" style="display:none">↩ Undo last apply</button>
-  <button class="danger" id="delete-cues-btn" style="display:none">Delete all cues</button>
-  <label id="skip-colored-label" style="display:none;font-size:12px;color:var(--muted);cursor:pointer;white-space:nowrap;gap:4px;align-items:center;" title="Leave tracks that already have a color set in Rekordbox unchanged. Only color currently uncolored tracks.">
-    <input type="checkbox" id="skip-colored-cb"> Skip colored
-  </label>
-  <button class="secondary-btn" id="color-by-bpm-btn" style="display:none">Color tracks by BPM</button>
-  <button class="secondary-btn" id="preview-cues-btn" style="display:none">Preview cues</button>
-  <button class="primary" id="download-btn">Download XML</button>
 </div>
 
 <div id="toast"></div>
@@ -1694,7 +1997,7 @@ let phraseOnlyFilter = false;
 let ratingFilter = 0;
 let playsFilter = 'all';   // 'all' | 'played' | 'unplayed'
 let lastPlayedFilter = 'all'; // 'all' | '7d' | '30d' | 'never'
-let myTagFilter = '';      // '' = all tags
+let myTagFilters = new Set(); // empty = all tags
 let selectedKeys = new Set(); // Camelot keys e.g. "8A", "8B"
 // F7: bulk selection (track id strings)
 let selectedTrackIds = new Set();
@@ -1763,7 +2066,7 @@ async function loadTracksFromServer(playlistId = null) {
   document.getElementById('settings-section').classList.add('visible');
   document.getElementById('tracks-section').classList.add('visible');
   document.getElementById('download-bar').classList.add('visible');
-  document.getElementById('analysis-mode-bar').style.display = '';
+  document.getElementById('analysis-mode-bar').style.display = 'flex';
   document.getElementById('sort-bar').style.display = '';
   // Restore persisted sort UI
   const SORT_LABELS = { title: 'Title', artist: 'Artist', album: 'Album', bpm: 'BPM', key: 'Key', rating: 'Rating', plays: 'Plays' };
@@ -1778,6 +2081,17 @@ async function loadTracksFromServer(playlistId = null) {
   setStep(3);
   renderTracks();
   updateOverwriteWarning();
+  // Populate comment enrichment preview dropdown
+  const ceSel = document.getElementById('ce-preview-track');
+  if (ceSel) {
+    ceSel.innerHTML = '<option value="">— select a track —</option>';
+    for (const t of parsedTracks) {
+      const opt = document.createElement('option');
+      opt.value = t.id;
+      opt.textContent = `${t.name || '(untitled)'} — ${t.artist || ''}`;
+      ceSel.appendChild(opt);
+    }
+  }
 }
 
 // ── Library Health ────────────────────────────────────────────────────────────
@@ -2054,19 +2368,24 @@ function _initCueTools() {
 
   opSel.addEventListener('change', _updateCueToolsParams);
   document.getElementById('cue-tools-run-btn').addEventListener('click', _runCueTools);
+  document.getElementById('auto-tag-undo-btn').addEventListener('click', autoTagUndo);
 }
 
 function _updateCueToolsParams() {
   const op = document.getElementById('cue-tools-op').value;
-  ['rename','recolor','shift','delete-orphan'].forEach(id => {
+  ['rename','recolor','shift','delete-orphan','auto-classify'].forEach(id => {
     document.getElementById(`cue-tools-params-${id}`).style.display = 'none';
   });
-  const map = {rename:'rename', recolor:'recolor', shift:'shift', delete_orphan:'delete-orphan'};
+  const map = {rename:'rename', recolor:'recolor', shift:'shift', delete_orphan:'delete-orphan', auto_classify:'auto-classify'};
   document.getElementById(`cue-tools-params-${map[op]}`).style.display = 'flex';
+  // Show/hide run button label depending on op
+  const runBtn = document.getElementById('cue-tools-run-btn');
+  runBtn.textContent = op === 'auto_classify' ? 'Tag visible tracks' : 'Run on visible tracks';
 }
 
 async function _runCueTools() {
   const op      = document.getElementById('cue-tools-op').value;
+  if (op === 'auto_classify') { autoTagTracks(); return; }
   const dryRun  = document.getElementById('cue-tools-dry-run').checked;
   const btn     = document.getElementById('cue-tools-run-btn');
   const statusEl = document.getElementById('cue-tools-status');
@@ -2184,6 +2503,320 @@ async function _runCueTools() {
   } finally {
     btn.disabled = false;
     progBar.style.display = 'none';
+  }
+}
+
+// AutoCue tag name → CSS colour for track card pills
+const AUTO_TAG_COLORS = {
+  // DJ Category
+  'Warmup':       '#4a9eff',
+  'Build':        '#ff9800',
+  'Peak':         '#ff4444',
+  'After Hours':  '#aa77ff',
+  'Closing':      '#4caf50',
+  // Vocal
+  'Vocal':        '#ff69b4',
+  'Instrumental': '#00bcd4',
+  // Energy Level
+  'High Energy':  '#ff4444',
+  'Mid Energy':   '#ffeb3b',
+  'Low Energy':   '#4a9eff',
+  // Energy Profile
+  'Build Track':  '#ff9800',
+  'Wave Track':   '#aa77ff',
+  'Flat Track':   '#00bcd4',
+  'Drop Track':   '#ff69b4',
+  // Intro / Outro
+  'Long Intro':   '#4caf50',
+  'Short Intro':  '#ffeb3b',
+  'Long Outro':   '#ff9800',
+  'Short Outro':  '#ff69b4',
+  // Decade
+  '60s':          '#e91e63',
+  '70s':          '#ff5722',
+  '80s':          '#9c27b0',
+  '90s':          '#3f51b5',
+  '00s':          '#009688',
+  '10s':          '#607d8b',
+  '20s':          '#00bcd4',
+  // BPM Tier
+  '<120 BPM':     '#4a9eff',
+  '120–124 BPM':  '#4caf50',
+  '125–128 BPM':  '#ffeb3b',
+  '129–135 BPM':  '#ff9800',
+  '136–144 BPM':  '#ff5722',
+  '>144 BPM':     '#ff4444',
+  // Play History
+  'Never Played':      '#607d8b',
+  'Rarely Played':     '#ff9800',
+  'Frequently Played': '#4caf50',
+};
+
+let _lastAutoTagUndoData = null;
+
+async function autoTagTracks() {
+  const btn     = document.getElementById('cue-tools-run-btn');
+  const resultEl = document.getElementById('cue-tools-result');
+  const dryRun  = document.getElementById('cue-tools-dry-run').checked;
+  const trackIds = activeTracks().map(t => parseInt(t.id));
+  const total   = trackIds.length;
+
+  const tagTypeMap = {
+    'at-category':      'category',
+    'at-vocal':         'vocal',
+    'at-energy-level':  'energy_level',
+    'at-energy-profile':'energy_profile',
+    'at-intro-outro':   'intro_outro',
+    'at-decade':        'decade',
+    'at-bpm-tier':      'bpm_tier',
+    'at-play-history':  'play_history',
+  };
+  const tagTypes = Object.entries(tagTypeMap)
+    .filter(([id]) => document.getElementById(id)?.checked)
+    .map(([, val]) => val);
+
+  if (!tagTypes.length) { showToast('Select at least one tag type'); return; }
+  if (!total) { showToast('No tracks to process'); return; }
+
+  btn.disabled = true;
+  btn.textContent = 'Tagging…';
+  resultEl.style.display = 'none';
+
+  try {
+    const r = await fetch('/api/auto-tag', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ track_ids: trackIds, tag_types: tagTypes, overwrite: true, dry_run: dryRun }),
+    });
+    if (!r.ok) {
+      const err = await r.json().catch(() => ({}));
+      throw new Error(err.detail || r.statusText);
+    }
+    const d = await r.json();
+    const dryTag = dryRun ? ' (dry run)' : '';
+    resultEl.innerHTML = `<strong>${d.tagged} track(s) tagged${dryTag}</strong><br>
+      <span style="color:var(--muted);font-size:12px">${d.skipped_no_data} skipped (no data) · ${d.errors} errors</span>`;
+    resultEl.style.display = '';
+
+    if (!dryRun && d.undo_data) {
+      _lastAutoTagUndoData = d.undo_data;
+      const undoRow = document.getElementById('auto-tag-undo-row');
+      undoRow.style.display = 'flex';
+      document.getElementById('auto-tag-undo-status').textContent = '';
+    }
+  } catch (err) {
+    showToast(`Auto-tag failed: ${err.message}`);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Tag visible tracks';
+  }
+}
+
+async function autoTagUndo() {
+  if (!_lastAutoTagUndoData) { showToast('Nothing to undo'); return; }
+  const btn    = document.getElementById('auto-tag-undo-btn');
+  const status = document.getElementById('auto-tag-undo-status');
+  btn.disabled = true;
+  status.textContent = 'Undoing…';
+  try {
+    const r = await fetch('/api/auto-tag/undo', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ undo_data: _lastAutoTagUndoData }),
+    });
+    if (!r.ok) {
+      const err = await r.json().catch(() => ({}));
+      throw new Error(err.detail || r.statusText);
+    }
+    const d = await r.json();
+    status.textContent = `Undone — ${d.removed} removed, ${d.restored} restored`;
+    _lastAutoTagUndoData = null;
+    document.getElementById('auto-tag-undo-row').style.display = 'none';
+  } catch (err) {
+    showToast(`Undo failed: ${err.message}`);
+    status.textContent = '';
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+async function discogsTagTracks() {
+  const btn       = document.getElementById('discogs-run-btn');
+  const statusEl  = document.getElementById('discogs-status');
+  const resultEl  = document.getElementById('discogs-result');
+  const fillEl    = document.getElementById('discogs-progress-fill');
+  const token     = (document.getElementById('discogs-token')?.value || '').trim();
+  const dryRun    = document.getElementById('discogs-dry-run')?.checked ?? false;
+  const trackIds  = activeTracks().map(t => parseInt(t.id));
+  const total     = trackIds.length;
+
+  if (!token) { showToast('Paste your Discogs token first'); return; }
+  if (!total)  { showToast('No tracks to process'); return; }
+
+  btn.disabled = true;
+  btn.textContent = `Tagging… 0 / ${total}`;
+  resultEl.textContent = '';
+  fillEl.style.width = '0%';
+
+  let tagged = 0, skipped = 0, errors = 0;
+
+  try {
+    const r = await fetch('/api/auto-tag/discogs', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ track_ids: trackIds, token, dry_run: dryRun }),
+    });
+    if (!r.ok) { const e = await r.json(); throw new Error(e.detail || r.statusText); }
+
+    const reader = r.body.getReader();
+    const decoder = new TextDecoder();
+    let buf = '';
+
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buf += decoder.decode(value, { stream: true });
+      const lines = buf.split('\n');
+      buf = lines.pop();
+      for (const line of lines) {
+        if (!line.startsWith('data:')) continue;
+        const d = JSON.parse(line.slice(5).trim());
+        if (d.done) {
+          tagged  = d.tagged;
+          skipped = d.skipped;
+          errors  = d.errors;
+          fillEl.style.width = '100%';
+        } else {
+          const pct = Math.round((d.processed / total) * 100);
+          fillEl.style.width = pct + '%';
+          btn.textContent = `Tagging… ${d.processed} / ${total}`;
+          if (d.styles && d.styles.length) tagged = d.tagged || tagged;
+          if (d.error) errors = d.errors || errors;
+        }
+      }
+    }
+
+    const label = dryRun ? ' (dry run)' : '';
+    resultEl.textContent = `Done${label}: ${tagged} tagged · ${skipped} no results · ${errors} errors`;
+    if (!dryRun) showToast(`Discogs tags written for ${tagged} tracks`);
+  } catch (err) {
+    showToast(`Discogs error: ${err.message}`);
+    resultEl.textContent = `Error: ${err.message}`;
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Tag visible tracks from Discogs';
+  }
+}
+
+const _DISCOGS_TOKEN_KEY = 'autocue_discogs_token';
+
+function discogsSaveToken() {
+  const inp = document.getElementById('discogs-token');
+  const token = (inp?.value || '').trim();
+  const saveStatus = document.getElementById('discogs-save-status');
+  if (!token) { saveStatus.textContent = 'Paste a token first'; saveStatus.style.color = 'var(--red, #f55)'; return; }
+  localStorage.setItem(_DISCOGS_TOKEN_KEY, token);
+  saveStatus.textContent = 'Saved — testing…';
+  saveStatus.style.color = 'var(--muted)';
+  fetch('/api/auto-tag/discogs/test', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ token }),
+  }).then(r => r.json().then(d => ({ ok: r.ok, d }))).then(({ ok, d }) => {
+    if (ok) {
+      saveStatus.textContent = `✓ Connected as ${d.username || 'user'}`;
+      saveStatus.style.color = 'var(--green)';
+    } else {
+      saveStatus.textContent = `✗ ${d.detail || 'invalid token'} — token saved`;
+      saveStatus.style.color = 'var(--red, #f55)';
+    }
+  }).catch(err => {
+    saveStatus.textContent = `✗ ${err.message}`;
+    saveStatus.style.color = 'var(--red, #f55)';
+  });
+}
+
+function discogsLoadSavedToken() {
+  const saved = localStorage.getItem(_DISCOGS_TOKEN_KEY);
+  const inp = document.getElementById('discogs-token');
+  const saveStatus = document.getElementById('discogs-save-status');
+  if (saved) {
+    if (inp) inp.value = saved;
+    if (saveStatus) { saveStatus.textContent = 'Token loaded from local storage'; saveStatus.style.color = 'var(--muted)'; }
+  } else {
+    // Try to load from server config (reads .env on the server side)
+    fetch('/api/config').then(r => r.ok ? r.json() : null).then(d => {
+      if (d && d.discogs_token) {
+        if (inp) inp.value = d.discogs_token;
+        if (saveStatus) { saveStatus.textContent = 'Token loaded from .env — click Save & Test to persist'; saveStatus.style.color = 'var(--muted)'; }
+      }
+    }).catch(() => {});
+  }
+}
+
+// ── Comment Enrichment ────────────────────────────────────────────────────────
+
+async function enrichComments() {
+  const btn    = document.getElementById('ce-run-btn');
+  const status = document.getElementById('ce-status');
+  const result = document.getElementById('ce-result');
+  const resultText = document.getElementById('ce-result-text');
+
+  const overwrite = document.getElementById('ce-overwrite').checked;
+  const dryRun    = document.getElementById('ce-dry-run').checked;
+  const ids = filteredTracks().map(t => t.id);
+
+  if (!ids.length) { showToast('No tracks to enrich', true); return; }
+
+  btn.disabled = true;
+  status.textContent = `Enriching ${ids.length} tracks…`;
+  result.style.display = 'none';
+
+  try {
+    const r = await fetch('/api/enrich-comments', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ track_ids: ids, overwrite, dry_run: dryRun }),
+    });
+    if (!r.ok) {
+      const err = await r.json().catch(() => ({ detail: r.statusText }));
+      throw new Error(err.detail || r.statusText);
+    }
+    const d = await r.json();
+    const label = dryRun ? ' (dry run)' : '';
+    resultText.textContent = `Enriched: ${d.enriched} · Skipped: ${d.skipped} · Errors: ${d.errors}${label}`;
+    result.style.display = '';
+    status.textContent = '';
+    showToast(dryRun ? `Preview: ${d.enriched} tracks would be enriched` : `Enriched ${d.enriched} track comments`);
+  } catch (err) {
+    status.textContent = `Error: ${err.message}`;
+    showToast(`Enrichment failed: ${err.message}`, true);
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+async function previewComment() {
+  const sel   = document.getElementById('ce-preview-track');
+  const pDiv  = document.getElementById('ce-preview-result');
+  const pCur  = document.getElementById('ce-preview-current');
+  const pAfter = document.getElementById('ce-preview-after');
+  const trackId = parseInt(sel.value, 10);
+  if (!trackId) { showToast('Select a track to preview', true); return; }
+
+  try {
+    const r = await fetch('/api/enrich-comments/preview', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ track_id: trackId }),
+    });
+    if (!r.ok) throw new Error((await r.json().catch(() => ({}))).detail || r.statusText);
+    const d = await r.json();
+    pCur.textContent  = d.current_comment || '(empty)';
+    pAfter.textContent = d.preview || '(no enrichment available)';
+    pDiv.style.display = '';
+  } catch (err) {
+    showToast(`Preview failed: ${err.message}`, true);
   }
 }
 
@@ -2329,9 +2962,25 @@ async function applyToRekordbox() {
   }
 }
 
+// ── Tab navigation ────────────────────────────────────────────────────────────
+function switchTab(name) {
+  const isCues = name === 'cues';
+  document.getElementById('cues-tab-content').style.display    = isCues ? '' : 'none';
+  document.getElementById('library-tab-content').style.display = isCues ? 'none' : '';
+  document.querySelectorAll('.tab-btn').forEach(b => {
+    const isActive = b.id === 'tab-' + name;
+    b.classList.toggle('active', isActive);
+  });
+}
+document.getElementById('tab-cues').addEventListener('click', () => switchTab('cues'));
+document.getElementById('tab-library').addEventListener('click', () => switchTab('library'));
+
 detectLocalMode().then(async connected => {
   localMode = connected;
   if (localMode) {
+    document.getElementById('tab-nav').style.display = '';
+    document.getElementById('steps').style.display = 'none';
+    document.querySelector('.mode-callout')?.setAttribute('style', 'display:none');
     document.getElementById('drop-zone').style.display = 'none';
     document.getElementById('local-mode-banner').style.display = '';
     document.getElementById('download-btn').textContent = 'Apply to Rekordbox';
@@ -2339,33 +2988,43 @@ detectLocalMode().then(async connected => {
     document.getElementById('skip-colored-label').style.display = 'flex';
     document.getElementById('color-by-bpm-btn').style.display = '';
     document.getElementById('preview-cues-btn').style.display = '';
+    document.getElementById('apply-sep').style.display = '';
     document.getElementById('how-to').style.display = 'none';
     document.getElementById('local-how-to').style.display = '';
     document.getElementById('health-section').style.display = '';
     document.getElementById('health-scan-btn').addEventListener('click', scanLibraryHealth);
     document.getElementById('cue-tools-section').style.display = '';
     _initCueTools();
+    document.getElementById('discogs-section').style.display = '';
+    document.getElementById('discogs-run-btn').addEventListener('click', discogsTagTracks);
+    document.getElementById('discogs-save-btn').addEventListener('click', discogsSaveToken);
+    discogsLoadSavedToken();
+    document.getElementById('comment-enrich-section').style.display = '';
+    document.getElementById('ce-run-btn').addEventListener('click', enrichComments);
+    document.getElementById('ce-preview-btn').addEventListener('click', previewComment);
     document.getElementById('playlist-suggest-section').style.display = '';
     document.getElementById('ps-suggest-btn').addEventListener('click', () => suggestPlaylist(false));
     document.getElementById('ps-more-btn').addEventListener('click', () => suggestPlaylist(true));
     document.getElementById('ps-reset-btn').addEventListener('click', () => {
       _psExcludedIds = [];
+      _psTracks = [];
       document.getElementById('ps-tracklist').innerHTML = '';
       document.getElementById('ps-result').style.display = 'none';
       document.getElementById('ps-more-btn').style.display = 'none';
       document.getElementById('ps-reset-btn').style.display = 'none';
       document.getElementById('ps-summary').textContent = '';
     });
+    document.getElementById('ps-save-playlist-btn').addEventListener('click', psSavePlaylist);
     document.getElementById('setbuilder-section').style.display = '';
     document.getElementById('sb-build-btn').addEventListener('click', buildSet);
+    document.getElementById('sb-save-playlist-btn').addEventListener('click', sbSavePlaylist);
 
     // Copy track list buttons
-    function makeCopyHandler(listId, btnId) {
+    function makeCopyHandler(listId, btnId, tracksRef) {
       const btn = document.getElementById(btnId);
       if (!btn) return;
       btn.addEventListener('click', () => {
-        const items = document.querySelectorAll(`#${listId} li`);
-        const text = Array.from(items).map((li, i) => `${i + 1}. ${li.textContent.trim()}`).join('\n');
+        const text = tracksRef().map((t, i) => `${i + 1}. ${t.title || '(untitled)'} — ${t.artist || ''} (${t.bpm ? t.bpm.toFixed(1) + ' BPM' : ''}, ${t.key || '—'})`).join('\n');
         navigator.clipboard.writeText(text).then(() => {
           btn.textContent = '✓ Copied';
           btn.classList.add('copied');
@@ -2373,8 +3032,8 @@ detectLocalMode().then(async connected => {
         }).catch(() => showToast('Copy failed'));
       });
     }
-    makeCopyHandler('ps-tracklist', 'ps-copy-btn');
-    makeCopyHandler('sb-tracklist', 'sb-copy-btn');
+    makeCopyHandler('ps-tracklist', 'ps-copy-btn', () => _psTracks);
+    makeCopyHandler('sb-tracklist', 'sb-copy-btn', () => _sbTracks);
 
     // F2: Load playlists into dropdown
     document.getElementById('playlist-filter-bar').style.display = 'flex';
@@ -2392,12 +3051,18 @@ detectLocalMode().then(async connected => {
 
     try {
       const tags = await fetch('/api/tags').then(r => r.json());
-      const tagSel = document.getElementById('tag-filter-select');
+      const chipsEl = document.getElementById('tag-filter-chips');
       for (const tag of tags) {
-        const opt = document.createElement('option');
-        opt.value = tag.name;
-        opt.textContent = tag.name;
-        tagSel.appendChild(opt);
+        const chip = document.createElement('button');
+        chip.className = 'tf-chip';
+        chip.dataset.tag = tag.name;
+        chip.textContent = tag.name;
+        const c = (typeof AUTO_TAG_COLORS !== 'undefined') && AUTO_TAG_COLORS[tag.name];
+        chip.style.cssText = c
+          ? `background:${c}22;border:1px solid ${c}55;color:${c};border-radius:10px;padding:2px 8px;font-size:11px;cursor:pointer;`
+          : 'background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:10px;padding:2px 8px;font-size:11px;cursor:pointer;';
+        chip.addEventListener('click', e => { e.stopPropagation(); window._toggleTagFilter(tag.name); });
+        chipsEl.appendChild(chip);
       }
     } catch {}
 
@@ -2599,14 +3264,90 @@ document.getElementById('lastplayed-filter').addEventListener('change', e => {
   updateActiveFiltersChip();
   if (parsedTracks.length) renderTracks();
 });
-document.getElementById('tag-filter-select').addEventListener('change', e => {
-  myTagFilter = e.target.value;
-  updateActiveFiltersChip();
-  if (parsedTracks.length) renderTracks();
-});
+// Tag filter popup
+(function() {
+  const popup = document.getElementById('tag-filter-popup');
+  const btn   = document.getElementById('tag-filter-btn');
+
+  function toggleTag(tag) {
+    if (myTagFilters.has(tag)) myTagFilters.delete(tag);
+    else myTagFilters.add(tag);
+    updateTagFilterUI();
+    updateActiveFiltersChip();
+    if (parsedTracks.length) renderTracks();
+  }
+
+  function updateTagFilterUI() {
+    document.querySelectorAll('#tag-filter-chips .tf-chip').forEach(b => {
+      b.classList.toggle('selected', myTagFilters.has(b.dataset.tag));
+    });
+    if (myTagFilters.size === 0) {
+      btn.textContent = 'Tags: Any ▾';
+      btn.style.borderColor = '';
+      btn.style.color = '';
+    } else {
+      btn.textContent = `Tags: ${myTagFilters.size} ▾`;
+      btn.style.borderColor = 'var(--green)';
+      btn.style.color = 'var(--green)';
+    }
+  }
+
+  function openPopup() {
+    popup.style.display = 'flex';
+    const rect = btn.getBoundingClientRect();
+    const popupH = 300;
+    // Flip above if not enough space below
+    if (rect.bottom + popupH + 8 > window.innerHeight) {
+      popup.style.top  = (rect.top - popupH - 4) + 'px';
+    } else {
+      popup.style.top  = (rect.bottom + 4) + 'px';
+    }
+    popup.style.left = rect.left + 'px';
+    requestAnimationFrame(() => {
+      const pr = popup.getBoundingClientRect();
+      if (pr.right > window.innerWidth - 8)
+        popup.style.left = (window.innerWidth - pr.width - 8) + 'px';
+      if (pr.left < 8) popup.style.left = '8px';
+    });
+  }
+
+  function closePopup() { popup.style.display = 'none'; }
+
+  // Called from popup chips — keep popup open for multi-select
+  // Called from track card pills — close popup immediately
+  window._toggleTagFilter = function(tag, fromCard) {
+    toggleTag(tag);
+    if (fromCard) closePopup();
+  };
+  window._updateTagFilterUI = updateTagFilterUI;
+
+  document.getElementById('tf-clear-btn').addEventListener('click', () => {
+    myTagFilters.clear();
+    updateTagFilterUI();
+    updateActiveFiltersChip();
+    if (parsedTracks.length) renderTracks();
+  });
+
+  document.getElementById('tag-search').addEventListener('input', function() {
+    const q = this.value.toLowerCase();
+    document.querySelectorAll('#tag-filter-chips .tf-chip').forEach(chip => {
+      chip.style.display = chip.dataset.tag.toLowerCase().includes(q) ? '' : 'none';
+    });
+  });
+
+  btn.addEventListener('click', e => {
+    e.stopPropagation();
+    if (popup.style.display === 'flex') closePopup(); else openPopup();
+  });
+
+  document.addEventListener('click', e => {
+    if (popup.style.display === 'flex' && !popup.contains(e.target) && e.target !== btn)
+      closePopup();
+  });
+})();
 
 function updateActiveFiltersChip() {
-  const active = ratingFilter > 0 || playsFilter !== 'all' || lastPlayedFilter !== 'all' || myTagFilter || selectedKeys.size > 0 || phraseOnlyFilter || searchQuery;
+  const active = ratingFilter > 0 || playsFilter !== 'all' || lastPlayedFilter !== 'all' || myTagFilters.size > 0 || selectedKeys.size > 0 || phraseOnlyFilter || searchQuery;
   const chip = document.getElementById('active-filters-chip');
   if (chip) chip.classList.toggle('visible', !!active);
 }
@@ -2617,7 +3358,7 @@ function clearAllFilters() {
   ratingFilter = 0;
   playsFilter = 'all';
   lastPlayedFilter = 'all';
-  myTagFilter = '';
+  myTagFilters.clear();
   selectedKeys.clear();
   const si = document.getElementById('search-input');
   if (si) si.value = '';
@@ -2629,8 +3370,9 @@ function clearAllFilters() {
   if (pf) pf.value = 'all';
   const lpf = document.getElementById('lastplayed-filter');
   if (lpf) lpf.value = 'all';
-  const tf = document.getElementById('tag-filter-select');
-  if (tf) tf.value = '';
+  document.querySelectorAll('#tag-filter-chips .tf-chip').forEach(b => b.classList.remove('selected'));
+  const tfb = document.getElementById('tag-filter-btn');
+  if (tfb) { tfb.textContent = 'Tags: Any ▾'; tfb.style.borderColor = ''; tfb.style.color = ''; }
   // Update Camelot key buttons
   document.querySelectorAll('#camelot-grid button').forEach(b => b.classList.remove('selected'));
   const kfb = document.getElementById('key-filter-btn');
@@ -3150,7 +3892,7 @@ function filteredTracks() {
       tracks = tracks.filter(t => t.lastPlayed && t.lastPlayed >= cutoff);
     }
   }
-  if (myTagFilter) tracks = tracks.filter(t => (t.myTags || []).includes(myTagFilter));
+  if (myTagFilters.size > 0) tracks = tracks.filter(t => (t.myTags || []).some(tag => myTagFilters.has(tag)));
   if (selectedKeys.size > 0) tracks = tracks.filter(t => t.key && selectedKeys.has(t.key));
   return tracks;
 }
@@ -3357,6 +4099,10 @@ async function _toggleSimilarPanel(btn, panel, trackId) {
       seen.add(key);
       return true;
     });
+    const note = document.createElement('div');
+    note.style.cssText = 'font-size:10px;color:var(--muted);margin-bottom:6px;';
+    note.textContent = 'Scores key + energy + BPM proximity. Harmonic compatibility is scored separately in the Transition panel.';
+    panel.appendChild(note);
     for (const item of deduped) {
       const t = lookup[String(item.track_id)];
       const row = document.createElement('div');
@@ -3700,6 +4446,16 @@ function buildTrackCard(track, cues, willSkip, opts = {}) {
       const tp = document.createElement('span');
       tp.className = 'tag-pill';
       tp.textContent = tag;
+      tp.title = `Filter by "${tag}"`;
+      tp.style.cursor = 'pointer';
+      const catColor = (typeof AUTO_TAG_COLORS !== 'undefined') && AUTO_TAG_COLORS[tag];
+      if (catColor) {
+        tp.style.cssText = `background:${catColor}22;border-color:${catColor}55;color:${catColor};cursor:pointer;`;
+      }
+      tp.addEventListener('click', e => {
+        e.stopPropagation();
+        if (typeof window._toggleTagFilter === 'function') window._toggleTagFilter(tag, true);
+      });
       infoRow.appendChild(tp);
     }
     cardMain.appendChild(infoRow);
@@ -4265,7 +5021,7 @@ function handleFile(file) {
     document.getElementById('download-bar').classList.add('visible');
     document.getElementById('audio-drop-section').classList.add('visible');
     document.getElementById('backup-bar').style.display = '';
-    document.getElementById('analysis-mode-bar').style.display = '';
+    document.getElementById('analysis-mode-bar').style.display = 'flex';
 
     setStep(3);
     renderTracks();
@@ -4830,6 +5586,8 @@ const _CAT_COLORS = {
 
 let _psExcludedIds = [];
 let _psCategoryLast = null;
+let _psTracks = [];
+let _psDragIdx = null;
 
 async function suggestPlaylist(append) {
   const btn     = document.getElementById('ps-suggest-btn');
@@ -4872,22 +5630,24 @@ async function suggestPlaylist(append) {
     }
     const d = await r.json();
     status.textContent = '';
-    const totalShown = (append ? list.children.length : 0) + d.results.length;
-    summary.textContent = `${totalShown} tracks for "${category}"${_psExcludedIds.length ? ' (excluding ' + _psExcludedIds.length + ' already shown)' : ''}`;
     const trackMap = Object.fromEntries((parsedTracks || []).map(t => [String(t.id), t]));
+    if (!append) _psTracks = [];
     for (const item of d.results) {
       _psExcludedIds.push(item.track_id);
       const t = trackMap[String(item.track_id)];
-      const li = document.createElement('li');
-      li.className = 'sb-track-row';
-      li.innerHTML = `
-        <span class="sb-track-title"><strong>${t ? (t.name || t.title || '(untitled)') : '(track ' + item.track_id + ')'}</strong> <span class="sb-track-artist">${t ? t.artist : ''}</span></span>
-        <span class="sb-track-bpm">${t ? t.bpm.toFixed(1) + ' BPM' : ''}</span>
-        <span class="sb-track-key">${t ? (t.key || '—') : ''}</span>
-        <span class="sb-track-score">${Math.round(item.score * 100)}%</span>
-      `;
-      list.appendChild(li);
+      _psTracks.push({
+        track_id:  item.track_id,
+        title:     t ? (t.name || t.title || '(untitled)') : '(track ' + item.track_id + ')',
+        artist:    t ? (t.artist || '') : '',
+        bpm:       t ? t.bpm : 0,
+        key:       t ? (t.key || '—') : '—',
+        category:  category,
+        score:     item.score,
+      });
     }
+    _psRenderSet();
+    const totalShown = _psTracks.length;
+    summary.textContent = `${totalShown} tracks for "${category}"${_psExcludedIds.length > totalShown ? ' (excluding ' + (_psExcludedIds.length - totalShown) + ' already shown)' : ''}`;
     result.style.display = '';
     moreBtn.style.display = d.results.length >= count ? '' : 'none';
     resetBtn.style.display = _psExcludedIds.length > 0 ? '' : 'none';
@@ -4901,12 +5661,427 @@ async function suggestPlaylist(append) {
   }
 }
 
+// ── Playlist Suggest interactive ─────────────────────────────────────────────
+
+function _psRenderSet() {
+  const list = document.getElementById('ps-tracklist');
+  if (!list) return;
+  list.innerHTML = '';
+
+  const allIds = _psTracks.map(t => t.track_id);
+
+  _psTracks.forEach((t, i) => {
+    const row = document.createElement('div');
+    row.className = 'sb-row';
+    row.draggable = true;
+    row.dataset.index = i;
+
+    const catColor = _CAT_COLORS[t.category] || '#888';
+    const scorePct = t.score != null ? Math.round(t.score * 100) : null;
+    const scoreColor = scorePct == null ? 'var(--muted)' : scorePct >= 70 ? 'var(--green)' : scorePct >= 45 ? '#e07000' : '#c03030';
+
+    row.innerHTML = `
+      <div class="sb-drag-handle" title="Drag to reorder">⠿</div>
+      <div class="sb-row-num">${i + 1}</div>
+      <div class="sb-row-main">
+        <div class="sb-row-title">${t.title || '(untitled)'}</div>
+        <div class="sb-row-artist">${t.artist || ''}</div>
+      </div>
+      <div class="sb-row-meta">
+        <span class="sb-track-bpm">${t.bpm ? t.bpm.toFixed(1) : '—'}</span>
+        <span class="sb-track-key">${t.key || '—'}</span>
+        <span class="sb-track-cat" style="color:${catColor};border-color:${catColor};background:${catColor}18">${t.category}</span>
+        ${scorePct != null ? `<span style="font-size:11px;font-weight:600;color:${scoreColor}">${scorePct}%</span>` : ''}
+      </div>
+      <button class="sb-row-replace" data-idx="${i}">↻ Replace</button>
+    `;
+
+    row.addEventListener('dragstart', e => {
+      _psDragIdx = i;
+      row.classList.add('dragging');
+      e.dataTransfer.effectAllowed = 'move';
+    });
+    row.addEventListener('dragend', () => {
+      row.classList.remove('dragging');
+      list.querySelectorAll('.sb-row').forEach(r => r.classList.remove('drag-over'));
+    });
+    row.addEventListener('dragover', e => {
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'move';
+      list.querySelectorAll('.sb-row').forEach(r => r.classList.remove('drag-over'));
+      row.classList.add('drag-over');
+    });
+    row.addEventListener('drop', e => {
+      e.preventDefault();
+      row.classList.remove('drag-over');
+      if (_psDragIdx !== null && _psDragIdx !== i) {
+        const moved = _psTracks.splice(_psDragIdx, 1)[0];
+        _psTracks.splice(i, 0, moved);
+        _psDragIdx = null;
+        _psRenderSet();
+        _psUpdateSummary();
+      }
+    });
+
+    row.querySelector('.sb-row-replace').addEventListener('click', e => {
+      e.stopPropagation();
+      _psToggleAltPanel(i, t.track_id, allIds);
+    });
+
+    list.appendChild(row);
+  });
+}
+
+async function _psToggleAltPanel(idx, trackId, allIds) {
+  const list = document.getElementById('ps-tracklist');
+  const existing = list.querySelector('.sb-alt-panel');
+  if (existing) {
+    const wasIdx = parseInt(existing.dataset.forIdx);
+    existing.remove();
+    if (wasIdx === idx) return;
+  }
+
+  const rows = list.querySelectorAll('.sb-row');
+  if (!rows[idx]) return;
+
+  const panel = document.createElement('div');
+  panel.className = 'sb-alt-panel';
+  panel.dataset.forIdx = idx;
+  panel.innerHTML = `<div class="sb-alt-panel-title">↻ Finding best replacements…</div>`;
+  list.insertBefore(panel, rows[idx].nextSibling);
+
+  const prev = _psTracks[idx - 1];
+  const next = _psTracks[idx + 1];
+  const excludeStr = allIds.join(',');
+
+  try {
+    const params = new URLSearchParams({ track_id: trackId, exclude_ids: excludeStr, n: 8 });
+    if (prev) params.set('prev_id', prev.track_id);
+    if (next) params.set('next_id', next.track_id);
+
+    const r = await fetch(`/api/setbuilder/alternatives?${params}`);
+    if (!r.ok) throw new Error((await r.json().catch(() => ({}))).detail || r.statusText);
+    const d = await r.json();
+
+    if (!d.alternatives.length) {
+      panel.innerHTML = `<div class="sb-alt-panel-title">No suitable replacements found in library</div>`;
+      return;
+    }
+
+    let html = `<div class="sb-alt-panel-title">↻ Best replacements for position ${idx + 1} <span style="font-weight:400;color:var(--muted-soft)">(click to swap)</span></div>`;
+    for (const alt of d.alternatives) {
+      const scoreColor = alt.score >= 70 ? 'var(--green)' : alt.score >= 45 ? '#e07000' : '#c03030';
+      const fromStr = alt.from_prev != null ? `from prev: ${Math.round(alt.from_prev)}` : '';
+      const toStr   = alt.to_next != null ? `to next: ${Math.round(alt.to_next)}` : '';
+      const reasons = [fromStr, toStr].filter(Boolean).join(' · ');
+      html += `
+        <div class="sb-alt-item" data-alt-idx="${idx}" data-alt='${JSON.stringify(alt).replace(/'/g,"&#39;")}'>
+          <div class="sb-alt-main">
+            <div class="sb-alt-title">${alt.title || '(untitled)'}</div>
+            <div class="sb-alt-artist">${alt.artist || ''}</div>
+          </div>
+          <div class="sb-alt-meta">
+            <span style="font-family:var(--mono)">${alt.bpm.toFixed(1)}</span>
+            <span style="background:var(--surface);border:1px solid var(--border);border-radius:4px;padding:1px 4px;font-family:var(--mono)">${alt.key || '—'}</span>
+            ${reasons ? `<span style="color:var(--muted-soft)">${reasons}</span>` : ''}
+            <span class="sb-alt-score" style="color:${scoreColor}">${Math.round(alt.score)}</span>
+          </div>
+        </div>`;
+    }
+    panel.innerHTML = html;
+
+    panel.querySelectorAll('.sb-alt-item').forEach(el => {
+      el.addEventListener('click', () => {
+        const altIdx = parseInt(el.dataset.altIdx);
+        const alt = JSON.parse(el.dataset.alt);
+        _psTracks[altIdx] = {
+          track_id: alt.track_id,
+          title:    alt.title,
+          artist:   alt.artist,
+          bpm:      alt.bpm,
+          key:      alt.key,
+          category: _psTracks[altIdx].category,
+          score:    null,
+        };
+        panel.remove();
+        _psRenderSet();
+        _psUpdateSummary();
+        showToast(`Replaced with ${alt.title || 'track'}`);
+      });
+    });
+  } catch (err) {
+    panel.innerHTML = `<div class="sb-alt-panel-title" style="color:#c03030">Failed: ${err.message}</div>`;
+  }
+}
+
+function _psUpdateSummary() {
+  const summary = document.getElementById('ps-summary');
+  if (!summary) return;
+  summary.textContent = `${_psTracks.length} tracks (edited)`;
+}
+
+async function psSavePlaylist() {
+  const name = prompt('Playlist name:', 'AutoCue Suggest ' + new Date().toLocaleDateString());
+  if (!name) return;
+  const ids = _psTracks.map(t => t.track_id);
+  try {
+    const r = await fetch('/api/playlists', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, track_ids: ids }),
+    });
+    if (!r.ok) {
+      const err = await r.json().catch(() => ({ detail: r.statusText }));
+      throw new Error(err.detail || r.statusText);
+    }
+    const d = await r.json();
+    showToast(`Playlist "${d.name}" created (${d.track_count} tracks)`);
+  } catch (err) {
+    showToast(`Failed to create playlist: ${err.message}`, true);
+  }
+}
+
+// ── Set Builder state ────────────────────────────────────────────────────────
+let _sbTracks = [];       // current mutable set
+let _sbDragIdx = null;    // drag source index
+
+function _sbKeyCompat(keyA, keyB) {
+  if (!keyA || !keyB || keyA === '—' || keyB === '—') return null;
+  // Camelot notation: same number ±1 letter, or same letter ±1 number = compatible
+  const m = (k) => k.match(/^(\d+)([AB])$/i);
+  const a = m(keyA), b = m(keyB);
+  if (!a || !b) return null;
+  const [, na, la] = a; const [, nb, lb] = b;
+  const dn = Math.abs(parseInt(na) - parseInt(nb));
+  const sameKey = na === nb && la.toUpperCase() === lb.toUpperCase();
+  const adj = (dn <= 1 || dn === 11) && la.toUpperCase() === lb.toUpperCase();
+  const relative = na === nb && la.toUpperCase() !== lb.toUpperCase();
+  return sameKey || adj || relative;
+}
+
+function _sbRenderSet() {
+  const list = document.getElementById('sb-tracklist');
+  if (!list) return;
+  list.innerHTML = '';
+
+  const allIds = _sbTracks.map(t => t.track_id);
+
+  _sbTracks.forEach((t, i) => {
+    // ── Track row ──
+    const row = document.createElement('div');
+    row.className = 'sb-row';
+    row.draggable = true;
+    row.dataset.index = i;
+
+    const catColor = _CAT_COLORS[t.category] || '#888';
+    const relaxedAttr = t.relaxed
+      ? ` title="Placed via relaxed constraints" style="opacity:.6"`
+      : '';
+
+    row.innerHTML = `
+      <div class="sb-drag-handle" title="Drag to reorder">⠿</div>
+      <div class="sb-row-num">${i + 1}</div>
+      <div class="sb-row-main">
+        <div class="sb-row-title">${t.title || '(untitled)'}${t.relaxed ? ' <span style="font-size:9px;color:var(--muted-soft);font-weight:400">(relaxed)</span>' : ''}</div>
+        <div class="sb-row-artist">${t.artist || ''}</div>
+      </div>
+      <div class="sb-row-meta">
+        <span class="sb-track-bpm">${t.bpm.toFixed(1)}</span>
+        <span class="sb-track-key">${t.key || '—'}</span>
+        <span class="sb-track-cat" style="color:${catColor};border-color:${catColor};background:${catColor}18">${t.category}</span>
+      </div>
+      <button class="sb-row-replace" data-idx="${i}">↻ Replace</button>
+    `;
+
+    // Drag handlers
+    row.addEventListener('dragstart', e => {
+      _sbDragIdx = i;
+      row.classList.add('dragging');
+      e.dataTransfer.effectAllowed = 'move';
+    });
+    row.addEventListener('dragend', () => {
+      row.classList.remove('dragging');
+      list.querySelectorAll('.sb-row').forEach(r => r.classList.remove('drag-over'));
+    });
+    row.addEventListener('dragover', e => {
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'move';
+      list.querySelectorAll('.sb-row').forEach(r => r.classList.remove('drag-over'));
+      row.classList.add('drag-over');
+    });
+    row.addEventListener('drop', e => {
+      e.preventDefault();
+      row.classList.remove('drag-over');
+      if (_sbDragIdx !== null && _sbDragIdx !== i) {
+        const moved = _sbTracks.splice(_sbDragIdx, 1)[0];
+        _sbTracks.splice(i, 0, moved);
+        _sbDragIdx = null;
+        _sbRenderSet();
+        _sbUpdateSummary();
+      }
+    });
+
+    // Replace button
+    row.querySelector('.sb-row-replace').addEventListener('click', e => {
+      e.stopPropagation();
+      _sbToggleAltPanel(i, t.track_id, allIds);
+    });
+
+    list.appendChild(row);
+
+    // ── Transition connector to next track ──
+    if (i < _sbTracks.length - 1) {
+      const next = _sbTracks[i + 1];
+      const conn = document.createElement('div');
+      conn.className = 'sb-connector';
+
+      const bpmDiff = next.bpm - t.bpm;
+      const bpmStr = `${t.bpm.toFixed(1)} → ${next.bpm.toFixed(1)} BPM (${bpmDiff >= 0 ? '+' : ''}${bpmDiff.toFixed(1)})`;
+
+      const keyCompat = _sbKeyCompat(t.key, next.key);
+      const keyStr = (t.key && next.key && t.key !== '—' && next.key !== '—')
+        ? `${t.key} → ${next.key}${keyCompat === true ? ' ✓' : keyCompat === false ? ' ✗' : ''}`
+        : '';
+
+      const score = next.transition_score;
+      const scoreClass = score == null ? '' : score >= 70 ? 'sb-conn-score' : score >= 45 ? 'sb-conn-score low' : 'sb-conn-score bad';
+      const scoreStr = score != null ? `<span class="${scoreClass}">${Math.round(score)}</span>` : '';
+
+      conn.innerHTML = `
+        <div class="sb-connector-line"></div>
+        <div class="sb-connector-info">
+          ${bpmStr}
+          ${keyStr ? `· ${keyStr}` : ''}
+          ${scoreStr ? `· Mix ${scoreStr}` : ''}
+        </div>
+      `;
+      list.appendChild(conn);
+    }
+  });
+}
+
+async function _sbToggleAltPanel(idx, trackId, allIds) {
+  const list = document.getElementById('sb-tracklist');
+  // Remove any existing panel
+  const existing = list.querySelector('.sb-alt-panel');
+  if (existing) {
+    const wasIdx = parseInt(existing.dataset.forIdx);
+    existing.remove();
+    if (wasIdx === idx) return; // toggle off
+  }
+
+  // Insert panel after the row at idx (accounting for connectors: row + connector per pair)
+  const rows = list.querySelectorAll('.sb-row');
+  if (!rows[idx]) return;
+  const insertAfter = rows[idx].nextSibling; // may be connector or next row or null
+
+  const panel = document.createElement('div');
+  panel.className = 'sb-alt-panel';
+  panel.dataset.forIdx = idx;
+  panel.innerHTML = `<div class="sb-alt-panel-title">↻ Finding best replacements…</div>`;
+  list.insertBefore(panel, insertAfter);
+
+  const prev = _sbTracks[idx - 1];
+  const next = _sbTracks[idx + 1];
+  const excludeStr = allIds.join(',');
+
+  try {
+    const params = new URLSearchParams({ track_id: trackId, exclude_ids: excludeStr, n: 8 });
+    if (prev) params.set('prev_id', prev.track_id);
+    if (next) params.set('next_id', next.track_id);
+
+    const r = await fetch(`/api/setbuilder/alternatives?${params}`);
+    if (!r.ok) throw new Error((await r.json().catch(() => ({}))).detail || r.statusText);
+    const d = await r.json();
+
+    if (!d.alternatives.length) {
+      panel.innerHTML = `<div class="sb-alt-panel-title">No suitable replacements found in library</div>`;
+      return;
+    }
+
+    let html = `<div class="sb-alt-panel-title">↻ Best replacements for position ${idx + 1} <span style="font-weight:400;color:var(--muted-soft)">(click to swap)</span></div>`;
+    for (const alt of d.alternatives) {
+      const scoreColor = alt.score >= 70 ? 'var(--green)' : alt.score >= 45 ? '#e07000' : '#c03030';
+      const fromStr = alt.from_prev != null ? `from prev: ${Math.round(alt.from_prev)}` : '';
+      const toStr   = alt.to_next != null ? `to next: ${Math.round(alt.to_next)}` : '';
+      const reasons = [fromStr, toStr].filter(Boolean).join(' · ');
+      html += `
+        <div class="sb-alt-item" data-alt-idx="${idx}" data-alt='${JSON.stringify(alt).replace(/'/g,"&#39;")}'>
+          <div class="sb-alt-main">
+            <div class="sb-alt-title">${alt.title || '(untitled)'}</div>
+            <div class="sb-alt-artist">${alt.artist || ''}</div>
+          </div>
+          <div class="sb-alt-meta">
+            <span style="font-family:var(--mono)">${alt.bpm.toFixed(1)}</span>
+            <span style="background:var(--surface);border:1px solid var(--border);border-radius:4px;padding:1px 4px;font-family:var(--mono)">${alt.key || '—'}</span>
+            ${reasons ? `<span style="color:var(--muted-soft)">${reasons}</span>` : ''}
+            <span class="sb-alt-score" style="color:${scoreColor}">${Math.round(alt.score)}</span>
+          </div>
+        </div>`;
+    }
+    panel.innerHTML = html;
+
+    panel.querySelectorAll('.sb-alt-item').forEach(el => {
+      el.addEventListener('click', () => {
+        const altIdx = parseInt(el.dataset.altIdx);
+        const alt = JSON.parse(el.dataset.alt);
+        const cur = _sbTracks[altIdx];
+        _sbTracks[altIdx] = {
+          track_id:        alt.track_id,
+          title:           alt.title,
+          artist:          alt.artist,
+          bpm:             alt.bpm,
+          key:             alt.key,
+          category:        cur.category,
+          transition_score: alt.to_next,
+          relaxed:         false,
+        };
+        panel.remove();
+        _sbRenderSet();
+        _sbUpdateSummary();
+        showToast(`Replaced with ${alt.title || 'track'}`);
+      });
+    });
+  } catch (err) {
+    panel.innerHTML = `<div class="sb-alt-panel-title" style="color:#c03030">Failed: ${err.message}</div>`;
+  }
+}
+
+function _sbUpdateSummary() {
+  const summary = document.getElementById('sb-summary');
+  if (!summary) return;
+  const n = _sbTracks.length;
+  // rough estimate: avg 6 min/track
+  const mins = Math.round(n * 6);
+  summary.textContent = `${n} tracks · ~${mins} min (edited)`;
+}
+
+async function sbSavePlaylist() {
+  const name = prompt('Playlist name:', 'AutoCue Set ' + new Date().toLocaleDateString());
+  if (!name) return;
+  const ids = _sbTracks.map(t => t.track_id);
+  try {
+    const r = await fetch('/api/playlists', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, track_ids: ids }),
+    });
+    if (!r.ok) {
+      const err = await r.json().catch(() => ({ detail: r.statusText }));
+      throw new Error(err.detail || r.statusText);
+    }
+    const d = await r.json();
+    showToast(`Playlist "${d.name}" created (${d.track_count} tracks)`);
+  } catch (err) {
+    showToast(`Failed to create playlist: ${err.message}`, true);
+  }
+}
+
 async function buildSet() {
   const btn     = document.getElementById('sb-build-btn');
   const status  = document.getElementById('sb-status');
   const result  = document.getElementById('sb-result');
   const summary = document.getElementById('sb-summary');
-  const list    = document.getElementById('sb-tracklist');
 
   const body = {
     start_bpm:        parseFloat(document.getElementById('sb-start-bpm').value) || 110,
@@ -4931,24 +6106,15 @@ async function buildSet() {
     }
     const d = await r.json();
     status.textContent = '';
-    summary.textContent = `${d.total_tracks} tracks · ~${d.estimated_duration_minutes} min`;
-    list.innerHTML = '';
-    for (const t of d.tracks) {
-      const li = document.createElement('li');
-      li.className = 'sb-track-row';
-      const catColor = _CAT_COLORS[t.category] || '#aaa';
-      const scoreHtml = t.transition_score != null
-        ? `<span class="sb-track-score">${Math.round(t.transition_score)}</span>`
-        : `<span class="sb-track-score none">—</span>`;
-      li.innerHTML = `
-        <span class="sb-track-title"><strong>${t.title || '(untitled)'}</strong> <span class="sb-track-artist">${t.artist || ''}</span></span>
-        <span class="sb-track-bpm">${t.bpm.toFixed(1)} BPM</span>
-        <span class="sb-track-key">${t.key || '—'}</span>
-        <span class="sb-track-cat" style="color:${catColor};border-color:${catColor};background:${catColor}18">${t.category}</span>
-        ${scoreHtml}
-      `;
-      list.appendChild(li);
-    }
+    const terminationLabels = {
+      'target_duration_reached':         '',
+      'no_candidates_passed_thresholds': ' · ⚠ library too narrow',
+      'safety_cap_hit':                  ' · ⚠ search exhausted early',
+    };
+    const note = terminationLabels[d.terminated_reason] || '';
+    summary.textContent = `${d.total_tracks} tracks · ~${d.estimated_duration_minutes} min${note}`;
+    _sbTracks = d.tracks.slice();
+    _sbRenderSet();
     result.style.display = '';
     showToast(`Set built: ${d.total_tracks} tracks`);
   } catch (err) {

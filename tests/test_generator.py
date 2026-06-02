@@ -715,7 +715,7 @@ class TestSmartSlotOrder:
         assert by_slot[2].label == PhraseLabel.INTRO
 
     def test_two_choruses_in_slot_order(self):
-        """Multiple Chorus phrases get consecutive low slots, chronologically ordered."""
+        """Slot A = mix-in (first Chorus), slot B = Outro, slot C+ = remaining Chorus phrases."""
         phrase_cues = self._phrase_cues([
             (PhraseLabel.CHORUS, 32_000),
             (PhraseLabel.CHORUS, 80_000),
@@ -726,9 +726,10 @@ class TestSmartSlotOrder:
         with patch("autocue.generator.analyze_track", return_value=phrase_cues):
             cues, _ = generate_cues_for_track(content, db, GenerationPrefs(mode="phrase"))
         by_slot = {c.slot: c for c in cues}
-        assert by_slot[0].position_ms == 32_000  # first Chorus
-        assert by_slot[1].position_ms == 80_000  # second Chorus
-        assert by_slot[2].label == PhraseLabel.OUTRO
+        assert by_slot[0].position_ms == 32_000   # A = mix-in (first Chorus)
+        assert by_slot[1].label == PhraseLabel.OUTRO  # B = outro start
+        assert by_slot[1].position_ms == 120_000
+        assert by_slot[2].position_ms == 80_000   # C = second Chorus
 
     def test_sequential_mode_preserves_chronological_order(self):
         phrase_cues = self._phrase_cues([

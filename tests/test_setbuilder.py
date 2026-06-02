@@ -179,7 +179,8 @@ class TestBuildSet:
         with patch("autocue.analysis.similar._INDEX_BUILT", False), \
              patch(f"{MODULE}._build_index"):
             result = build_set(db)
-        assert result == []
+        assert result["tracks"] == []
+        assert result["terminated_reason"] == "no_candidates_passed_thresholds"
 
     def test_returns_list_of_dicts(self):
         tracks = [_make_db_content(i, 12000 + i * 100, 360, "8A", f"Track{i}", "DJ")
@@ -199,11 +200,13 @@ class TestBuildSet:
              patch(f"{MODULE}.score_transition", return_value=fake_transition):
             result = build_set(db, duration_minutes=0.1)
 
-        assert isinstance(result, list)
-        assert len(result) >= 1
-        assert all("track_id" in t for t in result)
-        assert all("title" in t for t in result)
-        assert all("bpm" in t for t in result)
+        tracks_out = result["tracks"]
+        assert isinstance(tracks_out, list)
+        assert len(tracks_out) >= 1
+        assert all("track_id" in t for t in tracks_out)
+        assert all("title" in t for t in tracks_out)
+        assert all("bpm" in t for t in tracks_out)
+        assert "terminated_reason" in result
 
     def test_no_duplicate_tracks(self):
         """Each track should appear at most once in the set."""
@@ -225,7 +228,7 @@ class TestBuildSet:
              patch(f"{MODULE}.score_transition", return_value=fake_transition):
             result = build_set(db, duration_minutes=10.0)
 
-        track_ids = [t["track_id"] for t in result]
+        track_ids = [t["track_id"] for t in result["tracks"]]
         assert len(track_ids) == len(set(track_ids)), "Duplicate track found in set"
 
     def test_seed_track_id_used_when_provided(self):
@@ -240,8 +243,8 @@ class TestBuildSet:
              patch(f"{MODULE}.get_classification", return_value=fake_class):
             result = build_set(db, seed_track_id=2, duration_minutes=0.01)
 
-        assert len(result) >= 1
-        assert result[0]["track_id"] == 2
+        assert len(result["tracks"]) >= 1
+        assert result["tracks"][0]["track_id"] == 2
 
     def test_transition_score_in_output(self):
         tracks = [_make_db_content(i, 12000 + i * 50, 300) for i in range(1, 4)]
@@ -260,11 +263,12 @@ class TestBuildSet:
              patch(f"{MODULE}.score_transition", return_value=fake_transition):
             result = build_set(db, duration_minutes=0.1)
 
+        tracks_out = result["tracks"]
         # First track has no transition score
-        assert result[0]["transition_score"] is None
+        assert tracks_out[0]["transition_score"] is None
         # Subsequent tracks have transition scores
-        if len(result) > 1:
-            assert result[1]["transition_score"] == 82.5
+        if len(tracks_out) > 1:
+            assert tracks_out[1]["transition_score"] == 82.5
 
     def test_low_transition_score_filtered(self):
         """Candidates scoring below _MIN_TRANSITION_SCORE should be skipped."""
@@ -286,4 +290,4 @@ class TestBuildSet:
             result = build_set(db, duration_minutes=5.0)
 
         # Only seed track should be in result if all transitions fail threshold
-        assert len(result) == 1
+        assert len(result["tracks"]) == 1
