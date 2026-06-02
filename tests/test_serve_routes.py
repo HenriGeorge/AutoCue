@@ -1336,14 +1336,14 @@ class TestArtworkEndpoint:
         r = client.get("/api/tracks/1/artwork")
         assert r.status_code == 404
 
-    def test_returns_500_when_db_dir_missing(self):
+    def test_returns_404_when_db_dir_missing(self):
+        # When _db_dir is None and ImagePath doesn't resolve to a real file → 404 not 500
         db = _make_db()
-        db.get_content.return_value = SimpleNamespace(ID=1, ImagePath="cover.jpg")
-        del db._db_dir  # MagicMock attribute access returns a new Mock; use spec to prevent that
+        db.get_content.return_value = SimpleNamespace(ID=1, ImagePath="cover.jpg", FolderPath=None)
         db._db_dir = None
         client = _make_client(db)
         r = client.get("/api/tracks/1/artwork")
-        assert r.status_code == 500
+        assert r.status_code == 404
 
     def test_returns_404_when_file_not_on_disk(self, tmp_path):
         db = _make_db()

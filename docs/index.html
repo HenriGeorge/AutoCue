@@ -1677,7 +1677,7 @@ let originalXmlText = null;
 
 let analysisMode = 'bar'; // 'bar' | 'phrase'
 let phraseCueState = {};  // trackId → [{position_ms, label, slot}]
-let currentSort = { by: 'title', order: 'asc' };
+let currentSort = (() => { try { return JSON.parse(localStorage.getItem('ac_sort')) || { by: 'title', order: 'asc' }; } catch { return { by: 'title', order: 'asc' }; } })();
 let expandedAlbums = new Set();
 let anlzFileMap = {};     // folder-hex → { ext: File, dat: File }
 let pyodideReady = null;  // Promise<pyodide> once requested
@@ -1765,6 +1765,13 @@ async function loadTracksFromServer(playlistId = null) {
   document.getElementById('download-bar').classList.add('visible');
   document.getElementById('analysis-mode-bar').style.display = '';
   document.getElementById('sort-bar').style.display = '';
+  // Restore persisted sort UI
+  const SORT_LABELS = { title: 'Title', artist: 'Artist', album: 'Album', bpm: 'BPM', key: 'Key', rating: 'Rating', plays: 'Plays' };
+  document.querySelectorAll('.sort-btn').forEach(b => {
+    const isActive = b.dataset.sort === currentSort.by;
+    b.classList.toggle('active', isActive);
+    b.textContent = SORT_LABELS[b.dataset.sort] + (isActive && currentSort.order !== 'asc' ? ' ▼' : isActive ? ' ▲' : '');
+  });
   // Show BPM legend if any track has a color assigned
   const hasColors = parsedTracks.some(t => t.colorName);
   document.getElementById('bpm-legend').classList.toggle('visible', hasColors);
@@ -4355,6 +4362,7 @@ document.querySelectorAll('.sort-btn').forEach(btn => {
       currentSort = { by, order: 'asc' };
       if (by === 'album') expandedAlbums.clear();
     }
+    localStorage.setItem('ac_sort', JSON.stringify(currentSort));
     document.querySelectorAll('.sort-btn').forEach(b => {
       b.classList.toggle('active', b.dataset.sort === currentSort.by);
       if (b.dataset.sort === currentSort.by) {

@@ -170,6 +170,10 @@ def tracks(
     return [_to_item(t, db, key_map, last_played_map, my_tags_map, color_name_map, hot_cue_counts) for t in rows]
 
 
+_FOLDER_ART_NAMES = ["cover.jpg", "folder.jpg", "artwork.jpg", "front.jpg",
+                     "Cover.jpg", "Folder.jpg", "Artwork.jpg", "Front.jpg",
+                     "cover.png", "folder.png", "artwork.png", "front.png"]
+
 @router.get("/tracks/{track_id}/artwork")
 def track_artwork(track_id: int, db=Depends(get_db)):
     from pathlib import Path
@@ -177,22 +181,35 @@ def track_artwork(track_id: int, db=Depends(get_db)):
     content = db.get_content(ID=track_id)
     if content is None:
         raise HTTPException(404, "Track not found")
-    image_path = getattr(content, "ImagePath", None)
-    if not image_path:
-        raise HTTPException(404, "No artwork")
-    db_dir = getattr(db, "_db_dir", None)
-    if db_dir is None:
-        raise HTTPException(500, "Cannot resolve artwork path")
+
     ext_types = {".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png", ".gif": "image/gif"}
-    candidates = [
-        Path(image_path),
-        Path(db_dir) / image_path.lstrip("/"),
-        Path(db_dir) / "share" / image_path.lstrip("/"),
-    ]
-    for c in candidates:
-        if c.exists():
-            return FileResponse(str(c), media_type=ext_types.get(c.suffix.lower(), "image/jpeg"))
-    raise HTTPException(404, "Artwork file not found")
+
+    # Primary: Rekordbox-cached artwork via ImagePath
+    image_path = getattr(content, "ImagePath", None)
+    if image_path:
+        db_dir = getattr(db, "_db_dir", None)
+        candidates = [
+            Path(image_path),
+            *(([Path(db_dir) / image_path.lstrip("/"),
+                Path(db_dir) / "share" / image_path.lstrip("/")]) if db_dir else []),
+        ]
+        for c in candidates:
+            if c.exists():
+                return FileResponse(str(c), media_type=ext_types.get(c.suffix.lower(), "image/jpeg"))
+
+    # Fallback: look for cover art in the same directory as the audio file
+    raw_path = getattr(content, "FolderPath", None) or ""
+    raw_path = raw_path.lstrip("/:") if raw_path.startswith("/:") else raw_path
+    if raw_path and not raw_path.startswith("/"):
+        raw_path = "/" + raw_path
+    if raw_path:
+        audio_dir = Path(raw_path).parent
+        for name in _FOLDER_ART_NAMES:
+            candidate = audio_dir / name
+            if candidate.exists():
+                return FileResponse(str(candidate), media_type=ext_types.get(candidate.suffix.lower(), "image/jpeg"))
+
+    raise HTTPException(404, "No artwork")
 
 
 @router.get("/tracks/{track_id}/audio")
