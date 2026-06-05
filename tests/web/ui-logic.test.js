@@ -1160,3 +1160,100 @@ describe('_explainCue — phrase mode', () => {
     expect(result.reasons).toContain('Priority slot: outro/mix-out')
   })
 })
+
+// ── Discover helpers (_esc, _renderSuggestion) — verbatim from docs/index.html ──
+
+function _esc(s) {
+  return String(s == null ? '' : s)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
+let _downloadConfig = { available: false, ffmpeg: false, default_dir: '' };
+
+function _renderSuggestion(d) {
+  const art = d.thumb || d.cover || '';
+  const styles = (d.styles || []).slice(0, 4)
+    .map(s => `<span class="tag-pill">${_esc(s)}</span>`).join('');
+  const year = d.year ? ` · ${d.year}` : '';
+  const dlReady = _downloadConfig.available && _downloadConfig.ffmpeg;
+  const dlBtn = dlReady
+    ? `<button class="secondary-btn disc-dl-btn" data-query="${_esc(d.query || (d.artist + ' ' + d.album))}" style="font-size:12px;padding:4px 10px;">Download</button>`
+    : '';
+  const discogs = d.url ? `<a href="${_esc(d.url)}" target="_blank" rel="noopener" style="font-size:12px;color:var(--green);">Discogs ↗</a>` : '';
+  return `
+    <div class="disc-card" style="display:flex;gap:12px;align-items:center;padding:10px;border:1px solid var(--border);border-radius:8px;margin-bottom:8px;background:var(--surface2);">
+      ${art ? `<img src="${_esc(art)}" alt="" style="width:54px;height:54px;border-radius:6px;object-fit:cover;flex-shrink:0;">` : '<div style="width:54px;height:54px;border-radius:6px;background:var(--surface);flex-shrink:0;"></div>'}
+      <div style="flex:1;min-width:0;">
+        <div style="font-weight:600;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${_esc(d.album || '')}</div>
+        <div style="font-size:12px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${_esc(d.artist || '')}${year}</div>
+        <div style="margin-top:4px;display:flex;gap:4px;flex-wrap:wrap;">${styles}</div>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:6px;align-items:flex-end;flex-shrink:0;">
+        ${dlBtn}
+        ${discogs}
+        <span class="disc-dl-status" style="font-size:11px;color:var(--muted);"></span>
+      </div>
+    </div>`;
+}
+
+describe('_esc (HTML escaping)', () => {
+  it('escapes angle brackets and ampersands', () => {
+    expect(_esc('<b>A & B</b>')).toBe('&lt;b&gt;A &amp; B&lt;/b&gt;')
+  })
+  it('escapes quotes', () => {
+    expect(_esc(`"x" 'y'`)).toBe('&quot;x&quot; &#39;y&#39;')
+  })
+  it('handles null/undefined as empty string', () => {
+    expect(_esc(null)).toBe('')
+    expect(_esc(undefined)).toBe('')
+  })
+  it('coerces numbers', () => {
+    expect(_esc(2025)).toBe('2025')
+  })
+})
+
+describe('_renderSuggestion', () => {
+  beforeEach(() => { _downloadConfig = { available: false, ffmpeg: false, default_dir: '' } })
+
+  it('renders artist, album and year', () => {
+    const html = _renderSuggestion({ artist: 'Daft Punk', album: 'Discovery', year: 2024 })
+    expect(html).toContain('Daft Punk')
+    expect(html).toContain('Discovery')
+    expect(html).toContain('· 2024')
+  })
+
+  it('omits the year separator when year is missing', () => {
+    const html = _renderSuggestion({ artist: 'A', album: 'B' })
+    expect(html).not.toContain('·')
+  })
+
+  it('escapes malicious album titles (no raw script tag)', () => {
+    const html = _renderSuggestion({ artist: 'X', album: '<script>alert(1)</script>' })
+    expect(html).not.toContain('<script>alert(1)</script>')
+    expect(html).toContain('&lt;script&gt;')
+  })
+
+  it('hides Download button when tools are unavailable', () => {
+    const html = _renderSuggestion({ artist: 'A', album: 'B', query: 'A B' })
+    expect(html).not.toContain('disc-dl-btn')
+  })
+
+  it('shows Download button (with query) when tools are available', () => {
+    _downloadConfig = { available: true, ffmpeg: true, default_dir: '/dl' }
+    const html = _renderSuggestion({ artist: 'A', album: 'B', query: 'A B' })
+    expect(html).toContain('disc-dl-btn')
+    expect(html).toContain('data-query="A B"')
+  })
+
+  it('renders up to 4 style pills', () => {
+    const html = _renderSuggestion({ artist: 'A', album: 'B', styles: ['House', 'Techno', 'Disco', 'Funk', 'Soul'] })
+    const count = (html.match(/tag-pill/g) || []).length
+    expect(count).toBe(4)
+  })
+
+  it('includes a Discogs link when url present', () => {
+    const html = _renderSuggestion({ artist: 'A', album: 'B', url: 'https://discogs.com/x' })
+    expect(html).toContain('href="https://discogs.com/x"')
+  })
+})

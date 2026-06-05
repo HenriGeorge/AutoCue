@@ -37,6 +37,11 @@ autocue/
   db_writer.py   — writes CuePoints directly to DjmdCue; backup + Rekordbox-running check
   cli.py         — argparse CLI; --track / --track-id / --library / --playlist; `autocue serve` subcommand
   __main__.py    — entry point
+  download.py    — yt-dlp wrapper (OPTIONAL [download] extra; needs ffmpeg on PATH).
+                   ytdlp_available() / ffmpeg_available() probes, default_download_dir()
+                   (AUTOCUE_DOWNLOAD_DIR env → ~/Music/AutoCue), search_youtube(),
+                   download_audio(url_or_query, dest_dir, audio_format, progress_cb).
+                   All yt-dlp imports are lazy so the core install runs without it.
   analysis/
     quality.py      — Cue Quality Checker: check_track_health(), check_library_health()
                       Pure DB reads (DjmdCue + DjmdContent). No ANLZ parsing.
@@ -65,7 +70,13 @@ autocue/
                       enrich_comment(), enrich_comments_batch(). MIK-compatible format; appends a
                       re-writable "/* AutoCue: ... */" sentinel block to preserve user text.
     discogs.py      — Discogs API client: search_styles(artist, title, token) → genre/style list.
-                      In-process token-bucket rate limiter (60 req/min) + per-process _cache.
+                      search_artist_releases(artist, token, year_from) → recent releases.
+                      In-process token-bucket rate limiter (60 req/min) + per-process caches
+                      (_cache for styles, _releases_cache for releases).
+    discovery.py    — New-release suggestions: surfaces recent albums from the library's
+                      most-played artists via Discogs, skipping albums already owned.
+                      library_artists() / library_album_set() / iter_new_releases() (generator
+                      for SSE) / suggest_new_releases(). Reuses discogs.py's rate limiter.
   serve/
     app.py       — FastAPI app factory + uvicorn launcher; CORS whitelist (localhost only)
     deps.py      — lifespan DB connection + get_db dependency; pre-warms the similarity index
@@ -80,6 +91,8 @@ docs/
                    Server-only panels: Set Builder, Transition scoring, Similar tracks,
                    Library Health scan, Auto-Tag / classification, Comment enrichment,
                    Discogs style tagging, Playlist suggestions + create-playlist, Cue Tools.
+                   Three tabs (Cues / Library / Discover) via switchTab() + TAB_CONTENTS map.
+                   Discover tab: new-release discovery cards (_renderSuggestion) + YouTube download.
                    _explainCue(cue): returns {confidence, reasons[]} for cue badge ℹ panel.
                    filteredTracks() also applies rating / plays / last-played / My-Tag filters.
   FEATURES.md    — long-form end-user feature documentation (kept in sync with the app)
@@ -102,16 +115,20 @@ tests/
   test_setbuilder.py         — 27 tests (beam search, category order, energy penalty, deduplication, alternatives)
   test_auto_tag.py           — 36 tests (My Tag create/reuse, all detectors, undo, dry-run)
   test_properties.py         — 65 tests (Hypothesis property/invariant tests for classify + transitions math)
-  test_serve_routes.py       — 158 tests (FastAPI TestClient, mocked DB; covers all endpoints)
+  test_discovery.py          — 17 tests (library artist ranking, owned-album filter, dedupe, SSE generator)
+  test_download.py           — 15 tests (yt-dlp/ffmpeg probes, query building, search, download paths — yt-dlp mocked)
+  test_serve_routes.py       — 169 tests (FastAPI TestClient, mocked DB; covers all endpoints incl. discover/download)
   web/
     xml-processing.test.js  — 65 Vitest tests for parseRekordboxXml, generateCues, pickCueColor
-    ui-logic.test.js        — 96 Vitest tests: filteredTracks (search/phrase/rating/plays/last-played/My-Tag),
+    ui-logic.test.js        — 107 Vitest tests: filteredTracks (search/phrase/rating/plays/last-played/My-Tag),
                                backup multi-select, SSE apply, sort labels, memory cue, colorTracksByBpm,
-                               add_fill_cues, ensureLocalAudio, HTTP error handling, _explainCue (all modes)
+                               add_fill_cues, ensureLocalAudio, HTTP error handling, _explainCue (all modes),
+                               _esc + _renderSuggestion (Discover cards)
 
 package.json      — dev tooling only (vitest + jsdom); the deployed app has no build step
 vitest.config.js  — jsdom environment for web tests
-pyproject.toml    — hatchling build; runtime + [dev] extras (pytest, httpx, hypothesis)
+pyproject.toml    — hatchling build; runtime + [dev] extras (pytest, httpx, hypothesis) + [download] extra (yt-dlp)
+.github/workflows/ci.yml — CI: pytest (Python 3.10–3.12) + Vitest (Node 20) on push / PR
 ```
 
 ### REST API endpoints (`serve/routes.py`)
@@ -135,15 +152,18 @@ POST /api/playlists (create)              POST /api/auto-tag
 POST /api/auto-tag/undo                   GET  /api/config
 POST /api/auto-tag/discogs/test           POST /api/auto-tag/discogs (SSE)
 POST /api/enrich-comments                 POST /api/enrich-comments/preview
+GET  /api/discover (SSE)                  GET  /api/download/config
+POST /api/download (SSE)                  POST /api/download/album (SSE)
 ```
 
 ## Development commands
 
 ```bash
 pip install -e ".[dev]"              # install with test deps (fastapi, uvicorn, psutil, httpx, hypothesis)
-pytest                               # run all 751 Python tests
+pip install -e ".[download]"         # OPTIONAL: YouTube download support (yt-dlp; also needs ffmpeg on PATH)
+pytest                               # run all 794 Python tests
 npm install                          # one-time: install JS test deps
-npm test                             # run 161 Vitest tests for the web app (65 + 96)
+npm test                             # run 172 Vitest tests for the web app (65 + 107)
 
 autocue serve --no-browser           # start local server on localhost:7432
 autocue --library --dry-run          # preview CLI output without writing
@@ -192,7 +212,10 @@ autocue --library --playlist "NAME"  # restrict --library to a named playlist
 - **Set Builder beam search**: `build_set()` in `setbuilder.py`. Uses `find_similar(track_id, db, n=20)` per step (O(n×K) not O(n²)). Deduplication via `visited: set[int]` per beam. BPM monotonic step gated by `bpm_step_max` (default 8%). `get_classification()` is pre-warmed during `_index_track()` so beam search lookup is O(1). `build_alternatives()` / `/api/setbuilder/alternatives` returns swap candidates for one slot, scored on fit to both the previous and next track.
 - **Auto-Tag (My Tags)**: `autocue/analysis/auto_tag.py` writes results to `DjmdMyTag` + `DjmdSongMyTag`. Tags are created with an explicit `db.generate_unused_id`, `UUID`, `Name`, `Attribute` (color hint 1–8, mirroring DjmdColor SortKey), and `Seq`. `ensure_category_tags()` / `ensure_tag_by_name()` are idempotent (reuse existing tags by name; AutoCue's own names live in `AUTOCUE_TAG_NAMES`). `apply_classification_tags()` only writes the top category when its score ≥ `MIN_SCORE` (0.70) and skips tracks with no ANLZ energy data. `apply_tags()` is the multi-type entrypoint (category, vocal, energy_level, energy_profile, intro_outro, decade, bpm_tier, play_history). Every run returns `undo_data` consumed by `undo_tag_run()` / `/api/auto-tag/undo`.
 - **Comment enrichment**: `autocue/analysis/comment.py` writes to `DjmdContent.Comment`. Format is MIK-compatible: `8A - Energy 7 | Peak | 4 bar intro`. To preserve user-authored text, AutoCue appends a re-writable sentinel block `/* AutoCue: ... */` (the same convention Rekordbox uses for "Add My Tag to Comments"); on re-run, only the sentinel block is replaced unless `overwrite=True`. Energy is mapped to a 1–10 MIK scale. `enrich_comments_batch()` makes a DB backup before writing (unless `dry_run`). Functions do not commit — the route commits.
-- **Discogs**: `autocue/analysis/discogs.py` `search_styles(artist, title, token)` returns Discogs Style strings. A per-process token-bucket limits to 60 req/min; results are cached in `discogs._cache` keyed by lowercased `(artist, title)`. The personal access token comes from the request body or `DISCOGS_TOKEN`. `/api/config` reads `DISCOGS_TOKEN` from a project-root `.env` (then the environment) so the UI can pre-fill it; `/api/auto-tag/discogs/test` validates the token against the Discogs identity endpoint.
+- **Discogs**: `autocue/analysis/discogs.py` `search_styles(artist, title, token)` returns Discogs Style strings. A per-process token-bucket limits to 60 req/min; results are cached in `discogs._cache` keyed by lowercased `(artist, title)`. The personal access token comes from the request body or `DISCOGS_TOKEN`. `/api/config` reads `DISCOGS_TOKEN` from a project-root `.env` (then the environment) so the UI can pre-fill it; `/api/auto-tag/discogs/test` validates the token against the Discogs identity endpoint. `search_artist_releases(artist, token, year_from)` (cached in `_releases_cache`) shares the same token bucket.
+- **Discovery (new releases)**: `autocue/analysis/discovery.py` reuses the Discogs client to suggest recent albums from the library's artists. `library_artists(db, top_n)` ranks artists by play-frequency (a proxy for what the DJ cares about) so a big library does not blow past the rate limit — only the top N artists are queried. `library_album_set(db)` builds the owned-album set (normalized lowercase) used to filter suggestions. `iter_new_releases(...)` is a **generator** yielding `(processed, total, suggestion|None)` for SSE; `None` ticks report progress for artists with no new releases. `since_year` defaults to *last year*. `/api/discover` requires a Discogs token (query param → `_resolve_discogs_token()` env/.env) and streams one `DiscoverItem` per suggestion, then `{done:true}`.
+- **Download (yt-dlp)**: `autocue/download.py` is an **optional** feature gated behind the `[download]` extra (`pip install -e ".[download]"`) and an `ffmpeg` binary on PATH. All `yt_dlp` imports are **lazy** so the core CLI/server import without it. `ytdlp_available()` / `ffmpeg_available()` probe at runtime; `/api/download/config` reports both plus `default_download_dir()` (env `AUTOCUE_DOWNLOAD_DIR` → `~/Music/AutoCue`). `download_audio(url_or_query, ...)` passes real URLs through and wraps bare terms as `ytsearch1:`; it extracts audio via the `FFmpegExtractAudio` postprocessor and returns the final file path. `/api/download` (single, runs the blocking download in a worker thread and streams progress via a `queue.Queue`) and `/api/download/album` (sequential) both **return 503** when yt-dlp/ffmpeg are missing and stream SSE `DownloadEvent`s otherwise. **Legal note**: downloading copyrighted audio may violate YouTube's ToS / copyright — the UI shows a disclaimer; lawful use is the user's responsibility.
+- **SSE consumption in JS**: `_consumeSSE(response, onEvent)` in `index.html` is the shared `fetch`+`ReadableStream` reader used by Discover and Download (POST SSE can't use `EventSource`). New SSE-driven UI should reuse it rather than re-inlining the reader loop. `_esc()` HTML-escapes all server-supplied strings rendered into Discover cards — never interpolate Discogs/YouTube text without it.
 
 ## Testing approach
 
@@ -200,4 +223,6 @@ Tests mock pyrekordbox objects rather than hitting a real database. When adding 
 
 `test_properties.py` uses **Hypothesis** (in the `[dev]` extra) for generative property/invariant tests over the pure math in `classify.py` and `transitions.py`. If Hypothesis is missing, that one module fails at collection — run `pip install -e ".[dev]"` so `pytest` collects cleanly.
 
-JS tests in `tests/web/` copy functions verbatim from `docs/index.html` and run them in jsdom via Vitest. If you change `parseRekordboxXml`, `generateCues`, `computeCues`, `colorTracksByBpm`, `applyToRekordbox`, `filteredTracks`, `ensureLocalAudio`, or `_explainCue` in `index.html`, update the corresponding copies in the test files. The `ui-logic.test.js` file tests sort label lookup, memory cue prepend logic, fetch HTTP error handling, the full `filteredTracks` filter matrix, backup multi-select, and `_explainCue` across all explanation modes (phrase/bar/heuristic/memory/manual).
+JS tests in `tests/web/` copy functions verbatim from `docs/index.html` and run them in jsdom via Vitest. If you change `parseRekordboxXml`, `generateCues`, `computeCues`, `colorTracksByBpm`, `applyToRekordbox`, `filteredTracks`, `ensureLocalAudio`, `_explainCue`, `_esc`, or `_renderSuggestion` in `index.html`, update the corresponding copies in the test files. The `ui-logic.test.js` file tests sort label lookup, memory cue prepend logic, fetch HTTP error handling, the full `filteredTracks` filter matrix, backup multi-select, `_explainCue` across all explanation modes (phrase/bar/heuristic/memory/manual), and the Discover card renderer (`_renderSuggestion` + `_esc` escaping).
+
+`tests/test_download.py` mocks the `yt_dlp` module via `sys.modules` patching (yt-dlp is not a test dependency) and stubs `shutil.which` for ffmpeg detection — so the download tests run everywhere without the optional extra installed. `tests/test_discovery.py` patches `discovery.search_artist_releases` rather than hitting Discogs.
