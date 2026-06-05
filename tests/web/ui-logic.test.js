@@ -1257,3 +1257,132 @@ describe('_renderSuggestion', () => {
     expect(html).toContain('href="https://discogs.com/x"')
   })
 })
+
+// ── Fix: r.json().catch(() => ({})) on restore / undo / delete-cues ────────
+//
+// These three fetch calls use r.json().catch(() => ({})) so that a non-JSON
+// error body (e.g. a 502 from a stale tab, or an nginx HTML error page) never
+// causes a SyntaxError that masks the real HTTP status.
+//
+// The functions below are extracted from docs/index.html verbatim (minus the
+// DOM side-effects that aren't relevant to the error-path logic under test).
+
+function makeToastCaptureSimple() {
+  const messages = []
+  return { showToast: m => messages.push(m), messages }
+}
+
+function mockNonJsonResponse(status, statusText) {
+  return vi.fn().mockResolvedValue({
+    ok: status >= 200 && status < 300,
+    status,
+    statusText,
+    json: () => Promise.reject(new SyntaxError('Unexpected token I in JSON')),
+  })
+}
+
+// --- restore backup (docs/index.html ~line 3188) ---
+async function restoreBackup_fn(filename, fetchImpl, showToast) {
+  try {
+    const r = await fetchImpl('/api/restore', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ filename }),
+    })
+    const resp = await r.json().catch(() => ({}))
+    if (!r.ok) throw new Error(resp.detail || r.statusText)
+    showToast(resp.message + ' — reloading tracks…')
+  } catch (e) { showToast(`Restore failed: ${e.message}`) }
+}
+
+// --- undo last apply (docs/index.html ~line 3382) ---
+async function undoApply_fn(filename, fetchImpl, showToast) {
+  try {
+    const r = await fetchImpl('/api/restore', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ filename }),
+    })
+    const resp = await r.json().catch(() => ({}))
+    if (!r.ok) throw new Error(resp.detail || r.statusText)
+    showToast('Undo successful — tracks reloaded')
+  } catch (e) { showToast(`Undo failed: ${e.message}`) }
+}
+
+// --- delete all cues (docs/index.html ~line 5195) ---
+async function deleteAllCues_fn(trackIds, fetchImpl, showToast) {
+  try {
+    const r = await fetchImpl('/api/delete-cues', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ track_ids: trackIds, dry_run: false }),
+    })
+    const resp = await r.json().catch(() => ({}))
+    if (!r.ok) throw new Error(resp.detail || r.statusText)
+    showToast(`Deleted ${resp.deleted} cues from ${resp.tracks_affected} tracks — backup saved`)
+  } catch (err) { showToast(`Delete failed: ${err.message}`) }
+}
+
+describe('r.json().catch — non-JSON error bodies show statusText, not SyntaxError', () => {
+  it('restore: 502 non-JSON shows "Restore failed: Bad Gateway"', async () => {
+    const { showToast, messages } = makeToastCaptureSimple()
+    await restoreBackup_fn('backup.db', mockNonJsonResponse(502, 'Bad Gateway'), showToast)
+    expect(messages[0]).toBe('Restore failed: Bad Gateway')
+    expect(messages[0]).not.toContain('SyntaxError')
+    expect(messages[0]).not.toContain('Unexpected token')
+  })
+
+  it('restore: 409 JSON body shows detail message', async () => {
+    const { showToast, messages } = makeToastCaptureSimple()
+    const fetch = mockResponse({ detail: 'Rekordbox is running' }, 409)
+    await restoreBackup_fn('backup.db', fetch, showToast)
+    expect(messages[0]).toContain('Rekordbox is running')
+  })
+
+  it('restore: 200 JSON shows success toast', async () => {
+    const { showToast, messages } = makeToastCaptureSimple()
+    const fetch = mockResponse({ message: 'Restored', restored: true })
+    await restoreBackup_fn('backup.db', fetch, showToast)
+    expect(messages[0]).toBe('Restored — reloading tracks…')
+  })
+
+  it('undo: 502 non-JSON shows "Undo failed: Bad Gateway"', async () => {
+    const { showToast, messages } = makeToastCaptureSimple()
+    await undoApply_fn('backup.db', mockNonJsonResponse(502, 'Bad Gateway'), showToast)
+    expect(messages[0]).toBe('Undo failed: Bad Gateway')
+    expect(messages[0]).not.toContain('Unexpected token')
+  })
+
+  it('undo: 409 JSON body shows detail message', async () => {
+    const { showToast, messages } = makeToastCaptureSimple()
+    const fetch = mockResponse({ detail: 'Rekordbox is running' }, 409)
+    await undoApply_fn('backup.db', fetch, showToast)
+    expect(messages[0]).toContain('Rekordbox is running')
+  })
+
+  it('undo: 200 JSON shows success toast', async () => {
+    const { showToast, messages } = makeToastCaptureSimple()
+    const fetch = mockResponse({ restored: true, message: 'ok' })
+    await undoApply_fn('backup.db', fetch, showToast)
+    expect(messages[0]).toBe('Undo successful — tracks reloaded')
+  })
+
+  it('delete-cues: 502 non-JSON shows "Delete failed: Bad Gateway"', async () => {
+    const { showToast, messages } = makeToastCaptureSimple()
+    await deleteAllCues_fn([1, 2], mockNonJsonResponse(502, 'Bad Gateway'), showToast)
+    expect(messages[0]).toBe('Delete failed: Bad Gateway')
+    expect(messages[0]).not.toContain('Unexpected token')
+  })
+
+  it('delete-cues: 409 JSON body shows detail message', async () => {
+    const { showToast, messages } = makeToastCaptureSimple()
+    const fetch = mockResponse({ detail: 'Rekordbox is running' }, 409)
+    await deleteAllCues_fn([1], fetch, showToast)
+    expect(messages[0]).toContain('Rekordbox is running')
+  })
+
+  it('delete-cues: 200 JSON shows deleted count', async () => {
+    const { showToast, messages } = makeToastCaptureSimple()
+    const fetch = mockResponse({ deleted: 24, tracks_affected: 6, backup_path: null })
+    await deleteAllCues_fn([1, 2], fetch, showToast)
+    expect(messages[0]).toContain('24')
+    expect(messages[0]).toContain('6 tracks')
+  })
+})

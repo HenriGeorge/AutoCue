@@ -172,6 +172,11 @@ def build_set(
             break
         if step >= est_tracks * 3:  # safety cap — never infinite loop
             terminated_reason = "safety_cap_hit"
+            _log.warning(
+                "setbuilder: safety cap hit after %d steps — library may be too small "
+                "or BPM/energy constraints too tight (start=%.1f end=%.1f mode=%s)",
+                step, start_bpm, end_bpm, energy_mode,
+            )
             break
 
         step += 1

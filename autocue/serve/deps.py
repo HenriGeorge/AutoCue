@@ -75,7 +75,7 @@ async def lifespan(app: FastAPI):
             app.state.ro_db = None
 
         threading.Thread(
-            target=_prewarm_index, args=(app.state.db,), daemon=True, name="index-prewarm"
+            target=_prewarm_index, args=(app.state.ro_db or app.state.db,), daemon=True, name="index-prewarm"
         ).start()
     except Exception as e:
         logger.warning("Could not open Rekordbox DB: %s — server will still start", e)

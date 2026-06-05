@@ -268,8 +268,8 @@
     /* ── Track list ── */
     #tracks-section { display: none; }
     #tracks-section.visible { display: block; }
-    .tracks-header { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; flex-wrap: wrap; }
-    .tracks-title { font-size: 18px; font-weight: 700; }
+    .tracks-header { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; flex-wrap: wrap; }
+    .tracks-title { font-size: 20px; font-weight: 700; margin: 0; }
     .sort-bar {
       display: flex; align-items: center; gap: 6px; margin-bottom: 16px;
       font-size: 12px; color: var(--muted);
@@ -623,53 +623,19 @@
       width: 2px; background: var(--text); border-radius: 1px;
       pointer-events: none; opacity: .7;
     }
-    /* ── Sticky scroll header ───────────────────────────────────── */
-    #scroll-header {
-      position: fixed; top: 0; left: 0; right: 0; z-index: 200;
-      background: var(--bg);
-      backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
-      border-bottom: 1px solid var(--border);
-      padding: 7px 24px;
-      display: none; align-items: center; gap: 8px; flex-wrap: nowrap;
-      transform: translateY(-110%);
-      transition: transform 220ms cubic-bezier(0.4, 0, 0.2, 1);
-      box-shadow: 0 4px 24px rgba(0,0,0,.12);
-    }
-    #scroll-header.sh-ready { display: flex; }
-    #scroll-header.visible { transform: translateY(0); }
-    #scroll-header .sh-sep { color: var(--border); user-select: none; font-size: 14px; }
-    #scroll-header .sh-playlist {
-      background: var(--surface-card); color: var(--text);
-      border: 1px solid var(--border); border-radius: 6px;
-      padding: 3px 7px; font-size: 12px; max-width: 160px;
-    }
-    #scroll-header .sh-modes { display: flex; gap: 3px; flex-shrink: 0; }
-    #scroll-header .sh-mode-btn {
-      font-size: 11px; padding: 3px 9px; border-radius: 5px;
-      border: 1px solid var(--border); background: var(--surface);
-      color: var(--muted); cursor: pointer;
-      transition: background 120ms, color 120ms, border-color 120ms;
-    }
-    #scroll-header .sh-mode-btn.active { background: var(--green); color: #000; border-color: var(--green); }
-    #scroll-header .sh-search {
-      background: var(--surface-card); color: var(--text);
-      border: 1px solid var(--border); border-radius: 6px;
-      padding: 3px 8px; font-size: 12px; width: 150px;
-    }
-    /* Sticky tracks controls */
+    /* ── Sticky tracks header ───────────────────────────────────── */
     #tracks-sticky {
-      position: sticky; top: 0; z-index: 50;
+      position: sticky; top: 0; z-index: 100;
       background: var(--bg);
-      padding-top: 4px;
-      transition: box-shadow 200ms, top 220ms cubic-bezier(0.4, 0, 0.2, 1);
+      /* bleed beyond main's 24px side padding so background is seamless edge-to-edge */
+      margin-left: -24px; margin-right: -24px;
+      padding: 16px 24px 0;
+      transition: border-color 200ms;
     }
     #tracks-sticky.shadowed {
-      box-shadow: 0 3px 16px rgba(0,0,0,.1);
-      padding-bottom: 4px;
+      border-bottom: 1px solid var(--border);
+      padding-bottom: 14px;
     }
-    /* When scroll header is active, hide redundant sort bar + legend from sticky area */
-    #tracks-sticky.sh-active #sort-bar,
-    #tracks-sticky.sh-active #bpm-legend { display: none !important; }
 
     /* Camelot key filter */
     #key-filter-btn {
@@ -993,6 +959,45 @@
 
     /* ── Set Builder ── */
     #setbuilder-section { margin: 0 auto 28px; max-width: 860px; }
+
+    /* ── DJ Mixing Guide ── */
+    #sb-guide { margin-top:14px; border:1px solid var(--border); border-radius:10px; overflow:hidden; }
+    #sb-guide-header {
+      display:flex; align-items:center; justify-content:space-between;
+      padding:10px 14px; background:var(--surface2); cursor:pointer;
+      user-select:none;
+    }
+    #sb-guide-header:hover { background:var(--surface); }
+    #sb-guide-title { font-size:12px; font-weight:700; color:var(--text); display:flex; align-items:center; gap:6px; }
+    #sb-guide-chevron { font-size:10px; color:var(--muted); transition:transform .2s; }
+    #sb-guide-chevron.open { transform:rotate(180deg); }
+    #sb-guide-body { display:none; padding:14px; }
+    #sb-guide-tabs { display:flex; gap:6px; flex-wrap:wrap; margin-bottom:12px; }
+    .sb-guide-tab {
+      font-size:11px; font-weight:600; padding:4px 10px; border-radius:9999px;
+      border:1px solid var(--border); background:var(--surface2); color:var(--muted);
+      cursor:pointer; transition:all .15s;
+    }
+    .sb-guide-tab.active { background:var(--text); color:var(--bg); border-color:var(--text); }
+    .sb-guide-panel { display:none; }
+    .sb-guide-panel.active { display:block; }
+    .sb-guide-panel h4 { font-size:11px; font-weight:700; color:var(--muted); text-transform:uppercase; letter-spacing:.04em; margin:12px 0 5px; }
+    .sb-guide-panel h4:first-child { margin-top:0; }
+    .sb-guide-panel ul { margin:0 0 8px; padding-left:16px; }
+    .sb-guide-panel li { font-size:12px; color:var(--text); line-height:1.6; margin-bottom:2px; }
+    .sb-guide-panel li b { color:var(--text); }
+    .sb-guide-panel .guide-tip { font-size:11px; color:var(--muted); line-height:1.5; margin-bottom:6px; }
+    .sb-guide-table { width:100%; border-collapse:collapse; font-size:11px; margin-top:4px; }
+    .sb-guide-table th { text-align:left; color:var(--muted); font-weight:600; padding:3px 8px 3px 0; border-bottom:1px solid var(--border); }
+    .sb-guide-table td { padding:4px 8px 4px 0; color:var(--text); border-bottom:1px solid var(--border-subtle,var(--border)); }
+    .sb-guide-table tr:last-child td { border-bottom:none; }
+    .sb-guide-pill { display:inline-block; font-size:10px; padding:1px 6px; border-radius:9999px; font-weight:600; margin-right:3px; }
+    .sb-guide-pill.safe { background:color-mix(in srgb,var(--green) 15%,transparent); color:var(--green); border:1px solid color-mix(in srgb,var(--green) 30%,transparent); }
+    .sb-guide-pill.caution { background:color-mix(in srgb,#e07000 12%,transparent); color:#e07000; border:1px solid color-mix(in srgb,#e07000 25%,transparent); }
+    .sb-guide-pill.bold { background:color-mix(in srgb,#c03030 10%,transparent); color:#c03030; border:1px solid color-mix(in srgb,#c03030 20%,transparent); }
+    .sb-guide-key-table { display:grid; grid-template-columns:auto 1fr; gap:3px 10px; margin-top:4px; }
+    .sb-guide-key-badge { font-family:var(--mono); font-size:11px; background:var(--surface2); border:1px solid var(--border); border-radius:4px; padding:2px 6px; white-space:nowrap; color:var(--text); text-align:center; }
+    .sb-guide-key-desc { font-size:11px; color:var(--text); display:flex; align-items:center; }
     /* ── Set Builder interactive rows ── */
     .sb-row {
       display:flex; align-items:center; gap:10px;
@@ -1101,6 +1106,7 @@
       main { padding: 24px 16px 80px; }
       header { padding: 14px 20px; }
       .panel-card { padding: 16px 18px; }
+      #tracks-sticky { margin-left: -16px; margin-right: -16px; padding-left: 16px; padding-right: 16px; }
     }
     @media (max-width: 600px) {
       main { padding: 16px 12px 80px; }
@@ -1108,7 +1114,7 @@
       .logo-text { font-size: 17px; }
       .settings-grid { grid-template-columns: 1fr; }
       .panel-card { padding: 12px 14px; }
-      #scroll-header { flex-wrap: wrap; gap: 6px; padding: 8px 12px; }
+      #tracks-sticky { margin-left: -12px; margin-right: -12px; padding-left: 12px; padding-right: 12px; }
       .tracks-header { flex-wrap: wrap; }
     }
   /* ── Tab navigation — ElevenLabs segmented control ── */
@@ -1147,20 +1153,6 @@
 <script>tailwind.config = { corePlugins: { preflight: false }, darkMode: 'class' }</script>
 </head>
 <body>
-
-<!-- Sticky scroll header — slides in from top when settings section leaves viewport -->
-<div id="scroll-header">
-  <select id="sh-playlist-select" class="sh-playlist">
-    <option value="">All tracks</option>
-  </select>
-  <span class="sh-sep">·</span>
-  <div class="sh-modes">
-    <button id="sh-bar-btn" class="sh-mode-btn active">Bar</button>
-    <button id="sh-phrase-btn" class="sh-mode-btn">✨ Phrase</button>
-  </div>
-  <span class="sh-sep">·</span>
-  <input type="search" id="sh-search" class="sh-search" placeholder="Search…">
-</div>
 
 <header>
   <a class="logo" href="#">
@@ -1377,16 +1369,16 @@
 
   <!-- Track list -->
   <section id="tracks-section">
+    <div id="tracks-sticky">
     <div class="tracks-header">
       <h2 class="tracks-title">Tracks</h2>
       <span class="tracks-count" id="tracks-count">0 tracks</span>
     </div>
-    <div id="tracks-sticky">
     <!-- F4: Search + F6: Phrase-only filter -->
-    <div id="filter-bar" style="display:none; margin-bottom:10px; flex-direction:column; gap:8px;">
+    <div id="filter-bar" style="display:none; margin-bottom:12px; flex-direction:column; gap:10px;">
       <!-- Row 1: Search + phrase toggle + selection actions -->
       <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
-        <input id="search-input" type="search" placeholder="Search title or artist…" style="flex:1;min-width:160px;background:var(--surface-card);color:var(--text);border:1px solid var(--border,#333);border-radius:8px;padding:6px 12px;font-size:13px;" />
+        <input id="search-input" type="search" placeholder="Search title or artist…" style="flex:1;min-width:160px;background:var(--surface-card);color:var(--text);border:1px solid var(--border,#333);border-radius:8px;padding:8px 14px;font-size:13px;" />
         <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;white-space:nowrap;padding:5px 10px;border:1px solid var(--border);border-radius:8px;background:var(--surface-card);" title="Show only tracks that have Rekordbox phrase data (ANLZ .EXT file).">
           <input type="checkbox" id="phrase-only-cb" />
           ✨ Phrase only
@@ -1436,13 +1428,16 @@
             </div>
           </div>
         </div>
+        <select id="genre-filter" style="background:var(--surface-card);color:var(--text);border:1px solid var(--border,#333);border-radius:8px;padding:5px 10px;font-size:12px;display:none;">
+          <option value="">Genre: Any</option>
+        </select>
       </div>
     </div>
     <div class="sort-bar" id="sort-bar" style="display:none">
       <span>Sort:</span>
-      <button class="sort-btn active" data-sort="title">Title</button>
+      <button class="sort-btn" data-sort="title">Title</button>
       <button class="sort-btn" data-sort="artist">Artist</button>
-      <button class="sort-btn" data-sort="album">Album</button>
+      <button class="sort-btn active" data-sort="album">Album</button>
       <button class="sort-btn" data-sort="bpm">BPM</button>
       <button class="sort-btn" data-sort="key">Key</button>
       <button class="sort-btn" data-sort="rating">Rating</button>
@@ -1826,6 +1821,7 @@ autocue --library --mode bar --bars-interval 8 --start-bar 1</pre>
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
       <h2 style="margin:0;font-size:15px;font-weight:700;">Set Builder</h2>
     </div>
+
     <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px;margin-bottom:12px;">
       <div class="cue-tools-param-group">
         <label>Start BPM</label>
@@ -1860,6 +1856,164 @@ autocue --library --mode bar --bars-interval 8 --start-bar 1</pre>
       </div>
       <div id="sb-tracklist"></div>
     </div>
+
+    <!-- DJ Mixing Guide -->
+    <div id="sb-guide">
+      <div id="sb-guide-header">
+        <div id="sb-guide-title">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+          DJ Mixing Guide
+        </div>
+        <span id="sb-guide-chevron">▼</span>
+      </div>
+      <div id="sb-guide-body">
+        <div id="sb-guide-tabs">
+          <button class="sb-guide-tab active" data-guide-tab="arc">Set Arc</button>
+          <button class="sb-guide-tab" data-guide-tab="bpm">BPM</button>
+          <button class="sb-guide-tab" data-guide-tab="keys">Keys</button>
+          <button class="sb-guide-tab" data-guide-tab="transitions">Transitions</button>
+          <button class="sb-guide-tab" data-guide-tab="crowd">Crowd</button>
+        </div>
+
+        <!-- Set Arc -->
+        <div class="sb-guide-panel active" data-guide-panel="arc">
+          <h4>Energy Modes</h4>
+          <ul>
+            <li><b>Build (ascending)</b> — Classic warm-up → peak → send-off. BPM creeps 1–2 per transition. Leave your biggest tracks for the final third.</li>
+            <li><b>Flat</b> — Sustained peak energy. Works for festival prime-time slots. Vary texture (vocal/instrumental, key changes) every 3–4 tracks to prevent crowd fatigue.</li>
+            <li><b>Drop (descending)</b> — Energy descends — ideal for a closing set or handing off to the next DJ at a lower intensity.</li>
+          </ul>
+          <h4>Structuring the arc</h4>
+          <ul>
+            <li>Think in <b>blocks of 3–4 tracks</b> at similar energy rather than increasing every transition. Small plateau dips make the next peak hit harder.</li>
+            <li><b>The reset</b>: Drop energy once per set, maximum. Deliberately rebuild from a lower floor — more than once becomes exhausting.</li>
+            <li><b>Closing</b>: Ease BPM down 2–3 per transition; shift from driving to groover tracks; move from minor keys toward major for a brighter feel.</li>
+            <li>Young crowds (18–25) need energy variation every 5–10 min. Mature crowds (30+) sustain energy for 15–20 min before needing a texture change.</li>
+          </ul>
+          <h4>Arc shapes</h4>
+          <table class="sb-guide-table">
+            <tr><th>Shape</th><th>Description</th><th>Best for</th></tr>
+            <tr><td>The Journey</td><td>Warm-up → build → peak → ease down</td><td>90 min+ headline sets</td></tr>
+            <tr><td>The Peak</td><td>Sustained high energy, texture variation</td><td>Festival prime-time</td></tr>
+            <tr><td>The Build</td><td>Only escalates — peak at the end</td><td>B2B handoff, opening slot</td></tr>
+            <tr><td>Steady State</td><td>Consistent intensity, mood shifts</td><td>Underground techno rooms</td></tr>
+            <tr><td>The Cool-Down</td><td>Moderate → lower, graceful exit</td><td>Closing set</td></tr>
+          </table>
+        </div>
+
+        <!-- BPM -->
+        <div class="sb-guide-panel" data-guide-panel="bpm">
+          <h4>BPM jump size</h4>
+          <ul>
+            <li><span class="sb-guide-pill safe">±1–4 BPM</span> Organic, within-genre step. Standard.</li>
+            <li><span class="sb-guide-pill caution">±5–10 BPM</span> Genre-stepping zone. Use a filter sweep, breakdown, or loop hold to mask the change.</li>
+            <li><span class="sb-guide-pill bold">±10+ BPM</span> Deliberate statement. Drop outgoing volume, bring the new track in clean.</li>
+          </ul>
+          <h4>AutoCue default (BPM step max 8%)</h4>
+          <p class="guide-tip">8% ≈ the boundary between a "moderate" and "large" jump. Tracks at the gate edge get a 15% similarity score penalty. Tighten to 4–5% for smoother genre-consistent sets; widen only if you plan to use filter/EQ techniques.</p>
+          <h4>Pitch &amp; Key Lock</h4>
+          <ul>
+            <li>Safe pitch shift: <b>±2 semitones</b> (≈±6% tempo) before audio artifacts become audible to trained ears.</li>
+            <li>Every <b>3% tempo change = 1 semitone</b> pitch shift when Key Lock is off.</li>
+            <li>Key Lock artifacts appear beyond ±5% — especially on reverb tails and transients.</li>
+            <li><b>Half/double time</b>: bridge any gap — 160 → 80 or 80 → 160 without pitch issues.</li>
+          </ul>
+          <h4>BPM by genre</h4>
+          <table class="sb-guide-table">
+            <tr><th>Genre</th><th>BPM range</th><th>Intro length</th></tr>
+            <tr><td>Amapiano</td><td>108–115</td><td>Varies</td></tr>
+            <tr><td>Deep / progressive house</td><td>118–124</td><td>16 bars</td></tr>
+            <tr><td>Tech house</td><td>124–135</td><td>16 bars</td></tr>
+            <tr><td>Techno</td><td>130–145</td><td>16–32 bars</td></tr>
+            <tr><td>Trance</td><td>125–140</td><td>16–32 bars</td></tr>
+            <tr><td>UK Garage</td><td>130–140</td><td>8–16 bars</td></tr>
+            <tr><td>Drum &amp; Bass</td><td>170–180</td><td>8–16 bars</td></tr>
+          </table>
+        </div>
+
+        <!-- Keys -->
+        <div class="sb-guide-panel" data-guide-panel="keys">
+          <h4>The 4 core Camelot moves</h4>
+          <div class="sb-guide-key-table">
+            <div class="sb-guide-key-badge">8A → 8A</div>
+            <div class="sb-guide-key-desc"><span class="sb-guide-pill safe">Always safe</span> Same key — perfect harmonic match</div>
+            <div class="sb-guide-key-badge">8A → 7A / 9A</div>
+            <div class="sb-guide-key-desc"><span class="sb-guide-pill safe">Safe</span> ±1 position — one-note scale change, imperceptible to most listeners</div>
+            <div class="sb-guide-key-badge">8A → 8B</div>
+            <div class="sb-guide-key-desc"><span class="sb-guide-pill safe">Safe</span> A↔B flip — relative minor/major, same harmonic center. A→B lifts the mood.</div>
+            <div class="sb-guide-key-badge">8A → 3A</div>
+            <div class="sb-guide-key-desc"><span class="sb-guide-pill caution">Intentional</span> +7 positions — perfect fifth up, 6/7 shared notes. Strong crowd energy lift.</div>
+            <div class="sb-guide-key-badge">8A → 10A</div>
+            <div class="sb-guide-key-desc"><span class="sb-guide-pill caution">Intentional</span> +2 positions — whole-tone up. Noticeable upward shift, use deliberately.</div>
+          </div>
+          <h4>In practice</h4>
+          <ul>
+            <li>Spend ~80% of your set on same-key and ±1 moves; reserve +2 and +7 for intentional climactic moments.</li>
+            <li>Harmonic mixing is a <b>probability filter, not a guarantee</b>. If it sounds wrong in headphones, it's wrong — regardless of matching codes.</li>
+            <li>Camelot numbers wrap: 12+1 = 1 (so 12A → 1A is a safe ±1 move).</li>
+          </ul>
+        </div>
+
+        <!-- Transitions -->
+        <div class="sb-guide-panel" data-guide-panel="transitions">
+          <h4>The 5 fundamental transitions</h4>
+          <table class="sb-guide-table">
+            <tr><th>Technique</th><th>When to use</th><th>Overlap</th></tr>
+            <tr><td>The Cut</td><td>High-energy moments, deliberate genre switch</td><td>0–8 beats</td></tr>
+            <tr><td>End-to-End</td><td>Tracks without DJ-friendly outros; slower sets</td><td>0</td></tr>
+            <tr><td>Single Phrase Beatmix</td><td>Standard house/techno blend; beginner-friendly</td><td>4–8 bars</td></tr>
+            <tr><td>Bassline Swap</td><td>House / techno / trance workhorse</td><td>60–90 sec</td></tr>
+            <tr><td>The Fade</td><td>Emergency — any BPM or genre gap</td><td>10–15 sec</td></tr>
+          </table>
+          <h4>Bassline swap technique</h4>
+          <ul>
+            <li>Bring incoming track in with bass/low EQ cut to zero.</li>
+            <li>When the incoming bassline arrives, restore it while simultaneously cutting the outgoing bass.</li>
+            <li>Never run two kick drums for extended periods — it sounds muddy, not powerful.</li>
+          </ul>
+          <h4>EQ tricks</h4>
+          <ul>
+            <li><b>Vocal clash fix</b>: cut mid EQ on outgoing track as incoming vocals enter (both occupy 1–4 kHz).</li>
+            <li><b>Bass cut for lift</b>: a 1–2 bar bass cut at a phrase end gives momentary weightlessness; 8 bars builds real tension. Use sparingly.</li>
+            <li><b>½–1 beat silence</b> before a drop measurably increases perceived impact.</li>
+            <li><b>Low-pass filter intro</b>: loop the incoming intro with filter all the way left, then open gradually — creates tension and emergence.</li>
+          </ul>
+          <h4>Phrasing</h4>
+          <ul>
+            <li>The <b>16-bar phrase</b> is the fundamental mixing window in electronic music. Start blends at the beginning of a phrase.</li>
+            <li>Hot Cue A (Mix In) marks the first useful beat — use it to jump past silence and dead air.</li>
+            <li>Hot Cue B (Outro) marks your mix-out point — the start of the outro, not the end of the track.</li>
+          </ul>
+        </div>
+
+        <!-- Crowd -->
+        <div class="sb-guide-panel" data-guide-panel="crowd">
+          <h4>Positive signals — keep going</h4>
+          <ul>
+            <li>Bodies moving toward the speakers / booth</li>
+            <li>Hands raised, synchronized movement</li>
+            <li>Best dancers maintaining eye contact with the booth</li>
+            <li>&lt;15% phone use during breakdowns</li>
+            <li>People rushing back from the bar after a build</li>
+          </ul>
+          <h4>Warning signals — adjust immediately</h4>
+          <ul>
+            <li>&gt;30% of the crowd drifting toward the bar</li>
+            <li>Arms crossed, backs turned, conversations overpowering music</li>
+            <li>&lt;15% moving during a breakdown (energy fatigue, not anticipation)</li>
+            <li>Drinks being picked up in large numbers (fatigue signal)</li>
+          </ul>
+          <h4>Managing peaks</h4>
+          <ul>
+            <li>The strongest peaks come from <b>restraint</b> — holding back your biggest track until the right moment signals confidence.</li>
+            <li>A well-placed groover after a peak makes the following drop land harder.</li>
+            <li>Keep <b>3–5 emergency tracks</b> ready — pop-dance crossovers that work for any crowd and any mood.</li>
+            <li>Quick cuts (0–8 beats) reset energy; filter sweeps ease transitions without killing momentum.</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+    <!-- /DJ Mixing Guide -->
   </section>
 
   </div><!-- /#library-tab-content -->
@@ -2045,7 +2199,7 @@ let originalXmlText = null;
 
 let analysisMode = 'bar'; // 'bar' | 'phrase'
 let phraseCueState = {};  // trackId → [{position_ms, label, slot}]
-let currentSort = (() => { try { return JSON.parse(localStorage.getItem('ac_sort')) || { by: 'title', order: 'asc' }; } catch { return { by: 'title', order: 'asc' }; } })();
+let currentSort = (() => { try { return JSON.parse(localStorage.getItem('ac_sort')) || { by: 'album', order: 'asc' }; } catch { return { by: 'album', order: 'asc' }; } })();
 let expandedAlbums = new Set();
 let anlzFileMap = {};     // folder-hex → { ext: File, dat: File }
 let pyodideReady = null;  // Promise<pyodide> once requested
@@ -2064,6 +2218,7 @@ let playsFilter = 'all';   // 'all' | 'played' | 'unplayed'
 let lastPlayedFilter = 'all'; // 'all' | '7d' | '30d' | 'never'
 let myTagFilters = new Set(); // empty = all tags
 let selectedKeys = new Set(); // Camelot keys e.g. "8A", "8B"
+let genreFilter = '';        // '' = all genres
 // F7: bulk selection (track id strings)
 let selectedTrackIds = new Set();
 // F8: filename of the last successful apply backup (for one-click undo)
@@ -2114,6 +2269,8 @@ async function loadTracksFromServer(playlistId = null) {
     lastPlayed: t.last_played || null,
     myTags: t.my_tags || [],
     colorName: t.color_name || '',
+    genre: t.genre || '',
+    comment: t.comment || '',
     locationFilename: '',
   }));
   parsedDoc = null;
@@ -2156,6 +2313,19 @@ async function loadTracksFromServer(playlistId = null) {
       opt.textContent = `${t.name || '(untitled)'} — ${t.artist || ''}`;
       ceSel.appendChild(opt);
     }
+  }
+  // Populate genre filter dropdown with unique non-empty genres
+  const genreSel = document.getElementById('genre-filter');
+  if (genreSel) {
+    const genres = [...new Set(parsedTracks.map(t => t.genre).filter(Boolean))].sort();
+    genreSel.innerHTML = '<option value="">Genre: Any</option>';
+    for (const g of genres) {
+      const opt = document.createElement('option');
+      opt.value = g;
+      opt.textContent = g;
+      genreSel.appendChild(opt);
+    }
+    genreSel.style.display = genres.length ? '' : 'none';
   }
 }
 
@@ -3524,7 +3694,7 @@ document.getElementById('restore-confirm-btn').addEventListener('click', async (
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ filename }),
     });
-    const resp = await r.json();
+    const resp = await r.json().catch(() => ({}));
     if (!r.ok) throw new Error(resp.detail || r.statusText);
     showToast(resp.message + ' — reloading tracks…');
     document.getElementById('restore-bar').style.display = 'none';
@@ -3548,6 +3718,13 @@ document.getElementById('search-input').addEventListener('input', e => {
 // F6: Phrase-only filter
 document.getElementById('phrase-only-cb').addEventListener('change', e => {
   phraseOnlyFilter = e.target.checked;
+  updateActiveFiltersChip();
+  if (parsedTracks.length) renderTracks();
+});
+
+// Genre filter
+document.getElementById('genre-filter').addEventListener('change', e => {
+  genreFilter = e.target.value;
   updateActiveFiltersChip();
   if (parsedTracks.length) renderTracks();
 });
@@ -3651,7 +3828,7 @@ document.getElementById('lastplayed-filter').addEventListener('change', e => {
 })();
 
 function updateActiveFiltersChip() {
-  const active = ratingFilter > 0 || playsFilter !== 'all' || lastPlayedFilter !== 'all' || myTagFilters.size > 0 || selectedKeys.size > 0 || phraseOnlyFilter || searchQuery;
+  const active = ratingFilter > 0 || playsFilter !== 'all' || lastPlayedFilter !== 'all' || myTagFilters.size > 0 || selectedKeys.size > 0 || phraseOnlyFilter || searchQuery || genreFilter;
   const chip = document.getElementById('active-filters-chip');
   if (chip) chip.classList.toggle('visible', !!active);
 }
@@ -3681,6 +3858,9 @@ function clearAllFilters() {
   document.querySelectorAll('#camelot-grid button').forEach(b => b.classList.remove('selected'));
   const kfb = document.getElementById('key-filter-btn');
   if (kfb) { kfb.textContent = 'Key: Any ▾'; kfb.classList.remove('active'); }
+  genreFilter = '';
+  const gf = document.getElementById('genre-filter');
+  if (gf) gf.value = '';
   updateActiveFiltersChip();
   if (parsedTracks.length) renderTracks();
 }
@@ -3708,7 +3888,7 @@ document.getElementById('undo-btn').addEventListener('click', async () => {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ filename: lastAppliedBackupFilename }),
     });
-    const resp = await r.json();
+    const resp = await r.json().catch(() => ({}));
     if (!r.ok) throw new Error(resp.detail || r.statusText);
     lastAppliedBackupFilename = null;
     btn.style.display = 'none';
@@ -4198,6 +4378,7 @@ function filteredTracks() {
   }
   if (myTagFilters.size > 0) tracks = tracks.filter(t => (t.myTags || []).some(tag => myTagFilters.has(tag)));
   if (selectedKeys.size > 0) tracks = tracks.filter(t => t.key && selectedKeys.has(t.key));
+  if (genreFilter) tracks = tracks.filter(t => (t.genre || '') === genreFilter);
   return tracks;
 }
 
@@ -5520,7 +5701,7 @@ document.getElementById('delete-confirm-btn').addEventListener('click', async ()
       body: JSON.stringify({ track_ids: trackIds, dry_run: false }),
       signal: AbortSignal.timeout(60_000),
     });
-    const resp = await r.json();
+    const resp = await r.json().catch(() => ({}));
     if (!r.ok) throw new Error(resp.detail || r.statusText);
     showToast(`Deleted ${resp.deleted} cues from ${resp.tracks_affected} tracks — backup saved`);
     // Refresh track list so existing_hot_cues counts update
@@ -5599,11 +5780,6 @@ anlzDropZone.addEventListener('drop', async e => {
 function _applyModeUI(mode) {
   document.getElementById('bar-mode-fields').style.display = mode === 'phrase' ? 'none' : '';
   document.getElementById('always-fields').style.marginTop = mode === 'phrase' ? '0' : '10px';
-  // Sync scroll-header mode buttons
-  const shBar = document.getElementById('sh-bar-btn');
-  const shPhrase = document.getElementById('sh-phrase-btn');
-  if (shBar) shBar.classList.toggle('active', mode === 'bar');
-  if (shPhrase) shPhrase.classList.toggle('active', mode === 'phrase');
 }
 document.getElementById('mode-bar-btn').addEventListener('click', () => {
   analysisMode = 'bar';
@@ -5806,79 +5982,20 @@ async function loadPhraseFromServer() {
 })();
 
 // ── Scroll header ──────────────────────────────────────────────────────────────
-(function initScrollHeader() {
-  const scrollHdr = document.getElementById('scroll-header');
-  const settingsSec = document.getElementById('settings-section');
+// Sticky shadow — add .shadowed when tracks-sticky is pinned at top
+(function initStickyHeader() {
   const tracksSticky = document.getElementById('tracks-sticky');
-
-  // Populate sh-playlist-select from main playlist-select
-  function syncPlaylistOptions() {
-    const main = document.getElementById('playlist-select');
-    const sh = document.getElementById('sh-playlist-select');
-    if (!sh) return;
-    sh.innerHTML = main.innerHTML;
-    sh.value = main.value;
-  }
-
-  // Show/hide scroll header based on whether settings section is above viewport
+  if (!tracksSticky) return;
   let rafPending = false;
-  function onScroll() {
+  window.addEventListener('scroll', () => {
     if (rafPending) return;
     rafPending = true;
     requestAnimationFrame(() => {
       rafPending = false;
-      if (!settingsSec) return;
-      const rect = settingsSec.getBoundingClientRect();
-      const shouldShow = rect.bottom < 0;
-      scrollHdr.classList.toggle('visible', shouldShow);
-      tracksSticky.classList.toggle('sh-active', shouldShow);
-      if (shouldShow) {
-        syncPlaylistOptions();
-        scrollHdr.classList.add('sh-ready');
-        // Shift tracks-sticky down below the scroll header
-        tracksSticky.style.top = scrollHdr.offsetHeight + 'px';
-      } else {
-        tracksSticky.style.top = '';
-      }
-      // Shadow on tracks-sticky when it's stuck
-      if (tracksSticky) {
-        const sRect = tracksSticky.getBoundingClientRect();
-        tracksSticky.classList.toggle('shadowed', sRect.top <= (shouldShow ? scrollHdr.offsetHeight : 0) + 1);
-      }
+      const rect = tracksSticky.getBoundingClientRect();
+      tracksSticky.classList.toggle('shadowed', rect.top <= 1);
     });
-  }
-  window.addEventListener('scroll', onScroll, { passive: true });
-
-  // Scroll-header controls → main controls
-  const shPlaylist = document.getElementById('sh-playlist-select');
-  if (shPlaylist) {
-    shPlaylist.addEventListener('change', () => {
-      const main = document.getElementById('playlist-select');
-      main.value = shPlaylist.value;
-      main.dispatchEvent(new Event('change'));
-    });
-  }
-
-  const shSearch = document.getElementById('sh-search');
-  if (shSearch) {
-    shSearch.addEventListener('input', () => {
-      const main = document.getElementById('search-input');
-      main.value = shSearch.value;
-      main.dispatchEvent(new Event('input'));
-    });
-  }
-
-  document.getElementById('sh-bar-btn')?.addEventListener('click', () => {
-    document.getElementById('mode-bar-btn')?.click();
-  });
-  document.getElementById('sh-phrase-btn')?.addEventListener('click', () => {
-    document.getElementById('mode-phrase-btn')?.click();
-  });
-
-  // Also sync search from main → scroll header on input
-  document.getElementById('search-input')?.addEventListener('input', () => {
-    if (shSearch) shSearch.value = document.getElementById('search-input').value;
-  });
+  }, { passive: true });
 })();
 
 // ── Set Builder ────────────────────────────────────────────────────────────────
@@ -6450,6 +6567,31 @@ document.addEventListener('DOMContentLoaded', function() {
     sectionObserver.observe(el);
   });
 });
+
+// ── DJ Mixing Guide ───────────────────────────────────────────────────────────
+(function initMixingGuide() {
+  var header  = document.getElementById('sb-guide-header');
+  var body    = document.getElementById('sb-guide-body');
+  var chevron = document.getElementById('sb-guide-chevron');
+  if (!header) return;
+
+  header.addEventListener('click', function() {
+    var open = body.style.display === 'block';
+    body.style.display = open ? 'none' : 'block';
+    chevron.classList.toggle('open', !open);
+  });
+
+  document.querySelectorAll('[data-guide-tab]').forEach(function(btn) {
+    btn.addEventListener('click', function() {
+      var tab = btn.dataset.guideTab;
+      document.querySelectorAll('[data-guide-tab]').forEach(function(b) { b.classList.remove('active'); });
+      document.querySelectorAll('[data-guide-panel]').forEach(function(p) { p.classList.remove('active'); });
+      btn.classList.add('active');
+      var panel = document.querySelector('[data-guide-panel="' + tab + '"]');
+      if (panel) panel.classList.add('active');
+    });
+  });
+})();
 
 // ── Theme toggle ───────────────────────────────────────────────────────────────
 const root = document.documentElement;

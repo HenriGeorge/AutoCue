@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import BaseModel, field_validator, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 class StatusResponse(BaseModel):
@@ -33,6 +33,8 @@ class TrackItem(BaseModel):
     last_played: str | None = None
     my_tags: list[str] = []
     color_name: str = ""
+    genre: str = ""
+    comment: str = ""
 
 
 class GenerateRequest(BaseModel):
@@ -278,7 +280,7 @@ class CueShiftParams(BaseModel):
 
 
 class CueDeleteOrphanParams(BaseModel):
-    keep_slots: int  # 1–8; delete hot cues whose Kind > keep_slots (i.e. slots beyond this count)
+    keep_slots: int = Field(..., ge=1, le=8)  # delete hot cues whose Kind > keep_slots
 
 
 class CueToolsRequest(BaseModel):

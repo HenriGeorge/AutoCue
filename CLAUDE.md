@@ -54,7 +54,8 @@ autocue/
                       get_mixability() is CACHED in score._mixability_cache (keyed by content.ID).
     classify.py     — Track classification: get_classification() → {primary, scores, bpm, energy_mean}
                       Five categories: warmup/build/peak/after_hours/closing. Cached in _class_cache.
-    similar.py      — Cosine similarity on feature vector (key, energy, vocal proxy). BPM gate ±8.
+    similar.py      — Cosine similarity on 6-dim feature vector (key, energy, variance, vocal proxy, BPM).
+                      BPM gate ±8. Data-quality cap: score ≤ 0.65 when neither track has ANLZ energy data.
                       Builds in-process index on first call; pre-warms _class_cache via _index_track().
                       Thread-safe module index: _INDEX / _INDEX_BUILT / _INDEX_LOCK; clear_index() resets it.
     transitions.py  — score_transition(a, b, db) → {overall, bpm, key, energy, end_energy_a, start_energy_b}
@@ -66,7 +67,7 @@ autocue/
                       Detectors: category, vocal, energy_level, energy_profile, intro_outro,
                       decade, bpm_tier, play_history. ensure_category_tags() / ensure_tag_by_name()
                       create-or-reuse tags idempotently. undo_tag_run() reverses a run via undo_data.
-    comment.py      — Track comment enrichment → DjmdContent.Comment. build_comment_string(),
+    comment.py      — Track comment enrichment → DjmdContent.Commnt. build_comment_string(),
                       enrich_comment(), enrich_comments_batch(). MIK-compatible format; appends a
                       re-writable "/* AutoCue: ... */" sentinel block to preserve user text.
     discogs.py      — Discogs API client: search_styles(artist, title, token) → genre/style list.
@@ -110,20 +111,20 @@ tests/
   test_energy.py             — 36 tests (PWAV resample to n_points, smoothing, caching, profile classifier)
   test_score.py              — 19 tests (mixability formula, components, phrase fallback, cache)
   test_classify.py           — 33 tests (category scoring, trapezoidal membership, cache)
-  test_similar.py            — 28 tests (cosine similarity, BPM gate, index build/clear)
+  test_similar.py            — 28 tests (cosine similarity, BPM gate, index build/clear, data-quality cap)
   test_transitions.py        — 48 tests (BPM/key/energy compatibility, Camelot wheel)
   test_setbuilder.py         — 27 tests (beam search, category order, energy penalty, deduplication, alternatives)
   test_auto_tag.py           — 36 tests (My Tag create/reuse, all detectors, undo, dry-run)
   test_properties.py         — 65 tests (Hypothesis property/invariant tests for classify + transitions math)
   test_discovery.py          — 17 tests (library artist ranking, owned-album filter, dedupe, SSE generator)
   test_download.py           — 15 tests (yt-dlp/ffmpeg probes, query building, search, download paths — yt-dlp mocked)
-  test_serve_routes.py       — 169 tests (FastAPI TestClient, mocked DB; covers all endpoints incl. discover/download)
+  test_serve_routes.py       — 177 tests (FastAPI TestClient, mocked DB; covers all endpoints incl. discover/download)
   web/
     xml-processing.test.js  — 65 Vitest tests for parseRekordboxXml, generateCues, pickCueColor
     ui-logic.test.js        — 107 Vitest tests: filteredTracks (search/phrase/rating/plays/last-played/My-Tag),
                                backup multi-select, SSE apply, sort labels, memory cue, colorTracksByBpm,
                                add_fill_cues, ensureLocalAudio, HTTP error handling, _explainCue (all modes),
-                               _esc + _renderSuggestion (Discover cards)
+                               _esc + _renderSuggestion (Discover cards), r.json().catch safe error handling
 
 package.json      — dev tooling only (vitest + jsdom); the deployed app has no build step
 vitest.config.js  — jsdom environment for web tests
@@ -186,6 +187,8 @@ autocue --library --playlist "NAME"  # restrict --library to a named playlist
 - **BPM guard**: always check `float(bpm) > 0` before using BPM in calculations. Rekordbox can store BPM as `"0.0"` (truthy string, zero float) which would cause division by zero.
 - **Memory cue (slot = -1)**: `CuePoint.slot = -1` → `Kind = 0` in DjmdCue (CDJ Auto Cue position). Memory cues do not consume hot cue slots. The `add_memory_cue` pref in `GenerationPrefs` prepends one before the hot cues; in phrase mode it anchors to the first phrase, otherwise to `max(0, inizio_ms)`.
 - **DjmdContent.ColorID**: VARCHAR(255) FK to `djmdColor.ID` — NOT an integer. Always query `DjmdColor` at runtime and resolve `{SortKey: ID}` mapping. SortKey 1–8 corresponds to Pink/Red/Orange/Yellow/Green/Aqua/Blue/Purple.
+- **DjmdContent.Commnt**: The track comment column is spelled `Commnt` (not `Comment`). Use `getattr(content, "Commnt", "")`. Genre is an association proxy: `content.GenreName` (not `content.Genre` which is the ORM relationship object). `DjmdCue.Comment` is correctly spelled — only `DjmdContent` uses the abbreviated name.
+- **Comment enrichment format**: `enrich_comment()` in `analysis/comment.py` writes `"8A - Energy 7 | Peak | 4 bar intro"` (MIK-compatible prefix). Appends `/* AutoCue: ... */` sentinel to existing comments; sentinel block is replaced on re-run (idempotent). `enrich_comments_batch()` makes a DB backup before writing.
 - **DjmdKey.Seq**: use `Seq` (Integer) for server-side key sort, not `ScaleName` (lexicographic "10A" < "1A" is wrong). Client-side uses `camelotSortKey()` which converts "8A" → numeric order.
 - **Fetch error handling in JS**: always check `r.ok` before reading typed properties from `r.json()`. A 409 response returns `{detail: "..."}` — reading `resp.applied` or `resp.colored` on an error body yields `undefined` and produces misleading toast messages.
 - **DjmdCue ID generation**: `DjmdCue.ID` is VARCHAR(255) with no auto-generate default — must call `db.generate_unused_id(DjmdCue)` explicitly when inserting. Also set `UUID=str(uuid4())`, `ContentUUID` from the content row, `InFrame=round(position_ms * 150 / 1000)`, `OutMsec=-1`, and 0 for all other integer fields.
@@ -195,9 +198,9 @@ autocue --library --playlist "NAME"  # restrict --library to a named playlist
 - **has_phrase**: Populated via `db.get_anlz_path(content, "EXT")` — a fast file-existence check with no parsing. `True` if the .EXT ANLZ file exists on disk.
 - **filteredTracks()**: Client-side function that applies search, phrase-only, rating, plays, last-played, and My-Tag filters to `parsedTracks`. All write operations (apply, delete, color, enrich, tag) use `filteredTracks()` — not `parsedTracks` directly. `parsedTracks` is never mutated by filters.
 - **pendingCues**: JS map of `String(trackId) → [{slot,posSec,label,...}]` populated by the "Preview cues" button (calls `/api/generate`). Cleared after Apply completes. Rendered as a secondary timeline bar in each track card.
-- **Scroll header**: `<div id="scroll-header">` is `position:fixed` with `transform:translateY(-110%)` and slides in via CSS transition when `#settings-section` scrolls out of the viewport. `#tracks-sticky` wraps the filter/sort/legend bar with `position:sticky`. `initScrollHeader()` IIFE handles the scroll listener, two-way sync between scroll-header controls and their main-page counterparts (playlist select, search, sort buttons, mode buttons), and shifts `#tracks-sticky` top down when the scroll header is visible.
+- **Sticky filter bar**: `#tracks-sticky` uses `position:sticky; top:0` with negative horizontal margins (`margin-left:-24px; margin-right:-24px; padding:0 24px`) to bleed edge-to-edge within `main`'s 24px side padding. A `border-bottom` is added via the `.shadowed` class (toggled by `IntersectionObserver` on a sentinel div) — no `box-shadow` (bleeds sideways). Default sort is `album` ascending. There is no slide-in scroll header (`#scroll-header` was removed).
 - **Multi-select backup delete**: `DELETE /api/backups/{filename}` removes one backup; path traversal is blocked (only bare filenames accepted). The UI uses `_populateChecklist()`, `_updateSelectionCount()`, and `_checkedBackups()` helpers; `deleteCheckedBackups()` calls DELETE once per selected filename and shows a consolidated toast.
-- **Smart slot ordering**: `_apply_smart_slot_order()` in `generator.py` assigns slot A to the first non-Intro phrase chronologically (the DJ mix-in point). Slots B+ are ordered by `_SMART_PRIORITY` (CHORUS=0, UP=1, OUTRO=2, VERSE=3, DOWN=4, BRIDGE=5, INTRO=6). Only applied in phrase mode.
+- **Smart slot ordering**: `_apply_smart_slot_order()` in `generator.py` assigns slot A to the first non-Intro phrase chronologically (the DJ mix-in point). Slot B is reserved for the first OUTRO phrase (CDJ prep feature — DJs instinctively reach for B at mix-out). Slots C+ are ordered by `_SMART_PRIORITY` (CHORUS=0, UP=1, OUTRO=2, VERSE=3, DOWN=4, BRIDGE=5, INTRO=6). Only applied in phrase mode.
 - **Cue Quality Checker**: `autocue/analysis/quality.py`. Score: -30 NO_CUES, -10 NO_PHRASE, -10 NO_BEATGRID, -5 DUPLICATE_CUE, -5 UNNAMED_CUES. NO_AUDIO_FILE forces score=0 and skips all other checks. NO_MEMORY_CUE is info-only (zero score impact). Duplicate detection compares `InFrame` values directly (threshold < 2 frames ≈ <13ms). FolderPath on DjmdContent stores the complete audio file path (not just folder).
 - **`/api/health` SSE**: Streams one JSON event per track (TrackHealthReport), then `{"done":true,"summary":{...}}`. Accepts `?playlist_id=N` for incremental rescans. Per-track exceptions yield `{"score":0,"fix_tier":"none","issues":[{"code":"INTERNAL_ERROR",...}]}` — one bad row never aborts the scan.
 - **Analysis module caches** (all cleared by the `conftest.py` autouse fixture before every test):

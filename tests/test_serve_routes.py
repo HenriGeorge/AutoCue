@@ -2540,3 +2540,189 @@ class TestDownloadAlbumEndpoint:
         events = _sse_payloads(r.text)
         assert events[-1]["downloaded"] == 1
         assert events[-1]["failed"] == 1
+
+
+# ---------------------------------------------------------------------------
+# Fix: rekordbox_is_running() guard on 5 previously-unguarded write endpoints
+# ---------------------------------------------------------------------------
+
+class TestWriteGuards:
+    """Every write endpoint must return 409 when Rekordbox is running."""
+
+    def test_create_playlist_blocked_when_rekordbox_running(self):
+        with patch("autocue.db_writer.rekordbox_is_running", return_value=True):
+            client = _make_client()
+            r = client.post("/api/playlists", json={"name": "My Set", "track_ids": [1, 2]})
+        assert r.status_code == 409
+
+    def test_auto_tag_blocked_when_rekordbox_running(self):
+        with patch("autocue.db_writer.rekordbox_is_running", return_value=True):
+            client = _make_client()
+            r = client.post("/api/auto-tag", json={"track_ids": [1]})
+        assert r.status_code == 409
+
+    def test_auto_tag_dry_run_allowed_when_rekordbox_running(self):
+        db = _make_db()
+        payload = {"tagged": 0, "skipped_no_data": 0, "errors": 0, "dry_run": True, "undo_data": None}
+        with patch("autocue.db_writer.rekordbox_is_running", return_value=True):
+            with patch("autocue.analysis.auto_tag.apply_tags", return_value=payload):
+                client = _make_client(db)
+                r = client.post("/api/auto-tag", json={"track_ids": [1], "dry_run": True})
+        assert r.status_code == 200
+
+    def test_auto_tag_undo_blocked_when_rekordbox_running(self):
+        with patch("autocue.db_writer.rekordbox_is_running", return_value=True):
+            client = _make_client()
+            r = client.post("/api/auto-tag/undo",
+                            json={"undo_data": {"added": [], "removed": []}})
+        assert r.status_code == 409
+
+    def test_auto_tag_discogs_blocked_when_rekordbox_running(self):
+        with patch("autocue.db_writer.rekordbox_is_running", return_value=True):
+            client = _make_client()
+            r = client.post("/api/auto-tag/discogs",
+                            json={"track_ids": [1], "token": "tok", "dry_run": False})
+        assert r.status_code == 409
+
+    def test_enrich_comments_blocked_when_rekordbox_running(self):
+        with patch("autocue.db_writer.rekordbox_is_running", return_value=True):
+            client = _make_client()
+            r = client.post("/api/enrich-comments", json={"track_ids": [1]})
+        assert r.status_code == 409
+
+    def test_enrich_comments_dry_run_allowed_when_rekordbox_running(self):
+        db = _make_db()
+        with patch("autocue.db_writer.rekordbox_is_running", return_value=True):
+            with patch("autocue.analysis.comment.enrich_comments_batch",
+                       return_value={"enriched": 0, "skipped": 1, "errors": 0, "backup_path": None}):
+                client = _make_client(db)
+                r = client.post("/api/enrich-comments",
+                                json={"track_ids": [1], "dry_run": True})
+        assert r.status_code == 200
+
+
+# ---------------------------------------------------------------------------
+# Fix: loop cue OutFrame updated on shift
+# ---------------------------------------------------------------------------
+
+class TestLoopCueOutFrameOnShift:
+    """Shifting a loop cue must update both OutMsec and OutFrame."""
+
+    def _track(self, tid=1):
+        t = MagicMock()
+        t.ID = tid
+        return t
+
+    def _post(self, client, payload):
+        return client.post("/api/cue-tools-stream", json=payload)
+
+    def test_shift_updates_outframe_for_loop_cue(self, tmp_path):
+        track = self._track()
+        cue = _make_cue_tool(in_msec=10_000, comment="loop")
+        cue.OutMsec = 12_000          # 2-second loop
+        cue.OutFrame = round(12_000 * 150 / 1000)  # original OutFrame = 1800
+        db = _make_db_cue_tools(track, [cue])
+        db._db_dir = tmp_path
+        (tmp_path / "master.db").write_bytes(b"fake")
+        with patch("autocue.db_writer.rekordbox_is_running", return_value=False):
+            with patch("autocue.db_writer.BACKUP_DIR", tmp_path / "backups"):
+                client = _make_client(db)
+                r = self._post(client, {
+                    "operation": "shift", "track_ids": [1], "dry_run": False,
+                    "shift": {"delta_ms": 500},
+                })
+        assert r.status_code == 200
+        assert cue.OutMsec == 12_500
+        assert cue.OutFrame == round(12_500 * 150 / 1000)  # 1875
+
+    def test_shift_does_not_set_outframe_for_non_loop_cue(self, tmp_path):
+        """OutFrame must not be touched when OutMsec is the sentinel -1."""
+        track = self._track()
+        cue = _make_cue_tool(in_msec=5_000, comment="hot")
+        cue.OutMsec = -1
+        cue.OutFrame = 0
+        db = _make_db_cue_tools(track, [cue])
+        db._db_dir = tmp_path
+        (tmp_path / "master.db").write_bytes(b"fake")
+        with patch("autocue.db_writer.rekordbox_is_running", return_value=False):
+            with patch("autocue.db_writer.BACKUP_DIR", tmp_path / "backups"):
+                client = _make_client(db)
+                r = self._post(client, {
+                    "operation": "shift", "track_ids": [1], "dry_run": False,
+                    "shift": {"delta_ms": 500},
+                })
+        assert r.status_code == 200
+        assert cue.OutMsec == -1   # sentinel unchanged
+        assert cue.OutFrame == 0   # not touched
+
+
+# ---------------------------------------------------------------------------
+# Fix: keep_slots Field(ge=1, le=8) validation
+# ---------------------------------------------------------------------------
+
+class TestDeleteOrphanValidation:
+    """keep_slots outside 1–8 must be rejected before any DB access."""
+
+    def _post(self, client, keep_slots):
+        return client.post("/api/cue-tools-stream", json={
+            "operation": "delete_orphan", "track_ids": [], "dry_run": True,
+            "delete_orphan": {"keep_slots": keep_slots},
+        })
+
+    def test_keep_slots_zero_returns_422(self):
+        client = _make_client()
+        assert self._post(client, 0).status_code == 422
+
+    def test_keep_slots_nine_returns_422(self):
+        client = _make_client()
+        assert self._post(client, 9).status_code == 422
+
+    def test_keep_slots_one_accepted(self):
+        client = _make_client()
+        assert self._post(client, 1).status_code == 200
+
+    def test_keep_slots_eight_accepted(self):
+        client = _make_client()
+        assert self._post(client, 8).status_code == 200
+
+
+# ---------------------------------------------------------------------------
+# Fix: Query bounds on /api/tracks/{id}/similar
+# ---------------------------------------------------------------------------
+
+class TestSimilarQueryBounds:
+    """n and bpm_gate out of range must return 422 before any DB access."""
+
+    def test_n_zero_returns_422(self):
+        client = _make_client()
+        assert client.get("/api/tracks/1/similar?n=0").status_code == 422
+
+    def test_n_above_max_returns_422(self):
+        client = _make_client()
+        assert client.get("/api/tracks/1/similar?n=101").status_code == 422
+
+    def test_bpm_gate_negative_returns_422(self):
+        client = _make_client()
+        assert client.get("/api/tracks/1/similar?bpm_gate=-0.1").status_code == 422
+
+    def test_bpm_gate_above_max_returns_422(self):
+        client = _make_client()
+        assert client.get("/api/tracks/1/similar?bpm_gate=50.1").status_code == 422
+
+    def test_n_boundary_values_accepted(self):
+        # Boundary values must not be rejected by the validator alone.
+        # The route will 404 (no DB track) but not 422.
+        db = MagicMock()
+        db.get_content.return_value = None
+        client = _make_client(db)
+        for n in (1, 100):
+            r = client.get(f"/api/tracks/1/similar?n={n}")
+            assert r.status_code != 422, f"n={n} should pass validation"
+
+    def test_bpm_gate_boundary_values_accepted(self):
+        db = MagicMock()
+        db.get_content.return_value = None
+        client = _make_client(db)
+        for gate in (0.0, 50.0):
+            r = client.get(f"/api/tracks/1/similar?bpm_gate={gate}")
+            assert r.status_code != 422, f"bpm_gate={gate} should pass validation"

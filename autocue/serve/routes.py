@@ -80,13 +80,15 @@ def status(db=Depends(get_ro_db)):
 @router.get("/playlists", response_model=list[PlaylistItem])
 def playlists(db=Depends(get_ro_db)):
     from pyrekordbox.db6 import DjmdPlaylist, DjmdSongPlaylist
+    from sqlalchemy import func as _func
     rows = db.query(DjmdPlaylist).filter(DjmdPlaylist.Name.isnot(None)).all()
+    counts = dict(
+        db.query(DjmdSongPlaylist.PlaylistID, _func.count(DjmdSongPlaylist.ID))
+        .group_by(DjmdSongPlaylist.PlaylistID)
+        .all()
+    )
     return [
-        PlaylistItem(
-            id=p.ID,
-            name=p.Name,
-            track_count=db.query(DjmdSongPlaylist).filter_by(PlaylistID=p.ID).count(),
-        )
+        PlaylistItem(id=p.ID, name=p.Name, track_count=counts.get(str(p.ID), 0))
         for p in rows
     ]
 
@@ -136,15 +138,17 @@ def tracks(
 
     total = q.count()
     rows = q.offset(offset).limit(limit).all()
+    row_ids = {str(t.ID) for t in rows}
+
     # Pre-load the 24-row key table once rather than querying per track
     key_map = {k.ID: k.ScaleName for k in db.query(DjmdKey).all() if k.ScaleName}
 
-    # Pre-load play history: ContentID → latest session DateCreated
+    # Pre-load play history filtered to current page: ContentID → latest DateCreated
     last_played_map: dict[str, str] = {}
     try:
         from pyrekordbox.db6 import DjmdHistory, DjmdSongHistory
         hist_date = {str(h.ID): h.DateCreated for h in db.query(DjmdHistory).all() if h.DateCreated}
-        for sh in db.query(DjmdSongHistory).all():
+        for sh in db.query(DjmdSongHistory).filter(DjmdSongHistory.ContentID.in_(row_ids)).all():
             d = hist_date.get(str(sh.HistoryID))
             if d and sh.ContentID:
                 key = str(sh.ContentID)
@@ -153,12 +157,12 @@ def tracks(
     except Exception:
         pass
 
-    # Pre-load my tags: ContentID → [tag names]
+    # Pre-load my tags filtered to current page: ContentID → [tag names]
     my_tags_map: dict[str, list[str]] = {}
     try:
         from pyrekordbox.db6 import DjmdMyTag, DjmdSongMyTag
         tag_names = {str(t.ID): t.Name for t in db.query(DjmdMyTag).all() if t.Name}
-        for st in db.query(DjmdSongMyTag).all():
+        for st in db.query(DjmdSongMyTag).filter(DjmdSongMyTag.ContentID.in_(row_ids)).all():
             n = tag_names.get(str(st.MyTagID))
             if n and st.ContentID:
                 my_tags_map.setdefault(str(st.ContentID), []).append(n)
@@ -783,10 +787,12 @@ def _to_item(
         existing_hot_cues=existing,
         key=key,
         rating=int(getattr(t, "Rating", 0) or 0),
-        play_count=int(str(getattr(t, "DJPlayCount", None) or "0") or "0"),
+        play_count=int(getattr(t, "DJPlayCount", 0) or 0),
         last_played=(last_played_map or {}).get(str(t.ID)),
         my_tags=(my_tags_map or {}).get(str(t.ID), []),
         color_name=(color_name_map or {}).get(color_id, "") if color_id else "",
+        genre=getattr(t, "GenreName", None) or "",
+        comment=getattr(t, "Commnt", None) or "",
     )
 
 
@@ -1021,7 +1027,9 @@ def cue_tools_stream(req: CueToolsRequest, db=Depends(get_db)):
                     if out_ms >= 0:
                         # Use effective shift to keep loop length intact
                         effective_shift = new_ms - original_in_ms
-                        cue.OutMsec = max(0, out_ms + effective_shift)
+                        new_out_ms = max(0, out_ms + effective_shift)
+                        cue.OutMsec = new_out_ms
+                        cue.OutFrame = round(new_out_ms * 150 / 1000)
                 changed += 1
 
         elif operation == "delete_orphan":
@@ -1152,12 +1160,16 @@ def playlist_suggest(req: PlaylistSuggestRequest, db=Depends(get_ro_db)):
         pl = db.query(DjmdPlaylist).filter(DjmdPlaylist.ID == str(req.playlist_id)).first()
         if pl is None:
             raise HTTPException(404, f"Playlist {req.playlist_id} not found")
+        from pyrekordbox.db6 import DjmdContent as _DjmdContent
         ids = [
             e.ContentID
             for e in db.query(DjmdSongPlaylist).filter_by(PlaylistID=str(req.playlist_id)).all()
         ]
-        contents = [db.get_content(ID=i) for i in ids if i]
-        contents = [c for c in contents if c is not None]
+        valid_ids = [i for i in ids if i]
+        contents = (
+            db.session.query(_DjmdContent).filter(_DjmdContent.ID.in_(valid_ids)).all()
+            if valid_ids else []
+        )
     else:
         contents = db.get_content().all()
 
@@ -1231,12 +1243,16 @@ async def classify_library(
 
     def event_stream():
         if playlist_id is not None:
+            from pyrekordbox.db6 import DjmdContent as _DjmdContent
             ids = [
                 e.ContentID
                 for e in db.query(DjmdSongPlaylist).filter_by(PlaylistID=str(playlist_id)).all()
             ]
-            contents = [db.get_content(ID=i) for i in ids if i]
-            contents = [c for c in contents if c is not None]
+            valid_ids = [i for i in ids if i]
+            contents = (
+                db.session.query(_DjmdContent).filter(_DjmdContent.ID.in_(valid_ids)).all()
+                if valid_ids else []
+            )
         else:
             contents = db.get_content().all()
 
@@ -1264,8 +1280,8 @@ async def classify_library(
 @router.get("/tracks/{track_id}/similar", response_model=SimilarTracksResponse)
 def track_similar(
     track_id: int,
-    n: int = 10,
-    bpm_gate: float = 8.0,
+    n: int = Query(10, ge=1, le=100),
+    bpm_gate: float = Query(8.0, ge=0.0, le=50.0),
     force_rebuild: bool = False,
     db=Depends(get_ro_db),
 ):
@@ -1429,11 +1445,14 @@ def create_playlist(req: CreatePlaylistRequest, db=Depends(get_db)):
     from datetime import datetime
     from uuid import uuid4
     from sqlalchemy import func as _func
+    from ..db_writer import rekordbox_is_running
 
     if not req.name.strip():
         raise HTTPException(400, "Playlist name is required")
     if not req.track_ids:
         raise HTTPException(400, "No tracks provided")
+    if rekordbox_is_running():
+        raise HTTPException(409, "Rekordbox is running — close it before saving playlists")
 
     try:
         from pyrekordbox.db6.tables import DjmdPlaylist, DjmdSongPlaylist
@@ -1482,7 +1501,10 @@ def create_playlist(req: CreatePlaylistRequest, db=Depends(get_db)):
 @router.post("/auto-tag", response_model=AutoTagResponse)
 def auto_tag(req: AutoTagRequest, db=Depends(get_db)):
     from ..analysis.auto_tag import apply_tags
+    from ..db_writer import rekordbox_is_running
 
+    if rekordbox_is_running() and not req.dry_run:
+        raise HTTPException(409, "Rekordbox is running — close it before applying tags")
     try:
         result = apply_tags(
             db,
@@ -1552,6 +1574,10 @@ def auto_tag_discogs(req: DiscogsTagRequest, db=Depends(get_db)):
     from fastapi.responses import StreamingResponse
     from ..analysis.discogs import search_styles
     from ..analysis.auto_tag import ensure_tag_by_name
+    from ..db_writer import rekordbox_is_running
+
+    if rekordbox_is_running() and not req.dry_run:
+        raise HTTPException(409, "Rekordbox is running — close it before applying tags")
 
     def event_stream():
         from pyrekordbox.db6 import DjmdContent
@@ -1615,7 +1641,10 @@ def auto_tag_discogs(req: DiscogsTagRequest, db=Depends(get_db)):
 @router.post("/auto-tag/undo", response_model=AutoTagUndoResponse)
 def auto_tag_undo(req: AutoTagUndoRequest, db=Depends(get_db)):
     from ..analysis.auto_tag import undo_tag_run
+    from ..db_writer import rekordbox_is_running
 
+    if rekordbox_is_running():
+        raise HTTPException(409, "Rekordbox is running — close it before undoing tags")
     try:
         result = undo_tag_run(db, req.undo_data.model_dump())
         db.session.commit()
@@ -1632,6 +1661,10 @@ def auto_tag_undo(req: AutoTagUndoRequest, db=Depends(get_db)):
 @router.post("/enrich-comments", response_model=EnrichCommentsResponse)
 def enrich_comments(req: EnrichCommentsRequest, db=Depends(get_db)):
     from ..analysis.comment import enrich_comments_batch
+    from ..db_writer import rekordbox_is_running
+
+    if rekordbox_is_running() and not req.dry_run:
+        raise HTTPException(409, "Rekordbox is running — close it before enriching comments")
     try:
         result = enrich_comments_batch(
             req.track_ids, db,
@@ -1640,6 +1673,7 @@ def enrich_comments(req: EnrichCommentsRequest, db=Depends(get_db)):
         )
         return EnrichCommentsResponse(dry_run=req.dry_run, **result)
     except Exception as exc:
+        db.session.rollback()
         raise HTTPException(500, str(exc)) from exc
 
 
@@ -1649,7 +1683,7 @@ def enrich_comments_preview(req: CommentPreviewRequest, db=Depends(get_ro_db)):
     content = db.get_content(ID=req.track_id)
     if content is None:
         raise HTTPException(404, f"Track {req.track_id} not found")
-    current = str(getattr(content, "Comment", "") or "")
+    current = str(getattr(content, "Commnt", "") or "")
     enrichment = build_comment_string(content, db)
     # Compute preview without writing
     preview = enrich_comment(content, db, overwrite=False, dry_run=True) or current
