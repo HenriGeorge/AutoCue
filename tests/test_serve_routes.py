@@ -2411,3 +2411,132 @@ class TestAutoTagUndoEndpoint:
             )
         assert r.status_code == 500
         db.session.rollback.assert_called()
+
+
+def _sse_payloads(text: str):
+    """Parse an SSE response body into a list of JSON event dicts."""
+    import json
+    out = []
+    for line in text.splitlines():
+        if line.startswith("data: "):
+            out.append(json.loads(line[len("data: "):]))
+    return out
+
+
+class TestDiscoverEndpoint:
+    def test_requires_token(self):
+        client = _make_client(_make_db())
+        with patch("autocue.serve.routes._resolve_discogs_token", return_value=""):
+            r = client.get("/api/discover")
+        assert r.status_code == 400
+
+    def test_streams_suggestions(self):
+        db = _make_db()
+        fake_events = [
+            (1, 2, {"artist": "A", "album": "New One", "title": "A - New One",
+                    "year": 2025, "thumb": "", "cover": "", "genres": [], "styles": ["House"],
+                    "url": "", "query": "A New One"}),
+            (2, 2, None),
+        ]
+        with patch("autocue.analysis.discovery.iter_new_releases", return_value=iter(fake_events)):
+            client = _make_client(db)
+            r = client.get("/api/discover?token=tok")
+        assert r.status_code == 200
+        events = _sse_payloads(r.text)
+        assert any(e.get("album") == "New One" for e in events)
+        assert events[-1]["done"] is True
+        assert events[-1]["suggested"] == 1
+
+    def test_uses_env_token_when_param_missing(self):
+        db = _make_db()
+        with patch("autocue.serve.routes._resolve_discogs_token", return_value="envtok"):
+            with patch("autocue.analysis.discovery.iter_new_releases", return_value=iter([])) as m:
+                client = _make_client(db)
+                r = client.get("/api/discover")
+        assert r.status_code == 200
+        # token forwarded to the generator
+        assert m.call_args.args[1] == "envtok"
+
+
+class TestDownloadConfigEndpoint:
+    def test_reports_availability(self):
+        client = _make_client(_make_db())
+        with patch("autocue.download.ytdlp_available", return_value=True):
+            with patch("autocue.download.ffmpeg_available", return_value=False):
+                r = client.get("/api/download/config")
+        assert r.status_code == 200
+        data = r.json()
+        assert data["available"] is True
+        assert data["ffmpeg"] is False
+        assert "default_dir" in data
+
+
+class TestDownloadEndpoint:
+    def test_503_when_ytdlp_missing(self):
+        client = _make_client(_make_db())
+        with patch("autocue.download.ytdlp_available", return_value=False):
+            r = client.post("/api/download", json={"query": "x"})
+        assert r.status_code == 503
+
+    def test_503_when_ffmpeg_missing(self):
+        client = _make_client(_make_db())
+        with patch("autocue.download.ytdlp_available", return_value=True):
+            with patch("autocue.download.ffmpeg_available", return_value=False):
+                r = client.post("/api/download", json={"query": "x"})
+        assert r.status_code == 503
+
+    def test_streams_finished_path(self):
+        client = _make_client(_make_db())
+        with patch("autocue.download.ytdlp_available", return_value=True):
+            with patch("autocue.download.ffmpeg_available", return_value=True):
+                with patch("autocue.download.download_audio", return_value="/dl/song.mp3"):
+                    r = client.post("/api/download", json={"query": "daft punk"})
+        assert r.status_code == 200
+        events = _sse_payloads(r.text)
+        assert events[-1]["done"] is True
+        assert events[-1]["path"] == "/dl/song.mp3"
+        assert events[-1]["downloaded"] == 1
+
+    def test_streams_error(self):
+        client = _make_client(_make_db())
+        with patch("autocue.download.ytdlp_available", return_value=True):
+            with patch("autocue.download.ffmpeg_available", return_value=True):
+                with patch("autocue.download.download_audio", side_effect=RuntimeError("nope")):
+                    r = client.post("/api/download", json={"query": "x"})
+        events = _sse_payloads(r.text)
+        assert events[-1]["status"] == "error"
+        assert events[-1]["failed"] == 1
+
+
+class TestDownloadAlbumEndpoint:
+    def test_503_when_unavailable(self):
+        client = _make_client(_make_db())
+        with patch("autocue.download.ytdlp_available", return_value=False):
+            r = client.post("/api/download/album", json={"tracks": [{"query": "a"}]})
+        assert r.status_code == 503
+
+    def test_downloads_each_track(self):
+        client = _make_client(_make_db())
+        with patch("autocue.download.ytdlp_available", return_value=True):
+            with patch("autocue.download.ffmpeg_available", return_value=True):
+                with patch("autocue.download.download_audio", side_effect=["/a.mp3", "/b.mp3"]):
+                    r = client.post("/api/download/album", json={
+                        "tracks": [{"query": "a", "title": "A"}, {"query": "b", "title": "B"}],
+                    })
+        events = _sse_payloads(r.text)
+        assert events[-1]["done"] is True
+        assert events[-1]["downloaded"] == 2
+        assert events[-1]["failed"] == 0
+
+    def test_partial_failure_counted(self):
+        client = _make_client(_make_db())
+        with patch("autocue.download.ytdlp_available", return_value=True):
+            with patch("autocue.download.ffmpeg_available", return_value=True):
+                with patch("autocue.download.download_audio",
+                           side_effect=["/a.mp3", RuntimeError("bad")]):
+                    r = client.post("/api/download/album", json={
+                        "tracks": [{"query": "a"}, {"query": "b"}],
+                    })
+        events = _sse_payloads(r.text)
+        assert events[-1]["downloaded"] == 1
+        assert events[-1]["failed"] == 1

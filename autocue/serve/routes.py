@@ -44,6 +44,11 @@ from .schemas import (
     EnrichCommentsResponse,
     CommentPreviewRequest,
     CommentPreviewResponse,
+    DiscoverItem,
+    DownloadConfigResponse,
+    DownloadRequest,
+    DownloadAlbumRequest,
+    DownloadEvent,
     SetBuilderTrackItem,
     SimilarTrackItem,
     SimilarTracksResponse,
@@ -1653,3 +1658,187 @@ def enrich_comments_preview(req: CommentPreviewRequest, db=Depends(get_ro_db)):
         current_comment=current,
         preview=preview or enrichment,
     )
+
+
+# ---------------------------------------------------------------------------
+# Discovery — new releases from library artists (Discogs)
+# ---------------------------------------------------------------------------
+
+@router.get("/discover")
+def discover_new_releases(
+    since_year: int | None = Query(None),
+    max_artists: int = Query(25, ge=1, le=100),
+    per_artist: int = Query(5, ge=1, le=20),
+    token: str = Query(""),
+    db=Depends(get_ro_db),
+):
+    """Stream suggested new releases for the library's top artists via SSE.
+
+    Each event is a DiscoverItem; the final event has ``done=true``. The Discogs
+    token comes from the query param, else the DISCOGS_TOKEN env / project .env.
+    """
+    import json as _json
+    from fastapi.responses import StreamingResponse
+    from ..analysis.discovery import iter_new_releases
+
+    tok = (token or "").strip() or _resolve_discogs_token()
+    if not tok:
+        raise HTTPException(400, "Discogs token required (set it in the Discogs panel or DISCOGS_TOKEN).")
+
+    def event_stream():
+        suggested = 0
+        last_total = 0
+        try:
+            for processed, total, item in iter_new_releases(
+                db, tok, since_year=since_year,
+                max_artists=max_artists, per_artist=per_artist,
+            ):
+                last_total = total
+                if item is None:
+                    # progress-only tick (artist with no new releases)
+                    yield f"data: {_json.dumps({'processed': processed, 'total': total, 'suggested': suggested})}\n\n"
+                    continue
+                suggested += 1
+                payload = {"processed": processed, "total": total, "suggested": suggested, **{
+                    k: item.get(k) for k in
+                    ("artist", "album", "title", "year", "thumb", "cover", "genres", "styles", "url", "query")
+                }}
+                yield f"data: {_json.dumps(payload)}\n\n"
+        except Exception as exc:
+            logger.warning("discover error: %s", exc)
+            yield f"data: {_json.dumps({'error': str(exc)})}\n\n"
+        yield f"data: {_json.dumps({'done': True, 'total': last_total, 'suggested': suggested})}\n\n"
+
+    return StreamingResponse(event_stream(), media_type="text/event-stream")
+
+
+def _resolve_discogs_token() -> str:
+    """Read DISCOGS_TOKEN from the project .env then the environment."""
+    import os as _os
+    env_path = _os.path.join(_os.path.dirname(_os.path.dirname(_os.path.dirname(__file__))), ".env")
+    token = ""
+    try:
+        if _os.path.exists(env_path):
+            with open(env_path) as f:
+                for line in f:
+                    line = line.strip()
+                    if line.startswith("DISCOGS_TOKEN="):
+                        token = line.split("=", 1)[1].strip()
+                        break
+    except Exception:
+        pass
+    return _os.environ.get("DISCOGS_TOKEN", token)
+
+
+# ---------------------------------------------------------------------------
+# Download — YouTube audio via yt-dlp (optional dependency)
+# ---------------------------------------------------------------------------
+
+@router.get("/download/config", response_model=DownloadConfigResponse)
+def download_config():
+    """Report whether yt-dlp + ffmpeg are available and the default download dir."""
+    from .. import download as dl
+    return DownloadConfigResponse(
+        available=dl.ytdlp_available(),
+        ffmpeg=dl.ffmpeg_available(),
+        default_dir=dl.default_download_dir(),
+    )
+
+
+def _percent_from_hook(d: dict) -> float | None:
+    """Derive a 0–100 percent from a yt-dlp progress dict, if possible."""
+    total = d.get("total_bytes") or d.get("total_bytes_estimate")
+    got = d.get("downloaded_bytes")
+    if total and got is not None:
+        try:
+            return round(min(100.0, got / total * 100.0), 1)
+        except (TypeError, ZeroDivisionError):
+            return None
+    return None
+
+
+@router.post("/download")
+def download_single(req: DownloadRequest):
+    """Download one track's audio from YouTube via SSE progress events."""
+    import json as _json
+    import queue
+    import threading
+    from fastapi.responses import StreamingResponse
+    from .. import download as dl
+
+    if not dl.ytdlp_available():
+        raise HTTPException(503, "yt-dlp is not installed. Install with: pip install -e \".[download]\"")
+    if not dl.ffmpeg_available():
+        raise HTTPException(503, "ffmpeg not found on PATH — required to extract audio.")
+
+    def event_stream():
+        events: "queue.Queue[dict]" = queue.Queue()
+
+        def progress(d: dict) -> None:
+            events.put({
+                "status": d.get("status"),
+                "percent": _percent_from_hook(d),
+            })
+
+        result: dict = {}
+
+        def worker() -> None:
+            try:
+                path = dl.download_audio(
+                    req.query, dest_dir=req.dest_dir,
+                    audio_format=req.audio_format, progress_cb=progress,
+                )
+                result["path"] = path
+            except Exception as exc:  # noqa: BLE001
+                result["error"] = str(exc)
+            finally:
+                events.put({"_end": True})
+
+        t = threading.Thread(target=worker, daemon=True)
+        t.start()
+
+        while True:
+            ev = events.get()
+            if ev.get("_end"):
+                break
+            yield f"data: {_json.dumps({'processed': 0, 'total': 1, 'query': req.query, **ev})}\n\n"
+
+        if "error" in result:
+            yield f"data: {_json.dumps({'done': True, 'status': 'error', 'error': result['error'], 'failed': 1})}\n\n"
+        else:
+            yield f"data: {_json.dumps({'done': True, 'status': 'finished', 'path': result.get('path'), 'downloaded': 1})}\n\n"
+
+    return StreamingResponse(event_stream(), media_type="text/event-stream")
+
+
+@router.post("/download/album")
+def download_album(req: DownloadAlbumRequest):
+    """Download multiple tracks (an album) sequentially via SSE progress events."""
+    import json as _json
+    from fastapi.responses import StreamingResponse
+    from .. import download as dl
+
+    if not dl.ytdlp_available():
+        raise HTTPException(503, "yt-dlp is not installed. Install with: pip install -e \".[download]\"")
+    if not dl.ffmpeg_available():
+        raise HTTPException(503, "ffmpeg not found on PATH — required to extract audio.")
+
+    def event_stream():
+        total = len(req.tracks)
+        downloaded = 0
+        failed = 0
+        for i, spec in enumerate(req.tracks):
+            label = spec.title or spec.query
+            try:
+                path = dl.download_audio(
+                    spec.query, dest_dir=req.dest_dir, audio_format=req.audio_format,
+                )
+                downloaded += 1
+                yield f"data: {_json.dumps({'processed': i+1, 'total': total, 'title': label, 'query': spec.query, 'status': 'finished', 'path': path, 'downloaded': downloaded})}\n\n"
+            except Exception as exc:  # noqa: BLE001
+                failed += 1
+                logger.warning("album download failed for %r: %s", spec.query, exc)
+                yield f"data: {_json.dumps({'processed': i+1, 'total': total, 'title': label, 'query': spec.query, 'status': 'error', 'error': str(exc), 'failed': failed})}\n\n"
+        yield f"data: {_json.dumps({'done': True, 'downloaded': downloaded, 'failed': failed, 'total': total})}\n\n"
+
+    return StreamingResponse(event_stream(), media_type="text/event-stream")

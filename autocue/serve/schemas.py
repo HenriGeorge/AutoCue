@@ -473,3 +473,67 @@ class CommentPreviewResponse(BaseModel):
     track_id: int
     current_comment: str
     preview: str  # what the comment would become after enrichment
+
+
+# ---------------------------------------------------------------------------
+# Discovery — new releases from library artists (Discogs)
+# ---------------------------------------------------------------------------
+
+class DiscoverItem(BaseModel):
+    """One suggested new release (also the SSE event payload)."""
+    processed: int
+    total: int
+    artist: str | None = None
+    album: str | None = None
+    title: str | None = None
+    year: int | None = None
+    thumb: str | None = None
+    cover: str | None = None
+    genres: list[str] = []
+    styles: list[str] = []
+    url: str | None = None
+    query: str | None = None       # ready-made "artist album" download query
+    done: bool = False
+    suggested: int = 0
+
+
+# ---------------------------------------------------------------------------
+# Download — YouTube audio via yt-dlp (optional dependency)
+# ---------------------------------------------------------------------------
+
+class DownloadConfigResponse(BaseModel):
+    available: bool          # yt-dlp importable
+    ffmpeg: bool             # ffmpeg on PATH (needed for audio extraction)
+    default_dir: str
+
+
+class DownloadRequest(BaseModel):
+    query: str               # a YouTube URL or a search term ("artist - title")
+    dest_dir: str | None = None
+    audio_format: str = "mp3"
+
+
+class DownloadTrackSpec(BaseModel):
+    query: str
+    title: str | None = None
+
+
+class DownloadAlbumRequest(BaseModel):
+    tracks: list[DownloadTrackSpec]
+    dest_dir: str | None = None
+    audio_format: str = "mp3"
+
+
+class DownloadEvent(BaseModel):
+    """SSE event for a download in progress."""
+    processed: int = 0
+    total: int = 1
+    query: str | None = None
+    title: str | None = None
+    percent: float | None = None
+    status: str | None = None     # "downloading" | "extracting" | "finished" | "error"
+    path: str | None = None
+    error: str | None = None
+    done: bool = False
+    downloaded: int = 0
+    failed: int = 0

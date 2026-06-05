@@ -1197,6 +1197,7 @@
   <div id="tab-group">
     <button id="tab-cues" class="tab-btn active">Cues</button>
     <button id="tab-library" class="tab-btn">Library</button>
+    <button id="tab-discover" class="tab-btn">Discover</button>
   </div>
 </div>
 
@@ -1862,6 +1863,70 @@ autocue --library --mode bar --bars-interval 8 --start-bar 1</pre>
   </section>
 
   </div><!-- /#library-tab-content -->
+
+  <div id="discover-tab-content" style="display:none">
+
+  <!-- New-release discovery (local mode only) -->
+  <section id="discover-section" class="panel-card">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;flex-wrap:wrap;gap:8px;">
+      <div>
+        <h2 style="margin:0;font-size:15px;font-weight:700;">New Releases</h2>
+        <p style="margin:4px 0 0;font-size:12px;color:var(--muted);">Finds recent albums from the artists you already play, using Discogs. Skips anything already in your library.</p>
+      </div>
+    </div>
+    <div id="discover-no-token" style="display:none;font-size:12px;color:var(--muted);background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:8px 10px;margin-bottom:12px;">
+      Add your Discogs token in the <strong>Library → Discogs Genre Tags</strong> panel first — discovery uses the same token.
+    </div>
+    <div style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap;margin-bottom:12px;">
+      <div class="cue-tools-param-group" style="min-width:100px;">
+        <label>Released since</label>
+        <input type="number" id="disc-since-year" min="1990" max="2100" step="1">
+      </div>
+      <div class="cue-tools-param-group" style="min-width:90px;">
+        <label>Top artists</label>
+        <input type="number" id="disc-max-artists" value="25" min="1" max="100" step="1">
+      </div>
+      <button id="disc-scan-btn" class="primary" style="font-size:13px;">Scan library for new releases</button>
+      <span id="disc-status" style="font-size:12px;color:var(--muted);"></span>
+    </div>
+    <div class="cue-tools-progress" id="disc-progress" style="margin-top:4px;margin-bottom:12px;display:none;">
+      <div class="cue-tools-progress-fill" id="disc-progress-fill" style="width:0%"></div>
+    </div>
+    <div id="disc-results"></div>
+  </section>
+
+  <!-- Download (local mode only, requires yt-dlp + ffmpeg) -->
+  <section id="download-section" class="panel-card" style="margin-top:18px;">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;flex-wrap:wrap;gap:8px;">
+      <div>
+        <h2 style="margin:0;font-size:15px;font-weight:700;">Download</h2>
+        <p style="margin:4px 0 0;font-size:12px;color:var(--muted);">Fetch audio from YouTube with yt-dlp. Use the Download button on any suggestion above, or paste a URL / search term below.</p>
+      </div>
+    </div>
+    <div id="download-unavailable" style="display:none;font-size:12px;color:var(--amber, #c98a00);background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:8px 10px;margin-bottom:12px;">
+      Download tools are not installed. Run <code>pip install -e ".[download]"</code> and make sure <code>ffmpeg</code> is on your PATH, then restart the server.
+    </div>
+    <div id="download-controls" style="display:none;">
+      <div style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap;margin-bottom:8px;">
+        <div class="cue-tools-param-group" style="flex:1;min-width:240px;">
+          <label>YouTube URL or search term</label>
+          <input type="text" id="dl-query" placeholder="e.g. https://youtu.be/… or “Artist – Title”"
+                 style="padding:6px 10px;border:1px solid var(--border);border-radius:6px;background:var(--bg);color:var(--text);font-size:13px;width:100%;box-sizing:border-box;">
+        </div>
+        <button id="dl-go-btn" class="secondary-btn" style="font-size:13px;">Download</button>
+      </div>
+      <p style="margin:0 0 8px;font-size:11px;color:var(--muted);">Saving to <code id="dl-dest"></code></p>
+      <div class="cue-tools-progress" id="dl-progress" style="display:none;">
+        <div class="cue-tools-progress-fill" id="dl-progress-fill" style="width:0%"></div>
+      </div>
+      <div id="dl-status" style="font-size:12px;color:var(--muted);margin-top:6px;"></div>
+    </div>
+    <p style="margin:12px 0 0;font-size:11px;color:var(--muted);border-top:1px solid var(--border);padding-top:8px;">
+      Downloading copyrighted audio may violate YouTube's Terms of Service and copyright law. Only download content you are authorised to (your own uploads, Creative-Commons or licensed material). Lawful use is your responsibility.
+    </p>
+  </section>
+
+  </div><!-- /#discover-tab-content -->
 </main>
 
 <!-- Sticky download bar with mini player -->
@@ -2754,6 +2819,238 @@ function discogsLoadSavedToken() {
   }
 }
 
+// ── Discover (new releases) + Download ────────────────────────────────────────
+
+let _downloadConfig = { available: false, ffmpeg: false, default_dir: '' };
+
+function _discoverToken() {
+  const inp = document.getElementById('discogs-token');
+  return (inp && inp.value.trim()) || localStorage.getItem(_DISCOGS_TOKEN_KEY) || '';
+}
+
+// Read an SSE response body (fetch + ReadableStream) and invoke onEvent per JSON event.
+async function _consumeSSE(response, onEvent) {
+  const reader  = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buf = '';
+  while (true) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    buf += decoder.decode(value, { stream: true });
+    const lines = buf.split('\n');
+    buf = lines.pop();
+    for (const line of lines) {
+      if (!line.startsWith('data:')) continue;
+      try { onEvent(JSON.parse(line.slice(5).trim())); } catch { /* ignore partial */ }
+    }
+  }
+}
+
+function initDiscover() {
+  // Default "released since" to last year.
+  const yearInput = document.getElementById('disc-since-year');
+  if (yearInput && !yearInput.value) yearInput.value = String(new Date().getFullYear() - 1);
+
+  document.getElementById('disc-scan-btn').addEventListener('click', scanDiscover);
+  document.getElementById('dl-go-btn').addEventListener('click', downloadManual);
+
+  // Probe download tool availability and reveal the matching UI.
+  fetch('/api/download/config').then(r => r.ok ? r.json() : null).then(cfg => {
+    if (!cfg) return;
+    _downloadConfig = cfg;
+    const ready = cfg.available && cfg.ffmpeg;
+    document.getElementById('download-controls').style.display    = ready ? '' : 'none';
+    document.getElementById('download-unavailable').style.display = ready ? 'none' : '';
+    const dest = document.getElementById('dl-dest');
+    if (dest) dest.textContent = cfg.default_dir || '~/Music/AutoCue';
+  }).catch(() => {});
+}
+
+async function scanDiscover() {
+  const btn      = document.getElementById('disc-scan-btn');
+  const statusEl = document.getElementById('disc-status');
+  const resultsEl = document.getElementById('disc-results');
+  const progress = document.getElementById('disc-progress');
+  const fill     = document.getElementById('disc-progress-fill');
+  const noToken  = document.getElementById('discover-no-token');
+
+  const token = _discoverToken();
+  if (!token) { noToken.style.display = ''; showToast('Add your Discogs token in the Library tab first'); return; }
+  noToken.style.display = 'none';
+
+  const sinceYear  = parseInt(document.getElementById('disc-since-year').value, 10) || (new Date().getFullYear() - 1);
+  const maxArtists = parseInt(document.getElementById('disc-max-artists').value, 10) || 25;
+
+  btn.disabled = true;
+  btn.textContent = 'Scanning…';
+  resultsEl.innerHTML = '';
+  progress.style.display = '';
+  fill.style.width = '0%';
+  let suggested = 0;
+
+  const params = new URLSearchParams({
+    since_year: String(sinceYear),
+    max_artists: String(maxArtists),
+    token,
+  });
+
+  try {
+    const r = await fetch('/api/discover?' + params.toString());
+    if (!r.ok) {
+      const e = await r.json().catch(() => ({}));
+      throw new Error(e.detail || `HTTP ${r.status}`);
+    }
+    await _consumeSSE(r, d => {
+      if (d.error) { showToast('Discover error: ' + d.error); return; }
+      if (d.total) fill.style.width = Math.round((d.processed / d.total) * 100) + '%';
+      if (d.done) {
+        fill.style.width = '100%';
+        statusEl.textContent = `${d.suggested} new release${d.suggested === 1 ? '' : 's'} found`;
+        return;
+      }
+      if (d.album) {
+        suggested++;
+        resultsEl.insertAdjacentHTML('beforeend', _renderSuggestion(d));
+        statusEl.textContent = `${suggested} so far…`;
+      }
+    });
+    if (suggested === 0) resultsEl.innerHTML = '<p style="font-size:13px;color:var(--muted);">No new releases found for your top artists. Try lowering "Released since" or raising "Top artists".</p>';
+  } catch (err) {
+    showToast('Discover failed: ' + err.message);
+    statusEl.textContent = 'Error: ' + err.message;
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Scan library for new releases';
+    setTimeout(() => { progress.style.display = 'none'; }, 800);
+  }
+}
+
+function _renderSuggestion(d) {
+  const art = d.thumb || d.cover || '';
+  const styles = (d.styles || []).slice(0, 4)
+    .map(s => `<span class="tag-pill">${_esc(s)}</span>`).join('');
+  const year = d.year ? ` · ${d.year}` : '';
+  const dlReady = _downloadConfig.available && _downloadConfig.ffmpeg;
+  const dlBtn = dlReady
+    ? `<button class="secondary-btn disc-dl-btn" data-query="${_esc(d.query || (d.artist + ' ' + d.album))}" style="font-size:12px;padding:4px 10px;">Download</button>`
+    : '';
+  const discogs = d.url ? `<a href="${_esc(d.url)}" target="_blank" rel="noopener" style="font-size:12px;color:var(--green);">Discogs ↗</a>` : '';
+  return `
+    <div class="disc-card" style="display:flex;gap:12px;align-items:center;padding:10px;border:1px solid var(--border);border-radius:8px;margin-bottom:8px;background:var(--surface2);">
+      ${art ? `<img src="${_esc(art)}" alt="" style="width:54px;height:54px;border-radius:6px;object-fit:cover;flex-shrink:0;">` : '<div style="width:54px;height:54px;border-radius:6px;background:var(--surface);flex-shrink:0;"></div>'}
+      <div style="flex:1;min-width:0;">
+        <div style="font-weight:600;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${_esc(d.album || '')}</div>
+        <div style="font-size:12px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${_esc(d.artist || '')}${year}</div>
+        <div style="margin-top:4px;display:flex;gap:4px;flex-wrap:wrap;">${styles}</div>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:6px;align-items:flex-end;flex-shrink:0;">
+        ${dlBtn}
+        ${discogs}
+        <span class="disc-dl-status" style="font-size:11px;color:var(--muted);"></span>
+      </div>
+    </div>`;
+}
+
+function _esc(s) {
+  return String(s == null ? '' : s)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
+// Delegate clicks on per-suggestion Download buttons.
+document.addEventListener('click', (e) => {
+  const btn = e.target.closest && e.target.closest('.disc-dl-btn');
+  if (!btn) return;
+  const card = btn.closest('.disc-card');
+  const statusEl = card ? card.querySelector('.disc-dl-status') : null;
+  runDownload(btn.dataset.query, { btn, statusEl });
+});
+
+// Run a single download over SSE, updating a button + status element.
+async function runDownload(query, { btn, statusEl } = {}) {
+  if (!query) return;
+  if (!(_downloadConfig.available && _downloadConfig.ffmpeg)) {
+    showToast('Download tools not installed — see the Download panel'); return;
+  }
+  if (btn) { btn.disabled = true; btn.textContent = 'Downloading…'; }
+  if (statusEl) statusEl.textContent = 'starting…';
+  try {
+    const r = await fetch('/api/download', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ query }),
+    });
+    if (!r.ok) {
+      const e = await r.json().catch(() => ({}));
+      throw new Error(e.detail || `HTTP ${r.status}`);
+    }
+    await _consumeSSE(r, d => {
+      if (d.done) {
+        if (d.status === 'error') {
+          if (statusEl) statusEl.textContent = '✗ ' + (d.error || 'failed');
+          showToast('Download failed: ' + (d.error || ''));
+        } else {
+          if (statusEl) statusEl.textContent = '✓ downloaded';
+          showToast('Downloaded to ' + (d.path || _downloadConfig.default_dir));
+        }
+        return;
+      }
+      if (typeof d.percent === 'number' && statusEl) statusEl.textContent = d.percent + '%';
+      else if (d.status && statusEl) statusEl.textContent = d.status;
+    });
+  } catch (err) {
+    if (statusEl) statusEl.textContent = '✗ ' + err.message;
+    showToast('Download failed: ' + err.message);
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = 'Download'; }
+  }
+}
+
+async function downloadManual() {
+  const query = (document.getElementById('dl-query').value || '').trim();
+  if (!query) { showToast('Enter a URL or search term'); return; }
+  const btn = document.getElementById('dl-go-btn');
+  const statusEl = document.getElementById('dl-status');
+  const progress = document.getElementById('dl-progress');
+  const fill = document.getElementById('dl-progress-fill');
+  progress.style.display = '';
+  fill.style.width = '5%';
+
+  // Reuse runDownload, but also drive the dedicated progress bar.
+  if (!(_downloadConfig.available && _downloadConfig.ffmpeg)) {
+    showToast('Download tools not installed'); return;
+  }
+  btn.disabled = true; btn.textContent = 'Downloading…';
+  statusEl.textContent = 'starting…';
+  try {
+    const r = await fetch('/api/download', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ query }),
+    });
+    if (!r.ok) {
+      const e = await r.json().catch(() => ({}));
+      throw new Error(e.detail || `HTTP ${r.status}`);
+    }
+    await _consumeSSE(r, d => {
+      if (d.done) {
+        fill.style.width = '100%';
+        if (d.status === 'error') { statusEl.textContent = '✗ ' + (d.error || 'failed'); showToast('Download failed'); }
+        else { statusEl.textContent = '✓ Saved to ' + (d.path || _downloadConfig.default_dir); showToast('Download complete'); }
+        return;
+      }
+      if (typeof d.percent === 'number') { fill.style.width = Math.max(5, d.percent) + '%'; statusEl.textContent = d.percent + '%'; }
+      else if (d.status) statusEl.textContent = d.status;
+    });
+  } catch (err) {
+    statusEl.textContent = '✗ ' + err.message;
+    showToast('Download failed: ' + err.message);
+  } finally {
+    btn.disabled = false; btn.textContent = 'Download';
+    setTimeout(() => { progress.style.display = 'none'; }, 1000);
+  }
+}
+
 // ── Comment Enrichment ────────────────────────────────────────────────────────
 
 async function enrichComments() {
@@ -2963,17 +3260,23 @@ async function applyToRekordbox() {
 }
 
 // ── Tab navigation ────────────────────────────────────────────────────────────
+const TAB_CONTENTS = {
+  cues: 'cues-tab-content',
+  library: 'library-tab-content',
+  discover: 'discover-tab-content',
+};
 function switchTab(name) {
-  const isCues = name === 'cues';
-  document.getElementById('cues-tab-content').style.display    = isCues ? '' : 'none';
-  document.getElementById('library-tab-content').style.display = isCues ? 'none' : '';
+  Object.entries(TAB_CONTENTS).forEach(([tab, id]) => {
+    const el = document.getElementById(id);
+    if (el) el.style.display = (tab === name) ? '' : 'none';
+  });
   document.querySelectorAll('.tab-btn').forEach(b => {
-    const isActive = b.id === 'tab-' + name;
-    b.classList.toggle('active', isActive);
+    b.classList.toggle('active', b.id === 'tab-' + name);
   });
 }
 document.getElementById('tab-cues').addEventListener('click', () => switchTab('cues'));
 document.getElementById('tab-library').addEventListener('click', () => switchTab('library'));
+document.getElementById('tab-discover').addEventListener('click', () => switchTab('discover'));
 
 detectLocalMode().then(async connected => {
   localMode = connected;
@@ -3018,6 +3321,7 @@ detectLocalMode().then(async connected => {
     document.getElementById('setbuilder-section').style.display = '';
     document.getElementById('sb-build-btn').addEventListener('click', buildSet);
     document.getElementById('sb-save-playlist-btn').addEventListener('click', sbSavePlaylist);
+    initDiscover();
 
     // Copy track list buttons
     function makeCopyHandler(listId, btnId, tracksRef) {

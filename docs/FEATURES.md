@@ -6,7 +6,7 @@ AutoCue gives Rekordbox 7 users three ways to automate hot cue placement and ana
 
 **CLI** (`autocue --library`) — reads the Rekordbox database and ANLZ analysis files directly from disk, applies its phrase → bar → heuristic placement strategy, and writes a Rekordbox XML file for import. No internet connection. No server.
 
-**Local server + web app** (`autocue serve`) — starts a FastAPI server at `http://localhost:7432` and opens the bundled web UI in your browser. The server reads and writes the Rekordbox `master.db` database directly, so there is no XML export/import step. All intelligence features (energy, mixability, classification, similar tracks, transition scoring, set builder, library health) are only available in this mode.
+**Local server + web app** (`autocue serve`) — starts a FastAPI server at `http://localhost:7432` and opens the bundled web UI in your browser. The server reads and writes the Rekordbox `master.db` database directly, so there is no XML export/import step. All intelligence features (energy, mixability, classification, similar tracks, transition scoring, set builder, library health, auto-tagging, comment enrichment, Discogs genre tags, new-release discovery, and YouTube download) are only available in this mode.
 
 **Hosted web app** (`docs/index.html`, served from GitHub Pages) — runs entirely in your browser with no installation. Upload a Rekordbox XML, configure settings, download a new XML with cues injected. Phrase analysis is supported if you also drop in your Rekordbox `share/` folder containing the ANLZ files.
 
@@ -569,3 +569,59 @@ If a cue has `confidence == null && phraseMode == null` — indicating it was pl
 - **Low** (confidence < 0.5): heuristic, rough estimate
 - **Auto**: memory cue
 - **—**: manually placed, AutoCue has no information
+
+---
+
+## Feature 14: New-Release Discovery
+
+### What it does
+
+The **Discover** tab (local server mode only) finds recent albums released by the artists already in your library — so you can keep crates fresh without manually trawling release calendars. It reuses your Discogs token (the same one the Discogs Genre Tags panel uses), so no extra setup is needed.
+
+### How it works
+
+1. AutoCue ranks the artists in your library by how many of their tracks you own (a proxy for the artists you actually play). Only the top *N* artists (default 25, configurable) are queried, which keeps you well under Discogs' 60-requests-per-minute limit.
+2. For each artist it asks Discogs for their newest releases and keeps anything released on or after the **Released since** year (defaults to last year).
+3. Releases whose album title already appears in your library are dropped, as are duplicate compilations that show up across multiple artists.
+4. Results stream in live (`GET /api/discover`, Server-Sent Events) as cards showing the cover art, artist, album, year, and Discogs genre styles, with a link straight to the Discogs page and — when download tools are installed — a one-click **Download** button.
+
+### Controls
+
+- **Released since** — earliest release year to include.
+- **Top artists** — how many of your most-played artists to scan (1–100). Higher values find more but take longer and use more of your Discogs rate budget.
+
+### Requirements
+
+A Discogs personal access token (free, from discogs.com/settings/developers). Set it once in the **Library → Discogs Genre Tags** panel, or via the `DISCOGS_TOKEN` environment variable / project `.env`.
+
+---
+
+## Feature 15: YouTube Download
+
+### What it does
+
+The **Download** panel (in the Discover tab) fetches audio from YouTube using [yt-dlp](https://github.com/yt-dlp/yt-dlp) and extracts it to an audio file. You can download a track directly from any New-Release suggestion's **Download** button, or paste a YouTube URL / search term into the manual box.
+
+### Setup
+
+Download support is an **optional** add-on so the core app stays lightweight:
+
+```bash
+pip install -e ".[download]"   # installs yt-dlp
+```
+
+You also need an **ffmpeg** binary on your PATH (yt-dlp uses it to extract audio). On macOS: `brew install ffmpeg`. The panel detects whether both are present (`GET /api/download/config`) and shows install instructions if anything is missing.
+
+### Where files go
+
+Downloads are saved to `~/Music/AutoCue` by default. Override this with the `AUTOCUE_DOWNLOAD_DIR` environment variable before starting the server. The active destination is shown in the Download panel.
+
+### How it works
+
+- A real `http(s)` URL is downloaded directly; a bare search term is resolved to the best YouTube match (`ytsearch1:`).
+- Audio is extracted to MP3 (192 kbps) via ffmpeg.
+- Progress streams over Server-Sent Events (`POST /api/download`, or `POST /api/download/album` for a multi-track album), so the UI shows a live percentage and the final saved path.
+
+### Legal note
+
+Downloading copyrighted audio from YouTube may violate YouTube's Terms of Service and copyright law. Only download content you are authorised to download — your own uploads, Creative-Commons material, or tracks you are otherwise licensed to use. Lawful use is your responsibility; AutoCue surfaces this disclaimer in the Download panel.
