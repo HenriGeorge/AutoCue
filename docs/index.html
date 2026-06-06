@@ -88,15 +88,30 @@
     }
 
     /* ── Header ── */
-    header {
+    #top-bar {
+      position: sticky;
+      top: 0;
+      z-index: 200;
+      background: var(--bg);
       border-bottom: 1px solid var(--border);
-      padding: 16px 40px;
+      transition: box-shadow 0.3s ease, background 0.3s ease;
+    }
+    #top-bar.scrolled {
+      background: color-mix(in srgb, var(--bg) 86%, transparent);
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      box-shadow: 0 2px 20px rgba(0,0,0,0.08);
+      border-bottom-color: transparent;
+    }
+    html.dark #top-bar.scrolled {
+      background: color-mix(in srgb, var(--bg) 80%, transparent);
+      box-shadow: 0 2px 20px rgba(0,0,0,0.32);
+    }
+    header {
+      padding: 14px 40px;
       display: flex;
       align-items: center;
       gap: 16px;
-      background: rgba(255,255,255,.92);
-      position: sticky; top: 0; z-index: 100;
-      backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
     }
     .logo {
       display: flex;
@@ -625,7 +640,7 @@
     }
     /* ── Sticky tracks header ───────────────────────────────────── */
     #tracks-sticky {
-      position: sticky; top: 0; z-index: 100;
+      position: sticky; top: var(--top-bar-h, 0px); z-index: 100;
       background: var(--bg);
       /* bleed beyond main's 24px side padding so background is seamless edge-to-edge */
       margin-left: -24px; margin-right: -24px;
@@ -1128,25 +1143,9 @@
     }
   /* ── Tab navigation — ElevenLabs segmented control ── */
   #tab-nav {
-    position: sticky;
-    top: 0;
-    z-index: 100;
-    padding: 10px 32px;
-    background: var(--bg);
-    border-bottom: 1px solid var(--border);
+    padding: 8px 32px;
     display: flex;
     align-items: center;
-    transition: box-shadow 0.25s ease, background 0.25s ease, backdrop-filter 0.25s ease;
-  }
-  #tab-nav.scrolled {
-    background: color-mix(in srgb, var(--bg) 88%, transparent);
-    backdrop-filter: blur(14px);
-    -webkit-backdrop-filter: blur(14px);
-    box-shadow: 0 2px 18px rgba(0,0,0,0.07);
-  }
-  html.dark #tab-nav.scrolled {
-    background: color-mix(in srgb, var(--bg) 82%, transparent);
-    box-shadow: 0 2px 18px rgba(0,0,0,0.28);
   }
   #tab-group {
     display: inline-flex;
@@ -1171,12 +1170,18 @@
   html.dark .tab-btn.active {
     box-shadow: 0 1px 6px rgba(0,0,0,.35);
   }
+  @keyframes tabFadeIn {
+    from { opacity: 0; transform: translateY(6px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+  .tab-entering { animation: tabFadeIn 0.22s ease forwards; }
   </style>
 <script src="https://cdn.tailwindcss.com"></script>
 <script>tailwind.config = { corePlugins: { preflight: false }, darkMode: 'class' }</script>
 </head>
 <body>
 
+<div id="top-bar">
 <header>
   <a class="logo" href="#">
     <div class="logo-icon">
@@ -1215,6 +1220,7 @@
     <button id="tab-discover" class="tab-btn">Discover</button>
   </div>
 </div>
+</div><!-- /#top-bar -->
 
 <main>
   <div class="steps" id="steps">
@@ -2056,7 +2062,7 @@ autocue --library --mode bar --bars-interval 8 --start-bar 1</pre>
 
   </div><!-- /#library-tab-content -->
 
-  <div id="discover-tab-content" style="display:none">
+  <div id="discover-tab-content" style="display:none;min-height:60vh">
 
   <!-- New-release discovery (local mode only) -->
   <section id="discover-section" class="panel-card">
@@ -3493,11 +3499,20 @@ const TAB_CONTENTS = {
 function switchTab(name) {
   Object.entries(TAB_CONTENTS).forEach(([tab, id]) => {
     const el = document.getElementById(id);
-    if (el) el.style.display = (tab === name) ? '' : 'none';
+    if (!el) return;
+    if (tab === name) {
+      el.style.display = '';
+      el.classList.remove('tab-entering');
+      void el.offsetWidth; // force reflow to restart animation
+      el.classList.add('tab-entering');
+    } else {
+      el.style.display = 'none';
+    }
   });
   document.querySelectorAll('.tab-btn').forEach(b => {
     b.classList.toggle('active', b.id === 'tab-' + name);
   });
+  window.scrollTo({ top: 0, behavior: 'smooth' });
 }
 document.getElementById('tab-cues').addEventListener('click', () => switchTab('cues'));
 document.getElementById('tab-library').addEventListener('click', () => switchTab('library'));
@@ -6709,13 +6724,22 @@ document.addEventListener('DOMContentLoaded', function() {
   });
 })();
 
-// ── Tab nav sticky shadow ──────────────────────────────────────────────────────
+// ── Top bar: sticky glass + height tracking ────────────────────────────────────
 (function() {
-  var nav = document.getElementById('tab-nav');
-  if (!nav) return;
+  var bar = document.getElementById('top-bar');
+  if (!bar) return;
+
+  // Glass effect on scroll
   window.addEventListener('scroll', function() {
-    nav.classList.toggle('scrolled', window.scrollY > 4);
+    bar.classList.toggle('scrolled', window.scrollY > 4);
   }, { passive: true });
+
+  // Keep --top-bar-h in sync so #tracks-sticky sticks below the bar
+  function sync() {
+    document.documentElement.style.setProperty('--top-bar-h', bar.offsetHeight + 'px');
+  }
+  sync();
+  new ResizeObserver(sync).observe(bar);
 })();
 
 // ── Theme toggle ───────────────────────────────────────────────────────────────
