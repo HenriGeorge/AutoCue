@@ -1677,6 +1677,66 @@ def enrich_comments(req: EnrichCommentsRequest, db=Depends(get_db)):
         raise HTTPException(500, str(exc)) from exc
 
 
+@router.post("/enrich-comments/stream")
+async def enrich_comments_stream(req: EnrichCommentsRequest, db=Depends(get_db)):
+    """SSE version of enrich-comments — streams per-track progress events."""
+    from ..analysis.comment import enrich_comment
+    from ..db_writer import rekordbox_is_running, backup_database
+
+    if rekordbox_is_running() and not req.dry_run:
+        raise HTTPException(409, "Rekordbox is running — close it before enriching comments")
+
+    import json as _json
+
+    async def _stream():
+        enriched = 0
+        skipped = 0
+        errors = 0
+        backup_path = None
+        track_ids = req.track_ids or []
+        total = len(track_ids)
+
+        if not req.dry_run and track_ids:
+            from pathlib import Path as _Path
+            try:
+                db_dir = getattr(db, "_db_dir", None)
+                if db_dir:
+                    backup_path = str(backup_database(_Path(db_dir) / "master.db"))
+            except Exception:
+                pass
+
+        for i, tid in enumerate(track_ids):
+            try:
+                content = db.get_content(ID=tid)
+                if content is None:
+                    skipped += 1
+                else:
+                    result = enrich_comment(content, db, overwrite=req.overwrite, dry_run=req.dry_run)
+                    if result is None:
+                        skipped += 1
+                    else:
+                        enriched += 1
+            except Exception:
+                errors += 1
+            yield f"data: {_json.dumps({'processed': i + 1, 'total': total})}\n\n"
+
+        if not req.dry_run and enriched > 0:
+            try:
+                db.session.commit()
+            except Exception as exc:
+                db.session.rollback()
+                yield f"data: {_json.dumps({'done': True, 'error': str(exc), 'enriched': 0, 'skipped': 0, 'errors': total, 'backup_path': None, 'dry_run': req.dry_run})}\n\n"
+                return
+
+        yield f"data: {_json.dumps({'done': True, 'enriched': enriched, 'skipped': skipped, 'errors': errors, 'backup_path': backup_path, 'dry_run': req.dry_run})}\n\n"
+
+    return StreamingResponse(
+        _stream(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
 @router.post("/enrich-comments/preview", response_model=CommentPreviewResponse)
 def enrich_comments_preview(req: CommentPreviewRequest, db=Depends(get_ro_db)):
     from ..analysis.comment import build_comment_string, enrich_comment

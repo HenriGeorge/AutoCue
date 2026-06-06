@@ -953,6 +953,15 @@
     .cue-tools-result { margin-top:12px; font-size:13px; padding:10px 14px; border-radius:8px; background:var(--surface-card,#1e1e2e); border:1px solid var(--border); display:none; }
     .cue-tools-progress { height:3px; background:var(--border); border-radius:2px; margin-top:10px; overflow:hidden; display:none; }
     .cue-tools-progress-fill { height:100%; background:var(--green); border-radius:2px; transition:width .15s; }
+    @keyframes progressIndeterminate {
+      0%   { transform: translateX(-100%); }
+      100% { transform: translateX(400%); }
+    }
+    .cue-tools-progress.indeterminate .cue-tools-progress-fill {
+      width: 25%;
+      animation: progressIndeterminate 1.4s ease-in-out infinite;
+      transition: none;
+    }
     .slot-color-row { display:flex; gap:6px; flex-wrap:wrap; margin-top:4px; }
     .slot-color-item { display:flex; flex-direction:column; align-items:center; gap:3px; font-size:11px; color:var(--muted); }
     .slot-color-item select { padding:2px 4px; border:1px solid var(--border); border-radius:4px; background:var(--bg); color:var(--text); font-size:11px; }
@@ -1763,6 +1772,9 @@ autocue --library --mode bar --bars-interval 8 --start-bar 1</pre>
       <button id="ce-run-btn" class="secondary-btn" style="font-size:13px;">Enrich comments for visible tracks</button>
       <span id="ce-status" style="font-size:12px;color:var(--muted);"></span>
     </div>
+    <div class="cue-tools-progress" id="ce-progress" style="margin-top:8px;">
+      <div class="cue-tools-progress-fill" id="ce-progress-fill" style="width:0%"></div>
+    </div>
     <div id="ce-result" style="font-size:12px;color:var(--muted);margin-top:8px;display:none;">
       <span id="ce-result-text"></span>
     </div>
@@ -1802,9 +1814,13 @@ autocue --library --mode bar --bars-interval 8 --start-bar 1</pre>
         <input type="number" id="ps-count" value="20" min="1" max="100" step="1">
       </div>
       <button id="ps-suggest-btn" class="primary" style="font-size:13px;">Suggest tracks</button>
+      <button id="ps-use-selected-btn" class="secondary-btn" style="font-size:12px;padding:5px 12px;" title="Auto-detect category from selected tracks">Use selected</button>
       <button id="ps-more-btn" class="secondary-btn" style="font-size:13px;display:none;">Suggest more</button>
       <button id="ps-reset-btn" class="secondary-btn" style="font-size:13px;display:none;">Reset</button>
       <span id="ps-status" style="font-size:12px;color:var(--muted);"></span>
+    </div>
+    <div class="cue-tools-progress indeterminate" id="ps-progress" style="display:none;">
+      <div class="cue-tools-progress-fill" id="ps-progress-fill"></div>
     </div>
     <div id="ps-result" style="display:none;margin-top:8px;">
       <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;flex-wrap:wrap;">
@@ -1844,9 +1860,17 @@ autocue --library --mode bar --bars-interval 8 --start-bar 1</pre>
         </select>
       </div>
     </div>
-    <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+    <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:6px;">
       <button id="sb-build-btn" class="primary" style="font-size:13px;">Build Set</button>
+      <button id="sb-use-selected-btn" class="secondary-btn" style="font-size:12px;padding:5px 12px;" title="Use selected tracks to set BPM range and seed track">Use selected as seed</button>
       <span id="sb-status" style="font-size:12px;color:var(--muted);"></span>
+    </div>
+    <div id="sb-seed-row" style="display:none;font-size:12px;color:var(--muted);margin-bottom:6px;">
+      Seed: <span id="sb-seed-label" style="color:var(--text);font-weight:500;"></span>
+      <button id="sb-seed-clear" style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:11px;padding:0 4px;margin-left:4px;" title="Clear seed">×</button>
+    </div>
+    <div class="cue-tools-progress indeterminate" id="sb-progress" style="display:none;">
+      <div class="cue-tools-progress-fill" id="sb-progress-fill"></div>
     </div>
     <div id="sb-result" style="display:none;margin-top:14px;">
       <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;flex-wrap:wrap;">
@@ -3224,10 +3248,12 @@ async function downloadManual() {
 // ── Comment Enrichment ────────────────────────────────────────────────────────
 
 async function enrichComments() {
-  const btn    = document.getElementById('ce-run-btn');
-  const status = document.getElementById('ce-status');
-  const result = document.getElementById('ce-result');
+  const btn      = document.getElementById('ce-run-btn');
+  const status   = document.getElementById('ce-status');
+  const result   = document.getElementById('ce-result');
   const resultText = document.getElementById('ce-result-text');
+  const progBar  = document.getElementById('ce-progress');
+  const progFill = document.getElementById('ce-progress-fill');
 
   const overwrite = document.getElementById('ce-overwrite').checked;
   const dryRun    = document.getElementById('ce-dry-run').checked;
@@ -3236,11 +3262,13 @@ async function enrichComments() {
   if (!ids.length) { showToast('No tracks to enrich', true); return; }
 
   btn.disabled = true;
-  status.textContent = `Enriching ${ids.length} tracks…`;
+  status.textContent = `0 / ${ids.length}`;
   result.style.display = 'none';
+  progBar.style.display = '';
+  progFill.style.width = '0%';
 
   try {
-    const r = await fetch('/api/enrich-comments', {
+    const r = await fetch('/api/enrich-comments/stream', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ track_ids: ids, overwrite, dry_run: dryRun }),
@@ -3249,17 +3277,30 @@ async function enrichComments() {
       const err = await r.json().catch(() => ({ detail: r.statusText }));
       throw new Error(err.detail || r.statusText);
     }
-    const d = await r.json();
-    const label = dryRun ? ' (dry run)' : '';
-    resultText.textContent = `Enriched: ${d.enriched} · Skipped: ${d.skipped} · Errors: ${d.errors}${label}`;
-    result.style.display = '';
-    status.textContent = '';
-    showToast(dryRun ? `Preview: ${d.enriched} tracks would be enriched` : `Enriched ${d.enriched} track comments`);
+    let finalResult = null;
+    await _consumeSSE(r, ev => {
+      if (ev.done) {
+        finalResult = ev;
+      } else if (ev.processed != null) {
+        const pct = Math.round(ev.processed / ev.total * 100);
+        progFill.style.width = pct + '%';
+        status.textContent = `${ev.processed} / ${ev.total}`;
+      }
+    });
+    progFill.style.width = '100%';
+    if (finalResult) {
+      const label = dryRun ? ' (dry run)' : '';
+      resultText.textContent = `Enriched: ${finalResult.enriched} · Skipped: ${finalResult.skipped} · Errors: ${finalResult.errors}${label}`;
+      result.style.display = '';
+      status.textContent = '';
+      showToast(dryRun ? `Preview: ${finalResult.enriched} tracks would be enriched` : `Enriched ${finalResult.enriched} track comments`);
+    }
   } catch (err) {
     status.textContent = `Error: ${err.message}`;
     showToast(`Enrichment failed: ${err.message}`, true);
   } finally {
     btn.disabled = false;
+    setTimeout(() => { progBar.style.display = 'none'; progFill.style.width = '0%'; }, 1000);
   }
 }
 
@@ -3477,6 +3518,7 @@ detectLocalMode().then(async connected => {
     document.getElementById('ce-preview-btn').addEventListener('click', previewComment);
     document.getElementById('playlist-suggest-section').style.display = '';
     document.getElementById('ps-suggest-btn').addEventListener('click', () => suggestPlaylist(false));
+    document.getElementById('ps-use-selected-btn').addEventListener('click', _useSelectedForPlaylist);
     document.getElementById('ps-more-btn').addEventListener('click', () => suggestPlaylist(true));
     document.getElementById('ps-reset-btn').addEventListener('click', () => {
       _psExcludedIds = [];
@@ -3490,6 +3532,11 @@ detectLocalMode().then(async connected => {
     document.getElementById('ps-save-playlist-btn').addEventListener('click', psSavePlaylist);
     document.getElementById('setbuilder-section').style.display = '';
     document.getElementById('sb-build-btn').addEventListener('click', buildSet);
+    document.getElementById('sb-use-selected-btn').addEventListener('click', _useSelectedForSetBuilder);
+    document.getElementById('sb-seed-clear').addEventListener('click', () => {
+      _sbSeedTrackId = null;
+      document.getElementById('sb-seed-row').style.display = 'none';
+    });
     document.getElementById('sb-save-playlist-btn').addEventListener('click', sbSavePlaylist);
     initDiscover();
 
@@ -6005,6 +6052,54 @@ const _CAT_COLORS = {
   after_hours: '#9b5de5', closing: '#52b788', unknown: '#aaa',
 };
 
+let _sbSeedTrackId = null;
+
+function _bpmToCategory(bpm) {
+  if (bpm <= 0) return 'peak';
+  if (bpm < 100) return 'warmup';
+  if (bpm < 118) return 'build';
+  if (bpm < 138) return 'peak';
+  return 'peak';
+}
+
+function _useSelectedForSetBuilder() {
+  const ids = [...selectedTrackIds];
+  if (!ids.length) { showToast('Select some tracks first', true); return; }
+  const lookup = Object.fromEntries((parsedTracks || []).map(t => [String(t.id), t]));
+  const tracks = ids.map(id => lookup[String(id)]).filter(Boolean);
+  if (!tracks.length) { showToast('Selected tracks not found', true); return; }
+
+  const bpms = tracks.map(t => t.bpm || 0).filter(b => b > 0).sort((a, b) => a - b);
+  if (bpms.length) {
+    document.getElementById('sb-start-bpm').value = Math.round(bpms[0]);
+    document.getElementById('sb-end-bpm').value = Math.round(bpms[bpms.length - 1]);
+    const mid = tracks.filter(t => t.bpm > 0).sort((a, b) => a.bpm - b.bpm);
+    const seed = mid[Math.floor(mid.length / 2)] || tracks[0];
+    _sbSeedTrackId = parseInt(seed.id, 10);
+    const label = `${seed.name || seed.title || '(untitled)'} — ${seed.artist || ''} (${seed.bpm ? seed.bpm.toFixed(1) + ' BPM' : '?'})`;
+    document.getElementById('sb-seed-label').textContent = label;
+    document.getElementById('sb-seed-row').style.display = '';
+    showToast(`Seed set: ${seed.name || seed.title || '(untitled)'}`);
+  }
+}
+
+function _useSelectedForPlaylist() {
+  const ids = [...selectedTrackIds];
+  if (!ids.length) { showToast('Select some tracks first', true); return; }
+  const lookup = Object.fromEntries((parsedTracks || []).map(t => [String(t.id), t]));
+  const tracks = ids.map(id => lookup[String(id)]).filter(Boolean);
+  if (!tracks.length) { showToast('Selected tracks not found', true); return; }
+
+  const bpms = tracks.map(t => t.bpm || 0).filter(b => b > 0);
+  if (!bpms.length) { showToast('Selected tracks have no BPM data', true); return; }
+  const medianBpm = bpms.sort((a, b) => a - b)[Math.floor(bpms.length / 2)];
+  const cat = _bpmToCategory(medianBpm);
+  document.getElementById('ps-category').value = cat;
+  _psExcludedIds = [];
+  _psCategoryLast = null;
+  showToast(`Category set to ${cat} (median BPM: ${medianBpm.toFixed(1)})`);
+}
+
 let _psExcludedIds = [];
 let _psCategoryLast = null;
 let _psTracks = [];
@@ -6038,6 +6133,8 @@ async function suggestPlaylist(append) {
   moreBtn.disabled = true;
   status.textContent = 'Finding tracks…';
   if (!append) result.style.display = 'none';
+  const psProgress = document.getElementById('ps-progress');
+  if (psProgress) psProgress.style.display = '';
 
   try {
     const r = await fetch('/api/playlists/suggest', {
@@ -6077,6 +6174,7 @@ async function suggestPlaylist(append) {
     status.textContent = `Error: ${err.message}`;
     showToast(`Suggest failed: ${err.message}`, true);
   } finally {
+    if (psProgress) psProgress.style.display = 'none';
     btn.disabled = false;
     moreBtn.disabled = false;
   }
@@ -6499,10 +6597,11 @@ async function sbSavePlaylist() {
 }
 
 async function buildSet() {
-  const btn     = document.getElementById('sb-build-btn');
-  const status  = document.getElementById('sb-status');
-  const result  = document.getElementById('sb-result');
-  const summary = document.getElementById('sb-summary');
+  const btn      = document.getElementById('sb-build-btn');
+  const status   = document.getElementById('sb-status');
+  const result   = document.getElementById('sb-result');
+  const summary  = document.getElementById('sb-summary');
+  const progBar  = document.getElementById('sb-progress');
 
   const body = {
     start_bpm:        parseFloat(document.getElementById('sb-start-bpm').value) || 110,
@@ -6510,10 +6609,12 @@ async function buildSet() {
     duration_minutes: parseFloat(document.getElementById('sb-duration').value) || 60,
     energy_mode:      document.getElementById('sb-energy-mode').value,
   };
+  if (_sbSeedTrackId) body.seed_track_id = _sbSeedTrackId;
 
   btn.disabled = true;
   status.textContent = 'Building set…';
   result.style.display = 'none';
+  progBar.style.display = '';
 
   try {
     const r = await fetch('/api/setbuilder', {
@@ -6543,6 +6644,7 @@ async function buildSet() {
     showToast(`Set Builder failed: ${err.message}`, true);
   } finally {
     btn.disabled = false;
+    progBar.style.display = 'none';
   }
 }
 
