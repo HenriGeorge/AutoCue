@@ -25,7 +25,7 @@
     "title": "Refactor /api/classify SSE to parallel classification",
     "category": "api-endpoint",
     "specFilePath": ".agent/tasks/performance/TASK-004.json",
-    "passes": false
+    "passes": true
   },
   {
     "id": "TASK-005",
@@ -46,7 +46,7 @@
     "title": "Parallelize similar.py index build (_index_track)",
     "category": "functional",
     "specFilePath": ".agent/tasks/performance/TASK-007.json",
-    "passes": false
+    "passes": true
   },
   {
     "id": "TASK-008",

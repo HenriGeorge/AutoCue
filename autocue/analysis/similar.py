@@ -119,17 +119,51 @@ def _build_index(db) -> None:
             _INDEX_BUILT = True
             return
         errors = 0
-        for content in contents:
-            try:
-                _index_track(content, db)
-            except Exception as exc:
-                errors += 1
-                if errors <= 3:
-                    _log.warning("similar index: _index_track %s failed: %s", getattr(content, 'ID', '?'), exc)
+        # TASK-007 — parallel index build behind AUTOCUE_PARALLEL_SIMILAR=1
+        # until TASK-008 verification. Default = serial.
+        import os as _os
+        if _os.environ.get("AUTOCUE_PARALLEL_SIMILAR") == "1":
+            from concurrent.futures import as_completed as _as_completed
+            from .concurrency import get_pool as _get_pool
+            pool = _get_pool()
+            futures = [pool.submit(_index_track_safe, content, db) for content in contents]
+            for fut in _as_completed(futures):
+                try:
+                    err = fut.result()
+                except Exception as exc:
+                    err = exc
+                if err is not None:
+                    errors += 1
+                    if errors <= 3:
+                        _log.warning("similar index (parallel): _index_track failed: %s", err)
+        else:
+            for content in contents:
+                try:
+                    _index_track(content, db)
+                except Exception as exc:
+                    errors += 1
+                    if errors <= 3:
+                        _log.warning("similar index: _index_track %s failed: %s", getattr(content, 'ID', '?'), exc)
         _log.info("similar index built: %d tracks, %d errors", len(_INDEX), errors)
         _INDEX_BUILT = True
     finally:
         _INDEX_LOCK.release()
+
+
+def _index_track_safe(content, db):
+    """Worker variant — never raises, returns the exception (or None) so the
+    parallel reducer can count errors without aborting other tracks.
+
+    The inner _index_track call mutates the module-global _INDEX dict via
+    a single ``_INDEX[id] = ...`` assignment. CPython's GIL makes
+    dict.__setitem__ atomic, so concurrent writes from worker threads are
+    safe. _INDEX_LOCK is held across the whole build (acquired in
+    _build_index) so no reader observes a partial build."""
+    try:
+        _index_track(content, db)
+        return None
+    except Exception as exc:
+        return exc
 
 
 def _index_track(content, db) -> None:

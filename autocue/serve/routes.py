@@ -1696,15 +1696,41 @@ async def classify_library(
         counts: dict[str, int] = {c: 0 for c in CATEGORIES}
         counts["unknown"] = 0
         total = 0
-        for content in contents:
-            total += 1
-            try:
-                data = get_classification(content, db)
-                resp = ClassificationResponse(track_id=content.ID, **data)
+        # TASK-004 — parallel classify path gated behind AUTOCUE_PARALLEL_CLASSIFY=1
+        # until TASK-008 verification. Default = existing serial behaviour.
+        import os as _os
+        if _os.environ.get("AUTOCUE_PARALLEL_CLASSIFY") == "1":
+            from concurrent.futures import as_completed as _as_completed
+            from ..analysis.concurrency import get_pool as _get_pool
+
+            def _one(content):
+                try:
+                    data = get_classification(content, db)
+                    return (content.ID, data, None)
+                except Exception as exc:
+                    return (getattr(content, "ID", -1), None, exc)
+
+            pool = _get_pool()
+            futures = [pool.submit(_one, c) for c in contents]
+            for fut in _as_completed(futures):
+                cid, data, err = fut.result()
+                total += 1
+                if err is not None:
+                    logger.exception("classify error track %s: %s", cid, err)
+                    continue
+                resp = ClassificationResponse(track_id=cid, **data)
                 counts[data["primary"]] = counts.get(data["primary"], 0) + 1
                 yield f"data: {resp.model_dump_json()}\n\n"
-            except Exception as exc:
-                logger.exception("classify error track %s: %s", content.ID, exc)
+        else:
+            for content in contents:
+                total += 1
+                try:
+                    data = get_classification(content, db)
+                    resp = ClassificationResponse(track_id=content.ID, **data)
+                    counts[data["primary"]] = counts.get(data["primary"], 0) + 1
+                    yield f"data: {resp.model_dump_json()}\n\n"
+                except Exception as exc:
+                    logger.exception("classify error track %s: %s", content.ID, exc)
         yield f"data: {{\"done\":true,\"total\":{total},\"counts\":{_json.dumps(counts)}}}\n\n"
 
     return StreamingResponse(
