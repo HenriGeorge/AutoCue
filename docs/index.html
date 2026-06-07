@@ -2022,6 +2022,8 @@
     <span class="status-item" id="status-scan" data-tip="Last library scan"><span class="status-text">No scans yet</span></span>
     <span class="status-sep">·</span>
     <span class="status-item" id="status-rb" data-tip="Rekordbox process state — must be closed before applying"><span class="status-text">Rekordbox ?</span></span>
+    <span class="status-sep status-warmup-sep" style="display:none">·</span>
+    <span class="status-item status-warmup-item" id="status-warmup" data-tip="Sidecar analysis cache hydration" style="display:none"><span class="status-text">Indexing <span id="warmup-progress-text">0 / 0</span></span></span>
   </div>
 </div>
 </div><!-- /#top-bar -->
@@ -3311,6 +3313,47 @@ var _perf = (function() {
   };
 })();
 
+// ── Warm-up badge poller (TASK-029) ───────────────────────────────────────
+// Polls /api/warmup every 2s while the sidecar cache hydrates; hides the
+// #status-warmup chip once the pipeline reports step === 'done'.
+var _warmupPoll = (function() {
+  var handle = null;
+  function _stop() {
+    if (handle !== null) { clearInterval(handle); handle = null; }
+  }
+  function _tick() {
+    fetch('/api/warmup').then(function(r) {
+      if (!r.ok) return null;
+      return r.json();
+    }).then(function(j) {
+      if (!j) return;
+      var sep = document.querySelector('.status-warmup-sep');
+      var chip = document.getElementById('status-warmup');
+      var text = document.getElementById('warmup-progress-text');
+      if (!chip || !text) return;
+      if (j.step === 'done' || j.step === 'unknown') {
+        chip.style.display = 'none';
+        if (sep) sep.style.display = 'none';
+        _stop();
+        return;
+      }
+      chip.style.display = '';
+      if (sep) sep.style.display = '';
+      var done = (j.done || 0).toLocaleString();
+      var total = (j.total || 0).toLocaleString();
+      text.textContent = done + ' / ' + total;
+    }).catch(function() { /* transient network errors: keep polling */ });
+  }
+  return {
+    start: function() {
+      if (handle !== null) return;
+      _tick();
+      handle = setInterval(_tick, 2000);
+    },
+    stop: _stop,
+  };
+})();
+
 // ── SVG icons ──────────────────────────────────────────────────────────────────
 const SVG_PLAY  = `<svg viewBox="0 0 24 24" fill="currentColor"><polygon points="5,3 19,12 5,21"/></svg>`;
 const SVG_PAUSE = `<svg viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>`;
@@ -3511,6 +3554,9 @@ async function loadTracksFromServer(playlistId = null) {
     if (countEl) countEl.textContent = '';
     throw err;
   }
+  // TASK-029 — start polling the warm-up badge in case the sidecar
+  // cache is still hydrating in the background.
+  try { _warmupPoll.start(); } catch (_) {}
   // Show playlist track count when filtered, library total when viewing all
   if (playlistId != null) {
     const playlistName = document.getElementById('playlist-select').selectedOptions[0]?.text.replace(/\s*\(\d+\)$/, '') || 'Playlist';

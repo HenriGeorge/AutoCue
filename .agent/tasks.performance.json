@@ -186,28 +186,28 @@
     "title": "Extend serve/deps.py:_prewarm_index into a multi-step pipeline",
     "category": "functional",
     "specFilePath": ".agent/tasks/performance/TASK-027.json",
-    "passes": false
+    "passes": true
   },
   {
     "id": "TASK-028",
     "title": "GET /api/warmup endpoint returns pre-warm progress",
     "category": "api-endpoint",
     "specFilePath": ".agent/tasks/performance/TASK-028.json",
-    "passes": false
+    "passes": true
   },
   {
     "id": "TASK-029",
     "title": "UI: Pre-warm progress badge in #app-status",
     "category": "ui-ux",
     "specFilePath": ".agent/tasks/performance/TASK-029.json",
-    "passes": false
+    "passes": true
   },
   {
     "id": "TASK-030",
     "title": "Pre-warm cancellation: clean shutdown via threading.Event",
     "category": "functional",
     "specFilePath": ".agent/tasks/performance/TASK-030.json",
-    "passes": false
+    "passes": true
   },
   {
     "id": "TASK-031",

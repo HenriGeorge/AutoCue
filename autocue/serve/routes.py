@@ -3041,3 +3041,21 @@ def perf_recent(limit: int = 100):
         ],
         "stats": stats,
     }
+
+
+# ── /api/warmup (TASK-028) ────────────────────────────────────────────────
+# Returns the current state of the warm-up pipeline so the UI can show
+# an "Indexing N/M" badge while CacheStore is being hydrated.
+
+@router.get("/warmup")
+def warmup_progress(request: Request):
+    """Return pre-warm pipeline progress: {step, done, total, finished_at}."""
+    lock = getattr(request.app.state, "warmup_lock", None)
+    progress = getattr(request.app.state, "warmup_progress", None)
+    if progress is None:
+        # Lifespan hasn't initialized the pipeline (e.g., DB never opened).
+        return {"step": "unknown", "done": 0, "total": 0, "finished_at": None}
+    if lock is not None:
+        with lock:
+            return dict(progress)
+    return dict(progress)
