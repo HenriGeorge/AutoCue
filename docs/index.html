@@ -1880,6 +1880,27 @@
       padding: 14px; font-size: 12px; color: var(--muted);
       background: var(--surface2); border-radius: 8px; margin: 0 0 14px;
     }
+    .disc-v2-dl-confirm {
+      position: fixed; top: 50%; left: 50%;
+      transform: translate(-50%, -50%);
+      background: var(--surface); color: var(--text);
+      border: 1px solid var(--border); border-radius: 10px;
+      padding: 18px 20px; width: min(380px, 90vw);
+      z-index: 1100; box-shadow: 0 12px 36px rgba(0,0,0,0.4);
+      display: none;
+    }
+    .disc-v2-dl-confirm[aria-hidden="false"] { display: block; }
+    .disc-v2-dl-confirm-progress {
+      margin-top: 12px; font-size: 12px; color: var(--muted);
+    }
+    .disc-v2-dl-confirm-bar {
+      height: 4px; background: var(--surface2); border-radius: 2px;
+      overflow: hidden; margin-top: 4px;
+    }
+    .disc-v2-dl-confirm-bar > div {
+      height: 100%; width: 0%; background: var(--green);
+      transition: width 0.2s ease;
+    }
   </style>
 <script src="https://cdn.tailwindcss.com"></script>
 <script>tailwind.config = { corePlugins: { preflight: false }, darkMode: 'class' }</script>
@@ -2952,6 +2973,23 @@ autocue --library --mode bar --bars-interval 8 --start-bar 1</pre>
     <div class="disc-v2-detail-panel-inner">
       <button id="disc-v2-detail-close-btn" class="disc-v2-detail-close" aria-label="Close detail panel">×</button>
       <div id="disc-v2-detail-body"></div>
+    </div>
+  </div>
+
+  <!-- Download confirm modal — Shift+click on a Discover card opens this.
+       Cancel is the default focus on purpose (per PRD §5.6): sticky-Shift +
+       accidental-Enter must NOT trigger an unintended download. -->
+  <div id="disc-v2-dl-confirm-backdrop" class="disc-v2-detail-backdrop" aria-hidden="true"></div>
+  <div id="disc-v2-dl-confirm" class="disc-v2-dl-confirm" role="dialog" aria-modal="true"
+       aria-labelledby="disc-v2-dl-confirm-heading" aria-describedby="disc-v2-dl-confirm-body"
+       aria-hidden="true">
+    <h3 id="disc-v2-dl-confirm-heading" style="margin:0 0 8px;font-size:16px;">Download album?</h3>
+    <p id="disc-v2-dl-confirm-body" style="margin:0 0 14px;font-size:13px;color:var(--muted);">
+      This will fetch audio from YouTube via yt-dlp.
+    </p>
+    <div style="display:flex;gap:8px;justify-content:flex-end;">
+      <button id="disc-v2-dl-confirm-cancel" class="disc-v2-detail-action primary">Cancel</button>
+      <button id="disc-v2-dl-confirm-go" class="disc-v2-detail-action">Download anyway</button>
     </div>
   </div>
 
@@ -4851,6 +4889,7 @@ function _renderDetailBody(release, detail, status, errorMsg) {
       <button class="disc-v2-detail-action ${isSaved ? 'saved' : 'primary'}" data-detail-act="save">
         ${isSaved ? '✓ Saved' : '💚 Save'}
       </button>
+      <button class="disc-v2-detail-action" data-detail-act="download">⬇ Download album</button>
       <button class="disc-v2-detail-action" data-detail-act="snooze">💤 Snooze 30d</button>
       <button class="disc-v2-detail-action" data-detail-act="dismiss" ${isDismissed ? 'disabled' : ''}>
         ✕ ${isDismissed ? 'Dismissed' : 'Dismiss'}
@@ -4885,6 +4924,13 @@ function _renderDetailBody(release, detail, status, errorMsg) {
           const lid = parseInt(btn.getAttribute('data-label-id'), 10);
           const lname = btn.getAttribute('data-label-name') || '';
           await DiscoverV2.followLabel(lid, lname);
+        } else if (act === 'download') {
+          // Inside-the-panel download is intentional, not Shift+click bypass —
+          // user already navigated here, so we go straight to runDownload.
+          const query = _buildDownloadQuery(release);
+          if (query && typeof runDownload === 'function') {
+            runDownload(query, {});
+          }
         }
         // Re-render to reflect updated state (e.g., save button → ✓ Saved).
         _renderDetailBody(release, detail, status, errorMsg);
@@ -4942,6 +4988,122 @@ function _closeDetailPanel() {
   _detailCurrentRelease = null;
 }
 
+// Download confirm modal (Shift+click power flow).
+// PRD §5.6: modal default focus = Cancel — sticky-Shift + accidental-Enter
+// must NOT trigger an unintended download.
+let _dlConfirmReturnFocusEl = null;
+let _dlConfirmRelease = null;
+let _dlConfirmKeydownHandler = null;
+
+function _buildDownloadQuery(release) {
+  const r = release?.release || {};
+  const artist = (r.artist || '').trim();
+  const title = (r.title || '').trim();
+  // Use just "artist title" — appending " album" hurts yt-dlp results.
+  return [artist, title].filter(Boolean).join(' ');
+}
+
+function _openDownloadConfirm(release) {
+  const modal = document.getElementById('disc-v2-dl-confirm');
+  const backdrop = document.getElementById('disc-v2-dl-confirm-backdrop');
+  const cancelBtn = document.getElementById('disc-v2-dl-confirm-cancel');
+  const goBtn = document.getElementById('disc-v2-dl-confirm-go');
+  const body = document.getElementById('disc-v2-dl-confirm-body');
+  if (!modal || !backdrop) return;
+
+  _dlConfirmReturnFocusEl = document.activeElement;
+  _dlConfirmRelease = release;
+
+  const r = release?.release || {};
+  const query = _buildDownloadQuery(release);
+  if (body) {
+    body.innerHTML =
+      `Download <strong>${_esc(r.title || 'Untitled')}</strong> by ` +
+      `<strong>${_esc(r.artist || 'Unknown Artist')}</strong>?` +
+      `<br><span style="color:var(--muted);font-size:12px;">Query: ` +
+      `<code>${_esc(query)}</code></span>`;
+  }
+  // Reset the Go button label (in case a prior run left it in progress).
+  if (goBtn) {
+    goBtn.disabled = false;
+    goBtn.textContent = 'Download anyway';
+  }
+
+  modal.setAttribute('aria-hidden', 'false');
+  backdrop.setAttribute('aria-hidden', 'false');
+
+  _dlConfirmKeydownHandler = (ev) => _dlConfirmTrapKeydown(ev);
+  document.addEventListener('keydown', _dlConfirmKeydownHandler);
+
+  // Critical: Cancel is the default focus.
+  setTimeout(() => { cancelBtn?.focus(); }, 30);
+}
+
+function _dlConfirmTrapKeydown(ev) {
+  if (ev.key === 'Escape') {
+    _closeDownloadConfirm();
+    return;
+  }
+  if (ev.key !== 'Tab') return;
+  const modal = document.getElementById('disc-v2-dl-confirm');
+  if (!modal || modal.getAttribute('aria-hidden') !== 'false') return;
+  const focusables = modal.querySelectorAll(
+    'button, a, input, [tabindex]:not([tabindex="-1"])'
+  );
+  if (!focusables.length) return;
+  const first = focusables[0];
+  const last = focusables[focusables.length - 1];
+  if (ev.shiftKey && document.activeElement === first) {
+    ev.preventDefault();
+    last.focus();
+  } else if (!ev.shiftKey && document.activeElement === last) {
+    ev.preventDefault();
+    first.focus();
+  }
+}
+
+function _closeDownloadConfirm() {
+  const modal = document.getElementById('disc-v2-dl-confirm');
+  const backdrop = document.getElementById('disc-v2-dl-confirm-backdrop');
+  if (modal) modal.setAttribute('aria-hidden', 'true');
+  if (backdrop) backdrop.setAttribute('aria-hidden', 'true');
+  if (_dlConfirmKeydownHandler) {
+    document.removeEventListener('keydown', _dlConfirmKeydownHandler);
+    _dlConfirmKeydownHandler = null;
+  }
+  if (_dlConfirmReturnFocusEl && typeof _dlConfirmReturnFocusEl.focus === 'function') {
+    try { _dlConfirmReturnFocusEl.focus(); } catch (_) {}
+  }
+  _dlConfirmReturnFocusEl = null;
+  _dlConfirmRelease = null;
+}
+
+async function _runDownloadConfirmGo() {
+  const release = _dlConfirmRelease;
+  if (!release) return;
+  const query = _buildDownloadQuery(release);
+  if (!query) {
+    if (typeof showToast === 'function') showToast('Cannot build a download query — release has no artist or title');
+    return;
+  }
+  // Hand off to the existing runDownload helper, which speaks SSE + the
+  // shared download config. Close the modal immediately so the user can
+  // continue browsing; download progress is surfaced via the existing toast.
+  _closeDownloadConfirm();
+  if (typeof runDownload === 'function') {
+    runDownload(query, {});
+  } else {
+    // Fallback for environments without the v1 download helper: fire-and-forget.
+    try {
+      await fetch('/api/download', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({query}),
+      });
+    } catch (_) { /* surfaced through network UI elsewhere */ }
+  }
+}
+
 function _esc(s) {
   return String(s ?? '').replace(/[&<>"']/g, c => ({
     '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
@@ -4991,7 +5153,8 @@ function initDiscoverV2() {
   // Scan-cancel button.
   document.getElementById('disc-v2-scan-cancel-btn')?.addEventListener('click', () => DiscoverV2.cancelScan());
 
-  // Card grid click delegate — action buttons OR card-body → open panel.
+  // Card grid click delegate — action buttons, Shift+click power flow, or
+  // plain click → open panel.
   document.getElementById('disc-v2-grid')?.addEventListener('click', (ev) => {
     const card = ev.target.closest('.disc-v2-card');
     if (!card) return;
@@ -5007,6 +5170,11 @@ function initDiscoverV2() {
       else if (act === 'snooze') DiscoverV2.snooze(release, '1m');
       return;
     }
+    if (ev.shiftKey) {
+      ev.preventDefault();
+      _openDownloadConfirm(release);
+      return;
+    }
     _openDetailPanel(releaseKey);
   });
 
@@ -5014,6 +5182,11 @@ function initDiscoverV2() {
   // per-open focus-trap handler installed inside _openDetailPanel.
   document.getElementById('disc-v2-detail-close-btn')?.addEventListener('click', _closeDetailPanel);
   document.getElementById('disc-v2-detail-backdrop')?.addEventListener('click', _closeDetailPanel);
+
+  // Download confirm modal close + confirm wiring.
+  document.getElementById('disc-v2-dl-confirm-cancel')?.addEventListener('click', _closeDownloadConfirm);
+  document.getElementById('disc-v2-dl-confirm-backdrop')?.addEventListener('click', _closeDownloadConfirm);
+  document.getElementById('disc-v2-dl-confirm-go')?.addEventListener('click', _runDownloadConfirmGo);
 
   // Onboarding interactions.
   document.getElementById('disc-v2-onboarding-skip')?.addEventListener('click', () => {
