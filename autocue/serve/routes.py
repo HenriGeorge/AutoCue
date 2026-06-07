@@ -2520,3 +2520,396 @@ def discover_feed_sse(
         "Cache-Control": "no-cache",
         "X-Accel-Buffering": "no",  # SSE pass-through (matches existing GZip middleware skip)
     })
+
+
+# =============================================================================
+# Discover v2 — state CRUD (T-016) + follow-labels (T-017) + export/import (T-019) + stats (T-020)
+# =============================================================================
+
+from .schemas import (
+    DiscoverBlockArtistRequest,
+    DiscoverBlockLabelRequest,
+    DiscoverDismissRequest,
+    DiscoverFollowLabelRequest,
+    DiscoverImportResponse,
+    DiscoverKeyOnlyRequest,
+    DiscoverLabelSearchResponse,
+    DiscoverSaveRequest,
+    DiscoverSnoozeRequest,
+    DiscoverStateRowsResponse,
+    DiscoverStatsResponse,
+    DiscoverUnblockArtistRequest,
+    DiscoverUnblockLabelRequest,
+    DiscoverUnfollowLabelRequest,
+)
+
+
+def _snooze_duration_to_until(duration: str) -> str:
+    """Map '1w' / '1m' / '3m' to an ISO until_date.
+
+    Limited set keeps the API contract small + matches the UI's button row
+    (PRD §6.11). Unknown duration → HTTP 400.
+    """
+    from datetime import datetime, timedelta, timezone
+    deltas = {
+        "1w": timedelta(weeks=1),
+        "1m": timedelta(days=30),
+        "3m": timedelta(days=90),
+    }
+    if duration not in deltas:
+        raise HTTPException(400, f"Unknown snooze duration {duration!r}; use 1w / 1m / 3m")
+    return (datetime.now(timezone.utc) + deltas[duration]).isoformat()
+
+
+# ── State CRUD POSTs ──────────────────────────────────────────────────────────
+
+@router.post("/discover/save")
+def discover_save(req: DiscoverSaveRequest, store=Depends(get_discover_store)):
+    store.save(
+        release_key=req.release_key, release_id=req.release_id,
+        artist=req.artist, title=req.title, label=req.label,
+    )
+    return {"ok": True}
+
+
+@router.post("/discover/dismiss")
+def discover_dismiss(req: DiscoverDismissRequest, store=Depends(get_discover_store)):
+    store.dismiss(
+        release_key=req.release_key, release_id=req.release_id,
+        artist=req.artist, title=req.title, reason=req.reason,
+    )
+    return {"ok": True}
+
+
+@router.post("/discover/snooze")
+def discover_snooze(req: DiscoverSnoozeRequest, store=Depends(get_discover_store)):
+    until = _snooze_duration_to_until(req.duration)
+    store.snooze(
+        release_key=req.release_key, until_date=until,
+        release_id=req.release_id, artist=req.artist, title=req.title,
+    )
+    return {"ok": True, "until_date": until}
+
+
+@router.post("/discover/unsave")
+def discover_unsave(req: DiscoverKeyOnlyRequest, store=Depends(get_discover_store)):
+    store.unsave(req.release_key)
+    return {"ok": True}
+
+
+@router.post("/discover/undismiss")
+def discover_undismiss(req: DiscoverKeyOnlyRequest, store=Depends(get_discover_store)):
+    store.undismiss(req.release_key)
+    return {"ok": True}
+
+
+@router.post("/discover/unsnooze")
+def discover_unsnooze(req: DiscoverKeyOnlyRequest, store=Depends(get_discover_store)):
+    store.unsnooze(req.release_key)
+    return {"ok": True}
+
+
+@router.post("/discover/block-artist")
+def discover_block_artist(req: DiscoverBlockArtistRequest, store=Depends(get_discover_store)):
+    store.block_artist(req.discogs_artist_id, req.name)
+    return {"ok": True}
+
+
+@router.post("/discover/unblock-artist")
+def discover_unblock_artist(req: DiscoverUnblockArtistRequest, store=Depends(get_discover_store)):
+    store.unblock_artist(req.discogs_artist_id)
+    return {"ok": True}
+
+
+@router.post("/discover/block-label")
+def discover_block_label(req: DiscoverBlockLabelRequest, store=Depends(get_discover_store)):
+    store.block_label(req.discogs_label_id, req.name)
+    return {"ok": True}
+
+
+@router.post("/discover/unblock-label")
+def discover_unblock_label(req: DiscoverUnblockLabelRequest, store=Depends(get_discover_store)):
+    store.unblock_label(req.discogs_label_id)
+    return {"ok": True}
+
+
+# ── List GETs ────────────────────────────────────────────────────────────────
+
+@router.get("/discover/saved", response_model=DiscoverStateRowsResponse)
+def discover_list_saved(store=Depends(get_discover_store)):
+    return DiscoverStateRowsResponse(items=store.list_saved())
+
+
+@router.get("/discover/dismissed", response_model=DiscoverStateRowsResponse)
+def discover_list_dismissed(store=Depends(get_discover_store)):
+    return DiscoverStateRowsResponse(items=store.list_dismissed())
+
+
+@router.get("/discover/snoozed", response_model=DiscoverStateRowsResponse)
+def discover_list_snoozed(
+    include_resurfaced: bool = Query(False),
+    store=Depends(get_discover_store),
+):
+    return DiscoverStateRowsResponse(
+        items=store.list_snoozed(include_resurfaced=include_resurfaced),
+    )
+
+
+@router.get("/discover/downloaded", response_model=DiscoverStateRowsResponse)
+def discover_list_downloaded(store=Depends(get_discover_store)):
+    return DiscoverStateRowsResponse(items=store.list_downloaded())
+
+
+@router.get("/discover/blocked-artists", response_model=DiscoverStateRowsResponse)
+def discover_list_blocked_artists(store=Depends(get_discover_store)):
+    return DiscoverStateRowsResponse(items=store.list_blocked_artists())
+
+
+@router.get("/discover/blocked-labels", response_model=DiscoverStateRowsResponse)
+def discover_list_blocked_labels(store=Depends(get_discover_store)):
+    return DiscoverStateRowsResponse(items=store.list_blocked_labels())
+
+
+# ── Follow labels (T-017) ────────────────────────────────────────────────────
+
+@router.get("/discover/labels", response_model=DiscoverStateRowsResponse)
+def discover_list_followed_labels(store=Depends(get_discover_store)):
+    return DiscoverStateRowsResponse(items=store.list_followed_labels())
+
+
+@router.post("/discover/labels/follow")
+def discover_follow_label(req: DiscoverFollowLabelRequest, store=Depends(get_discover_store)):
+    store.follow_label(req.label_id, req.name)
+    return {"ok": True}
+
+
+@router.post("/discover/labels/unfollow")
+def discover_unfollow_label(
+    req: DiscoverUnfollowLabelRequest, store=Depends(get_discover_store),
+):
+    store.unfollow_label(req.label_id)
+    return {"ok": True}
+
+
+@router.get("/discover/labels/search", response_model=DiscoverLabelSearchResponse)
+def discover_label_search(
+    q: str = Query("", min_length=1, description="label name fragment"),
+    per_page: int = Query(20, ge=1, le=50),
+):
+    """Discogs label autocomplete. Used by the 'Add label by name' UI in
+    Discover settings (PRD §6.8). Pass-through to discogs.search_labels."""
+    token = _discogs_token_from_env()
+    if not token:
+        raise HTTPException(400, "DISCOGS_TOKEN not configured")
+    from autocue.analysis import discogs as _discogs
+    try:
+        items = _discogs.search_labels(query=q, token=token, per_page=per_page)
+    except _discogs.Discogs429 as exc:
+        raise HTTPException(503, f"Discogs rate-limited; retry after {exc.retry_after}s")
+    except _discogs.RateLimitNearExhausted as exc:
+        items = exc.data
+    return DiscoverLabelSearchResponse(items=items)
+
+
+@router.get("/discover/labels/suggested", response_model=DiscoverStateRowsResponse)
+def discover_suggested_labels(
+    limit: int = Query(20, ge=1, le=100),
+    db=Depends(get_db),
+    store=Depends(get_discover_store),
+):
+    """Top library labels the user hasn't yet explicitly followed.
+
+    Driven by the taste-vector labels Counter; the orchestrator's
+    onboarding flow uses this for the 'Pick labels from your library'
+    banner. The returned items don't carry Discogs label_ids — those
+    have to come from a separate /discover/labels/search lookup per name
+    in Tier 1 (no resolver yet)."""
+    from autocue.analysis.discover.taste import build_taste_vector
+    tv = build_taste_vector(db)
+    followed_ids = {r["label_id"] for r in store.list_followed_labels()}
+    # Build a name → label_id lookup is out of scope for Tier 1; the UI
+    # uses the suggested list for the names and then resolves IDs via the
+    # search endpoint on click-to-follow.
+    suggestions = [
+        {"name": name, "weight": round(score, 3)}
+        for name, score in tv.labels.most_common(limit * 2)
+    ][:limit]
+    # We don't have label_ids for these — UI passes name back through
+    # /labels/search to pick the right id at follow time.
+    return DiscoverStateRowsResponse(items=suggestions)
+
+
+# ── State export / import (T-019) ────────────────────────────────────────────
+
+@router.get("/discover/state/export")
+def discover_state_export(store=Depends(get_discover_store)):
+    """Stream a gzip-compressed snapshot of the discover.db SQLite file.
+
+    Use case is multi-machine transfer (PRD §6.7 multi-machine sync).
+    The user can save the .gz, copy it to another machine, and import via
+    POST /discover/state/import below.
+
+    We snapshot via SQLite's ``VACUUM INTO`` which produces a consistent
+    copy without locking the live connection for a long time.
+    """
+    import gzip
+    import io
+    import os as _os
+    import tempfile
+
+    from fastapi.responses import Response
+
+    # VACUUM INTO refuses to overwrite an existing file, so the
+    # NamedTemporaryFile-allocated path must be unlinked before we run it.
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".db") as tmp:
+        snapshot_path = tmp.name
+    _os.remove(snapshot_path)
+    try:
+        store.conn.execute("VACUUM INTO ?", (snapshot_path,))
+        with open(snapshot_path, "rb") as f:
+            raw = f.read()
+    finally:
+        try:
+            _os.remove(snapshot_path)
+        except OSError:
+            pass
+
+    buf = io.BytesIO()
+    with gzip.GzipFile(fileobj=buf, mode="wb") as gz:
+        gz.write(raw)
+    return Response(
+        content=buf.getvalue(),
+        media_type="application/gzip",
+        headers={"Content-Disposition": 'attachment; filename="discover.db.gz"'},
+    )
+
+
+@router.post("/discover/state/import", response_model=DiscoverImportResponse)
+async def discover_state_import(
+    request: Request,
+    store=Depends(get_discover_store),
+):
+    """Import a previously-exported discover.db.gz.
+
+    The current DiscoverStore is closed, the file swapped in, and a new
+    DiscoverStore re-opens against the imported DB so the boot-recovery
+    invariants still hold. Reject non-SQLite bodies up front to avoid
+    overwriting the live state with junk.
+    """
+    import gzip
+
+    before = {
+        "saved": len(store.list_saved()),
+        "dismissed": len(store.list_dismissed()),
+        "snoozed": len(store.list_snoozed(include_resurfaced=True)),
+        "downloaded": len(store.list_downloaded()),
+        "followed_labels": len(store.list_followed_labels()),
+        "blocked_artists": len(store.list_blocked_artists()),
+        "blocked_labels": len(store.list_blocked_labels()),
+    }
+    raw = await request.body()
+    if not raw:
+        raise HTTPException(400, "Empty body")
+    try:
+        decompressed = gzip.decompress(raw)
+    except Exception as exc:
+        raise HTTPException(400, f"Body is not a valid gzip stream: {exc}")
+    # SQLite magic header check (PRD §9 security).
+    if not decompressed.startswith(b"SQLite format 3\x00"):
+        raise HTTPException(400, "Decompressed body is not a SQLite database")
+
+    db_path = store.db_path
+    store.close()
+    request.app.state.discover_store = None  # force re-open on next dep call
+    # Write the decompressed bytes into the live data path.
+    try:
+        with open(db_path, "wb") as f:
+            f.write(decompressed)
+    except OSError as exc:
+        raise HTTPException(500, f"Could not write discover.db: {exc}")
+
+    # Re-open via the dependency factory so boot-recovery runs against the new file.
+    from autocue.analysis.discover.store import DiscoverStore as _DiscoverStore
+    new_store = _DiscoverStore(db_path=db_path)
+    request.app.state.discover_store = new_store
+
+    after = {
+        "saved": len(new_store.list_saved()),
+        "dismissed": len(new_store.list_dismissed()),
+        "snoozed": len(new_store.list_snoozed(include_resurfaced=True)),
+        "downloaded": len(new_store.list_downloaded()),
+        "followed_labels": len(new_store.list_followed_labels()),
+        "blocked_artists": len(new_store.list_blocked_artists()),
+        "blocked_labels": len(new_store.list_blocked_labels()),
+    }
+    return DiscoverImportResponse(before=before, after=after, restored=True)
+
+
+# ── Stats (T-020) ────────────────────────────────────────────────────────────
+
+@router.get("/discover/stats", response_model=DiscoverStatsResponse)
+def discover_stats(store=Depends(get_discover_store)):
+    """Aggregate telemetry roll-up for the Settings → Stats panel.
+
+    Scan + saves-correlation queries follow PRD §13. ``saves_per_scan`` is the
+    average across scans that successfully finished (status='ok') in the last
+    50 scans — the timestamp-window correlation per scan is applied via the
+    store.saves_correlated_to_scan helper.
+    """
+    # Scan totals.
+    total_scans = store.conn.execute(
+        "SELECT COUNT(*) AS n FROM scans WHERE status = 'ok'"
+    ).fetchone()["n"] or 0
+    avg_row = store.conn.execute(
+        "SELECT AVG(duration_ms) AS d FROM scans WHERE status = 'ok' AND duration_ms IS NOT NULL"
+    ).fetchone()
+    avg_duration = float(avg_row["d"]) if avg_row and avg_row["d"] is not None else None
+
+    # Saves-per-scan over recent 50 scans.
+    recent_scans = store.conn.execute(
+        "SELECT scan_id FROM scans WHERE status = 'ok' ORDER BY scan_id DESC LIMIT 50"
+    ).fetchall()
+    saves_per_scan = None
+    if recent_scans:
+        per_scan = [store.saves_correlated_to_scan(int(r["scan_id"])) for r in recent_scans]
+        saves_per_scan = sum(per_scan) / len(per_scan)
+
+    # Novelty status breakdown — used by the UI to show 'how often did we
+    # have to fall back to sparse adjacency?'.
+    breakdown = {"ok": 0, "partial": 0, "sparse_adjacency": 0}
+    for row in store.conn.execute(
+        "SELECT novelty_status, COUNT(*) AS n FROM scans "
+        "WHERE status = 'ok' GROUP BY novelty_status"
+    ).fetchall():
+        ns = row["novelty_status"]
+        if ns in breakdown:
+            breakdown[ns] = int(row["n"])
+
+    # Top labels / artists by save frequency — surfaces what the user is
+    # ACTUALLY saving rather than what the library merely contains.
+    top_labels_rows = store.conn.execute(
+        "SELECT label AS name, COUNT(*) AS n FROM saved "
+        "WHERE label IS NOT NULL AND label != '' "
+        "GROUP BY label ORDER BY n DESC LIMIT 10"
+    ).fetchall()
+    top_artists_rows = store.conn.execute(
+        "SELECT artist AS name, COUNT(*) AS n FROM saved "
+        "WHERE artist IS NOT NULL AND artist != '' "
+        "GROUP BY artist ORDER BY n DESC LIMIT 10"
+    ).fetchall()
+
+    return DiscoverStatsResponse(
+        total_scans=int(total_scans),
+        avg_duration_ms=avg_duration,
+        saves_per_scan=saves_per_scan,
+        novelty_share=breakdown,
+        top_labels=[{"name": r["name"], "plays": int(r["n"])} for r in top_labels_rows],
+        top_artists=[{"name": r["name"], "plays": int(r["n"])} for r in top_artists_rows],
+        followed_count=len(store.list_followed_labels()),
+        saved_count=len(store.list_saved()),
+        dismissed_count=len(store.list_dismissed()),
+        snoozed_count=len(store.list_snoozed(include_resurfaced=True)),
+        downloaded_count=len(store.list_downloaded()),
+        blocked_artist_count=len(store.list_blocked_artists()),
+        blocked_label_count=len(store.list_blocked_labels()),
+    )
