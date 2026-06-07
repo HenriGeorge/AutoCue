@@ -53,12 +53,68 @@ function _closeSnoozePopover() {
 }
 
 async function _runSnoozeWithDuration(duration) {
+  // Issue #69: snooze BEFORE closing the popover.
   const release = _snoozePopRelease
-  _closeSnoozePopover()
-  if (!release) return
+  if (!release) {
+    _closeSnoozePopover()
+    return
+  }
   try {
     await DiscoverV2.snooze(release, duration)
-  } catch (_) {}
+  } catch (_) {
+  } finally {
+    _closeSnoozePopover()
+  }
+}
+
+// ── Active card stickiness (Issue #69) ────────────────────────────────
+// Mirrors docs/index.html — the active card is tracked by release_key so
+// re-renders don't silently shift `.active` onto an adjacent card.
+let _activeCardIndex = -1
+let _activeReleaseKey = null
+
+function _visibleDiscoverCards() {
+  return Array.from(document.querySelectorAll('#disc-v2-grid .disc-v2-card'))
+}
+
+function _setActiveCard(index) {
+  const cards = _visibleDiscoverCards()
+  if (!cards.length) { _activeCardIndex = -1; _activeReleaseKey = null; return }
+  if (index < 0) index = 0
+  if (index >= cards.length) index = cards.length - 1
+  cards.forEach(c => c.classList.remove('active'))
+  cards[index].classList.add('active')
+  _activeCardIndex = index
+  _activeReleaseKey = cards[index].getAttribute('data-release-key')
+}
+
+function _activeRelease() {
+  const cards = _visibleDiscoverCards()
+  if (_activeCardIndex < 0 || _activeCardIndex >= cards.length) return null
+  const key = cards[_activeCardIndex].getAttribute('data-release-key')
+  if (_activeReleaseKey && key !== _activeReleaseKey) return null
+  return DiscoverV2.state.cardsByKey.get(key) || null
+}
+
+// Re-render subscriber (the production code uses DiscoverV2.subscribe).
+function _onFeedReRender() {
+  const cards = _visibleDiscoverCards()
+  if (!cards.length) { _activeCardIndex = -1; _activeReleaseKey = null; return }
+  if (_activeReleaseKey) {
+    const idx = cards.findIndex(c => c.getAttribute('data-release-key') === _activeReleaseKey)
+    if (idx >= 0) {
+      _activeCardIndex = idx
+      cards[idx].classList.add('active')
+      return
+    }
+    _activeCardIndex = -1
+    _activeReleaseKey = null
+    return
+  }
+  if (_activeCardIndex >= 0 && _activeCardIndex < cards.length) {
+    cards[_activeCardIndex].classList.add('active')
+    _activeReleaseKey = cards[_activeCardIndex].getAttribute('data-release-key')
+  }
 }
 
 function _resurfacedBadge(release) {
@@ -222,5 +278,159 @@ describe('_resurfacedBadge', () => {
     DiscoverV2.state.snoozedMeta.set('k1', {until_date: '"><img src=x>'})
     const html = _resurfacedBadge(RELEASE)
     expect(html).not.toContain('"><img src=x>')
+  })
+})
+
+
+/* ============================================================ Issue #69 — stray-dismiss regression */
+
+describe('Issue #69 — snooze popover close must not dismiss an adjacent card', () => {
+  function setupGrid(keys) {
+    document.body.innerHTML = `
+      <button id="opener">open</button>
+      <div id="disc-v2-grid">
+        ${keys.map(k => `<div class="disc-v2-card" data-release-key="${k}" role="button" tabindex="0">
+          <div class="disc-v2-card-actions">
+            <button data-act="dismiss">x</button>
+          </div>
+        </div>`).join('')}
+      </div>
+      <div id="disc-v2-snooze-pop" role="dialog" aria-hidden="true">
+        <h4>Snooze for</h4>
+        <div>
+          <button data-snooze-dur="1w">1 week</button>
+          <button data-snooze-dur="1m" class="default">1 month</button>
+          <button data-snooze-dur="3m">3 months</button>
+        </div>
+      </div>
+    `
+    document.querySelectorAll('#disc-v2-snooze-pop [data-snooze-dur]').forEach(btn =>
+      btn.addEventListener('click', (ev) => {
+        ev.preventDefault()
+        ev.stopPropagation()
+        _runSnoozeWithDuration(btn.getAttribute('data-snooze-dur'))
+      })
+    )
+  }
+
+  beforeEach(() => {
+    _activeCardIndex = -1
+    _activeReleaseKey = null
+    _snoozePopRelease = null
+    _snoozePopReturnFocusEl = null
+    _snoozePopKeydownHandler = null
+  })
+
+  it('drops the active state when the active card is removed by snooze (regression: would shift onto neighbor)', async () => {
+    // Three cards. User picks the MIDDLE one and snoozes it. After the
+    // re-render only A and C remain — the active state must NOT silently
+    // transfer to C (which slid into index 1).
+    setupGrid(['kA', 'kB', 'kC'])
+    const releaseB = {release_key: 'kB', release: {artist: 'B', title: 'tB'}}
+    DiscoverV2 = {
+      state: {
+        cardsByKey: new Map([
+          ['kA', {release_key: 'kA'}],
+          ['kB', releaseB],
+          ['kC', {release_key: 'kC'}],
+        ]),
+        resurfacedKeys: new Set(),
+        snoozedMeta: new Map(),
+        snoozedKeys: new Set(),
+      },
+      snooze: vi.fn(async (r) => {
+        // Simulate the production re-render: remove the snoozed card
+        // BEFORE this promise resolves. Production order is now
+        // snooze → re-render → close popover.
+        DiscoverV2.state.snoozedKeys.add(r.release_key)
+        document.querySelector(`.disc-v2-card[data-release-key="${r.release_key}"]`)?.remove()
+        _onFeedReRender()
+      }),
+    }
+    _setActiveCard(1)  // kB
+    expect(_activeReleaseKey).toBe('kB')
+
+    _openSnoozePopover(releaseB, null)
+    document.querySelector('[data-snooze-dur="1w"]').click()
+    // Drain the microtask queue so the async snooze completes.
+    await new Promise(r => setTimeout(r, 0))
+
+    // Without the fix: _activeCardIndex would still be 1, kC would have
+    // slid into index 1, and _activeRelease() would return kC. That is
+    // the bug — a stray Space/Enter would then dismiss kC.
+    expect(_activeRelease()).toBeNull()
+    // Neither kA nor kC may carry the active class.
+    expect(document.querySelector('.disc-v2-card.active')).toBeNull()
+  })
+
+  it('boundary: snoozing the LAST card does not wrap onto the first', async () => {
+    setupGrid(['kA', 'kB'])
+    const releaseB = {release_key: 'kB', release: {artist: 'B', title: 'tB'}}
+    DiscoverV2 = {
+      state: {
+        cardsByKey: new Map([['kA', {release_key: 'kA'}], ['kB', releaseB]]),
+        resurfacedKeys: new Set(),
+        snoozedMeta: new Map(),
+        snoozedKeys: new Set(),
+      },
+      snooze: vi.fn(async (r) => {
+        document.querySelector(`.disc-v2-card[data-release-key="${r.release_key}"]`)?.remove()
+        _onFeedReRender()
+      }),
+    }
+    _setActiveCard(1)
+    _openSnoozePopover(releaseB, null)
+    document.querySelector('[data-snooze-dur="3m"]').click()
+    await new Promise(r => setTimeout(r, 0))
+    expect(_activeRelease()).toBeNull()
+    expect(document.querySelector('.disc-v2-card.active')).toBeNull()
+  })
+
+  it('property: for any active card position, after snooze the surviving cards never carry the active class', async () => {
+    // Property-based: for every position i in [0, n), snoozing the card
+    // at position i must leave NO surviving card marked active.
+    for (let i = 0; i < 4; i++) {
+      setupGrid(['k0', 'k1', 'k2', 'k3'])
+      _activeCardIndex = -1
+      _activeReleaseKey = null
+      const key = `k${i}`
+      const target = {release_key: key, release: {artist: 'a', title: 't'}}
+      DiscoverV2 = {
+        state: {
+          cardsByKey: new Map([0,1,2,3].map(j => [`k${j}`, {release_key: `k${j}`}])),
+          resurfacedKeys: new Set(),
+          snoozedMeta: new Map(),
+          snoozedKeys: new Set(),
+        },
+        snooze: vi.fn(async (r) => {
+          document.querySelector(`.disc-v2-card[data-release-key="${r.release_key}"]`)?.remove()
+          _onFeedReRender()
+        }),
+      }
+      _setActiveCard(i)
+      _openSnoozePopover(target, null)
+      document.querySelector('[data-snooze-dur="1m"]').click()
+      await new Promise(r => setTimeout(r, 0))
+      expect(document.querySelectorAll('.disc-v2-card.active').length).toBe(0)
+      expect(_activeRelease()).toBeNull()
+    }
+  })
+
+  it('snooze popover button click does NOT bubble to ancestor grid handlers', () => {
+    // Defence-in-depth: the popover lives outside the grid, but we still
+    // assert stopPropagation so any future restructuring stays safe.
+    setupGrid(['kA'])
+    let bubbled = false
+    document.body.addEventListener('click', () => { bubbled = true })
+    DiscoverV2 = {
+      state: {
+        cardsByKey: new Map([['kA', {release_key: 'kA'}]]),
+        resurfacedKeys: new Set(), snoozedMeta: new Map(), snoozedKeys: new Set(),
+      },
+      snooze: vi.fn(async () => {}),
+    }
+    _openSnoozePopover({release_key: 'kA', release: {}}, null)
+    document.querySelector('[data-snooze-dur="1m"]').click()
+    expect(bubbled).toBe(false)
   })
 })
