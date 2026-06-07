@@ -60,7 +60,7 @@
     "title": "Concurrency test coverage: pool, exception isolation, ordering, no leaks, single-writer invariant",
     "category": "functional",
     "specFilePath": ".agent/tasks/performance/TASK-009.json",
-    "passes": false
+    "passes": true
   },
   {
     "id": "TASK-010",
