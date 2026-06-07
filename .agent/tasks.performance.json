@@ -214,7 +214,7 @@
     "title": "Introduce Virtualizer IIFE in docs/index.html",
     "category": "ui-ux",
     "specFilePath": ".agent/tasks/performance/TASK-031.json",
-    "passes": false
+    "passes": true
   },
   {
     "id": "TASK-032",
@@ -228,7 +228,7 @@
     "title": "Lock card height for virtualization math + document constraint",
     "category": "ui-ux",
     "specFilePath": ".agent/tasks/performance/TASK-033.json",
-    "passes": false
+    "passes": true
   },
   {
     "id": "TASK-034",
@@ -263,7 +263,7 @@
     "title": "Vitest coverage in tests/web/virtualization.test.js",
     "category": "ui-ux",
     "specFilePath": ".agent/tasks/performance/TASK-038.json",
-    "passes": false
+    "passes": true
   },
   {
     "id": "TASK-039",

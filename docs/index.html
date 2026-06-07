@@ -3316,6 +3316,132 @@ var _perf = (function() {
   };
 })();
 
+// ── Virtualizer (TASK-031, scaffold) ──────────────────────────────────────
+// Vanilla-JS virtualization helper: renders only the viewport + buffer rows
+// of a large list. Off-screen rows are absent from the DOM. Card height is
+// fixed (TASK-033) so the visible window can be computed in O(1).
+//
+// API:
+//   Virtualizer.attach({container, itemHeight, totalCount, renderItem, buffer})
+//   Virtualizer.update({totalCount, scrollToIndex?})
+//   Virtualizer.detach()
+//
+// renderItem(index, recycledNode | null) returns the DOM node to mount for
+// `index`. Off-screen nodes are returned to a pool and reused.
+//
+// Wiring into the existing track list is intentionally separate (TASK-032,
+// 034..037) so the standalone helper can ship and get tested first.
+var Virtualizer = (function() {
+  var state = null;
+
+  function _computeWindow(s) {
+    var first = Math.max(0, Math.floor(s.scrollTop / s.itemHeight) - s.buffer);
+    var visible = Math.ceil(s.viewportHeight / s.itemHeight) + s.buffer * 2;
+    var last = Math.min(s.totalCount, first + visible);
+    return { first: first, last: last };
+  }
+
+  function _render() {
+    if (state === null) return;
+    var win = _computeWindow(state);
+    var needed = new Set();
+    for (var i = win.first; i < win.last; i++) needed.add(i);
+
+    // Recycle nodes that scrolled out of the window.
+    var stale = [];
+    state.live.forEach(function(node, idx) {
+      if (!needed.has(idx)) stale.push(idx);
+    });
+    stale.forEach(function(idx) {
+      var node = state.live.get(idx);
+      state.live.delete(idx);
+      state.pool.push(node);
+    });
+
+    for (var j = win.first; j < win.last; j++) {
+      if (state.live.has(j)) continue;
+      var recycled = state.pool.pop() || null;
+      var rendered = state.renderItem(j, recycled);
+      if (rendered) {
+        rendered.style.position = 'absolute';
+        rendered.style.top = '0';
+        rendered.style.left = '0';
+        rendered.style.right = '0';
+        rendered.style.transform = 'translateY(' + (j * state.itemHeight) + 'px)';
+        if (!rendered.parentNode) state.container.appendChild(rendered);
+        state.live.set(j, rendered);
+      }
+    }
+
+    // Spacer keeps the scrollbar honest.
+    state.spacer.style.height = (state.totalCount * state.itemHeight) + 'px';
+  }
+
+  function _onScroll() {
+    if (state === null) return;
+    state.scrollTop = state.container.scrollTop;
+    if (state.rafScheduled) return;
+    state.rafScheduled = true;
+    var raf = window.requestAnimationFrame || function(fn) { return setTimeout(fn, 0); };
+    raf(function() {
+      state.rafScheduled = false;
+      _render();
+    });
+  }
+
+  return {
+    attach: function(opts) {
+      if (!opts || !opts.container) throw new Error('Virtualizer.attach: container required');
+      Virtualizer.detach();
+      var container = opts.container;
+      container.style.position = container.style.position || 'relative';
+      var spacer = document.createElement('div');
+      spacer.style.position = 'relative';
+      spacer.style.width = '100%';
+      container.appendChild(spacer);
+
+      state = {
+        container: container,
+        spacer: spacer,
+        itemHeight: opts.itemHeight,
+        totalCount: opts.totalCount || 0,
+        viewportHeight: container.clientHeight || 800,
+        scrollTop: container.scrollTop || 0,
+        buffer: opts.buffer != null ? opts.buffer : 5,
+        renderItem: opts.renderItem,
+        pool: [],
+        live: new Map(),
+        rafScheduled: false,
+        _scrollHandler: _onScroll,
+      };
+      container.addEventListener('scroll', state._scrollHandler, { passive: true });
+      _render();
+    },
+    update: function(opts) {
+      if (state === null) return;
+      if (opts && typeof opts.totalCount === 'number') state.totalCount = opts.totalCount;
+      if (opts && typeof opts.scrollToIndex === 'number') {
+        state.container.scrollTop = opts.scrollToIndex * state.itemHeight;
+        state.scrollTop = state.container.scrollTop;
+      }
+      _render();
+    },
+    detach: function() {
+      if (state === null) return;
+      state.container.removeEventListener('scroll', state._scrollHandler);
+      state.live.forEach(function(node) {
+        if (node.parentNode) node.parentNode.removeChild(node);
+      });
+      if (state.spacer && state.spacer.parentNode) {
+        state.spacer.parentNode.removeChild(state.spacer);
+      }
+      state = null;
+    },
+    // Test-only inspection.
+    _state: function() { return state; },
+  };
+})();
+
 // ── Warm-up badge poller (TASK-029) ───────────────────────────────────────
 // Polls /api/warmup every 2s while the sidecar cache hydrates; hides the
 // #status-warmup chip once the pipeline reports step === 'done'.
