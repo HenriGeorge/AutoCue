@@ -294,6 +294,11 @@ async def lifespan(app: FastAPI):
         # /api/warmup can report progress; cancel_event lets shutdown land
         # within ~5s. Falls back to the legacy single-step _prewarm_index path
         # when the cache_store could not be opened.
+        # TASK-021 — /api/tracks snapshot scaffolding. Built lazily by the
+        # handler on first matching request.
+        app.state.tracks_snapshot = None
+        app.state.tracks_snapshot_lock = threading.Lock()
+
         app.state.warmup_lock = threading.Lock()
         app.state.warmup_cancel_event = threading.Event()
         app.state.warmup_progress = {
