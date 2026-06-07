@@ -12,8 +12,22 @@ BACKUP_DIR = Path.home() / ".autocue" / "backups"
 logger = logging.getLogger(__name__)
 
 
-def backup_database(db_path: Path) -> Path:
-    """Copy master.db (and WAL/SHM sidecars) to ~/.autocue/backups/master_TIMESTAMP.db."""
+def backup_database(
+    db_path: Path,
+    *,
+    discover_db_path: Path | None = None,
+) -> Path:
+    """Copy master.db (and WAL/SHM sidecars) to ~/.autocue/backups/master_TIMESTAMP.db.
+
+    Per PRD §6.7, when ``discover_db_path`` is supplied AND the file exists,
+    a parallel ``discover_<TIMESTAMP>.db`` is written alongside the master
+    backup. The two files share the same timestamp so the /api/backups
+    listing endpoint can group them as one logical backup. No tarball — the
+    flat-file pattern is preserved so the existing UI keeps working.
+
+    Returns the master backup path (the function's historical contract).
+    Callers that need the discover path can derive it from the timestamp.
+    """
     BACKUP_DIR.mkdir(parents=True, exist_ok=True)
     ts = datetime.now().strftime("%Y%m%dT%H%M%S")
     dest = BACKUP_DIR / f"master_{ts}.db"
@@ -23,6 +37,14 @@ def backup_database(db_path: Path) -> Path:
         if src.exists():
             shutil.copy2(src, Path(str(dest) + suf))
     logger.info("Backup → %s", dest)
+
+    # Discover sidecar — PRD §6.7. Skip silently if the discover file doesn't
+    # exist yet (first run before any DiscoverStore activity).
+    if discover_db_path is not None and Path(discover_db_path).exists():
+        discover_dest = BACKUP_DIR / f"discover_{ts}.db"
+        shutil.copy2(discover_db_path, discover_dest)
+        logger.info("Discover sidecar backup → %s", discover_dest)
+
     return dest
 
 

@@ -125,6 +125,9 @@ class BackupItem(BaseModel):
     filename: str
     size_mb: float
     created_at: str
+    # PRD §6.7 — True when a parallel discover_<TS>.db sidecar exists for
+    # this backup. Defaults to False for pre-v2 backups (master only).
+    has_discover_sidecar: bool = False
 
 
 class RestoreRequest(BaseModel):
