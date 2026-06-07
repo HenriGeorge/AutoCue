@@ -977,6 +977,8 @@
       flex-wrap: wrap; backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
     }
     #download-bar.visible { display: flex; }
+    /* Hide the Cues-specific bottom bar on non-Cues tabs (UX audit Issue 7). */
+    #download-bar.hidden-by-tab { display: none !important; }
     .dl-info { flex: 1; font-size: 13px; color: var(--muted); min-width: 0; }
     .dl-info strong { color: var(--text); }
     .mini-sep { width: 1px; height: 32px; background: var(--border); flex-shrink: 0; }
@@ -1724,6 +1726,16 @@
   #tooltip.tip-visible { opacity: 1; transform: translateY(0); }
 
     /* ── Discover v2 (T-024) ────────────────────────────────────────────── */
+    /* Slim "Connected to Rekordbox" pill — the old 14px-padding box duplicated
+       the top-right status corner. UX audit Issue 6. */
+    .local-mode-banner {
+      align-items: center; gap: 8px;
+      margin-top: 10px; padding: 3px 10px;
+      border-radius: 999px;
+      background: transparent;
+      border: 1px solid var(--green, #28e214);
+      font-size: 12px;
+    }
     .disc-v2-chip {
       display: inline-flex; align-items: center; gap: 4px;
       padding: 3px 8px; font-size: 12px;
@@ -2065,8 +2077,12 @@
       <p class="drop-title">Drop your rekordbox.xml here</p>
       <p class="drop-sub">or click to browse &nbsp;·&nbsp; <a href="#how-to">How to export ↓</a></p>
     </div>
-    <div id="local-mode-banner" style="display:none; margin-top:14px; padding:14px 18px; border-radius:10px; background:var(--surface-card, #1e1e2e); border:1px solid var(--green, #28e214);">
-      <strong style="color:var(--green, #28e214);">Connected to Rekordbox</strong>
+    <!-- "Connected to Rekordbox" banner — collapses to a low-key pill after
+         the initial impression so it doesn't double-up with the top-right
+         status corner that shows the same info. UX audit Issue 6. -->
+    <div id="local-mode-banner" class="local-mode-banner" style="display:none;">
+      <strong style="color:var(--green, #28e214);">●</strong>
+      <span style="color:var(--green, #28e214);font-weight:600;">Connected to Rekordbox</span>
       <span id="local-track-count" style="color:var(--muted, #888);"></span>
     </div>
     <!-- F2: Playlist filter -->
@@ -3015,6 +3031,12 @@ autocue --library --mode bar --bars-interval 8 --start-bar 1</pre>
     <!-- Settings sub-panel (toggled by the ⚙ button) -->
     <div id="disc-v2-settings" style="display:none;margin-top:18px;border-top:1px solid var(--border);padding-top:18px;">
       <h3 style="margin:0 0 10px;font-size:14px;font-weight:700;">Discover settings</h3>
+      <!-- Saved releases — gives 💚 Save a destination. Previously the user
+           saved cards and they vanished into the void. UX audit M-4 (High). -->
+      <div id="disc-v2-settings-saved" style="margin-bottom:18px;">
+        <strong style="font-size:12px;">Saved releases <span id="disc-v2-saved-count" style="color:var(--muted);font-weight:normal;"></span></strong>
+        <div id="disc-v2-saved-list" style="margin:6px 0;font-size:12px;color:var(--muted);">No saved releases yet. Click 💚 on any card in the feed.</div>
+      </div>
       <div id="disc-v2-settings-followed" style="margin-bottom:18px;">
         <strong style="font-size:12px;">Labels you watch</strong>
         <div id="disc-v2-followed-list" style="margin:6px 0;font-size:12px;"></div>
@@ -5412,6 +5434,81 @@ function _renderDiscoverV2Stats(stats) {
   block.innerHTML = rows.join('');
 }
 
+// Settings → Saved releases (UX audit M-4 — give 💚 Save a destination).
+// Renders the result of /api/discover/saved as a compact list with an
+// Unsave button per row. Auto-refreshes whenever Settings opens or the
+// user saves a new card.
+function _renderDiscoverV2Saved(rows) {
+  const list = document.getElementById('disc-v2-saved-list');
+  const count = document.getElementById('disc-v2-saved-count');
+  if (!list) return;
+  if (!rows || !rows.length) {
+    list.innerHTML = 'No saved releases yet. Click 💚 on any card in the feed.';
+    list.style.color = 'var(--muted)';
+    if (count) count.textContent = '';
+    return;
+  }
+  list.style.color = 'var(--text)';
+  if (count) count.textContent = `(${rows.length})`;
+  list.innerHTML = '';
+  rows.forEach(r => {
+    const row = document.createElement('div');
+    row.style.display = 'flex';
+    row.style.justifyContent = 'space-between';
+    row.style.alignItems = 'center';
+    row.style.padding = '4px 0';
+    row.style.gap = '8px';
+    const meta = document.createElement('span');
+    meta.style.flex = '1';
+    meta.style.minWidth = '0';
+    meta.style.overflow = 'hidden';
+    meta.style.textOverflow = 'ellipsis';
+    meta.style.whiteSpace = 'nowrap';
+    meta.innerHTML = `<strong>${_esc(r.title || 'Untitled')}</strong> <span style="color:var(--muted);">${_esc(r.artist || '')}${r.label ? ' · ' + _esc(r.label) : ''}</span>`;
+    row.appendChild(meta);
+    if (r.release_id) {
+      const link = document.createElement('a');
+      link.href = `https://www.discogs.com/release/${r.release_id}`;
+      link.target = '_blank';
+      link.rel = 'noopener noreferrer';
+      link.textContent = '↗';
+      link.style.fontSize = '11px';
+      link.title = 'Open on Discogs';
+      row.appendChild(link);
+    }
+    const unsave = document.createElement('button');
+    unsave.className = 'secondary-btn';
+    unsave.style.fontSize = '11px';
+    unsave.textContent = 'Unsave';
+    unsave.addEventListener('click', async () => {
+      unsave.disabled = true;
+      unsave.textContent = '…';
+      try {
+        // Unsave is a backend mutation that mirrors the save action. The
+        // /api/discover/save endpoint accepts {release_key} alone for the
+        // delete path; if it doesn't, fall back to dismissing.
+        await fetch('/api/discover/unsave', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({release_key: r.release_key}),
+        });
+      } catch (_) {}
+      DiscoverV2.state.savedKeys.delete(r.release_key);
+      _refreshSavedFromBackend();
+    });
+    row.appendChild(unsave);
+    list.appendChild(row);
+  });
+}
+
+async function _refreshSavedFromBackend() {
+  try {
+    const resp = await fetch('/api/discover/saved');
+    const body = await resp.json();
+    _renderDiscoverV2Saved(body.items || []);
+  } catch (_) {}
+}
+
 function _renderDiscoverV2Blocked() {
   const list = document.getElementById('disc-v2-blocked-list');
   if (!list) return;
@@ -6191,6 +6288,8 @@ function initDiscoverV2() {
         } catch (e) {
           if (block) block.innerHTML = '<em>Could not load stats.</em>';
         }
+        // Also lazy-load the Saved releases list (UX audit M-4).
+        _refreshSavedFromBackend();
       }
     });
   }
@@ -6883,6 +6982,17 @@ function switchTab(name) {
   document.querySelectorAll('.tab-btn').forEach(b => {
     b.classList.toggle('active', b.id === 'tab-' + name);
   });
+  // Hide the Cues-specific sticky bottom bar on every non-Cues tab — it
+  // shows "Apply to Rekordbox" + "Color tracks by BPM" + "Delete all cues"
+  // which only make sense on the Cues tab. UX audit Issue 7 (escalated to
+  // High by the grill: highest-reach finding, every tab × every visit).
+  const dlBar = document.getElementById('download-bar');
+  if (dlBar) {
+    if (name === 'cues') dlBar.classList.remove('hidden-by-tab');
+    else dlBar.classList.add('hidden-by-tab');
+  }
+  // Tag <body> so CSS can target tab-specific layout adjustments.
+  document.body.setAttribute('data-active-tab', name);
   window.scrollTo({ top: 0, behavior: 'smooth' });
 }
 document.getElementById('tab-cues').addEventListener('click', () => switchTab('cues'));
@@ -6937,7 +7047,7 @@ detectLocalMode().then(async connected => {
     document.getElementById('steps').style.display = 'none';
     document.querySelector('.mode-callout')?.setAttribute('style', 'display:none');
     document.getElementById('drop-zone').style.display = 'none';
-    document.getElementById('local-mode-banner').style.display = '';
+    document.getElementById('local-mode-banner').style.display = 'inline-flex';
     updateAppStatus({ connected: true });
     document.getElementById('download-btn').textContent = 'Apply to Rekordbox';
     document.getElementById('delete-cues-btn').style.display = '';
