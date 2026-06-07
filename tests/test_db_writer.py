@@ -147,6 +147,46 @@ class TestRekordboxIsRunning:
                 sys.modules.pop("psutil", None)
             importlib.reload(mod)  # restore original state
 
+    def test_db_path_lock_check_catches_renamed_process(self, tmp_path):
+        """Hardened check: even with no rekordbox-named process, an
+        exclusive lock on master.db means somebody is holding the DB."""
+        import fcntl
+        import autocue.db_writer as mod
+        master = tmp_path / "master.db"
+        master.write_bytes(b"sqlite-mock")
+        # Simulate Rekordbox holding the lock from another process.
+        holder = open(master, "r+b")
+        fcntl.flock(holder.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        try:
+            with patch("psutil.process_iter", return_value=[]):
+                # process check says No, but file is locked → True
+                assert mod.rekordbox_is_running(db_path=master) is True
+        finally:
+            fcntl.flock(holder.fileno(), fcntl.LOCK_UN)
+            holder.close()
+
+    def test_db_path_lock_check_returns_false_when_unlocked(self, tmp_path):
+        import autocue.db_writer as mod
+        master = tmp_path / "master.db"
+        master.write_bytes(b"sqlite-mock")
+        with patch("psutil.process_iter", return_value=[]):
+            assert mod.rekordbox_is_running(db_path=master) is False
+
+    def test_missing_db_path_does_not_crash(self, tmp_path):
+        """If the path doesn't exist, fall back to process-only check."""
+        import autocue.db_writer as mod
+        with patch("psutil.process_iter", return_value=[]):
+            assert mod.rekordbox_is_running(db_path=tmp_path / "ghost.db") is False
+
+    def test_backward_compatible_no_arg_call(self):
+        """All existing callers pass no argument — behavior must be unchanged."""
+        import autocue.db_writer as mod
+        proc = SimpleNamespace(name=lambda: "rekordbox 7")
+        with patch("psutil.process_iter", return_value=[proc]):
+            assert mod.rekordbox_is_running() is True
+        with patch("psutil.process_iter", return_value=[]):
+            assert mod.rekordbox_is_running() is False
+
 
 # ---------------------------------------------------------------------------
 # has_existing_hot_cues

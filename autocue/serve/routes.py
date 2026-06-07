@@ -9,6 +9,24 @@ from ..analysis.quality import check_library_health, check_track_health
 from ..db_writer import has_existing_hot_cues
 from ..generator import GenerationPrefs, generate_cues_for_track
 from .deps import get_db, get_ro_db
+
+
+def _rb_running(db) -> bool:
+    """Check whether Rekordbox is holding the master.db.
+
+    Forwards the live DB path to :func:`autocue.db_writer.rekordbox_is_running`
+    so the file-lock check fires alongside the process-name probe — catches
+    renamed Rekordbox builds and the race window where Rekordbox opens after
+    the process check fired.
+
+    The import is deferred to call time so unit tests that patch
+    ``autocue.db_writer.rekordbox_is_running`` still take effect.
+    """
+    from pathlib import Path as _Path
+    from .. import db_writer as _dbw
+    db_dir = getattr(db, "_db_dir", None)
+    db_path = _Path(db_dir) / "master.db" if db_dir else None
+    return _dbw.rekordbox_is_running(db_path=db_path)
 from .schemas import (
     ApplyRequest,
     ApplyResponse,
@@ -42,6 +60,8 @@ from .schemas import (
     SetBuilderResponse,
     EnrichCommentsRequest,
     EnrichCommentsResponse,
+    EnrichCommentsUndoRequest,
+    EnrichCommentsUndoResponse,
     CommentPreviewRequest,
     CommentPreviewResponse,
     DiscoverItem,
@@ -324,7 +344,7 @@ def apply(req: ApplyRequest, db=Depends(get_db)):
     from ..db_writer import backup_database, rekordbox_is_running, write_cues_to_db
     from ..models import CuePoint, PhraseLabel
 
-    if rekordbox_is_running():
+    if _rb_running(db):
         raise HTTPException(409, "Rekordbox is running — close it before applying cues")
 
     backup_path = None
@@ -386,7 +406,7 @@ def generate_apply(req: GenerateAndApplyRequest, db=Depends(get_db)):
     from ..db_writer import backup_database, rekordbox_is_running, write_cues_to_db
     from pathlib import Path
 
-    if rekordbox_is_running():
+    if _rb_running(db):
         raise HTTPException(409, "Rekordbox is running — close it before applying cues")
 
     prefs = GenerationPrefs(
@@ -457,7 +477,7 @@ def generate_apply_stream(req: GenerateAndApplyRequest, db=Depends(get_db)):
     from ..db_writer import backup_database, rekordbox_is_running, write_cues_to_db
     from pathlib import Path
 
-    if rekordbox_is_running():
+    if _rb_running(db):
         raise HTTPException(409, "Rekordbox is running — close it before applying cues")
 
     prefs = GenerationPrefs(
@@ -554,7 +574,7 @@ def restore_backup(req: RestoreRequest, request_obj: Request, db=Depends(get_db)
     from ..db_writer import BACKUP_DIR, rekordbox_is_running
     from pathlib import Path
 
-    if rekordbox_is_running():
+    if _rb_running(db):
         raise HTTPException(409, "Rekordbox is running — close it before restoring a backup")
 
     # Path traversal protection: only allow filenames (no path separators), must be within BACKUP_DIR
@@ -632,7 +652,7 @@ def delete_backup(filename: str):
 def delete_cues(req: DeleteRequest, db=Depends(get_db)):
     from ..db_writer import backup_database, delete_cues_from_db, rekordbox_is_running
 
-    if rekordbox_is_running():
+    if _rb_running(db):
         raise HTTPException(409, "Rekordbox is running — close it before deleting cues")
 
     backup_path = None
@@ -674,7 +694,7 @@ def delete_cues(req: DeleteRequest, db=Depends(get_db)):
 def color_tracks_ep(req: ColorTracksRequest, db=Depends(get_db)):
     from ..db_writer import backup_database, color_tracks_by_bpm, rekordbox_is_running
 
-    if rekordbox_is_running() and not req.dry_run:
+    if _rb_running(db) and not req.dry_run:
         raise HTTPException(409, "Rekordbox is running — close it before coloring tracks")
 
     backup_path = None
@@ -705,7 +725,7 @@ def color_tracks_stream_ep(req: ColorTracksRequest, db=Depends(get_db)):
     from fastapi.responses import StreamingResponse
     from ..db_writer import backup_database, rekordbox_is_running, _bpm_to_color_sort_key
 
-    if rekordbox_is_running() and not req.dry_run:
+    if _rb_running(db) and not req.dry_run:
         raise HTTPException(409, "Rekordbox is running — close it before coloring tracks")
 
     backup_path = None
@@ -939,7 +959,7 @@ def cue_tools_stream(req: CueToolsRequest, db=Depends(get_db)):
     from ..db_writer import backup_database, rekordbox_is_running
     from pyrekordbox.db6 import DjmdCue
 
-    if rekordbox_is_running() and not req.dry_run:
+    if _rb_running(db) and not req.dry_run:
         raise HTTPException(409, "Rekordbox is running — close it before editing cues")
 
     if not req.track_ids:
@@ -1504,7 +1524,7 @@ def create_playlist(req: CreatePlaylistRequest, db=Depends(get_db)):
         raise HTTPException(400, "Playlist name is required")
     if not req.track_ids:
         raise HTTPException(400, "No tracks provided")
-    if rekordbox_is_running():
+    if _rb_running(db):
         raise HTTPException(409, "Rekordbox is running — close it before saving playlists")
 
     try:
@@ -1556,7 +1576,7 @@ def auto_tag(req: AutoTagRequest, db=Depends(get_db)):
     from ..analysis.auto_tag import apply_tags
     from ..db_writer import rekordbox_is_running
 
-    if rekordbox_is_running() and not req.dry_run:
+    if _rb_running(db) and not req.dry_run:
         raise HTTPException(409, "Rekordbox is running — close it before applying tags")
     try:
         result = apply_tags(
@@ -1629,7 +1649,7 @@ def auto_tag_discogs(req: DiscogsTagRequest, db=Depends(get_db)):
     from ..analysis.auto_tag import ensure_tag_by_name
     from ..db_writer import rekordbox_is_running
 
-    if rekordbox_is_running() and not req.dry_run:
+    if _rb_running(db) and not req.dry_run:
         raise HTTPException(409, "Rekordbox is running — close it before applying tags")
 
     def event_stream():
@@ -1718,7 +1738,7 @@ def auto_tag_undo(req: AutoTagUndoRequest, db=Depends(get_db)):
     from ..analysis.auto_tag import undo_tag_run
     from ..db_writer import rekordbox_is_running
 
-    if rekordbox_is_running():
+    if _rb_running(db):
         raise HTTPException(409, "Rekordbox is running — close it before undoing tags")
     try:
         result = undo_tag_run(db, req.undo_data.model_dump())
@@ -1738,7 +1758,7 @@ def enrich_comments(req: EnrichCommentsRequest, db=Depends(get_db)):
     from ..analysis.comment import enrich_comments_batch
     from ..db_writer import rekordbox_is_running
 
-    if rekordbox_is_running() and not req.dry_run:
+    if _rb_running(db) and not req.dry_run:
         raise HTTPException(409, "Rekordbox is running — close it before enriching comments")
     try:
         result = enrich_comments_batch(
@@ -1759,7 +1779,7 @@ async def enrich_comments_stream(req: EnrichCommentsRequest, db=Depends(get_db))
     from ..analysis.comment import enrich_comment
     from ..db_writer import rekordbox_is_running, backup_database
 
-    if rekordbox_is_running() and not req.dry_run:
+    if _rb_running(db) and not req.dry_run:
         raise HTTPException(409, "Rekordbox is running — close it before enriching comments")
 
     import json as _json
@@ -1771,6 +1791,7 @@ async def enrich_comments_stream(req: EnrichCommentsRequest, db=Depends(get_db))
         backup_path = None
         track_ids = req.track_ids or []
         total = len(track_ids)
+        undo_rows: list[dict] = []
 
         if not req.dry_run and track_ids:
             from pathlib import Path as _Path
@@ -1787,6 +1808,7 @@ async def enrich_comments_stream(req: EnrichCommentsRequest, db=Depends(get_db))
                 if content is None:
                     skipped += 1
                 else:
+                    previous = str(getattr(content, "Commnt", "") or "")
                     result = enrich_comment(content, db, overwrite=req.overwrite, dry_run=req.dry_run)
                     if result is None:
                         skipped += 1
@@ -1795,6 +1817,7 @@ async def enrich_comments_stream(req: EnrichCommentsRequest, db=Depends(get_db))
                         if not req.dry_run:
                             try:
                                 db.session.commit()
+                                undo_rows.append({"content_id": str(tid), "previous": previous})
                             except Exception as commit_exc:
                                 db.session.rollback()
                                 errors += 1
@@ -1804,13 +1827,30 @@ async def enrich_comments_stream(req: EnrichCommentsRequest, db=Depends(get_db))
                 errors += 1
             yield f"data: {_json.dumps({'processed': i + 1, 'total': total, 'enriched': enriched})}\n\n"
 
-        yield f"data: {_json.dumps({'done': True, 'enriched': enriched, 'skipped': skipped, 'errors': errors, 'backup_path': backup_path, 'dry_run': req.dry_run})}\n\n"
+        yield f"data: {_json.dumps({'done': True, 'enriched': enriched, 'skipped': skipped, 'errors': errors, 'backup_path': backup_path, 'dry_run': req.dry_run, 'undo_data': {'modified': undo_rows}})}\n\n"
 
     return StreamingResponse(
         event_stream(),
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
+
+
+@router.post("/enrich-comments/undo", response_model=EnrichCommentsUndoResponse)
+def enrich_comments_undo(req: EnrichCommentsUndoRequest, db=Depends(get_db)):
+    """Reverse a prior enrich_comments run using its returned undo_data."""
+    from ..analysis.comment import restore_comments
+    from ..db_writer import rekordbox_is_running
+
+    if _rb_running(db):
+        raise HTTPException(409, "Rekordbox is running — close it before undoing enrichment")
+    try:
+        payload = req.undo_data.model_dump()
+        result = restore_comments(db, payload)
+        return EnrichCommentsUndoResponse(**result)
+    except Exception as exc:
+        db.session.rollback()
+        raise HTTPException(500, str(exc)) from exc
 
 
 @router.post("/enrich-comments/preview", response_model=CommentPreviewResponse)
@@ -1970,6 +2010,7 @@ def download_single(req: DownloadRequest):
 
     def event_stream():
         events: "queue.Queue[dict]" = queue.Queue()
+        cancel_event = threading.Event()
 
         def progress(d: dict) -> None:
             events.put({
@@ -1984,8 +2025,11 @@ def download_single(req: DownloadRequest):
                 path = dl.download_audio(
                     req.query, dest_dir=req.dest_dir,
                     audio_format=req.audio_format, progress_cb=progress,
+                    cancel_event=cancel_event,
                 )
                 result["path"] = path
+            except dl.DownloadCancelled:
+                result["cancelled"] = True
             except Exception as exc:  # noqa: BLE001
                 result["error"] = str(exc)
             finally:
@@ -1994,13 +2038,21 @@ def download_single(req: DownloadRequest):
         t = threading.Thread(target=worker, daemon=True)
         t.start()
 
-        while True:
-            ev = events.get()
-            if ev.get("_end"):
-                break
-            yield f"data: {_json.dumps({'processed': 0, 'total': 1, 'query': req.query, **ev})}\n\n"
+        try:
+            while True:
+                ev = events.get()
+                if ev.get("_end"):
+                    break
+                yield f"data: {_json.dumps({'processed': 0, 'total': 1, 'query': req.query, **ev})}\n\n"
+        except BaseException:  # includes GeneratorExit (client disconnect)
+            # Signal the worker; it'll abort at the next yt-dlp progress tick.
+            # No yield can run here — Starlette has closed the stream.
+            cancel_event.set()
+            raise
 
-        if "error" in result:
+        if result.get("cancelled"):
+            yield f"data: {_json.dumps({'done': True, 'status': 'cancelled', 'failed': 1})}\n\n"
+        elif "error" in result:
             yield f"data: {_json.dumps({'done': True, 'status': 'error', 'error': result['error'], 'failed': 1})}\n\n"
         else:
             yield f"data: {_json.dumps({'done': True, 'status': 'finished', 'path': result.get('path'), 'downloaded': 1})}\n\n"
@@ -2021,21 +2073,31 @@ def download_album(req: DownloadAlbumRequest):
         raise HTTPException(503, "ffmpeg not found on PATH — required to extract audio.")
 
     def event_stream():
+        import threading as _threading
         total = len(req.tracks)
         downloaded = 0
         failed = 0
-        for i, spec in enumerate(req.tracks):
-            label = spec.title or spec.query
-            try:
-                path = dl.download_audio(
-                    spec.query, dest_dir=req.dest_dir, audio_format=req.audio_format,
-                )
-                downloaded += 1
-                yield f"data: {_json.dumps({'processed': i+1, 'total': total, 'title': label, 'query': spec.query, 'status': 'finished', 'path': path, 'downloaded': downloaded})}\n\n"
-            except Exception as exc:  # noqa: BLE001
-                failed += 1
-                logger.warning("album download failed for %r: %s", spec.query, exc)
-                yield f"data: {_json.dumps({'processed': i+1, 'total': total, 'title': label, 'query': spec.query, 'status': 'error', 'error': str(exc), 'failed': failed})}\n\n"
-        yield f"data: {_json.dumps({'done': True, 'downloaded': downloaded, 'failed': failed, 'total': total})}\n\n"
+        cancel_event = _threading.Event()
+        try:
+            for i, spec in enumerate(req.tracks):
+                label = spec.title or spec.query
+                try:
+                    path = dl.download_audio(
+                        spec.query, dest_dir=req.dest_dir, audio_format=req.audio_format,
+                        cancel_event=cancel_event,
+                    )
+                    downloaded += 1
+                    yield f"data: {_json.dumps({'processed': i+1, 'total': total, 'title': label, 'query': spec.query, 'status': 'finished', 'path': path, 'downloaded': downloaded})}\n\n"
+                except dl.DownloadCancelled:
+                    # Client disconnected mid-track — bubble out of the loop.
+                    raise
+                except Exception as exc:  # noqa: BLE001
+                    failed += 1
+                    logger.warning("album download failed for %r: %s", spec.query, exc)
+                    yield f"data: {_json.dumps({'processed': i+1, 'total': total, 'title': label, 'query': spec.query, 'status': 'error', 'error': str(exc), 'failed': failed})}\n\n"
+            yield f"data: {_json.dumps({'done': True, 'downloaded': downloaded, 'failed': failed, 'total': total})}\n\n"
+        except (BaseException, dl.DownloadCancelled):
+            cancel_event.set()
+            raise
 
     return StreamingResponse(event_stream(), media_type="text/event-stream")

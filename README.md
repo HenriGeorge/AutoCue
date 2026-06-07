@@ -254,7 +254,7 @@ on its card:
 | `build` | 118–128 | Medium | No preference |
 | `peak` | 126–145 | High | Sparse preferred |
 | `after_hours` | 100–122 | Low–medium | OK |
-| `closing` | <105 or >148 | Low | Any |
+| `closing` | 70–118 (peaks at 88) | Low | Any |
 
 Tracks can score in multiple categories — the badge shows the primary category. Used by
 Similar Track Discovery, Playlist Suggest, and Set Builder.

@@ -89,7 +89,13 @@ def search_styles(artist: str, title: str, token: str) -> list[str]:
                 seen.add(s)
                 styles.append(s)
 
-    _cache[cache_key] = styles
+    # Only cache non-empty responses. An empty result (no Discogs hit) is
+    # often because the artist/title is misspelled or the release just
+    # hasn't been catalogued yet — caching it would block retries until
+    # the process restarts. Misses are cheap to re-issue against the
+    # token-bucket-rate-limited API.
+    if styles:
+        _cache[cache_key] = styles
     return styles
 
 
@@ -163,7 +169,10 @@ def search_artist_releases(
             "formats": list(r.get("format", []) or []),
         })
 
-    _releases_cache[cache_key] = releases
+    # Same rule as search_styles: don't cache empty responses so transient
+    # "artist not found yet" results aren't sticky across the process lifetime.
+    if releases:
+        _releases_cache[cache_key] = releases
     return releases
 
 

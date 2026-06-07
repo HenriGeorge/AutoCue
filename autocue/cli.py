@@ -61,14 +61,6 @@ def main() -> None:
         help="Re-generate cues even for tracks that already have hot cues",
     )
     parser.add_argument(
-        "--uncued-only",
-        action="store_true",
-        help=(
-            "Only process tracks with zero existing hot cues "
-            "(ignored when --overwrite is also set)"
-        ),
-    )
-    parser.add_argument(
         "--playlist",
         metavar="NAME",
         help="Filter --library mode to tracks in the named Rekordbox playlist",

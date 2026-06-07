@@ -41,19 +41,26 @@ def ensure_category_tags(db) -> dict[str, str]:
     """
     from pyrekordbox.db6.tables import DjmdMyTag
 
+    # Case-insensitive + whitespace-trimmed lookup so a pre-existing user tag
+    # like "warmup" reuses instead of creating a duplicate "Warmup".
+    autocue_names_norm = {n.casefold() for n in AUTOCUE_TAG_NAMES}
     existing = {}
     try:
         for t in db.get_my_tag().all():
-            if t.Name and t.Name in AUTOCUE_TAG_NAMES:
-                existing[t.Name] = str(t.ID)
+            if not t.Name:
+                continue
+            norm = t.Name.strip().casefold()
+            if norm in autocue_names_norm:
+                existing[norm] = str(t.ID)
     except Exception as exc:
         _log.warning("ensure_category_tags: could not read existing tags: %s", exc)
 
     result: dict[str, str] = {}
     for i, (cat_key, cfg) in enumerate(_CATEGORIES.items(), start=1):
         name = cfg["name"]
-        if name in existing:
-            result[cat_key] = existing[name]
+        key = name.casefold()
+        if key in existing:
+            result[cat_key] = existing[key]
             continue
         new_id = str(db.generate_unused_id(DjmdMyTag))
         tag = DjmdMyTag(
@@ -341,12 +348,19 @@ def ensure_tag_by_name(db, name: str, attribute: int = 1) -> str:
 
     Returns the str(ID) of the My Tag row.
     attribute=1 (pink) is used as default color for Discogs style tags.
+
+    Name lookup is case-insensitive and whitespace-trimmed so that running
+    auto-tag with subtly different casing ("Vocal" vs "vocal" vs " Vocal ")
+    reuses the same row instead of cluttering the Rekordbox sidebar with
+    twin tags. Original casing is preserved on first create.
     """
     from pyrekordbox.db6.tables import DjmdMyTag
 
+    normalized = name.strip().casefold()
     try:
         for t in db.get_my_tag().all():
-            if t.Name == name:
+            existing = (t.Name or "").strip().casefold()
+            if existing == normalized:
                 return str(t.ID)
     except Exception:
         pass
@@ -355,7 +369,7 @@ def ensure_tag_by_name(db, name: str, attribute: int = 1) -> str:
     tag = DjmdMyTag(
         ID=new_id,
         UUID=str(uuid4()),
-        Name=name,
+        Name=name.strip(),
         Attribute=attribute,
         Seq=0,
     )
