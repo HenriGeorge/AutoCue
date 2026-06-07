@@ -476,8 +476,77 @@ Behaviour:
 
 The server does not currently expose `search_youtube` as an HTTP endpoint —
 it is a Python-level utility intended for richer "let me pick a candidate"
-UIs that have not yet been built. The current Discover flow goes straight
-from `DiscoverItem.query` → `ytsearch1:` inside `download_audio`.
+UIs.
+
+### `GET /api/youtube/search` — the candidate-selection endpoint (PR #12)
+
+The Cues-tab orphan rescue flow uses `search_youtube` via the wrapper
+endpoint **`GET /api/youtube/search?q=...&n=5`** (`routes.py`). Returns a
+`YoutubeSearchResponse` with up to N candidates (`url`, `title`, `channel`,
+`duration`, `thumbnail`).
+
+The web UI's `#yt-modal` opens from the **"No audio ⓘ" → Download via
+YouTube** path on orphan track cards. Workflow:
+
+1. **Editable query** input defaulting to `${artist} ${title}` — the user
+   can refine before searching (Rekordbox metadata for streaming-imported
+   rows is often empty or wrong, so an editable query is the difference
+   between "rescue works" and "rescue downloads a megamix").
+2. **Explicit Search button** (or `Enter`). **No type-to-search** — typing
+   one query character per keystroke would fire one yt-dlp invocation per
+   keystroke, and the server's 2-process semaphore (see below) would
+   429-cascade by the time the user finishes typing.
+3. **Candidate list** shows title, channel, duration. The candidate whose
+   `duration` is within ±15 % of `track.totalTime` is default-selected
+   (if `track.totalTime > 0`); otherwise none is pre-selected so the user
+   has to commit explicitly.
+4. **Deterministic download**: clicking a candidate fires
+   `POST /api/download` with the **chosen URL string**, not a
+   `ytsearch1:` term. The downloaded file is exactly the candidate the
+   user picked.
+
+**Server bounds**
+
+- **2-process semaphore** (`routes._yt_search_semaphore`) caps concurrent
+  yt-dlp invocations. Excess returns **429** instead of queuing.
+- **30-second hard timeout** (`Future.result(timeout=30)`). On timeout,
+  the slot is released and the endpoint returns **504** so a stuck
+  yt-dlp on a YouTube outage can't permanently jam the semaphore.
+- **In-flight dedupe by exact query** (`routes._inflight_yt_searches`).
+  Two clicks with the same query share one process.
+
+**Client UX during the latency window**
+
+Search takes 4–10 s of real wall-clock — yt-dlp actually fetches YouTube.
+The modal shows a spinner and indeterminate `<progress>` element while
+the request is open; the Search button is disabled. The fetch uses
+`AbortController`, so closing the modal aborts the HTTP request. The
+**server-side yt-dlp call keeps running** because the import is a Python
+library call, not a subprocess — `Future.cancel()` can't interrupt a
+Python thread mid-execution. The 2-process semaphore + 30 s timeout
+together bound the worst-case resource footprint.
+
+### Post-download relink
+
+On successful download the modal exposes a **Copy path** button:
+
+```js
+async function copyPath(path) {
+  try { await navigator.clipboard.writeText(path); _flashCopied(); }
+  catch { _revealFallbackInput(path); }   // <input readonly> for manual Cmd-C
+}
+```
+
+A hidden `<input readonly value={path}>` is revealed on rejection (clipboard
+permission denied / non-secure context). The modal then shows the
+inline Rekordbox 7 relink instruction:
+
+> *In Rekordbox 7: right-click this track → Display all info → File Path
+> → paste the copied path. Re-analyze the track (click ↻ in the analysis
+> column) to populate BPM and phrases.*
+
+Auto-rewriting `DjmdContent.FolderPath` is **explicitly out of scope** —
+a risky DB mutation the user does manually.
 
 ---
 
