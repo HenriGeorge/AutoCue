@@ -1784,6 +1784,14 @@
     }
     @keyframes disc-v2-spin { to { transform: rotate(360deg); } }
 
+    .disc-v2-detail-backdrop {
+      position: fixed; inset: 0; background: rgba(0, 0, 0, 0.4);
+      opacity: 0; pointer-events: none; transition: opacity 0.2s ease;
+      z-index: 999;
+    }
+    .disc-v2-detail-backdrop[aria-hidden="false"] {
+      opacity: 1; pointer-events: auto;
+    }
     .disc-v2-detail-panel {
       position: fixed; top: 0; right: 0; bottom: 0; width: 480px;
       background: var(--surface); border-left: 1px solid var(--border);
@@ -1795,7 +1803,7 @@
       .disc-v2-detail-panel { width: 100vw; }
     }
     @media (prefers-reduced-motion: reduce) {
-      .disc-v2-detail-panel { transition: none; }
+      .disc-v2-detail-panel, .disc-v2-detail-backdrop { transition: none; }
     }
     .disc-v2-detail-panel-inner { padding: 16px; }
     .disc-v2-detail-close {
@@ -1803,6 +1811,36 @@
       width: 32px; height: 32px; border-radius: 50%;
       border: none; background: var(--surface2); color: var(--text);
       font-size: 18px; cursor: pointer;
+    }
+    .disc-v2-detail-actions {
+      display: flex; gap: 8px; margin: 8px 0 14px; flex-wrap: wrap;
+    }
+    .disc-v2-detail-action {
+      padding: 6px 12px; border: 1px solid var(--border);
+      background: var(--surface2); color: var(--text);
+      border-radius: 6px; cursor: pointer; font-size: 12px;
+    }
+    .disc-v2-detail-action.primary {
+      background: var(--green); color: #fff; border-color: var(--green);
+    }
+    .disc-v2-detail-action.saved {
+      background: var(--green); color: #fff; border-color: var(--green);
+    }
+    .disc-v2-detail-tracklist {
+      font-size: 13px; padding: 0; margin: 0 0 14px;
+      list-style: none;
+    }
+    .disc-v2-detail-tracklist li {
+      display: grid; grid-template-columns: 40px 1fr auto;
+      gap: 8px; padding: 4px 0; border-bottom: 1px solid var(--border);
+    }
+    .disc-v2-detail-tracklist li:last-child { border-bottom: none; }
+    .disc-v2-detail-tracklist .pos { color: var(--muted); }
+    .disc-v2-detail-tracklist .dur { color: var(--muted); }
+    .disc-v2-detail-error {
+      padding: 8px 12px; border-radius: 6px;
+      background: rgba(220, 80, 80, 0.1); color: var(--text);
+      border: 1px solid rgba(220, 80, 80, 0.3); font-size: 13px;
     }
   </style>
 <script src="https://cdn.tailwindcss.com"></script>
@@ -2869,8 +2907,10 @@ autocue --library --mode bar --bars-interval 8 --start-bar 1</pre>
   </section>
 
   <!-- Detail panel — rendered as a side overlay when a card is clicked.
-       T-025 expands this with the full tracklist + YouTube preview carousel. -->
-  <div id="disc-v2-detail-panel" class="disc-v2-detail-panel" role="dialog" aria-modal="true" aria-hidden="true">
+       Full tracklist + actions (T-025). YouTube preview carousel comes in T-026. -->
+  <div id="disc-v2-detail-backdrop" class="disc-v2-detail-backdrop" aria-hidden="true"></div>
+  <div id="disc-v2-detail-panel" class="disc-v2-detail-panel" role="dialog" aria-modal="true"
+       aria-labelledby="disc-v2-detail-heading" aria-hidden="true">
     <div class="disc-v2-detail-panel-inner">
       <button id="disc-v2-detail-close-btn" class="disc-v2-detail-close" aria-label="Close detail panel">×</button>
       <div id="disc-v2-detail-body"></div>
@@ -4580,40 +4620,183 @@ function _renderDiscoverV2Blocked() {
   list.innerHTML = rows.join('');
 }
 
-// Detail panel stub (T-025 expands this with the full tracklist + YouTube carousel).
+// Detail panel ── proper dialog: focus trap, return-focus, click-outside-to-close.
+// State tracked at module scope so _closeDetailPanel can restore focus.
+let _detailReturnFocusEl = null;
+let _detailCurrentRelease = null;
+let _detailKeydownHandler = null;
+
 async function _openDetailPanel(releaseKey) {
   const panel = document.getElementById('disc-v2-detail-panel');
+  const backdrop = document.getElementById('disc-v2-detail-backdrop');
   const body = document.getElementById('disc-v2-detail-body');
   if (!panel || !body) return;
   const release = DiscoverV2.state.cardsByKey.get(releaseKey);
-  const r = release?.release || {};
+  if (!release) return;
+
+  _detailReturnFocusEl = document.activeElement;
+  _detailCurrentRelease = release;
+
   panel.setAttribute('aria-hidden', 'false');
-  body.innerHTML = `
-    <h2 style="margin:0 0 4px;font-size:18px;">${_esc(r.title || 'Untitled')}</h2>
-    <p style="margin:0 0 12px;color:var(--muted);">${_esc(r.artist || 'Unknown Artist')}${r.year ? ' · ' + r.year : ''}${r.label ? ' · ' + _esc(r.label) : ''}</p>
-    <p style="font-size:12px;color:var(--muted);">Loading tracklist…</p>
-  `;
+  if (backdrop) backdrop.setAttribute('aria-hidden', 'false');
+
+  // Render skeleton immediately from cached card data so the panel is responsive.
+  _renderDetailBody(release, null, 'loading');
+
+  // Install focus trap + Escape handler.
+  _detailKeydownHandler = (ev) => _detailTrapKeydown(ev);
+  document.addEventListener('keydown', _detailKeydownHandler);
+
+  // Focus the close button after the panel paints (transform ends).
+  setTimeout(() => {
+    document.getElementById('disc-v2-detail-close-btn')?.focus();
+  }, 50);
+
   try {
-    const detail = await DiscoverV2.loadDetail(r.id);
-    const tracks = detail.tracklist || [];
-    body.innerHTML = `
-      ${detail.cover ? `<img src="${_esc(detail.cover)}" style="width:100%;max-width:320px;border-radius:8px;margin-bottom:12px;" alt="">` : ''}
-      <h2 style="margin:0 0 4px;font-size:18px;">${_esc(detail.title || 'Untitled')}</h2>
-      <p style="margin:0 0 6px;color:var(--muted);">${_esc(detail.artist || 'Unknown Artist')}${detail.year ? ' · ' + detail.year : ''}${detail.label ? ' · ' + _esc(detail.label) : ''}</p>
-      <p style="margin:0 0 12px;font-size:12px;color:var(--muted);">${(detail.styles || []).map(_esc).join(' · ')}</p>
-      <ol style="font-size:13px;padding-left:20px;margin:0 0 12px;">
-        ${tracks.map(t => `<li>${_esc(t.position || '')} ${_esc(t.title || '')} ${t.duration ? '<span style="color:var(--muted);">— ' + _esc(t.duration) + '</span>' : ''}</li>`).join('')}
-      </ol>
-      <a href="https://www.discogs.com/release/${detail.id}" target="_blank" rel="noopener noreferrer" style="font-size:12px;">View on Discogs ↗</a>
-    `;
+    const r = release.release || {};
+    const detail = r.id ? await DiscoverV2.loadDetail(r.id) : null;
+    _renderDetailBody(release, detail, 'loaded');
   } catch (e) {
-    body.innerHTML += `<p style="color:var(--muted);">Could not load details: ${_esc(String(e))}</p>`;
+    _renderDetailBody(release, null, 'error', String(e));
+  }
+}
+
+function _renderDetailBody(release, detail, status, errorMsg) {
+  const body = document.getElementById('disc-v2-detail-body');
+  if (!body) return;
+
+  // Prefer Discogs detail when present; fall back to the card's release dict.
+  const r = release.release || {};
+  const id = (detail && detail.id) || r.id || 0;
+  const title = (detail && detail.title) || r.title || 'Untitled';
+  const artist = (detail && detail.artist) || r.artist || 'Unknown Artist';
+  const year = (detail && detail.year) || r.year || '';
+  const label = (detail && detail.label) || r.label || '';
+  const labelId = (detail && detail.label_id) || r.label_id || null;
+  const cover = (detail && (detail.cover || detail.cover_image)) || r.cover_image || r.thumb || '';
+  const styles = (detail && detail.styles) || [];
+  const tracks = (detail && detail.tracklist) || [];
+
+  const isSaved = DiscoverV2.state.savedKeys.has(release.release_key);
+  const isDismissed = DiscoverV2.state.dismissedKeys.has(release.release_key);
+  const followsLabel = labelId &&
+    DiscoverV2.state.followedLabels.some(l => l.label_id === labelId);
+
+  const trackHtml = tracks.length
+    ? `<ol class="disc-v2-detail-tracklist" aria-label="Tracklist">
+         ${tracks.map(t => `
+           <li>
+             <span class="pos">${_esc(t.position || '')}</span>
+             <span class="title">${_esc(t.title || '')}</span>
+             <span class="dur">${_esc(t.duration || '')}</span>
+           </li>`).join('')}
+       </ol>`
+    : (status === 'loading'
+        ? '<p style="font-size:12px;color:var(--muted);"><span class="disc-v2-spinner" aria-hidden="true"></span> Loading tracklist…</p>'
+        : '<p style="font-size:12px;color:var(--muted);">No tracklist available.</p>');
+
+  const errHtml = status === 'error'
+    ? `<p class="disc-v2-detail-error" role="alert">Could not load details: ${_esc(errorMsg || '')}</p>`
+    : '';
+
+  body.innerHTML = `
+    ${cover ? `<img src="${_esc(cover)}" alt="" style="width:100%;max-width:320px;border-radius:8px;margin-bottom:12px;">` : ''}
+    <h2 id="disc-v2-detail-heading" style="margin:0 0 4px;font-size:18px;">${_esc(title)}</h2>
+    <p style="margin:0 0 6px;color:var(--muted);">
+      ${_esc(artist)}${year ? ' · ' + _esc(String(year)) : ''}${label ? ' · ' + _esc(label) : ''}
+    </p>
+    ${styles.length ? `<p style="margin:0 0 12px;font-size:12px;color:var(--muted);">${styles.map(_esc).join(' · ')}</p>` : ''}
+    <div class="disc-v2-detail-actions">
+      <button class="disc-v2-detail-action ${isSaved ? 'saved' : 'primary'}" data-detail-act="save">
+        ${isSaved ? '✓ Saved' : '💚 Save'}
+      </button>
+      <button class="disc-v2-detail-action" data-detail-act="snooze">💤 Snooze 30d</button>
+      <button class="disc-v2-detail-action" data-detail-act="dismiss" ${isDismissed ? 'disabled' : ''}>
+        ✕ ${isDismissed ? 'Dismissed' : 'Dismiss'}
+      </button>
+      ${labelId && !followsLabel
+        ? `<button class="disc-v2-detail-action" data-detail-act="follow-label" data-label-id="${labelId}" data-label-name="${_esc(label)}">+ Follow ${_esc(label)}</button>`
+        : ''}
+    </div>
+    <div id="disc-v2-detail-youtube-slot"></div>
+    ${errHtml}
+    ${trackHtml}
+    ${id ? `<p style="margin-top:14px;font-size:12px;"><a href="https://www.discogs.com/release/${id}" target="_blank" rel="noopener noreferrer">View on Discogs ↗</a></p>` : ''}
+  `;
+
+  // Wire action buttons via delegation.
+  body.querySelectorAll('[data-detail-act]').forEach(btn => {
+    btn.addEventListener('click', async (ev) => {
+      ev.preventDefault();
+      const act = btn.getAttribute('data-detail-act');
+      try {
+        if (act === 'save') {
+          await DiscoverV2.save(release);
+        } else if (act === 'snooze') {
+          await DiscoverV2.snooze(release, '30d');
+          _closeDetailPanel();
+          return;
+        } else if (act === 'dismiss') {
+          await DiscoverV2.dismiss(release);
+          _closeDetailPanel();
+          return;
+        } else if (act === 'follow-label') {
+          const lid = parseInt(btn.getAttribute('data-label-id'), 10);
+          const lname = btn.getAttribute('data-label-name') || '';
+          await DiscoverV2.followLabel(lid, lname);
+        }
+        // Re-render to reflect updated state (e.g., save button → ✓ Saved).
+        _renderDetailBody(release, detail, status, errorMsg);
+      } catch (e) {
+        const err = document.createElement('p');
+        err.className = 'disc-v2-detail-error';
+        err.setAttribute('role', 'alert');
+        err.textContent = 'Action failed: ' + String(e);
+        body.appendChild(err);
+      }
+    });
+  });
+}
+
+function _detailTrapKeydown(ev) {
+  if (ev.key === 'Escape') {
+    _closeDetailPanel();
+    return;
+  }
+  if (ev.key !== 'Tab') return;
+  const panel = document.getElementById('disc-v2-detail-panel');
+  if (!panel || panel.getAttribute('aria-hidden') !== 'false') return;
+  // Cycle Tab focus inside the panel only.
+  const focusables = panel.querySelectorAll(
+    'button, a, input, select, textarea, [tabindex]:not([tabindex="-1"])'
+  );
+  if (!focusables.length) return;
+  const first = focusables[0];
+  const last = focusables[focusables.length - 1];
+  if (ev.shiftKey && document.activeElement === first) {
+    ev.preventDefault();
+    last.focus();
+  } else if (!ev.shiftKey && document.activeElement === last) {
+    ev.preventDefault();
+    first.focus();
   }
 }
 
 function _closeDetailPanel() {
   const panel = document.getElementById('disc-v2-detail-panel');
+  const backdrop = document.getElementById('disc-v2-detail-backdrop');
   if (panel) panel.setAttribute('aria-hidden', 'true');
+  if (backdrop) backdrop.setAttribute('aria-hidden', 'true');
+  if (_detailKeydownHandler) {
+    document.removeEventListener('keydown', _detailKeydownHandler);
+    _detailKeydownHandler = null;
+  }
+  // Return focus to whatever the user was on before opening the panel.
+  if (_detailReturnFocusEl && typeof _detailReturnFocusEl.focus === 'function') {
+    try { _detailReturnFocusEl.focus(); } catch (_) {}
+  }
+  _detailReturnFocusEl = null;
+  _detailCurrentRelease = null;
 }
 
 function _esc(s) {
@@ -4684,11 +4867,10 @@ function initDiscoverV2() {
     _openDetailPanel(releaseKey);
   });
 
-  // Detail panel close.
+  // Detail panel close: X button + backdrop click. Escape is handled by the
+  // per-open focus-trap handler installed inside _openDetailPanel.
   document.getElementById('disc-v2-detail-close-btn')?.addEventListener('click', _closeDetailPanel);
-  document.addEventListener('keydown', (ev) => {
-    if (ev.key === 'Escape') _closeDetailPanel();
-  });
+  document.getElementById('disc-v2-detail-backdrop')?.addEventListener('click', _closeDetailPanel);
 
   // Onboarding interactions.
   document.getElementById('disc-v2-onboarding-skip')?.addEventListener('click', () => {
