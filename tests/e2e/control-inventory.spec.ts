@@ -83,23 +83,51 @@ test.describe("control inventory drift guard", () => {
     const ALLOWED_DOM_EXTRAS = new Set<string>([
       // Transient progress elements — appear only during specific operations.
       "phrase-progress-cancel",
-      // The legacy XML upload zone — covered by Pages-mode spec.
-      "xml-input",
-      "audio-input",
-      "anlz-input",
+      // The legacy XML upload zone — covered by Pages-mode spec. These are
+      // hidden file inputs triggered by the upload zone's click handler.
+      "file-input",
+      "audio-file-input",
+      "anlz-file-input",
       // Backup multi-select UI — exercised by backup-related tests.
       "backup-select-all",
       // Form helpers / labels with id but no user click target.
       "discover-token",
-      // Filter dialog modal internals — covered indirectly when the trigger
-      // button is clicked; not first-class rows.
-      "tag-filter-modal-search",
-      "tag-filter-modal-apply",
-      "key-filter-modal-apply",
-      "genre-filter-modal-search",
-      "genre-filter-modal-apply",
-      "kbd-hint-modal-close",
-      "restore-modal-close",
+      // Filter popup internals — covered indirectly when the trigger
+      // button (`tag-filter-btn`, `genre-filter-btn`, `key-filter-btn`) is
+      // clicked. Not first-class rows.
+      "tag-search",
+      "tf-clear-btn",
+      "genre-search",
+      "genre-clear-btn",
+      "ck-clear-btn",
+      "ck-related-btn",
+      // Modal/dialog internals — reachable via the trigger button (which IS
+      // inventoried) and the modal's own close button. Not first-class rows.
+      "kbd-close-btn",
+      "ti-close",
+      "ti-download",
+      "yt-close",
+      "yt-query",
+      "yt-search-btn",
+      "yt-copy-path",
+      "yt-result-path-fallback",
+      "delete-confirm-btn",
+      "delete-cancel-btn",
+      "restore-confirm-btn",
+      "restore-cancel-btn",
+      // Cue Library Tools per-operation sub-inputs — built dynamically into
+      // collapsed sub-panels driven by `cue-tools-op`. Exercised when the
+      // matching op is selected.
+      "cue-recolor-slot-0",
+      "cue-recolor-slot-1",
+      "cue-recolor-slot-2",
+      "cue-recolor-slot-3",
+      "cue-recolor-slot-4",
+      "cue-recolor-slot-5",
+      "cue-recolor-slot-6",
+      "cue-recolor-slot-7",
+      "cue-shift-ms",
+      "cue-keep-slots",
     ]);
     const unexpectedExtras = domExtras.filter(
       (id) => !ALLOWED_DOM_EXTRAS.has(id),
