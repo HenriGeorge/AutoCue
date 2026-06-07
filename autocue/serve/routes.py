@@ -85,7 +85,24 @@ from .schemas import (
     TrackHealthReport,
     TrackItem,
     TrackResult,
+    CheckAudioRequest,
+    CheckAudioResponse,
+    YoutubeSearchCandidate,
+    YoutubeSearchResponse,
 )
+
+# B1: process-local cache for /api/tracks/check-audio. Keyed by
+# (content_id, parent_mtime). Cleared on /api/restore alongside the other
+# analysis caches.
+_audio_check_cache: dict[tuple[str, float], str] = {}
+
+# B5: in-flight YouTube searches keyed by exact query so two concurrent clicks
+# with the same query share one yt-dlp invocation. Cleared on completion,
+# exception, or timeout.
+_inflight_yt_searches: dict[str, "concurrent.futures.Future"] = {}
+# B5: bounded concurrent yt-dlp searches (2 at a time). Excess returns 429.
+import threading as _threading
+_yt_search_semaphore = _threading.BoundedSemaphore(2)
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api")
@@ -302,6 +319,135 @@ def list_tags(db=Depends(get_ro_db)):
         return [{"id": t.ID, "name": t.Name} for t in tags if t.Name and str(t.ID) in used_ids]
     except Exception:
         return []
+
+
+@router.post("/tracks/check-audio", response_model=CheckAudioResponse)
+def check_audio(req: CheckAudioRequest, db=Depends(get_ro_db)):
+    """Lazy verification of audio file presence for a batch of tracks.
+
+    See `docs/reference/rest-api.md` for the three-state response shape.
+    Caps at 1000 IDs per request (returns 429 above) and groups stat calls
+    by parent directory so a folder with 200 tracks is one syscall not 200.
+    """
+    import os
+    from pathlib import Path
+    if len(req.track_ids) > 1000:
+        raise HTTPException(429, "Too many IDs — split into chunks of 1000")
+    from pyrekordbox.db6 import DjmdContent
+    rows = (
+        db.query(DjmdContent)
+        .filter(DjmdContent.ID.in_([str(i) for i in req.track_ids]))
+        .all()
+    )
+    # Group paths by parent_dir for batch scandir.
+    by_parent: dict[Path, list[tuple[str, str]]] = {}
+    results: dict[str, str] = {}
+    for r in rows:
+        fp = getattr(r, "FolderPath", None)
+        if not fp:
+            continue
+        try:
+            p = Path(str(fp))
+            if not p.is_absolute():
+                continue
+            by_parent.setdefault(p.parent, []).append((str(r.ID), p.name))
+        except Exception:
+            continue
+
+    unverified: list[str] = []
+    for parent, items in by_parent.items():
+        # Cache key includes parent's mtime to invalidate when files
+        # are added/removed at that directory.
+        try:
+            mtime = parent.stat().st_mtime
+        except OSError:
+            for cid, _ in items:
+                results[cid] = "unverified"
+            unverified.append(str(parent))
+            continue
+        cached_all = True
+        for cid, _ in items:
+            if (cid, mtime) not in _audio_check_cache:
+                cached_all = False
+                break
+        if cached_all:
+            for cid, _ in items:
+                results[cid] = _audio_check_cache[(cid, mtime)]
+            continue
+        try:
+            entries = {e.name for e in os.scandir(parent)}
+        except (OSError, PermissionError):
+            for cid, _ in items:
+                results[cid] = "unverified"
+                _audio_check_cache[(cid, mtime)] = "unverified"
+            unverified.append(str(parent))
+            continue
+        for cid, name in items:
+            verdict = "file" if name in entries else "missing"
+            results[cid] = verdict
+            _audio_check_cache[(cid, mtime)] = verdict
+
+    return CheckAudioResponse(results=results, unverified_dirs=unverified)
+
+
+@router.get("/youtube/search", response_model=YoutubeSearchResponse)
+def youtube_search(q: str = Query(..., min_length=1), n: int = Query(5, ge=1, le=10)):
+    """Search YouTube for downloadable candidates (read-only).
+
+    Bounded by a 2-process semaphore; excess returns 429. In-flight searches
+    dedupe by exact query so two clicks with the same query share one yt-dlp
+    process. Each search has a 30-second hard timeout; the slot is freed on
+    timeout (504) so a hung YouTube response can't permanently jam the cap.
+    """
+    import concurrent.futures as _cf
+    from .. import download as dl
+    if not dl.ytdlp_available():
+        raise HTTPException(503, "yt-dlp is not installed")
+
+    query = q.strip()
+    if not query:
+        raise HTTPException(400, "Empty query")
+
+    # In-flight dedupe.
+    existing = _inflight_yt_searches.get(query)
+    if existing is not None:
+        try:
+            results = existing.result(timeout=30)
+            return YoutubeSearchResponse(candidates=[YoutubeSearchCandidate(**r) for r in results])
+        except _cf.TimeoutError:
+            raise HTTPException(504, "YouTube search timed out (network slow or YouTube unreachable). Try again.")
+        except Exception as exc:
+            raise HTTPException(500, f"YouTube search failed: {exc}") from exc
+
+    # Acquire semaphore non-blocking.
+    if not _yt_search_semaphore.acquire(blocking=False):
+        raise HTTPException(429, "YouTube search busy, retry in a moment")
+
+    executor = _cf.ThreadPoolExecutor(max_workers=1)
+    fut = executor.submit(dl.search_youtube, query, n)
+    _inflight_yt_searches[query] = fut
+    try:
+        results = fut.result(timeout=30)
+    except _cf.TimeoutError:
+        # Future keeps running in background; we release the slot for the next caller.
+        raise HTTPException(504, "YouTube search timed out (network slow or YouTube unreachable). Try again.")
+    except Exception as exc:
+        raise HTTPException(500, f"YouTube search failed: {exc}") from exc
+    finally:
+        _inflight_yt_searches.pop(query, None)
+        _yt_search_semaphore.release()
+        executor.shutdown(wait=False)
+
+    candidates = []
+    for r in results or []:
+        candidates.append(YoutubeSearchCandidate(
+            url=r.get("url", ""),
+            title=r.get("title", ""),
+            channel=r.get("uploader", ""),
+            duration=r.get("duration"),
+            thumbnail=None,
+        ))
+    return YoutubeSearchResponse(candidates=candidates)
 
 
 @router.post("/generate", response_model=GenerateResponse)
@@ -627,6 +773,7 @@ def restore_backup(req: RestoreRequest, request_obj: Request, db=Depends(get_db)
     _classify_mod._class_cache.clear()
     _score_mod._mixability_cache.clear()
     _similar_mod.clear_index()
+    _audio_check_cache.clear()  # B1: drop stale audio-existence verdicts
 
     return RestoreResponse(restored=True, message=f"Restored from {req.filename}")
 
@@ -826,7 +973,34 @@ def _to_item(
         color_name=(color_name_map or {}).get(color_id, "") if color_id else "",
         genre=getattr(t, "GenreName", None) or "",
         comment=getattr(t, "Commnt", None) or "",
+        source=_classify_source(getattr(t, "FolderPath", None)),
     )
+
+
+def _classify_source(folder_path: str | None) -> str:
+    """Cheap string-only classification of DjmdContent.FolderPath.
+
+    Streaming-source tracks (Spotify, Tidal, Apple Music) have empty paths or
+    use URI schemes that don't point at the filesystem. Tracks with a real
+    file path are reported as "file" without confirming the file exists —
+    actual existence is verified lazily via POST /api/tracks/check-audio.
+    """
+    if not folder_path:
+        return "streaming"
+    s = str(folder_path).strip()
+    if not s:
+        return "streaming"
+    low = s.lower()
+    if low.startswith(("spotify:", "tidal:", "applemusic:", "http://", "https://")):
+        return "streaming"
+    try:
+        # An absolute filesystem path is the expected "file" shape.
+        from pathlib import Path
+        if Path(s).is_absolute():
+            return "file"
+    except Exception:
+        return "unknown"
+    return "unknown"
 
 
 # ---------------------------------------------------------------------------

@@ -1174,6 +1174,80 @@
       #phrase-progress-banner { transition: none; }
     }
 
+    /* B4/B5: track-info + YouTube-candidate modals */
+    #track-info-modal, #yt-modal {
+      position: fixed; inset: 0; z-index: 500;
+      background: rgba(0,0,0,.45);
+      display: none; align-items: center; justify-content: center;
+    }
+    #track-info-modal.visible, #yt-modal.visible { display: flex; }
+    .ti-card {
+      background: var(--surface); color: var(--text);
+      border-radius: 12px; padding: 22px;
+      max-width: 540px; width: 92%;
+      max-height: 88vh; overflow-y: auto;
+      box-shadow: 0 12px 40px rgba(0,0,0,.32);
+      position: relative;
+    }
+    .ti-close {
+      position: absolute; top: 10px; right: 10px;
+      background: none; border: none; font-size: 18px;
+      color: var(--muted); cursor: pointer; padding: 4px 8px;
+      border-radius: 6px;
+    }
+    .ti-close:hover { color: var(--text); background: var(--border); }
+    #track-info-modal h3, #yt-modal h3 { margin: 0 0 6px; font-size: 17px; }
+    .ti-sub { color: var(--muted); font-size: 13px; margin-bottom: 12px; }
+    .ti-grid {
+      display: grid; grid-template-columns: 110px 1fr;
+      gap: 6px 14px; font-size: 13px; margin: 12px 0;
+    }
+    .ti-grid dt { color: var(--muted); }
+    .ti-grid dd { margin: 0; word-break: break-all; }
+    .ti-grid code {
+      font-family: var(--mono); font-size: 12px;
+      background: var(--bg); padding: 4px 6px; border-radius: 4px;
+    }
+    .ti-help { color: var(--muted); font-size: 12px; line-height: 1.5; margin: 10px 0; }
+    .ti-actions {
+      display: flex; gap: 10px; align-items: center;
+      margin-top: 14px; flex-wrap: wrap;
+    }
+    .ti-actions a { color: var(--green); font-size: 13px; text-decoration: none; }
+    .ti-actions a:hover { text-decoration: underline; }
+    .yt-query-row { display: flex; gap: 8px; align-items: center; margin: 10px 0; }
+    .yt-query-row input {
+      flex: 1; padding: 8px 10px; font-size: 13px;
+      border: 1px solid var(--border); border-radius: 6px;
+      background: var(--bg); color: var(--text);
+    }
+    #yt-candidates { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; }
+    .yt-cand {
+      display: flex; gap: 12px; align-items: center;
+      padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px;
+      cursor: pointer; transition: background .12s;
+    }
+    .yt-cand:hover { background: var(--bg); }
+    .yt-cand.selected { border-color: var(--green); background: rgba(40,226,20,.06); }
+    .yt-cand-text { flex: 1; min-width: 0; }
+    .yt-cand-title { font-size: 13px; font-weight: 600; }
+    .yt-cand-meta { font-size: 11px; color: var(--muted); margin-top: 2px; }
+    #yt-download-progress {
+      display: flex; gap: 10px; align-items: center; margin-top: 14px;
+    }
+    #yt-download-progress progress { flex: 1; height: 6px; }
+    #yt-result { margin-top: 14px; }
+    #yt-result code {
+      font-family: var(--mono); font-size: 12px;
+      background: var(--bg); padding: 6px 8px; border-radius: 4px;
+      display: block; word-break: break-all;
+    }
+    #yt-result-path-fallback {
+      width: 100%; margin-top: 8px; padding: 6px;
+      font-family: var(--mono); font-size: 12px;
+      border: 1px solid var(--border); border-radius: 4px;
+    }
+
     /* ── Secondary button — ElevenLabs white pill ── */
     .secondary-btn {
       background: var(--surface); color: var(--text);
@@ -1918,6 +1992,10 @@
           <label class="phrase-only-pill" title="Show only tracks that have a Rekordbox beat grid (BPM &gt; 0). Tracks without one fall back to heuristic cue placement.">
             <input type="checkbox" id="beats-only-cb" />
             ♪ Beat grid only
+          </label>
+          <label class="phrase-only-pill" title="Show only tracks whose audio file is currently reachable on disk. Streaming tracks and tracks with a missing path are hidden. Uses a lazy probe; tracks on an unmounted drive stay visible (fail-open).">
+            <input type="checkbox" id="audio-only-cb" />
+            🔌 Audio available
           </label>
           <button class="secondary-btn" id="select-all-btn">Select all</button>
           <button class="secondary-btn" id="deselect-all-btn" style="display:none">Deselect all</button>
@@ -2720,6 +2798,57 @@ autocue --library --mode bar --bars-interval 8 --start-bar 1</pre>
 
 <div id="toast-stack"></div>
 
+<!-- B4: Track info modal — opens on ⓘ click. Lazy-probes audio on open. -->
+<div id="track-info-modal" role="dialog" aria-modal="true" aria-hidden="true">
+  <div class="ti-card">
+    <button class="ti-close" id="ti-close" aria-label="Close">✕</button>
+    <h3 id="ti-title">Track</h3>
+    <div id="ti-artist" class="ti-sub"></div>
+    <dl class="ti-grid">
+      <dt>Album</dt><dd id="ti-album"></dd>
+      <dt>Genre</dt><dd id="ti-genre"></dd>
+      <dt>BPM</dt><dd id="ti-bpm"></dd>
+      <dt>Key</dt><dd id="ti-key"></dd>
+      <dt>Duration</dt><dd id="ti-duration"></dd>
+      <dt>Source</dt><dd id="ti-source">Checking…</dd>
+      <dt>File path</dt><dd><code id="ti-path"></code></dd>
+    </dl>
+    <div id="ti-source-help" class="ti-help"></div>
+    <div class="ti-actions">
+      <a id="ti-youtube-search" target="_blank" rel="noopener noreferrer">Search YouTube ↗</a>
+      <button class="primary" id="ti-download" type="button" style="display:none">Download via YouTube</button>
+    </div>
+  </div>
+</div>
+
+<!-- B5: YouTube candidate-selection modal (separate from the info modal). -->
+<div id="yt-modal" role="dialog" aria-modal="true" aria-hidden="true">
+  <div class="ti-card">
+    <button class="ti-close" id="yt-close" aria-label="Close">✕</button>
+    <h3>Download via YouTube</h3>
+    <div class="ti-sub" id="yt-track-label"></div>
+    <div class="yt-query-row">
+      <input id="yt-query" type="text" autocomplete="off" />
+      <button class="secondary-btn" id="yt-search-btn" type="button">Search</button>
+    </div>
+    <div id="yt-status" class="ti-help"></div>
+    <div id="yt-candidates"></div>
+    <div id="yt-download-progress" style="display:none">
+      <progress id="yt-progress" max="100" value="0"></progress>
+      <span id="yt-progress-text">Downloading…</span>
+    </div>
+    <div id="yt-result" style="display:none">
+      <p><strong>Saved to:</strong></p>
+      <code id="yt-result-path"></code>
+      <input id="yt-result-path-fallback" type="text" readonly style="display:none" />
+      <div class="ti-actions">
+        <button class="secondary-btn" id="yt-copy-path" type="button">Copy path</button>
+      </div>
+      <p class="ti-help">In Rekordbox 7: right-click this track → Display all info → File Path → paste the copied path. Re-analyze the track to populate BPM and phrases.</p>
+    </div>
+  </div>
+</div>
+
 <!-- Sticky bottom action bar — appears when ≥1 track is selected -->
 <div id="action-bar" aria-hidden="true">
   <div class="action-bar-inner">
@@ -2852,6 +2981,15 @@ let searchQuery = '';
 // F6: phrase-only filter
 let phraseOnlyFilter = false;
 let beatsOnlyFilter = false;
+// B1/B2: lazy audio-availability probe. _audioProbedAt[trackId] = "file" | "missing" | "unverified".
+// Keys present here override the track's server-side `source`. Filter relies on this state.
+let _audioProbedAt = {};
+let _audioOnlyFilter = false;
+let _audioCheckAbort = null;          // AbortController for in-flight /check-audio chunks
+let _audioUnverifiedDirs = new Set(); // surfaced via the "unverified" soft chip
+// B3: aggregated "Audio file not found" toast — collects failed IDs over a 1-second window.
+let _audioFailQueue = new Set();
+let _audioFailFlushTimer = null;
 // Rating/plays/lastplayed/tag filters (local mode)
 let ratingFilter = 0;
 let playsFilter = 'all';   // 'all' | 'played' | 'unplayed'
@@ -4655,6 +4793,13 @@ document.getElementById('phrase-only-cb').addEventListener('change', e => {
 });
 
 // Beat-grid-only filter (tracks with BPM > 0 — i.e. analyzed in Rekordbox)
+document.getElementById('audio-only-cb').addEventListener('change', e => {
+  _audioOnlyFilter = e.target.checked;
+  updateActiveFiltersChip();
+  AppState.signal('filters');
+  if (_audioOnlyFilter) _probeAudioForVisibleTracks();
+});
+
 document.getElementById('beats-only-cb').addEventListener('change', e => {
   beatsOnlyFilter = e.target.checked;
   updateActiveFiltersChip();
@@ -4841,7 +4986,7 @@ document.getElementById('lastplayed-filter').addEventListener('change', e => {
 })();
 
 function updateActiveFiltersChip() {
-  const active = ratingFilter > 0 || playsFilter !== 'all' || lastPlayedFilter !== 'all' || myTagFilters.size > 0 || selectedKeys.size > 0 || phraseOnlyFilter || beatsOnlyFilter || searchQuery || genreFilters.size > 0;
+  const active = ratingFilter > 0 || playsFilter !== 'all' || lastPlayedFilter !== 'all' || myTagFilters.size > 0 || selectedKeys.size > 0 || phraseOnlyFilter || beatsOnlyFilter || _audioOnlyFilter || searchQuery || genreFilters.size > 0;
   const chip = document.getElementById('active-filters-chip');
   if (chip) chip.classList.toggle('visible', !!active);
 }
@@ -4850,6 +4995,9 @@ function clearAllFilters() {
   searchQuery = '';
   phraseOnlyFilter = false;
   beatsOnlyFilter = false;
+  _audioOnlyFilter = false;
+  const ac = document.getElementById('audio-only-cb');
+  if (ac) ac.checked = false;
   ratingFilter = 0;
   playsFilter = 'all';
   lastPlayedFilter = 'all';
@@ -5154,11 +5302,74 @@ function pausePlayback() {
   updatePlaybackUI();
 }
 
+// B3: aggregate failed-audio toasts. Multiple ensureLocalAudio failures within
+// 1 second collapse to a single toast — eliminates the stacked-toast pileup
+// visible in image #7 of the v5 plan context.
+function _queueAudioFailToast(track) {
+  _audioFailQueue.add(String(track?.id || ''));
+  if (_audioFailFlushTimer) return;
+  _audioFailFlushTimer = setTimeout(() => {
+    const n = _audioFailQueue.size;
+    if (n === 1) {
+      const t = parsedTracksById.get([..._audioFailQueue][0]);
+      const label = t ? `${t.artist || ''} — ${t.name || ''}`.trim().replace(/^—\s*/, '') : '';
+      showToast(label ? `Audio file not found: ${label}` : 'Audio file not found on disk', true);
+    } else {
+      showToast(`Audio file not found for ${n} tracks`, true);
+    }
+    _audioFailQueue.clear();
+    _audioFailFlushTimer = null;
+  }, 1000);
+}
+
+// B1+B2: lazy verification for tracks visible under the audio-only filter.
+// Sends ≤500 ids per request, sequential, with debounce. Results stored in
+// _audioProbedAt; tracks the filter would otherwise hide are still surfaced
+// when their parent dir is unverifiable (fail-open).
+async function _probeAudioForVisibleTracks() {
+  // Abort any in-flight chunks.
+  if (_audioCheckAbort) _audioCheckAbort.abort();
+  _audioCheckAbort = new AbortController();
+  const signal = _audioCheckAbort.signal;
+
+  await new Promise(r => setTimeout(r, 200)); // debounce
+  if (signal.aborted) return;
+
+  const ids = parsedTracks
+    .filter(t => t.source === 'file' && !(t.id in _audioProbedAt))
+    .map(t => parseInt(t.id));
+  if (!ids.length) { AppState.signal('filters'); return; }
+
+  const CHUNK = 500;
+  for (let i = 0; i < ids.length; i += CHUNK) {
+    const slice = ids.slice(i, i + CHUNK);
+    try {
+      const resp = await fetch('/api/tracks/check-audio', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ track_ids: slice }),
+        signal,
+      }).then(r => r.json());
+      Object.assign(_audioProbedAt, resp.results || {});
+      for (const d of (resp.unverified_dirs || [])) _audioUnverifiedDirs.add(d);
+      AppState.signal('filters'); // re-render incrementally
+    } catch (err) {
+      if (err.name === 'AbortError') return;
+      showToast(`Audio check failed: ${err.message || 'network error'}`, true);
+      return;
+    }
+  }
+}
+
 async function ensureLocalAudio(track) {
   if (audioState[track.id]) return; // already loaded
+  // B3: don't even try for streaming / known-missing tracks — saves a fetch
+  // and the inevitable toast.
+  if (track.source && track.source !== 'file') { _queueAudioFailToast(track); return; }
+  if (_audioProbedAt[track.id] === 'missing') { _queueAudioFailToast(track); return; }
   try {
     const resp = await fetch(`/api/tracks/${track.id}/audio`);
-    if (!resp.ok) { showToast('Audio file not found on disk'); return; }
+    if (!resp.ok) { _queueAudioFailToast(track); return; }
     const blob = await resp.blob();
     const url = URL.createObjectURL(blob);
     blobUrlsToRevoke.add(url);
@@ -5455,6 +5666,14 @@ function filteredTracks() {
   let tracks = parsedTracks;
   if (phraseOnlyFilter) tracks = tracks.filter(t => t.hasPhrase);
   if (beatsOnlyFilter) tracks = tracks.filter(t => t.hasBeats);
+  if (_audioOnlyFilter) tracks = tracks.filter(t => {
+    // Fail-open semantics: tracks whose audio hasn't been probed yet, or whose
+    // probe came back "unverified", stay visible. Only "missing" + non-file
+    // sources are hidden.
+    if (t.source !== 'file') return false;
+    const v = _audioProbedAt[t.id];
+    return v !== 'missing';
+  });
   if (searchQuery) {
     const q = searchQuery.toLowerCase();
     tracks = tracks.filter(t =>
@@ -5994,17 +6213,31 @@ function buildTrackCard(track, cues, willSkip, opts = {}) {
   playBtn.addEventListener('click', e => { e.stopPropagation(); togglePlayTrack(track.id); });
   meta.appendChild(playBtn);
 
-  const loadBtn = document.createElement('label');
-  loadBtn.className = 'load-audio-btn' + (hasAudio ? ' hidden' : '');
-  loadBtn.textContent = 'Load audio';
-  const loadInput = document.createElement('input');
-  loadInput.type = 'file';
-  loadInput.accept = 'audio/*';
-  loadInput.addEventListener('change', () => {
-    if (loadInput.files[0]) registerAudioFile(track, loadInput.files[0]);
-  });
-  loadBtn.appendChild(loadInput);
-  meta.appendChild(loadBtn);
+  // B3: orphans (streaming or known-missing) get a "No audio" chip that opens
+  // the info modal instead of the Load audio button — kills the failed-fetch
+  // toast pileup that triggered the user's image #7 sample.
+  const isOrphan = (track.source && track.source !== 'file') || _audioProbedAt[track.id] === 'missing';
+  if (isOrphan) {
+    const chip = document.createElement('button');
+    chip.type = 'button';
+    chip.className = 'load-audio-btn';
+    chip.textContent = 'No audio ⓘ';
+    chip.title = 'This track has no playable audio file. Click to see details / rescue via YouTube.';
+    chip.addEventListener('click', e => { e.stopPropagation(); openTrackInfoModal(track.id); });
+    meta.appendChild(chip);
+  } else {
+    const loadBtn = document.createElement('label');
+    loadBtn.className = 'load-audio-btn' + (hasAudio ? ' hidden' : '');
+    loadBtn.textContent = 'Load audio';
+    const loadInput = document.createElement('input');
+    loadInput.type = 'file';
+    loadInput.accept = 'audio/*';
+    loadInput.addEventListener('change', () => {
+      if (loadInput.files[0]) registerAudioFile(track, loadInput.files[0]);
+    });
+    loadBtn.appendChild(loadInput);
+    meta.appendChild(loadBtn);
+  }
 
   cardMain.appendChild(meta);
 
@@ -7493,6 +7726,249 @@ function _hidePhraseBanner() {
 
 document.getElementById('phrase-progress-cancel')?.addEventListener('click', () => {
   if (_phraseLoadAbort) _phraseLoadAbort.abort();
+});
+
+// B4: Track info modal — instant open + race-safe lazy probe.
+let _infoModalRequestId = 0;
+let _infoModalOpen = false;
+let _infoModalTrack = null;
+
+function _esc(s) {
+  return String(s == null ? '' : s)
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+    .replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+}
+
+function _fmtDuration(sec) {
+  if (!sec) return '—';
+  const m = Math.floor(sec / 60), s = Math.floor(sec % 60);
+  return `${m}:${String(s).padStart(2,'0')}`;
+}
+
+function openTrackInfoModal(trackId) {
+  const track = parsedTracksById.get(String(trackId));
+  if (!track) return;
+  const modal = document.getElementById('track-info-modal');
+  if (!modal) return;
+  _infoModalRequestId++;
+  const reqId = _infoModalRequestId;
+  _infoModalOpen = true;
+  _infoModalTrack = track;
+
+  document.getElementById('ti-title').textContent = track.name || '(no title)';
+  document.getElementById('ti-artist').textContent = track.artist || '';
+  document.getElementById('ti-album').textContent = track.album || '—';
+  document.getElementById('ti-genre').textContent = track.genre || '—';
+  document.getElementById('ti-bpm').textContent = track.bpm ? track.bpm.toFixed(2) : '—';
+  document.getElementById('ti-key').textContent = track.key || '—';
+  document.getElementById('ti-duration').textContent = _fmtDuration(track.totalTime);
+  document.getElementById('ti-path').textContent = track.locationFilename || '(server-side path)';
+
+  // Source label: open with Checking… placeholder if we haven't probed yet.
+  const sourceCell = document.getElementById('ti-source');
+  const helpCell = document.getElementById('ti-source-help');
+  const dlBtn = document.getElementById('ti-download');
+
+  function applySource(src) {
+    if (src === 'file')      { sourceCell.textContent = 'Local file';       helpCell.textContent = ''; dlBtn.style.display = 'none'; }
+    else if (src === 'streaming') { sourceCell.textContent = 'Streaming source';  helpCell.textContent = 'Streaming tracks can\'t be analyzed by AutoCue. Download a real audio file via YouTube to enable phrase analysis.'; dlBtn.style.display = ''; }
+    else if (src === 'missing')   { sourceCell.textContent = 'File missing';     helpCell.textContent = 'The file at the path above no longer exists. Restore it, update the path in Rekordbox, or download a replacement.'; dlBtn.style.display = ''; }
+    else                      { sourceCell.textContent = 'Unknown';         helpCell.textContent = ''; dlBtn.style.display = 'none'; }
+  }
+
+  // Optimistic initial state from server-side source.
+  if (track.source === 'streaming') applySource('streaming');
+  else if (_audioProbedAt[track.id]) applySource(_audioProbedAt[track.id]);
+  else { sourceCell.textContent = 'Checking…'; helpCell.textContent = ''; dlBtn.style.display = 'none'; }
+
+  // YouTube search link.
+  const q = `${track.artist || ''} ${track.name || ''}`.trim();
+  document.getElementById('ti-youtube-search').href = `https://www.youtube.com/results?search_query=${encodeURIComponent(q)}`;
+
+  modal.classList.add('visible');
+  modal.setAttribute('aria-hidden', 'false');
+
+  // Race-safe parallel probe for file-source tracks.
+  if (track.source === 'file' && !_audioProbedAt[track.id]) {
+    fetch('/api/tracks/check-audio', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ track_ids: [parseInt(track.id)] }),
+    }).then(r => r.json()).then(resp => {
+      if (reqId !== _infoModalRequestId || !_infoModalOpen) return;
+      const verdict = (resp.results || {})[String(track.id)] || 'unknown';
+      _audioProbedAt[track.id] = verdict;
+      applySource(verdict);
+    }).catch(() => {
+      if (reqId !== _infoModalRequestId || !_infoModalOpen) return;
+      applySource('unknown');
+    });
+  }
+}
+
+function closeTrackInfoModal() {
+  const modal = document.getElementById('track-info-modal');
+  if (!modal) return;
+  modal.classList.remove('visible');
+  modal.setAttribute('aria-hidden', 'true');
+  _infoModalOpen = false;
+  _infoModalTrack = null;
+}
+document.getElementById('ti-close')?.addEventListener('click', closeTrackInfoModal);
+document.getElementById('track-info-modal')?.addEventListener('click', (e) => {
+  if (e.target.id === 'track-info-modal') closeTrackInfoModal();
+});
+document.getElementById('ti-download')?.addEventListener('click', () => {
+  if (_infoModalTrack) openYoutubeModal(_infoModalTrack);
+});
+
+// B5: YouTube candidate-selection modal.
+let _ytModalTrack = null;
+let _ytSearchAbort = null;
+let _ytDownloadAbort = null;
+
+function openYoutubeModal(track) {
+  _ytModalTrack = track;
+  const modal = document.getElementById('yt-modal');
+  if (!modal) return;
+  document.getElementById('yt-track-label').textContent = `${track.artist || ''} — ${track.name || ''}`.trim();
+  const queryInput = document.getElementById('yt-query');
+  queryInput.value = `${track.artist || ''} ${track.name || ''}`.trim();
+  document.getElementById('yt-candidates').innerHTML = '';
+  document.getElementById('yt-status').textContent = '';
+  document.getElementById('yt-download-progress').style.display = 'none';
+  document.getElementById('yt-result').style.display = 'none';
+  document.getElementById('yt-search-btn').disabled = false;
+  modal.classList.add('visible');
+  modal.setAttribute('aria-hidden', 'false');
+  closeTrackInfoModal();
+}
+function closeYoutubeModal() {
+  if (_ytSearchAbort) _ytSearchAbort.abort();
+  if (_ytDownloadAbort) _ytDownloadAbort.abort();
+  const modal = document.getElementById('yt-modal');
+  if (modal) { modal.classList.remove('visible'); modal.setAttribute('aria-hidden', 'true'); }
+  _ytModalTrack = null;
+}
+document.getElementById('yt-close')?.addEventListener('click', closeYoutubeModal);
+document.getElementById('yt-modal')?.addEventListener('click', (e) => {
+  if (e.target.id === 'yt-modal') closeYoutubeModal();
+});
+
+async function _ytSearch() {
+  const q = document.getElementById('yt-query').value.trim();
+  if (!q) return;
+  if (_ytSearchAbort) _ytSearchAbort.abort();
+  _ytSearchAbort = new AbortController();
+  const status = document.getElementById('yt-status');
+  const candDiv = document.getElementById('yt-candidates');
+  const btn = document.getElementById('yt-search-btn');
+  btn.disabled = true;
+  status.textContent = 'Searching YouTube…';
+  candDiv.innerHTML = '';
+  try {
+    const resp = await fetch(`/api/youtube/search?q=${encodeURIComponent(q)}&n=5`, { signal: _ytSearchAbort.signal });
+    if (!resp.ok) {
+      const detail = await resp.json().catch(() => ({}));
+      throw new Error(detail.detail || `HTTP ${resp.status}`);
+    }
+    const data = await resp.json();
+    status.textContent = '';
+    const targetDur = _ytModalTrack?.totalTime || 0;
+    let defaultPicked = false;
+    for (const c of (data.candidates || [])) {
+      const row = document.createElement('div');
+      row.className = 'yt-cand';
+      const within = targetDur > 0 && c.duration && Math.abs(c.duration - targetDur) <= targetDur * 0.15;
+      if (within && !defaultPicked) { row.classList.add('selected'); defaultPicked = true; }
+      row.innerHTML = `
+        <div class="yt-cand-text">
+          <div class="yt-cand-title">${_esc(c.title)}</div>
+          <div class="yt-cand-meta">${_esc(c.channel)} · ${c.duration ? _fmtDuration(c.duration) : '—'}</div>
+        </div>
+        <button class="primary" type="button">Download</button>`;
+      row.querySelector('button').addEventListener('click', () => _ytDownload(c.url));
+      candDiv.appendChild(row);
+    }
+    if (!data.candidates?.length) status.textContent = 'No results.';
+  } catch (err) {
+    if (err.name === 'AbortError') return;
+    status.textContent = `Search failed: ${err.message}`;
+  } finally {
+    btn.disabled = false;
+  }
+}
+document.getElementById('yt-search-btn')?.addEventListener('click', _ytSearch);
+document.getElementById('yt-query')?.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') _ytSearch();
+});
+
+async function _ytDownload(url) {
+  if (_ytDownloadAbort) _ytDownloadAbort.abort();
+  _ytDownloadAbort = new AbortController();
+  const progress = document.getElementById('yt-download-progress');
+  const progBar = document.getElementById('yt-progress');
+  const progText = document.getElementById('yt-progress-text');
+  const result = document.getElementById('yt-result');
+  progress.style.display = 'flex';
+  result.style.display = 'none';
+  progBar.value = 0;
+  progText.textContent = 'Starting…';
+
+  try {
+    const resp = await fetch('/api/download', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ query: url, audio_format: 'mp3' }),
+      signal: _ytDownloadAbort.signal,
+    });
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    const reader = resp.body.getReader();
+    const dec = new TextDecoder();
+    let buf = '';
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buf += dec.decode(value, { stream: true });
+      const lines = buf.split('\n\n');
+      buf = lines.pop();
+      for (const ln of lines) {
+        if (!ln.startsWith('data: ')) continue;
+        const ev = JSON.parse(ln.slice(6));
+        if (typeof ev.percent === 'number') progBar.value = ev.percent;
+        if (ev.status === 'downloading') progText.textContent = `Downloading… ${Math.round(ev.percent || 0)}%`;
+        if (ev.done) {
+          progress.style.display = 'none';
+          if (ev.status === 'finished' && ev.path) {
+            result.style.display = '';
+            document.getElementById('yt-result-path').textContent = ev.path;
+            document.getElementById('yt-result-path-fallback').value = ev.path;
+            document.getElementById('yt-result-path-fallback').style.display = 'none';
+          } else {
+            showToast(`Download failed: ${ev.error || 'unknown'}`, true);
+          }
+        }
+      }
+    }
+  } catch (err) {
+    if (err.name !== 'AbortError') showToast(`Download failed: ${err.message}`, true);
+    progress.style.display = 'none';
+  }
+}
+
+// B6: Copy path with clipboard fallback.
+document.getElementById('yt-copy-path')?.addEventListener('click', async () => {
+  const path = document.getElementById('yt-result-path').textContent;
+  try {
+    await navigator.clipboard.writeText(path);
+    showToast('Path copied');
+  } catch {
+    const fallback = document.getElementById('yt-result-path-fallback');
+    fallback.style.display = 'block';
+    fallback.focus();
+    fallback.select();
+    showToast('Clipboard blocked — select the path manually (Cmd-C / Ctrl-C)');
+  }
 });
 
 // ── Camelot key filter ─────────────────────────────────────────────────────────

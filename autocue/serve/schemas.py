@@ -35,6 +35,34 @@ class TrackItem(BaseModel):
     color_name: str = ""
     genre: str = ""
     comment: str = ""
+    # B1: source classification from DjmdContent.FolderPath. Cheap string check
+    # only — no os.path.exists() per row. Use POST /api/tracks/check-audio for
+    # actual disk verification.
+    source: Literal["file", "streaming", "unknown"] = "file"
+
+
+class CheckAudioRequest(BaseModel):
+    track_ids: list[int]
+
+
+class CheckAudioResponse(BaseModel):
+    # "file" / "missing" / "unverified" per id (string keys for JSON friendliness)
+    results: dict[str, Literal["file", "missing", "unverified"]] = {}
+    # Parent directories that scandir() raised on — used by the client to show
+    # the "Audio paths unverified" banner without filtering tracks out.
+    unverified_dirs: list[str] = []
+
+
+class YoutubeSearchCandidate(BaseModel):
+    url: str
+    title: str
+    channel: str = ""
+    duration: float | None = None
+    thumbnail: str | None = None
+
+
+class YoutubeSearchResponse(BaseModel):
+    candidates: list[YoutubeSearchCandidate] = []
 
 
 class GenerateRequest(BaseModel):
