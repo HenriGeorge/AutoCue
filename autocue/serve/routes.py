@@ -2203,6 +2203,7 @@ def auto_tag_discogs(req: DiscogsTagRequest, db=Depends(get_db)):
         raise HTTPException(409, "Rekordbox is running — close it before applying tags")
 
     def event_stream():
+        import os as _os
         from pyrekordbox.db6 import DjmdContent, DjmdMyTag, DjmdSongMyTag
         from ..analysis.auto_tag import ALL_AUTOCUE_TAG_NAMES
         total   = len(req.track_ids)
@@ -2216,15 +2217,14 @@ def auto_tag_discogs(req: DiscogsTagRequest, db=Depends(get_db)):
         else:
             tag_name_map = {}
 
-        for i, tid in enumerate(req.track_ids):
+        # Pure-read evaluator: resolve content + check skip + fetch Discogs styles.
+        # Returns (tid, content, styles, status). status in {'ok','no_content','skip_existing','no_styles','error'}
+        # No DB writes, so safe to run on the shared pool.
+        def _eval_one(tid):
             try:
                 content = db.get_content(ID=tid)
                 if content is None:
-                    skipped += 1
-                    yield f"data: {_json.dumps({'processed': i+1, 'total': total, 'track_id': tid, 'styles': [], 'skipped': skipped})}\n\n"
-                    continue
-
-                # Skip tracks that already have Discogs-style tags (non-AutoCue My Tags)
+                    return (tid, None, [], "no_content", None, None, None)
                 if req.skip_existing:
                     existing_song_tags = db.session.query(DjmdSongMyTag).filter(
                         DjmdSongMyTag.ContentID == str(tid)
@@ -2235,48 +2235,133 @@ def auto_tag_discogs(req: DiscogsTagRequest, db=Depends(get_db)):
                         for st in existing_song_tags
                     )
                     if has_discogs_tag:
+                        return (tid, content, [], "skip_existing", None, None, None)
+                artist = str(getattr(content, "ArtistName", "") or "")
+                title  = str(getattr(content, "Title", "") or "")
+                styles = search_styles(artist, title, req.token)
+                if not styles:
+                    return (tid, content, [], "no_styles", artist, title, None)
+                return (tid, content, styles, "ok", artist, title, None)
+            except Exception as exc:
+                return (tid, None, [], "error", None, None, exc)
+
+        # Writer-side helper: insert DjmdSongMyTag rows for (tid, styles), commit.
+        def _write_one(tid, styles):
+            for style in styles:
+                tag_id = ensure_tag_by_name(db, style)
+                existing = db.session.query(DjmdSongMyTag).filter(
+                    DjmdSongMyTag.ContentID == str(tid),
+                    DjmdSongMyTag.MyTagID   == str(tag_id),
+                ).first()
+                if not existing:
+                    new_id = db.generate_unused_id(DjmdSongMyTag)
+                    row = DjmdSongMyTag(
+                        ID=str(new_id),
+                        ContentID=str(tid),
+                        MyTagID=str(tag_id),
+                    )
+                    db.session.add(row)
+            db.session.commit()
+
+        parallel = _os.environ.get("AUTOCUE_PARALLEL_AUTO_TAG") == "1"
+
+        if parallel:
+            from concurrent.futures import as_completed as _as_completed
+            from ..analysis.concurrency import get_pool as _get_pool
+
+            pool = _get_pool()
+            futures = [pool.submit(_eval_one, tid) for tid in req.track_ids]
+            processed = 0
+            for fut in _as_completed(futures):
+                processed += 1
+                try:
+                    tid, content, styles, status, artist, title, exc = fut.result()
+                except Exception as outer:
+                    errors += 1
+                    logger.warning("Discogs tag future failed: %s", outer)
+                    yield f"data: {_json.dumps({'processed': processed, 'total': total, 'error': str(outer), 'errors': errors})}\n\n"
+                    continue
+
+                if status == "error":
+                    errors += 1
+                    logger.warning("Discogs tag error for track %d: %s", tid, exc)
+                    yield f"data: {_json.dumps({'processed': processed, 'total': total, 'track_id': tid, 'error': str(exc), 'errors': errors})}\n\n"
+                    continue
+                if status == "no_content":
+                    skipped += 1
+                    yield f"data: {_json.dumps({'processed': processed, 'total': total, 'track_id': tid, 'styles': [], 'skipped': skipped})}\n\n"
+                    continue
+                if status == "skip_existing":
+                    skipped += 1
+                    yield f"data: {_json.dumps({'processed': processed, 'total': total, 'track_id': tid, 'styles': [], 'skipped': skipped})}\n\n"
+                    continue
+                if status == "no_styles":
+                    skipped += 1
+                    yield f"data: {_json.dumps({'processed': processed, 'total': total, 'track_id': tid, 'artist': artist, 'title': title, 'styles': [], 'skipped': skipped})}\n\n"
+                    continue
+
+                # status == "ok" — writer runs serially in this generator thread.
+                if not req.dry_run:
+                    try:
+                        _write_one(tid, styles)
+                    except Exception as werr:
+                        errors += 1
+                        logger.warning("Discogs tag write error for track %d: %s", tid, werr)
+                        try:
+                            db.session.rollback()
+                        except Exception:
+                            pass
+                        yield f"data: {_json.dumps({'processed': processed, 'total': total, 'track_id': tid, 'error': str(werr), 'errors': errors})}\n\n"
+                        continue
+                tagged += 1
+                yield f"data: {_json.dumps({'processed': processed, 'total': total, 'track_id': tid, 'artist': artist, 'title': title, 'styles': styles, 'tagged': tagged})}\n\n"
+        else:
+            for i, tid in enumerate(req.track_ids):
+                try:
+                    content = db.get_content(ID=tid)
+                    if content is None:
                         skipped += 1
                         yield f"data: {_json.dumps({'processed': i+1, 'total': total, 'track_id': tid, 'styles': [], 'skipped': skipped})}\n\n"
                         continue
 
-                artist = str(getattr(content, "ArtistName", "") or "")
-                title  = str(getattr(content, "Title", "") or "")
-                styles = search_styles(artist, title, req.token)
+                    # Skip tracks that already have Discogs-style tags (non-AutoCue My Tags)
+                    if req.skip_existing:
+                        existing_song_tags = db.session.query(DjmdSongMyTag).filter(
+                            DjmdSongMyTag.ContentID == str(tid)
+                        ).all()
+                        has_discogs_tag = any(
+                            tag_name_map.get(str(st.MyTagID), "") not in ALL_AUTOCUE_TAG_NAMES
+                            and tag_name_map.get(str(st.MyTagID), "") != ""
+                            for st in existing_song_tags
+                        )
+                        if has_discogs_tag:
+                            skipped += 1
+                            yield f"data: {_json.dumps({'processed': i+1, 'total': total, 'track_id': tid, 'styles': [], 'skipped': skipped})}\n\n"
+                            continue
 
-                if not styles:
-                    skipped += 1
-                    yield f"data: {_json.dumps({'processed': i+1, 'total': total, 'track_id': tid, 'artist': artist, 'title': title, 'styles': [], 'skipped': skipped})}\n\n"
-                    continue
+                    artist = str(getattr(content, "ArtistName", "") or "")
+                    title  = str(getattr(content, "Title", "") or "")
+                    styles = search_styles(artist, title, req.token)
 
-                if not req.dry_run:
-                    for style in styles:
-                        tag_id = ensure_tag_by_name(db, style)
-                        from pyrekordbox.db6 import DjmdSongMyTag
-                        existing = db.session.query(DjmdSongMyTag).filter(
-                            DjmdSongMyTag.ContentID == str(tid),
-                            DjmdSongMyTag.MyTagID   == str(tag_id),
-                        ).first()
-                        if not existing:
-                            new_id = db.generate_unused_id(DjmdSongMyTag)
-                            row = DjmdSongMyTag(
-                                ID=str(new_id),
-                                ContentID=str(tid),
-                                MyTagID=str(tag_id),
-                            )
-                            db.session.add(row)
-                    db.session.commit()
+                    if not styles:
+                        skipped += 1
+                        yield f"data: {_json.dumps({'processed': i+1, 'total': total, 'track_id': tid, 'artist': artist, 'title': title, 'styles': [], 'skipped': skipped})}\n\n"
+                        continue
 
-                tagged += 1
-                yield f"data: {_json.dumps({'processed': i+1, 'total': total, 'track_id': tid, 'artist': artist, 'title': title, 'styles': styles, 'tagged': tagged})}\n\n"
+                    if not req.dry_run:
+                        _write_one(tid, styles)
 
-            except Exception as exc:
-                errors += 1
-                logger.warning("Discogs tag error for track %d: %s", tid, exc)
-                try:
-                    db.session.rollback()
-                except Exception:
-                    pass
-                yield f"data: {_json.dumps({'processed': i+1, 'total': total, 'track_id': tid, 'error': str(exc), 'errors': errors})}\n\n"
+                    tagged += 1
+                    yield f"data: {_json.dumps({'processed': i+1, 'total': total, 'track_id': tid, 'artist': artist, 'title': title, 'styles': styles, 'tagged': tagged})}\n\n"
+
+                except Exception as exc:
+                    errors += 1
+                    logger.warning("Discogs tag error for track %d: %s", tid, exc)
+                    try:
+                        db.session.rollback()
+                    except Exception:
+                        pass
+                    yield f"data: {_json.dumps({'processed': i+1, 'total': total, 'track_id': tid, 'error': str(exc), 'errors': errors})}\n\n"
 
         yield f"data: {_json.dumps({'done': True, 'tagged': tagged, 'skipped': skipped, 'errors': errors})}\n\n"
 
