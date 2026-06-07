@@ -11,9 +11,33 @@ implementation. Source-of-truth file refs are inline (e.g.
 > linked under each section ([cue-generation.md](./cue-generation.md),
 > [track-classification.md](./track-classification.md), etc.).
 
+## Table of Contents
+
+- [Overview](#overview)
+- [Authentication](#authentication)
+- [Database connection](#database-connection)
+- [SSE conventions](#sse-conventions)
+- [SSE disconnection and cancellation](#sse-disconnection-and-cancellation)
+- [Status and system endpoints](#status-and-system-endpoints)
+- [Tracks and library](#tracks-and-library)
+- [Cue generation and application](#cue-generation-and-application)
+- [Library health](#library-health)
+- [Analysis (energy / mixability / classification / similar)](#analysis-energy--mixability--classification--similar)
+- [Transitions and set builder](#transitions-and-set-builder)
+- [Playlists](#playlists)
+- [Auto-Tag](#auto-tag)
+- [Comment enrichment](#comment-enrichment)
+- [Discover and Download](#discover-and-download)
+- [Middleware](#middleware)
+- [Common error responses](#common-error-responses)
+- [SSE event format — wire-level examples](#sse-event-format--wire-level-examples)
+- [Performance notes](#performance-notes)
+- [Testing](#testing)
+- [Related docs](#related-docs)
+
 ---
 
-## 1. Overview
+## Overview
 
 | Property            | Value                                                                |
 | ------------------- | -------------------------------------------------------------------- |
@@ -56,7 +80,7 @@ If `7432` is taken, the launcher does two things (`app.py:64`):
 
 ---
 
-## 2. Authentication
+## Authentication
 
 **None.** The server requires no authentication.
 
@@ -72,7 +96,7 @@ file or the `DISCOGS_TOKEN` environment variable (`routes.py:1885-1900`).
 
 ---
 
-## 3. Database connection
+## Database connection
 
 Two DB handles live on `app.state`:
 
@@ -119,7 +143,7 @@ The guard fires on:
 
 ---
 
-## 4. SSE conventions
+## SSE conventions
 
 Several endpoints stream Server-Sent Events instead of a single JSON response.
 
@@ -173,19 +197,130 @@ while (true) {
 }
 ```
 
-### Client disconnect
+---
 
-`/api/color-tracks-stream` and `/api/cue-tools-stream` wrap the per-track loop
-in `try/except BaseException` to catch `GeneratorExit` raised on client
-disconnect, then `db.session.rollback()` before re-raising. This guarantees a
-disconnected client never leaves the session in a dirty state
-(`routes.py:762-764`, `routes.py:1090-1092`).
+## SSE disconnection and cancellation
+
+This section documents what happens when an SSE client (typically the browser)
+drops the connection mid-stream. The behaviour is **not uniform** across
+endpoints — it depends on whether the generator wraps its loop in
+`try/except BaseException` (catches `GeneratorExit`) and whether the work runs
+in the generator coroutine itself or a background worker thread.
+
+### The general rule (Starlette + sync generators)
+
+All SSE endpoints in `autocue/serve/routes.py` use Starlette's
+`StreamingResponse(event_stream(), media_type="text/event-stream")`. The
+generator function is iterated by an asyncio task; when the client TCP socket
+closes, the task is cancelled and Python throws **`GeneratorExit`** into the
+generator on its next `yield`. Concretely:
+
+- The generator does **not** stop mid-iteration. It completes the current loop
+  body (e.g. finishes processing the current track), produces its next
+  `yield`, and that `yield` raises `GeneratorExit`.
+- If nothing catches it, the generator unwinds and any open DB transaction
+  state remains as-is on the SQLAlchemy session attached to the request.
+- There is **no explicit cancellation token** plumbed through any endpoint;
+  the only signal a generator gets is `GeneratorExit` on the next `yield`.
+
+This means a disconnect can never abort the *current* iteration — only the
+*next* one. For a long per-iteration unit (a slow track), the server can
+keep working on it for seconds after the client has gone.
+
+### DB-write SSE endpoints
+
+Two patterns appear in `routes.py`:
+
+**1. Wrapped in `try/except BaseException` — rollback on disconnect.**
+
+`POST /api/color-tracks-stream` (`routes.py:762-764`) and
+`POST /api/cue-tools-stream` (`routes.py:1090-1092`) commit **once at the end
+of the batch**. Their loops are wrapped in `try/except BaseException` — which
+includes `GeneratorExit`. On disconnect, the `except` runs
+`db.session.rollback()` before re-raising. Because the commit only happens
+**after** the loop, a mid-stream disconnect on these two endpoints means
+**none of the in-flight changes are persisted** — the whole batch is
+discarded. This is the safest behaviour.
+
+**2. No `except BaseException` — per-track commits already persisted.**
+
+`POST /api/generate-apply-stream` (`routes.py:488-517`) writes cues per track
+via `write_cues_to_db()`. Those writes go through `db.session` and are not
+inside a single end-of-batch commit — by the time the next event is yielded,
+the cue rows for the previous track are already flushed to the session (and
+the DB backup was taken before the stream began). On disconnect, processed
+tracks **stay written** to `master.db`; only the unprocessed tail is lost. A
+client that retries the same `track_ids` will re-process those rows; the
+combined endpoint is idempotent for `overwrite=true` and a no-op for
+`overwrite=false` (existing slots stay).
+
+`POST /api/enrich-comments/stream` (`routes.py:1755-1813`) is the cleanest
+case: each track is **committed individually** inside the per-track `try`
+block (`routes.py:1797`). If the client drops, the last successfully committed
+track is persisted and everything not yet reached is simply not written. The
+upfront backup (taken once before the loop) is intact and `routes.py:1780`
+captures its path, so a user can `/api/restore` if needed.
+
+### `/api/download` and `/api/download/album` — worker thread keeps running
+
+`POST /api/download` runs the blocking yt-dlp call in a `threading.Thread`
+(daemon=True) and uses a `queue.Queue` to ferry progress events into the SSE
+generator (`routes.py:1971-2008`). This means:
+
+- **The worker thread is not cancelled when the client disconnects.** yt-dlp
+  continues downloading, ffmpeg continues transcoding, and the resulting file
+  lands in `dest_dir` regardless of whether anyone is listening for the
+  result.
+- The generator iterating `events.get()` will eventually unwind on
+  `GeneratorExit` (on its next `yield`), but the worker has no awareness of
+  this and no cancellation hook is wired in.
+- Daemon-thread semantics mean the worker is only killed if the **entire
+  server process** exits. For a normal SIGINT it will be killed mid-download.
+
+`POST /api/download/album` is sequential and runs entirely inside the
+generator (no worker thread). On disconnect the generator unwinds at the next
+`yield`, which means **the in-flight track completes** (because `yt-dlp` is
+called synchronously and only the yield following it raises) but no further
+tracks in the album are attempted.
+
+The current behaviour for `/api/download` (worker survives client disconnect)
+is **not enforced by an explicit cancellation token**, so it is technically
+unspecified — a future change that swaps the worker model could change this
+without violating any documented contract. Callers that need cancellation
+should not rely on closing the connection; there is no kill endpoint today.
+
+### Read-only SSE endpoints
+
+`GET /api/health`, `GET /api/classify`, and `GET /api/discover` only read the
+DB (the latter also calls Discogs over HTTP). On disconnect the generator
+unwinds at the next `yield` and no rollback is needed — there is nothing to
+roll back. Discogs requests already in flight when the disconnect happens are
+finished by `requests`, their results are added to the per-process cache
+(`discogs._cache` / `_releases_cache`), and the next caller benefits.
+
+### Summary table
+
+| Endpoint                                | Loop wrap                       | Persistence after disconnect                                  |
+| --------------------------------------- | ------------------------------- | ------------------------------------------------------------- |
+| `/api/generate-apply-stream`            | none                            | Processed tracks already written; unprocessed tail lost       |
+| `/api/color-tracks-stream`              | `try/except BaseException` + rollback | Whole batch discarded                                   |
+| `/api/cue-tools-stream`                 | `try/except BaseException` + rollback | Whole batch discarded                                   |
+| `/api/enrich-comments/stream`           | per-track commit                | Per-track commits already persisted; unprocessed tail lost    |
+| `/api/health`, `/api/classify`          | none (read-only)                | N/A                                                           |
+| `/api/auto-tag/discogs`                 | per-track commit (see `routes.py:1627`) | Per-track commits already persisted                   |
+| `/api/discover`                         | none (read-only + Discogs HTTP) | Discogs cache may be warmed                                   |
+| `/api/download`                         | worker thread                   | **Worker continues running**; file may still land on disk     |
+| `/api/download/album`                   | none                            | In-flight track finishes; no further tracks attempted         |
+
+If you change any of these handlers, preserve the disconnect contract — or
+update both this table and the corresponding behaviour-notes in CLAUDE.md.
 
 ---
 
-## 5. Status and system endpoints
+## Status and system endpoints
 
-### GET `/api/status`
+<details>
+<summary><code>GET /api/status</code> — system health probe</summary>
 
 System health probe. Used by the UI to detect local-mode and by the launcher
 to detect a running instance (`routes.py:74`).
@@ -204,13 +339,14 @@ to detect a running instance (`routes.py:74`).
 | -------------------- | -------------- | ------------------------------------------------------ |
 | `connected`          | bool           | DB handle is non-null                                  |
 | `rekordbox_version`  | string \| null | Reserved (always `null` today)                         |
-| `track_count`        | int            | `db.get_content().count()` — total `DjmdContent` rows  |
+| `track_count`        | int            | `db.get_content().count()` — total [`DjmdContent`](./GLOSSARY.md#djmdcontent) rows  |
 
 **503** — DB never connected at startup.
 
----
+</details>
 
-### GET `/api/config`
+<details>
+<summary><code>GET /api/config</code> — non-sensitive client config (Discogs token)</summary>
 
 Returns non-sensitive client config (`routes.py:1577`). Today, just the
 Discogs token sourced from `.env` then `os.environ`.
@@ -224,9 +360,10 @@ Discogs token sourced from `.env` then `os.environ`.
 The `.env` reader is line-oriented; only the first `DISCOGS_TOKEN=` line wins.
 `os.environ["DISCOGS_TOKEN"]` overrides the file.
 
----
+</details>
 
-### GET `/api/backups`
+<details>
+<summary><code>GET /api/backups</code> — list backup files</summary>
 
 List `.db` backup files in the AutoCue backup directory, sorted newest first
 (`routes.py:526`). The filename embeds a UTC timestamp (`master_YYYYMMDDTHHMMSS.db`),
@@ -250,9 +387,10 @@ which is parsed for a clean `created_at`; non-matching names fall back to mtime.
 
 Returns `[]` if `BACKUP_DIR` does not exist.
 
----
+</details>
 
-### POST `/api/restore`
+<details>
+<summary><code>POST /api/restore</code> — restore a backup master.db</summary>
 
 Restore a backup `master.db` (`routes.py:551`). Validates the filename is a
 bare filename (no `/`, `\`, or `..`) and resolves under `BACKUP_DIR` — see
@@ -290,9 +428,10 @@ bare filename (no `/`, `\`, or `..`) and resolves under `BACKUP_DIR` — see
 | 409    | Rekordbox is running                                       |
 | 500    | Copy failed, or reopen failed (db is left null)            |
 
----
+</details>
 
-### DELETE `/api/backups/{filename}`
+<details>
+<summary><code>DELETE /api/backups/{filename}</code> — delete a backup file</summary>
 
 Delete a single backup, plus its `-wal`/`-shm` sidecars if present
 (`routes.py:614`). Path traversal blocked by `resolve()` + prefix check.
@@ -316,11 +455,14 @@ Delete a single backup, plus its `-wal`/`-shm` sidecars if present
 The UI's "multi-select delete" calls this endpoint once per checked file then
 shows a consolidated toast.
 
+</details>
+
 ---
 
-## 6. Tracks and library
+## Tracks and library
 
-### GET `/api/tracks`
+<details>
+<summary><code>GET /api/tracks</code> — return the library (filtered, sorted)</summary>
 
 Return the library, optionally filtered to a playlist and sorted. Designed for
 single-shot full-library loads of ~3k–10k tracks; do not paginate on the
@@ -338,7 +480,7 @@ client (`routes.py:96`).
 
 Sort details:
 
-- `key` joins `DjmdKey` and sorts by `Seq` (so `1A < 2A < … < 12A`, not
+- `key` joins [`DjmdKey`](./GLOSSARY.md#djmdkey) and sorts by `Seq` (so `1A < 2A < … < 12A`, not
   lexicographic — `routes.py:131`).
 - `artist`/`album` join the relevant table and sort `lower(Name)`.
 - Default falls through to `lower(DjmdContent.Title)`.
@@ -373,16 +515,16 @@ Sort details:
 
 | Field               | Type      | Meaning                                                                 |
 | ------------------- | --------- | ----------------------------------------------------------------------- |
-| `id`                | int       | `DjmdContent.ID`                                                        |
+| `id`                | int       | [`DjmdContent.ID`](./GLOSSARY.md#djmdcontent)                           |
 | `bpm`               | float     | `DjmdContent.BPM / 100` (Rekordbox stores it ×100)                      |
 | `duration`          | float     | `DjmdContent.Length` (seconds)                                          |
-| `has_phrase`        | bool      | `AnalysisDataPath` is set (= `.EXT` file written; no `iterdir` scan)    |
+| `has_phrase`        | bool      | `AnalysisDataPath` is set (= [ANLZ](./GLOSSARY.md#anlz-files-and-tags) `.EXT` file written; no `iterdir` scan) |
 | `has_beats`         | bool      | `BPM > 0`                                                               |
-| `existing_hot_cues` | int       | Count of `DjmdCue` rows with `Kind ∈ [1, 8]` for this track             |
-| `key`               | string    | Camelot string from `DjmdKey.ScaleName`                                 |
-| `last_played`       | string \| null | Latest `DjmdHistory.DateCreated` for this track                    |
-| `my_tags`           | list[str] | Names of `DjmdMyTag` attached via `DjmdSongMyTag`                       |
-| `color_name`        | string    | `DjmdColor.Commnt` for `DjmdContent.ColorID` (or `""` if none)          |
+| `existing_hot_cues` | int       | Count of [`DjmdCue`](./GLOSSARY.md#djmdcue) rows with [`Kind`](./GLOSSARY.md#cue-encoding-kind-slot-inframe-outmsec) ∈ [1, 8] for this track |
+| `key`               | string    | [Camelot](./GLOSSARY.md#camelot-key-wheel) string from `DjmdKey.ScaleName` |
+| `last_played`       | string \| null | Latest [`DjmdHistory`](./GLOSSARY.md#djmdhistory--djmdsonghistory).DateCreated for this track  |
+| `my_tags`           | list[str] | Names of [`DjmdMyTag`](./GLOSSARY.md#djmdmytag--djmdsongmytag) attached via `DjmdSongMyTag`     |
+| `color_name`        | string    | [`DjmdColor`](./GLOSSARY.md#djmdcolor).Commnt for `DjmdContent.ColorID` (or `""` if none)       |
 | `genre`             | string    | `DjmdContent.GenreName` association proxy                               |
 | `comment`           | string    | `DjmdContent.Commnt` (note the abbreviated spelling)                    |
 
@@ -401,9 +543,10 @@ not one query per track.
 | ------ | --------------------------------- |
 | 404    | `?playlist_id=N` does not exist   |
 
----
+</details>
 
-### GET `/api/tracks/{track_id}/artwork`
+<details>
+<summary><code>GET /api/tracks/{track_id}/artwork</code> — embedded artwork</summary>
 
 Return the track's embedded artwork as an image response (`routes.py:206`).
 
@@ -418,9 +561,10 @@ Return the track's embedded artwork as an image response (`routes.py:206`).
 
 **404** — Track does not exist, or no artwork found.
 
----
+</details>
 
-### GET `/api/tracks/{track_id}/audio`
+<details>
+<summary><code>GET /api/tracks/{track_id}/audio</code> — stream audio file</summary>
 
 Stream the track's audio file (`routes.py:244`). Reads `DjmdContent.FolderPath`
 (despite the name, this is the full file path) and serves it via
@@ -438,11 +582,12 @@ Stream the track's audio file (`routes.py:244`). Reads `DjmdContent.FolderPath`
 This endpoint is used by the in-page mini player. Browsers send range
 requests; `FileResponse` handles 206 partial content natively.
 
----
+</details>
 
-### GET `/api/tags`
+<details>
+<summary><code>GET /api/tags</code> — My Tags actually applied to ≥1 track</summary>
 
-Return My Tags that are **actually applied** to at least one track
+Return [My Tags](./GLOSSARY.md#djmdmytag--djmdsongmytag) that are **actually applied** to at least one track
 (`routes.py:270`). The endpoint filters `DjmdMyTag` against
 `distinct(DjmdSongMyTag.MyTagID)` so orphan tags created and never used do
 not pollute the UI's tag filter.
@@ -455,9 +600,10 @@ not pollute the UI's tag filter.
 
 Returns `[]` on any exception (broad fallback for older Rekordbox schemas).
 
----
+</details>
 
-### GET `/api/playlists`
+<details>
+<summary><code>GET /api/playlists</code> — all Rekordbox playlists with track counts</summary>
 
 Return all Rekordbox playlists with their track counts (`routes.py:80`).
 
@@ -467,15 +613,18 @@ Return all Rekordbox playlists with their track counts (`routes.py:80`).
 [ {"id": 1234, "name": "House 2026", "track_count": 87} ]
 ```
 
-Track counts come from a single `GROUP BY` query over `DjmdSongPlaylist`.
+Track counts come from a single `GROUP BY` query over [`DjmdSongPlaylist`](./GLOSSARY.md#djmdplaylist--djmdsongplaylist).
+
+</details>
 
 ---
 
-## 7. Cue generation and application
+## Cue generation and application
 
 See [cue-generation.md](./cue-generation.md) for the engine deep dive.
 
-### POST `/api/generate`
+<details>
+<summary><code>POST /api/generate</code> — preview cues without writing</summary>
 
 Preview cues for one or more tracks **without writing** to the DB
 (`routes.py:287`).
@@ -514,9 +663,10 @@ Preview cues for one or more tracks **without writing** to the DB
 Tracks not found in the DB are silently dropped (no error, no entry in
 `tracks`).
 
----
+</details>
 
-### POST `/api/apply`
+<details>
+<summary><code>POST /api/apply</code> — write previewed cues to the DB</summary>
 
 Write previewed cues to the DB (`routes.py:322`). Caller supplies the
 `TrackResult` rows from `/generate`. Always makes a DB backup before writing
@@ -546,9 +696,10 @@ unless `dry_run=true`.
 `/api/apply` is rarely used directly by the UI — the combined streaming
 endpoint avoids a large JSON round-trip.
 
----
+</details>
 
-### POST `/api/generate-apply`
+<details>
+<summary><code>POST /api/generate-apply</code> — combined sync generate + write</summary>
 
 Combined sync version: generates cues and writes them in a single request
 (`routes.py:382`). Used by tests and scripts; the UI uses the SSE variant.
@@ -563,9 +714,10 @@ Combined sync version: generates cues and writes them in a single request
 
 **Response** — same `ApplyResponse` as `/api/apply`.
 
----
+</details>
 
-### POST `/api/generate-apply-stream`
+<details>
+<summary><code>POST /api/generate-apply-stream</code> — SSE combined generate + write</summary>
 
 SSE version of the combined endpoint — emits per-track progress
 (`routes.py:449`). **This is the one the UI uses.**
@@ -605,9 +757,13 @@ data: {"done": true, "applied": 95, "skipped": 5, "backup_path": "/.../master_20
 | 409    | Rekordbox is running       |
 | 500    | Backup failed              |
 
----
+Client disconnect: processed tracks remain written; see
+[SSE disconnection and cancellation](#sse-disconnection-and-cancellation).
 
-### POST `/api/delete-cues`
+</details>
+
+<details>
+<summary><code>POST /api/delete-cues</code> — delete all hot cues from tracks</summary>
 
 Delete all hot cues from a list of tracks (`routes.py:631`). Makes a backup
 first unless `dry_run`.
@@ -627,12 +783,14 @@ first unless `dry_run`.
 
 **409** when Rekordbox is running. **500** on backup failure.
 
----
+</details>
 
-### POST `/api/color-tracks`
+<details>
+<summary><code>POST /api/color-tracks</code> — BPM-derived track color (sync)</summary>
 
 Set each track's color to a slot derived from its BPM (`routes.py:673`). See
-the BPM→color mapping in `autocue/db_writer.py:_bpm_to_color_sort_key`.
+the BPM→color mapping in `autocue/db_writer.py:_bpm_to_color_sort_key` and
+the [`DjmdColor` SortKey table](./GLOSSARY.md#color-sortkey--colorid-resolution).
 
 **Request** — `ColorTracksRequest`
 
@@ -650,9 +808,10 @@ the BPM→color mapping in `autocue/db_writer.py:_bpm_to_color_sort_key`.
 
 **409** when Rekordbox is running **and** `dry_run=false`. **500** on backup.
 
----
+</details>
 
-### POST `/api/color-tracks-stream`
+<details>
+<summary><code>POST /api/color-tracks-stream</code> — BPM-derived color (SSE)</summary>
 
 SSE version, same request schema (`routes.py:702`). Streams progress every
 50 tracks (`BATCH=50`) and at the end. Commits **once** at the end of the
@@ -674,14 +833,18 @@ data: {"done": true, "colored": 198, "skipped": 2, "total": 200, "backup_path": 
 
 Wrapped in `try/except BaseException` — if the client disconnects mid-stream,
 the session is rolled back before the exception propagates
-(`routes.py:762-764`).
+(`routes.py:762-764`). See
+[SSE disconnection and cancellation](#sse-disconnection-and-cancellation) for
+the full disconnect contract.
 
----
+</details>
 
-### POST `/api/cue-tools-stream`
+<details>
+<summary><code>POST /api/cue-tools-stream</code> — rename / recolor / shift / delete_orphan (SSE)</summary>
 
 Bulk cue edits (rename / recolor / shift / delete_orphan) over the whole hot-cue
-set of each track (`routes.py:930`). Always operates on `Kind ∈ [1, 8]` —
+set of each track (`routes.py:930`). Always operates on
+[`Kind`](./GLOSSARY.md#cue-encoding-kind-slot-inframe-outmsec) ∈ [1, 8] —
 memory cues (`Kind=0`) are never touched.
 
 **Request** — `CueToolsRequest`
@@ -712,8 +875,8 @@ strings `"0".."7"` to `ColorTableIndex` `0..8` (0=none, 1=Pink, …, 8=Purple).
 - `skip`: silently drop the cues that would go negative.
 - `clamp_to_zero`: place them at 0 ms.
 
-Shift also updates `OutMsec`/`OutFrame` for loop cues to preserve loop length
-(`routes.py:1038-1045`).
+Shift also updates [`OutMsec`/`OutFrame`](./GLOSSARY.md#cue-encoding-kind-slot-inframe-outmsec)
+for loop cues to preserve loop length (`routes.py:1038-1045`).
 
 **`CueDeleteOrphanParams`** — `{ keep_slots: 1..8 }`. Deletes cues with
 `Kind > keep_slots`.
@@ -755,13 +918,20 @@ Stable `skip_reasons` keys:
 failure. Empty `track_ids` short-circuits to a synthesized `done` event with
 zeros — no backup is taken (`routes.py:945-962`).
 
+Like `/api/color-tracks-stream`, wrapped in `try/except BaseException` so
+client disconnects roll back the whole batch
+(`routes.py:1090-1092`).
+
+</details>
+
 ---
 
-## 8. Library health
+## Library health
 
 See [library-health.md](./library-health.md) for the scoring rubric.
 
-### GET `/api/tracks/{track_id}/health`
+<details>
+<summary><code>GET /api/tracks/{track_id}/health</code> — per-track health report</summary>
 
 Per-track health report (`routes.py:828`).
 
@@ -796,9 +966,10 @@ than 500 (`routes.py:837-843`).
 
 **404** — Track not found.
 
----
+</details>
 
-### GET `/api/health`
+<details>
+<summary><code>GET /api/health</code> — library-wide health scan (SSE)</summary>
 
 SSE stream of the whole library's health (`routes.py:846`). One event per
 track, then a summary.
@@ -848,13 +1019,17 @@ data: {"done": true, "summary": {
 
 **404** when `?playlist_id=N` does not exist.
 
+</details>
+
 ---
 
-## 9. Analysis (energy / mixability / classification / similar)
+## Analysis (energy / mixability / classification / similar)
 
-### GET `/api/tracks/{track_id}/energy`
+<details>
+<summary><code>GET /api/tracks/{track_id}/energy</code> — PWAV energy curve</summary>
 
-PWAV-derived energy curve, resampled to a fixed length (`routes.py:1113`).
+[PWAV](./GLOSSARY.md#anlz-files-and-tags)-derived energy curve, resampled to a
+fixed length (`routes.py:1113`).
 
 **Response — 200** — `EnergyResponse`
 
@@ -873,9 +1048,10 @@ down to `n_points`. Curve length is part of the cache key in `energy._cache`.
 
 **404** — Track not found.
 
----
+</details>
 
-### GET `/api/tracks/{track_id}/mixability`
+<details>
+<summary><code>GET /api/tracks/{track_id}/mixability</code> — mixability score</summary>
 
 Mixability score (0–100) and breakdown (`routes.py:1128`). Cached in
 `score._mixability_cache`.
@@ -898,9 +1074,10 @@ Mixability score (0–100) and breakdown (`routes.py:1128`). Cached in
 
 If no phrase data, `score` is `null` and `components` is `null`.
 
----
+</details>
 
-### GET `/api/tracks/{track_id}/classification`
+<details>
+<summary><code>GET /api/tracks/{track_id}/classification</code> — DJ-set category</summary>
 
 Track category (`routes.py:1149`). See
 [track-classification.md](./track-classification.md).
@@ -931,9 +1108,10 @@ Track category (`routes.py:1149`). See
 
 **404** — Track not found.
 
----
+</details>
 
-### GET `/api/classify`
+<details>
+<summary><code>GET /api/classify</code> — library-wide classification (SSE)</summary>
 
 SSE: classify every track in the library or a playlist
 (`routes.py:1249`).
@@ -961,13 +1139,13 @@ data: {"done": true, "total": 3127, "counts": {"warmup": 320, "build": 540, "pea
 
 **404** when `?playlist_id=N` does not exist.
 
----
+</details>
 
-### GET `/api/tracks/{track_id}/similar`
+<details>
+<summary><code>GET /api/tracks/{track_id}/similar</code> — K-nearest tracks (cosine)</summary>
 
 K-nearest tracks by cosine similarity over a 6-dim feature vector
-(`routes.py:1304`). See [similarity-search.md](./similarity-search.md) if
-present, else CLAUDE.md "similar" section.
+(`routes.py:1304`). See [similar-tracks.md](./similar-tracks.md).
 
 **Query params**
 
@@ -1001,14 +1179,17 @@ few seconds.
 
 **404** — Track not found.
 
+</details>
+
 ---
 
-## 10. Transitions and set builder
+## Transitions and set builder
 
-### POST `/api/transitions/score`
+<details>
+<summary><code>POST /api/transitions/score</code> — score one A→B transition</summary>
 
 Score a single A→B transition (`routes.py:1326`). See
-[transitions.md](./transitions.md) if present.
+[transition-scoring.md](./transition-scoring.md).
 
 **Request** — `TransitionRequest`
 
@@ -1049,9 +1230,10 @@ Score a single A→B transition (`routes.py:1326`). See
 | 400    | `track_a_id == track_b_id`                    |
 | 404    | Either track not in DB                        |
 
----
+</details>
 
-### POST `/api/setbuilder`
+<details>
+<summary><code>POST /api/setbuilder</code> — beam-search a full DJ set</summary>
 
 Beam-search a full DJ set (`routes.py:1351`). See
 [set-builder.md](./set-builder.md) for the algorithm.
@@ -1103,9 +1285,10 @@ Beam-search a full DJ set (`routes.py:1351`). See
 
 **422** if no valid set could be built with the given constraints.
 
----
+</details>
 
-### GET `/api/setbuilder/alternatives`
+<details>
+<summary><code>GET /api/setbuilder/alternatives</code> — swap candidates for one slot</summary>
 
 Replacement candidates for one slot, scored on fit to both neighbours
 (`routes.py:1391`).
@@ -1144,11 +1327,14 @@ Replacement candidates for one slot, scored on fit to both neighbours
 
 Builds the similarity index on first call if not warm (`routes.py:1405`).
 
+</details>
+
 ---
 
-## 11. Playlists
+## Playlists
 
-### POST `/api/playlists/suggest`
+<details>
+<summary><code>POST /api/playlists/suggest</code> — top tracks for a DJ-set category</summary>
 
 Return top tracks for a DJ-set category, sorted by category score
 (`routes.py:1159`). Used by the "Suggest playlist" UI.
@@ -1190,9 +1376,10 @@ Return top tracks for a DJ-set category, sorted by category score
 | 400    | Unknown `category` or bad `count`   |
 | 404    | `playlist_id` not found             |
 
----
+</details>
 
-### POST `/api/playlists`
+<details>
+<summary><code>POST /api/playlists</code> — create a Rekordbox playlist</summary>
 
 Create a Rekordbox playlist (`routes.py:1494`).
 
@@ -1217,19 +1404,23 @@ Create a Rekordbox playlist (`routes.py:1494`).
 | 409    | Rekordbox is running                       |
 | 500    | Insert failed (rolled back)                |
 
-Each `DjmdSongPlaylist` row is given an explicit `db.generate_unused_id(...)`,
-a fresh UUID, and a sequential `TrackNo`. The new playlist's `Seq` is
-`max(Seq) + 1`.
+Each [`DjmdSongPlaylist`](./GLOSSARY.md#djmdplaylist--djmdsongplaylist) row is
+given an explicit `db.generate_unused_id(...)`, a fresh UUID, and a sequential
+`TrackNo`. The new playlist's `Seq` is `max(Seq) + 1`.
+
+</details>
 
 ---
 
-## 12. Auto-Tag
+## Auto-Tag
 
 See [auto-tag.md](./auto-tag.md) for the My Tag deep dive.
 
-### POST `/api/auto-tag`
+<details>
+<summary><code>POST /api/auto-tag</code> — write detected My Tags</summary>
 
-Write detected My Tags to a list of tracks (`routes.py:1554`).
+Write detected [My Tags](./GLOSSARY.md#djmdmytag--djmdsongmytag) to a list of
+tracks (`routes.py:1554`).
 
 **Request** — `AutoTagRequest`
 
@@ -1257,9 +1448,10 @@ The `undo_data` blob is the input for `/api/auto-tag/undo`.
 **409** when Rekordbox is running and `dry_run=false`. **500** rolls back the
 session and reports the message.
 
----
+</details>
 
-### POST `/api/auto-tag/undo`
+<details>
+<summary><code>POST /api/auto-tag/undo</code> — reverse a previous tag run</summary>
 
 Reverse a previous tag run (`routes.py:1716`).
 
@@ -1277,9 +1469,10 @@ Reverse a previous tag run (`routes.py:1716`).
 
 **409** when Rekordbox is running. **500** rolls back.
 
----
+</details>
 
-### POST `/api/auto-tag/discogs/test`
+<details>
+<summary><code>POST /api/auto-tag/discogs/test</code> — validate a Discogs token</summary>
 
 Validate a Discogs personal access token via the Discogs identity endpoint
 (`routes.py:1599`).
@@ -1298,12 +1491,13 @@ Validate a Discogs personal access token via the Discogs identity endpoint
 
 **400** on missing token or any Discogs failure (message echoed).
 
----
+</details>
 
-### POST `/api/auto-tag/discogs`
+<details>
+<summary><code>POST /api/auto-tag/discogs</code> — fetch Discogs styles, write as My Tags (SSE)</summary>
 
-SSE stream that fetches Discogs Styles per track and writes them as My Tags
-(`routes.py:1619`).
+SSE stream that fetches Discogs Styles per track and writes them as
+[My Tags](./GLOSSARY.md#djmdmytag--djmdsongmytag) (`routes.py:1619`).
 
 **Request** — `DiscogsTagRequest`
 
@@ -1347,14 +1541,17 @@ data: {"done": true, "tagged": 42, "skipped": 6, "errors": 2}
 Discogs is rate-limited (60 req/min) by an in-process token bucket; results
 are cached per process in `discogs._cache`.
 
+</details>
+
 ---
 
-## 13. Comment enrichment
+## Comment enrichment
 
 See [comment-enrichment.md](./comment-enrichment.md) for the MIK-compatible
 format.
 
-### POST `/api/enrich-comments`
+<details>
+<summary><code>POST /api/enrich-comments</code> — sync batch comment writer</summary>
 
 Sync batch comment writer (`routes.py:1736`).
 
@@ -1374,9 +1571,10 @@ Sync batch comment writer (`routes.py:1736`).
 
 **409** when Rekordbox is running and `dry_run=false`. **500** rolls back.
 
----
+</details>
 
-### POST `/api/enrich-comments/preview`
+<details>
+<summary><code>POST /api/enrich-comments/preview</code> — preview one track's enriched comment</summary>
 
 Compute what one track's comment would become **without writing**
 (`routes.py:1816`).
@@ -1399,9 +1597,10 @@ Compute what one track's comment would become **without writing**
 
 **404** — Track not found.
 
----
+</details>
 
-### POST `/api/enrich-comments/stream`
+<details>
+<summary><code>POST /api/enrich-comments/stream</code> — batch enrich with per-track commit (SSE)</summary>
 
 SSE batch enrichment, with **per-track commit** so one failing track no longer
 rolls back the whole batch (`routes.py:1755`).
@@ -1426,15 +1625,21 @@ data: {"done": true, "enriched": 42, "skipped": 5, "errors": 3, "backup_path": "
 ```
 
 A single backup is taken once up front before any writes. **409** when
-Rekordbox is running and `dry_run=false`.
+Rekordbox is running and `dry_run=false`. Per-track commits already
+persisted survive client disconnect; see
+[SSE disconnection and cancellation](#sse-disconnection-and-cancellation).
+
+</details>
 
 ---
 
-## 14. Discover and Download
+## Discover and Download
 
-See [discovery.md](./discovery.md) and [download.md](./download.md) if present.
+See [discogs-and-discovery.md](./discogs-and-discovery.md) and
+[youtube-download.md](./youtube-download.md).
 
-### GET `/api/discover`
+<details>
+<summary><code>GET /api/discover</code> — new releases from your top artists (SSE)</summary>
 
 SSE stream of "new releases from your library's top artists" via Discogs
 (`routes.py:1837`).
@@ -1490,9 +1695,10 @@ data: {"done": true, "total": 25, "suggested": 8}
 - Owned albums are filtered out via `library_album_set(db)`.
 - `formats` is the Discogs `format` tag list — surfaced for UI chips.
 
----
+</details>
 
-### GET `/api/download/config`
+<details>
+<summary><code>GET /api/download/config</code> — probe yt-dlp / ffmpeg availability</summary>
 
 Probe whether YouTube downloads are available (`routes.py:1933`).
 
@@ -1514,9 +1720,10 @@ Probe whether YouTube downloads are available (`routes.py:1933`).
 | `default_dir`  | `AUTOCUE_DOWNLOAD_DIR` env or `~/Music/AutoCue`                          |
 | `music_folder` | Detected Rekordbox music root via `os.path.commonpath()` over up to 30 `FolderPath` values, or `null` on failure |
 
----
+</details>
 
-### POST `/api/download`
+<details>
+<summary><code>POST /api/download</code> — download one track via yt-dlp (SSE)</summary>
 
 Download one track via yt-dlp; stream progress as SSE (`routes.py:1957`).
 
@@ -1558,11 +1765,14 @@ data: {"done": true, "status": "error", "error": "...", "failed": 1}
 
 The download runs in a worker thread; progress events flow through a
 `queue.Queue` so the SSE generator can iterate them without blocking the
-event loop (`routes.py:1971-2001`).
+event loop (`routes.py:1971-2001`). **Important**: the worker thread is **not
+cancelled when the client disconnects** — see
+[SSE disconnection and cancellation](#sse-disconnection-and-cancellation).
 
----
+</details>
 
-### POST `/api/download/album`
+<details>
+<summary><code>POST /api/download/album</code> — download multiple tracks sequentially (SSE)</summary>
 
 Download multiple tracks sequentially (`routes.py:2011`).
 
@@ -1596,9 +1806,11 @@ data: {"done": true, "downloaded": 7, "failed": 1, "total": 8}
 
 **503** when yt-dlp or ffmpeg missing.
 
+</details>
+
 ---
 
-## 15. Middleware
+## Middleware
 
 ### GZipMiddleware
 
@@ -1633,7 +1845,7 @@ allowed_origins = [
 
 ---
 
-## 16. Common error responses
+## Common error responses
 
 | Status | Body                                  | When                                                     |
 | ------ | ------------------------------------- | -------------------------------------------------------- |
@@ -1652,7 +1864,7 @@ codebase (see CLAUDE.md "Fetch error handling in JS").
 
 ---
 
-## 17. SSE event format — wire-level examples
+## SSE event format — wire-level examples
 
 ### `/api/health`
 
@@ -1693,7 +1905,7 @@ data: {"done":true,"tagged":1,"skipped":1,"errors":1}\n\n
 
 ---
 
-## 18. Performance notes
+## Performance notes
 
 | Pattern                                   | Why                                                                            |
 | ----------------------------------------- | ------------------------------------------------------------------------------ |
@@ -1707,7 +1919,7 @@ data: {"done":true,"tagged":1,"skipped":1,"errors":1}\n\n
 
 ---
 
-## 19. Testing
+## Testing
 
 Endpoint coverage lives in `tests/test_serve_routes.py` — **194 tests** at
 last count. Every endpoint above has at least:
@@ -1728,12 +1940,14 @@ suite on Python 3.10–3.12.
 
 ---
 
-## 20. Related docs
+## Related docs
 
 - [Cue generation engine](./cue-generation.md) — `/api/generate`,
   `/api/apply`, `/api/generate-apply*`.
 - [Track classification](./track-classification.md) — `/api/tracks/{id}/classification`,
   `/api/classify`.
+- [Glossary](./GLOSSARY.md) — Pioneer/Rekordbox DB tables, ANLZ tags, Camelot
+  wheel, and other terms referenced throughout this doc.
 - [CLI usage](./cli-usage.md) — the `autocue` CLI shares the underlying
   generator and writer with the server.
 - [CLAUDE.md](../../CLAUDE.md) — short-form invariants and gotchas that the

@@ -10,6 +10,28 @@ This document covers the on-disk layout, the API surface, the server-side
 guarantees, and the failure modes you should know about before you trust a
 recovery.
 
+## Table of Contents
+
+- [1. Overview](#1-overview)
+- [2. Backup directory](#2-backup-directory)
+- [3. Backup file naming](#3-backup-file-naming)
+- [4. `backup_database(db_path)`](#4-backup_databasedb_path)
+- [5. When backups are made](#5-when-backups-are-made)
+- [6. Rekordbox-running guard](#6-rekordbox-running-guard)
+- [7. `GET /api/backups`](#7-get-apibackups)
+- [8. `POST /api/restore`](#8-post-apirestore)
+- [9. `DELETE /api/backups/{filename}`](#9-delete-apibackupsfilename)
+- [10. UI surface](#10-ui-surface)
+- [11. WAL/SHM handling](#11-walshm-handling)
+- [12. Failure modes](#12-failure-modes)
+- [13. `autocue serve` startup](#13-autocue-serve-startup)
+- [14. Stale analysis state after restore](#14-stale-analysis-state-after-restore)
+- [15. Examples](#15-examples)
+- [16. Manual recovery](#16-manual-recovery)
+- [17. Retention](#17-retention)
+- [18. Testing](#18-testing)
+- [19. Related](#19-related)
+
 ---
 
 ## 1. Overview
@@ -519,7 +541,7 @@ never accumulates orphaned WAL files. This is verified by
 | `HTTP 404 — Backup '<name>' not found` | Filename does not exist in `BACKUP_DIR`. | Restore refused. |
 | `HTTP 400 — Invalid filename` | `/`, `\`, or `..` in `req.filename`. | Restore refused. |
 | `HTTP 400 — Invalid backup path` | Resolved path escapes `BACKUP_DIR` (symlink, race). | Restore refused. |
-| `HTTP 500 — Restore failed: ...` | `shutil.copy2` raised after the engine was disposed. | Database is now inconsistent — manual recovery required (see §16). |
+| `HTTP 500 — Restore failed: ...` | `shutil.copy2` raised after the engine was disposed. | Database is now inconsistent — manual recovery required (see [Manual recovery](#16-manual-recovery)). |
 | `HTTP 500 — Restore succeeded but could not reopen database: ...` | File copy succeeded; `Rekordbox6Database()` failed. | `app.state.db = None`. Next request will fail; restart `autocue serve`. |
 | Corrupted backup (truncated, wrong page size) | Disk error or external tampering. | Restore copies the bytes successfully; the reopen step fails with `500`. Try a different backup. |
 
@@ -551,9 +573,9 @@ mutating their library.
 ## 14. Stale analysis state after restore
 
 The single most important post-restore step is **cache invalidation**. AutoCue
-keeps several in-process caches keyed by `DjmdContent.ID`. After a restore,
+keeps several in-process caches keyed by [`DjmdContent`](./GLOSSARY.md#djmdcontent)`.ID`. After a restore,
 those keys may map to *different* content rows, or the rows may have
-different ANLZ paths, BPM, key, or energy curves.
+different [ANLZ files](./GLOSSARY.md#anlz-files-and-tags) paths, BPM, key, or energy curves.
 
 If the caches were not cleared:
 
@@ -694,7 +716,7 @@ recover the database by hand:
    ```
    If the backup has no `-wal`/`-shm`, **delete** any stale sidecars in the
    library directory before reopening Rekordbox — the same rule the API
-   restore handler enforces (§11).
+   restore handler enforces ([WAL/SHM handling](#11-walshm-handling)).
 6. **Reopen Rekordbox.** If it complains about an inconsistent database, the
    `-wal`/`-shm` cleanup in step 5 was probably skipped.
 

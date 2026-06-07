@@ -7,6 +7,35 @@ This document is for developers working on the UI. End-user feature
 descriptions live in [`docs/FEATURES.md`](../FEATURES.md). For the API surface
 the JS calls into, see [`rest-api.md`](./rest-api.md).
 
+## Table of Contents
+
+- [1. Overview](#1-overview)
+- [2. Two modes](#2-two-modes)
+- [3. Mode detection — `detectLocalMode()`](#3-mode-detection--detectlocalmode)
+- [4. Three tabs — Cues / Library / Discover](#4-three-tabs--cues--library--discover)
+- [5. Tab-specific panels](#5-tab-specific-panels)
+- [6. Track card structure](#6-track-card-structure)
+- [7. AppState pub/sub bus](#7-appstate-pubsub-bus)
+- [8. `filteredTracks()` — the universal filter](#8-filteredtracks--the-universal-filter)
+- [9. `pendingCues` — preview state](#9-pendingcues--preview-state)
+- [10. `_cardMap` — smart diffing & FLIP reorder](#10-_cardmap--smart-diffing--flip-reorder)
+- [11. IntersectionObservers — lazy enrichment](#11-intersectionobservers--lazy-enrichment)
+- [12. Mini player + RAF playhead](#12-mini-player--raf-playhead)
+- [13. Mini waveform canvas](#13-mini-waveform-canvas)
+- [14. `_energyCache` — energy curves for the mini waveform](#14-_energycache--energy-curves-for-the-mini-waveform)
+- [15. `_explainCue(cue)` — the cue badge ℹ panel](#15-_explaincuecue--the-cue-badge--panel)
+- [16. `_consumeSSE(response, onEvent, signal)` — SSE reader](#16-_consumesseresponse-onevent-signal--sse-reader)
+- [17. `_esc()` — HTML escaping for server-supplied strings](#17-_esc--html-escaping-for-server-supplied-strings)
+- [18. Sticky filter bar — `#tracks-sticky`](#18-sticky-filter-bar--tracks-sticky)
+- [19. Sticky action bar — `#download-bar`](#19-sticky-action-bar--download-bar)
+- [20. Status row — local mode banner](#20-status-row--local-mode-banner)
+- [21. Theme variables — CSS custom properties](#21-theme-variables--css-custom-properties)
+- [22. Multi-select backup delete](#22-multi-select-backup-delete)
+- [23. Fetch error handling](#23-fetch-error-handling)
+- [24. Example flow — Apply phrase cues in local mode](#24-example-flow--apply-phrase-cues-in-local-mode)
+- [25. Testing](#25-testing)
+- [26. Related references](#26-related-references)
+
 ---
 
 ## 1. Overview
@@ -245,7 +274,7 @@ Key data sources:
   `_mixObserver` (`index.html:6263`) hitting `/api/tracks/{id}/mixability`
   and `/api/tracks/{id}/classification`.
 - **Cue badges** — every badge has an ℹ panel that calls `_explainCue()`
-  to render a human-readable explanation (see §15).
+  to render a human-readable explanation (see [`_explainCue(cue)`](#15-_explaincuecue--the-cue-badge--panel)).
 
 ---
 
@@ -737,7 +766,7 @@ server-supplied (and Discogs / YouTube) text into HTML. It is used by:
 - The download button's `data-query` payload.
 
 Rule of thumb: **never interpolate Discogs Style names, YouTube titles,
-DjmdContent.Title/Artist, or anything else that originated outside the
+[`DjmdContent`](./GLOSSARY.md#djmdcontent).Title/Artist, or anything else that originated outside the
 app's own constants into HTML without `_esc`**. The function is small but
 catches all five injection-relevant codepoints (`&`, `<`, `>`, `"`, `'`).
 

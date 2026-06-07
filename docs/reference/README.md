@@ -5,6 +5,21 @@ Deep-dive technical documentation for every AutoCue feature. Each doc is a self-
 For a high-level user tour, see [`../FEATURES.md`](../FEATURES.md).
 For project invariants and architecture, see [`../../CLAUDE.md`](../../CLAUDE.md).
 
+## Table of Contents
+
+- [Glossary](#glossary)
+- [Cue generation](#cue-generation)
+- [Analysis suite](#analysis-suite)
+- [Tagging & enrichment](#tagging--enrichment)
+- [External integrations](#external-integrations)
+- [Server, web, and ops](#server-web-and-ops)
+- [Conventions](#conventions)
+- [Cross-cutting references](#cross-cutting-references)
+
+## Glossary
+
+For the canonical reference of Rekordbox DB tables ([`DjmdContent`](./GLOSSARY.md#djmdcontent), [`DjmdCue`](./GLOSSARY.md#djmdcue), [`DjmdMyTag`](./GLOSSARY.md#djmdmytag--djmdsongmytag), [`DjmdColor`](./GLOSSARY.md#djmdcolor), [`DjmdKey`](./GLOSSARY.md#djmdkey), [`DjmdPlaylist`](./GLOSSARY.md#djmdplaylist--djmdsongplaylist), [`DjmdHistory`](./GLOSSARY.md#djmdhistory--djmdsonghistory)), [ANLZ files](./GLOSSARY.md#anlz-files-and-tags) and their tags (PWAV / PSSI / PQTZ), the [Camelot key wheel](./GLOSSARY.md#camelot-key-wheel), and the cue encoding ([`Kind`](./GLOSSARY.md#cue-encoding-kind-slot-inframe-outmsec) / slot / [`InFrame`](./GLOSSARY.md#cue-encoding-kind-slot-inframe-outmsec) / OutMsec), see [`GLOSSARY.md`](./GLOSSARY.md).
+
 ## Cue generation
 
 | Doc | What it covers |

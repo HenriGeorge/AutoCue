@@ -7,6 +7,23 @@ default paths, exit codes, common errors, and worked examples.
 For the surrounding feature documentation see [`docs/FEATURES.md`](../FEATURES.md);
 for sibling reference docs see the [Related](#related) section.
 
+## Table of Contents
+
+- [1. Overview](#1-overview)
+- [2. Installation](#2-installation)
+- [3. Quick reference](#3-quick-reference)
+- [4. Subcommands](#4-subcommands)
+- [5. Track selection modes](#5-track-selection-modes)
+- [6. Cue generation strategy](#6-cue-generation-strategy)
+- [7. Memory cue options](#7-memory-cue-options)
+- [8. Output paths](#8-output-paths)
+- [9. Database access](#9-database-access)
+- [10. `autocue serve` mode](#10-autocue-serve-mode)
+- [11. Exit codes](#11-exit-codes)
+- [12. Examples](#12-examples)
+- [13. Common errors and fixes](#13-common-errors-and-fixes)
+- [14. Related](#14-related)
+
 ---
 
 ## 1. Overview
@@ -16,7 +33,7 @@ library. It exposes three surfaces:
 
 | Surface | Entry point | Reads from | Writes to | Network | Intelligence features |
 |---|---|---|---|---|---|
-| **Python CLI** | `autocue …` | Rekordbox `master.db` + ANLZ files | A Rekordbox XML file you import manually | None | Phrase / bar / heuristic cue generation only |
+| **Python CLI** | `autocue …` | Rekordbox `master.db` + [ANLZ files](./GLOSSARY.md#anlz-files-and-tags) | A Rekordbox XML file you import manually | None | Phrase / bar / heuristic cue generation only |
 | **Local server** | `autocue serve` | Rekordbox `master.db` + ANLZ files | Directly back to `master.db` | `localhost:7432` only | Full set: health, mixability, classification, similar, transitions, set builder, auto-tag, comment enrichment, Discogs, discovery, download |
 | **Hosted web app** | [`docs/index.html`](../index.html) (GitHub Pages) | A Rekordbox XML you upload | A new Rekordbox XML you download | Browser-only (no upload) | Bar / phrase cue generation only |
 
@@ -110,7 +127,7 @@ Every flag accepted by `autocue` (default subcommand) and `autocue serve`:
 | Flag | Type | Default | Required | Description |
 |---|---|---|---|---|
 | `--track TITLE` | str | — | one of `--track`, `--track-id`, `--library` | Process one track by title. Mutually exclusive with the other two. |
-| `--track-id ID` | int | — | one of | Process one track by Rekordbox `DjmdContent.ID`. Mutually exclusive. |
+| `--track-id ID` | int | — | one of | Process one track by Rekordbox [`DjmdContent`](./GLOSSARY.md#djmdcontent)`.ID`. Mutually exclusive. |
 | `--library` | flag | False | one of | Process every analyzed track in the library. Mutually exclusive. |
 | `--output FILE` | str | `autocue_import.xml` | no | Path to write the Rekordbox-importable XML. Ignored if `--dry-run`. |
 | `--dry-run` | flag | False | no | Print the cue plan but write nothing. |
@@ -340,7 +357,7 @@ added to the output XML.
 For completeness, the three modes available on `GenerationPrefs` (and the server's
 `POST /api/generate` body) are:
 
-| `memory_cue_mode` | What is added (slot = -1, Kind = 0 in DjmdCue) |
+| `memory_cue_mode` | What is added (slot = -1, [`Kind`](./GLOSSARY.md#cue-encoding-kind-slot-inframe-outmsec) = 0 in [`DjmdCue`](./GLOSSARY.md#djmdcue)) |
 |---|---|
 | `"none"` | No memory cue. |
 | `"load_only"` | One **Load Point** memory cue at the first hot-cue position (phrase mode) or at `max(0, inizio_ms)` (bar/heuristic). `generator.py:265–272` |

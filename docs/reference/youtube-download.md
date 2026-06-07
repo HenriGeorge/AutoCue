@@ -9,6 +9,31 @@ extraction. Both are **optional** runtime dependencies; the core CLI and server
 work fine without them, and the UI surfaces a clear "feature unavailable" path
 when they are absent.
 
+## Table of Contents
+
+- [1. Overview](#1-overview)
+- [2. Installation](#2-installation)
+- [3. Lazy imports](#3-lazy-imports)
+- [4. `ytdlp_available()` — runtime probe](#4-ytdlp_available--runtime-probe)
+- [5. `ffmpeg_available()` — ffmpeg probe](#5-ffmpeg_available--ffmpeg-probe)
+- [6. `default_download_dir()`](#6-default_download_dir)
+- [7. Music folder detection](#7-music-folder-detection)
+- [8. `GET /api/download/config`](#8-get-apidownloadconfig)
+- [9. `download_audio(url_or_query, dest_dir, audio_format, progress_cb)`](#9-download_audiourl_or_query-dest_dir-audio_format-progress_cb)
+- [10. `search_youtube(query, max_results=5)`](#10-search_youtubequery-max_results5)
+- [11. `POST /api/download` (SSE)](#11-post-apidownload-sse)
+- [12. `POST /api/download/album` (SSE)](#12-post-apidownloadalbum-sse)
+- [13. `DownloadEvent` schema](#13-downloadevent-schema)
+- [14. Threading model](#14-threading-model)
+- [15. Audio format and ffmpeg postprocessor](#15-audio-format-and-ffmpeg-postprocessor)
+- [16. UI surface](#16-ui-surface)
+- [17. Legal note](#17-legal-note)
+- [18. Edge cases](#18-edge-cases)
+- [19. Testing](#19-testing)
+- [20. Related](#20-related)
+- [Diagnostics — why is the download feature unavailable?](#diagnostics--why-is-the-download-feature-unavailable)
+- [Orphaned files and partial downloads](#orphaned-files-and-partial-downloads)
+
 ---
 
 ## 1. Overview
@@ -250,9 +275,10 @@ def _detect_music_folder(db) -> str | None:
 
 Algorithm:
 
-1. Sample up to 30 `DjmdContent` rows (the first 30 — order is undefined but
-   consistent across calls within one DB).
-2. Collect `FolderPath` values that are absolute paths.
+1. Sample up to 30 [`DjmdContent`](./GLOSSARY.md#djmdcontent) rows (the first
+   30 — order is undefined but consistent across calls within one DB).
+2. Collect [`FolderPath`](./GLOSSARY.md#djmdcontentfolderpath) values that are
+   absolute paths.
 3. Reduce each to its parent directory (we want a folder, not a file).
 4. Compute `os.path.commonpath()` across all of them — the deepest directory
    that contains every sampled track.
@@ -298,7 +324,7 @@ class DownloadConfigResponse(BaseModel):
 | `available` | `ytdlp_available()` — yt-dlp can be imported. |
 | `ffmpeg` | `ffmpeg_available()` — ffmpeg binary on PATH. |
 | `default_dir` | `default_download_dir()` — env override or `~/Music/AutoCue`. |
-| `music_folder` | `_detect_music_folder(db)` — common ancestor of `DjmdContent.FolderPath`, or `null`. |
+| `music_folder` | `_detect_music_folder(db)` — common ancestor of [`DjmdContent.FolderPath`](./GLOSSARY.md#djmdcontentfolderpath), or `null`. |
 
 Implementation (`routes.py:1933`):
 
@@ -877,3 +903,226 @@ The `/api/download` and `/api/download/album` endpoints are exercised by
 - [CLI usage](./cli-usage.md) — the download feature is **server-only**. There
   is currently no `autocue download <query>` CLI command; it would be a small
   wrapper around `download_audio()` if needed.
+
+---
+
+## Diagnostics — why is the download feature unavailable?
+
+When the UI shows the Download buttons disabled or `/api/download` returns a
+`503`, work through the checks below from cheapest to most invasive. Most
+"unavailable" reports trace back to one of four root causes: yt-dlp not
+installed, ffmpeg not on PATH, the API running in a different Python
+environment than the one you pip-installed into, or write-permission failures
+on the destination directory.
+
+### 1. Verify yt-dlp is importable from AutoCue's Python
+
+Run the import in the **same** interpreter that runs `autocue serve` (activate
+the same virtualenv first):
+
+```bash
+python -c "import yt_dlp; print(yt_dlp.version.__version__)"
+```
+
+- Prints a version (e.g. `2024.08.06`) → yt-dlp is fine. Move on to step 2.
+- `ModuleNotFoundError: No module named 'yt_dlp'` → the optional extra was not
+  installed in this Python environment. Run:
+
+  ```bash
+  pip install -e ".[download]"
+  ```
+
+- Any other exception → a broken/partial install. Try:
+
+  ```bash
+  pip install --force-reinstall yt-dlp
+  ```
+
+### 2. Verify ffmpeg is on PATH
+
+```bash
+which ffmpeg && ffmpeg -version
+```
+
+- Prints a path and a version banner → ffmpeg is fine.
+- `ffmpeg not found` (or `which` prints nothing) → install it:
+  - **macOS:** `brew install ffmpeg`
+  - **Debian/Ubuntu:** `sudo apt-get install -y ffmpeg`
+  - **Windows:** download a static build from <https://www.gyan.dev/ffmpeg/builds/>
+    and add the `bin/` directory to your `PATH`.
+
+If `which ffmpeg` works in your terminal but the server still reports
+`ffmpeg: false`, the server process has a different `PATH` than your shell
+(common with launchd / systemd / desktop launchers). Restart the server from
+the shell where `which ffmpeg` succeeds.
+
+### 3. Check `GET /api/download/config`
+
+```bash
+curl http://localhost:7432/api/download/config
+```
+
+Interpret the response:
+
+| Response shape | What it means | Fix |
+| --- | --- | --- |
+| `{available: true, ffmpeg: true, …}` | Both deps are visible to the server — feature is healthy. | Look elsewhere (network, query, destination dir). |
+| `{available: false, ffmpeg: true, …}` | yt-dlp is missing or unimportable from the server's Python. | Step 1 above. |
+| `{available: true, ffmpeg: false, …}` | yt-dlp is fine but ffmpeg is not on the server's PATH. | Step 2 above. |
+| `{available: false, ffmpeg: false, …}` | Neither is present. | Both steps. |
+| `{… "music_folder": null}` | No autodetected music root. Not an error — UI falls back to `default_dir`. | (Optional) make sure your library has tracks with absolute [`DjmdContent.FolderPath`](./GLOSSARY.md#djmdcontentfolderpath) values. |
+
+### 4. What the UI shows when each dep is missing
+
+- **yt-dlp missing:** the Discover-card Download button is disabled; a tooltip
+  reads *"yt-dlp not installed — `pip install -e \".[download]\"`"*. If a
+  direct API call is made anyway, `POST /api/download` returns
+  `503 yt-dlp is not installed. Install with: pip install -e ".[download]"`
+  (raised in `autocue/serve/routes.py:1966`).
+- **ffmpeg missing:** the Download button is disabled; tooltip reads
+  *"ffmpeg not found on PATH — required to extract audio"*. The API returns
+  `503 ffmpeg not found on PATH — required to extract audio.`
+
+### 5. Common causes (in order of frequency)
+
+1. **Forgot the `[download]` extra.** `pip install -e .` does not pull yt-dlp.
+   Re-run with `pip install -e ".[download]"`.
+2. **ffmpeg not on PATH.** Especially on macOS after a fresh `brew install` —
+   open a new terminal so Homebrew's PATH update applies. On Apple Silicon,
+   Homebrew installs under `/opt/homebrew/bin` which must be on PATH.
+3. **Virtual env mismatch.** AutoCue is running inside venv A; you ran
+   `pip install -e ".[download]"` from venv B. Confirm with
+   `which python && which autocue` and re-install into the active venv.
+4. **Permissions on `default_download_dir()`.** The server cannot create or
+   write to `~/Music/AutoCue` (or `$AUTOCUE_DOWNLOAD_DIR`). yt-dlp will raise
+   an `OSError` that surfaces as a terminal `status: "error"` SSE event. Test
+   with:
+
+   ```bash
+   mkdir -p ~/Music/AutoCue && touch ~/Music/AutoCue/.write-test && rm ~/Music/AutoCue/.write-test
+   ```
+
+### 6. Logs
+
+`autocue serve` runs on uvicorn; all server logs (including the
+`logger.warning("YouTube search failed for %r: %s", …)` line at
+`autocue/download.py:73` and any yt-dlp exceptions surfaced in the SSE
+`error` field) go to **stderr** in the terminal where you launched it.
+
+Useful greps when triaging:
+
+```bash
+autocue serve 2>&1 | tee autocue.log
+# in another terminal:
+grep -iE "yt-dlp|ffmpeg|download" autocue.log
+grep -iE "DownloadError|HTTPError|ExtractorError" autocue.log
+```
+
+The `503` responses are not logged at WARNING by default (FastAPI logs them
+at INFO via uvicorn's access log) — to see them, run uvicorn with
+`--log-level info` or watch the access log.
+
+---
+
+## Orphaned files and partial downloads
+
+Long-running yt-dlp downloads can leave files behind on disk when something
+goes wrong mid-flight. This section documents exactly what AutoCue does (and
+does **not**) clean up — read `autocue/download.py:91–167` if you want the
+ground truth.
+
+### yt-dlp's `.part` / `.tmp` convention
+
+yt-dlp writes incoming bytes to a sibling file with a `.part` (or
+occasionally `.ytdl` / `.tmp`) suffix while the download is in progress, then
+**renames** to the final name once the download completes. The
+`FFmpegExtractAudio` postprocessor then re-encodes the downloaded container
+into the requested `audio_format` (default `mp3`), which produces a second
+intermediate file before the original input is deleted. So at any instant
+during an active download you may see:
+
+- `<title>.webm.part` — the in-flight raw download.
+- `<title>.webm` — the finished raw download, awaiting extraction.
+- `<title>.mp3` — the final extracted file.
+
+### What happens when the worker thread errors mid-download
+
+`autocue/download.py:91–167` makes **no** attempt to clean up intermediate
+files. The worker calls `yt_dlp.YoutubeDL(opts).extract_info(target,
+download=True)` synchronously (`download.py:145–146`); if it raises, the
+exception propagates to the SSE worker in `autocue/serve/routes.py` and is
+surfaced as a terminal `status: "error"` event. Any `.part`, raw container,
+or partially-postprocessed file that yt-dlp had written by that point stays
+on disk exactly as yt-dlp left it.
+
+yt-dlp itself sometimes (but not always) deletes `.part` files when it
+catches the exception internally; whether it does depends on the specific
+error path inside yt-dlp. AutoCue does not influence this — it just calls
+`extract_info()` and lets yt-dlp do whatever it does.
+
+### What happens when the client disconnects from the SSE stream
+
+The SSE worker is a `daemon=True` `threading.Thread` (`routes.py` worker
+pattern in [§14](#14-threading-model)). It is **not** linked to the HTTP
+request lifecycle in any way:
+
+- Closing the browser tab / cancelling the `fetch()` drops the SSE
+  connection, but the worker thread keeps running until `download_audio()`
+  returns or raises.
+- The downloaded file **will** be written to disk; the user just never sees
+  the terminal `done: true` event in the UI.
+- If the server process is then killed before the worker finishes (e.g.
+  Ctrl-C on `autocue serve`), the daemon thread dies with it and **may**
+  leave a `.part` / intermediate file behind.
+
+Practical consequence: aborting a download from the UI does not actually
+stop the download — it just stops *watching* it. The file will land in
+`dest_dir` regardless.
+
+### Does AutoCue clean up automatically?
+
+**No.** There is no orphan-sweeper, no startup scrub, no per-download
+`finally:` that removes partials. Behaviour is whatever yt-dlp does by
+default — AutoCue does not perform additional cleanup. This is intentional:
+the user may want to recover a near-complete download manually rather than
+have it silently deleted.
+
+### Recommended manual cleanup
+
+The default download directory is resolved by `default_download_dir()`
+(`autocue/download.py:37`):
+
+1. `$AUTOCUE_DOWNLOAD_DIR` if set.
+2. Otherwise `~/Music/AutoCue`.
+
+To remove orphaned partials:
+
+```bash
+# Inspect first
+find ~/Music/AutoCue -name "*.part" -o -name "*.ytdl" -o -name "*.tmp"
+
+# Delete partials (irreversible)
+find ~/Music/AutoCue -name "*.part" -delete
+find ~/Music/AutoCue -name "*.ytdl" -delete
+find ~/Music/AutoCue -name "*.tmp" -delete
+```
+
+If you set `AUTOCUE_DOWNLOAD_DIR` or overrode `dest_dir` per-request, swap
+`~/Music/AutoCue` for the relevant path. On Windows PowerShell:
+
+```powershell
+Get-ChildItem "$HOME\Music\AutoCue" -Recurse -Include *.part,*.ytdl,*.tmp |
+  Remove-Item
+```
+
+### Recommendation if this matters to you
+
+If automatic cleanup is important for your workflow, the cleanest place to
+add it would be the worker thread in `autocue/serve/routes.py` (the
+`finally:` block at the end of the worker — see [§14](#14-threading-model)):
+on terminal error, glob for `<dest_dir>/*.part` files created during this
+download and delete them. The reason this is not in mainline AutoCue is that
+correctly attributing a `.part` file to a specific failed download (vs. a
+concurrent successful one in the same `dest_dir`) requires careful filename
+tracking — and the failure mode (a few stray files in `~/Music/AutoCue`) is
+not severe enough to justify the complexity.

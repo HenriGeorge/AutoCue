@@ -9,6 +9,25 @@ The two endpoints are independent. Playlist Suggest is a pure read; Playlist
 Creation is a guarded write that round-trips through `db_writer`'s "Rekordbox
 must be closed" interlock.
 
+## Table of Contents
+
+- [1. Overview](#1-overview)
+- [2. The Suggestion Algorithm](#2-the-suggestion-algorithm)
+- [3. Seeds (`seed_track_ids`)](#3-seeds-seed_track_ids)
+- [4. Seed Scoring](#4-seed-scoring)
+- [5. `PlaylistSuggestRequest` Schema](#5-playlistsuggestrequest-schema)
+- [6. `PlaylistSuggestResponse` Schema](#6-playlistsuggestresponse-schema)
+- [7. `POST /api/playlists/suggest`](#7-post-apiplaylistssuggest)
+- [8. Playlist Creation — `POST /api/playlists`](#8-playlist-creation--post-apiplaylists)
+- [9. UI Surface — Playlist Suggest Panel](#9-ui-surface--playlist-suggest-panel)
+- [10. Weighted Random Rationale — Why `score ** 2`](#10-weighted-random-rationale--why-score--2)
+- [11. Why a Pool, Not Top-N](#11-why-a-pool-not-top-n)
+- [12. Examples](#12-examples)
+- [13. Edge Cases](#13-edge-cases)
+- [14. Playlist Suggest vs Set Builder](#14-playlist-suggest-vs-set-builder)
+- [15. Testing](#15-testing)
+- [16. Related](#16-related)
+
 ---
 
 ## 1. Overview
@@ -18,7 +37,7 @@ Two endpoints, one user flow:
 | Endpoint | Method | Purpose |
 |---|---|---|
 | `/api/playlists/suggest` | `POST` | Score every in-scope track against a DJ-set category, return the top `count` after a weighted-random draw. Read-only. |
-| `/api/playlists` | `POST` | Create a new top-level Rekordbox playlist (`DjmdPlaylist` + `DjmdSongPlaylist` rows) from a list of track IDs. Write. |
+| `/api/playlists` | `POST` | Create a new top-level Rekordbox playlist ([`DjmdPlaylist`](./GLOSSARY.md#djmdplaylist--djmdsongplaylist) + [`DjmdSongPlaylist`](./GLOSSARY.md#djmdplaylist--djmdsongplaylist) rows) from a list of track IDs. Write. |
 
 The suggestion algorithm filters by the five classification categories defined
 in `autocue/analysis/classify.py:14`:
@@ -192,7 +211,7 @@ When `playlist_id` is set (`routes.py:1171-1185`), the endpoint:
 1. Looks up the `DjmdPlaylist` row by stringified ID (Rekordbox stores IDs as
    `VARCHAR`).
 2. Pulls every `DjmdSongPlaylist.ContentID` for that playlist.
-3. Loads the corresponding `DjmdContent` rows via `IN(valid_ids)`.
+3. Loads the corresponding [`DjmdContent`](./GLOSSARY.md#djmdcontent) rows via `IN(valid_ids)`.
 
 This is one of the few places in the codebase where `IN(...)` is the right call
 — the playlist membership set is small (tens to a few hundred), unlike the
@@ -225,7 +244,7 @@ The response `results` list is structured as:
 
 The fill portion is **not** sorted by score. The weighted-random draw is the
 intended randomisation; sorting after the fact would defeat the variety
-property described in §11.
+property described in [Why a Pool, Not Top-N](#11-why-a-pool-not-top-n).
 
 The total length is `min(len(seed_track_ids) + len(scored_pool), count)`. If the
 scope produces fewer category-matching tracks than `count`, the response is
@@ -449,7 +468,7 @@ Pool size: `pool_size = min(len(scored), max(fill_count * 3, 60))`
 
 The pool always represents the top of the distribution by raw score, so
 even the unluckiest random draw still selects from "good" candidates. The
-weighting (§10) then biases within that top slice.
+weighting ([Weighted Random Rationale](#10-weighted-random-rationale--why-score--2)) then biases within that top slice.
 
 ---
 
@@ -630,7 +649,7 @@ Tests live in `tests/test_serve_routes.py`:
 
 All tests use `MagicMock`-style DB fixtures and patch
 `autocue.analysis.classify.get_energy_curve` / `get_mixability` to avoid hitting
-real ANLZ files. The autouse `conftest.py` fixture clears the classification
+real [ANLZ files](./GLOSSARY.md#anlz-files-and-tags). The autouse `conftest.py` fixture clears the classification
 cache before each test.
 
 To add a test for a new edge case, follow the existing pattern: build a fake

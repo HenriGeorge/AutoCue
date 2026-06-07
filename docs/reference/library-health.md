@@ -13,9 +13,35 @@ endpoints in `autocue/serve/routes.py`:
   summary event when the scan finishes.
 
 A closely related surface — `POST /api/cue-tools-stream` (bulk rename / recolor /
-shift / delete-orphan) — is documented in the **Cue Library Tools** section
-below, because the UI ships the two panels together and they share the same
-backup-before-write contract.
+shift / delete-orphan) — is documented in the [**Cue Library Tools**](#10-cue-library-tools--post-apicue-tools-stream)
+section below, because the UI ships the two panels together and they share the
+same backup-before-write contract.
+
+Terminology note: this doc references several Rekordbox entities
+(`DjmdContent`, `DjmdCue`, ANLZ `.EXT` / `.DAT`, `Kind`, `InFrame`, etc.). See
+the [Rekordbox glossary](./GLOSSARY.md) for definitions.
+
+---
+
+## Table of Contents
+
+- [1. Overview](#1-overview)
+- [2. Health score formula](#2-health-score-formula)
+- [3. Fix tiers in detail](#3-fix-tiers-in-detail)
+- [4. Pure DB reads — why it matters](#4-pure-db-reads--why-it-matters)
+- [5. Duplicate cue detection in detail](#5-duplicate-cue-detection-in-detail)
+- [6. Issue codes — full reference](#6-issue-codes--full-reference)
+- [Issue severity classification](#issue-severity-classification)
+- [7. `GET /api/tracks/{id}/health`](#7-get-apitracksidhealth)
+- [8. `GET /api/health` — SSE stream](#8-get-apihealth--sse-stream)
+- [Performance profile](#performance-profile)
+- [9. UI — Library Health Report](#9-ui--library-health-report)
+- [10. Cue Library Tools — `POST /api/cue-tools-stream`](#10-cue-library-tools--post-apicue-tools-stream)
+- [11. Performance](#11-performance)
+- [12. Edge cases & behavioural notes](#12-edge-cases--behavioural-notes)
+- [13. Examples](#13-examples)
+- [14. Testing](#14-testing)
+- [15. Related reference](#15-related-reference)
 
 ---
 
@@ -25,8 +51,9 @@ backup-before-write contract.
 
 For every track that has its audio file on disk:
 
-1. Reads `DjmdContent` (analysis presence, BPM) and `DjmdCue` (hot cues and
-   memory cues) directly from `master.db`. **No ANLZ parsing.**
+1. Reads [`DjmdContent`](./GLOSSARY.md#djmdcontent) (analysis presence, BPM)
+   and [`DjmdCue`](./GLOSSARY.md#djmdcue) (hot cues and memory cues) directly
+   from `master.db`. **No [ANLZ](./GLOSSARY.md#anlz-files-and-tags) parsing.**
 2. Computes a deterministic deduction-based score out of 100.
 3. Lists every issue that fired, with a severity (`error`, `warning`, `info`).
 4. Decides a **fix tier** — `phrase`, `bar`, or `heuristic` — that mirrors the
@@ -66,7 +93,7 @@ given what's already in `master.db`:
 
 See `quality.py:54-61` for the tier function. The UI uses this to split the
 "Fix" buttons in two: phrase-quality fixes apply without a confirmation;
-bar/heuristic fixes prompt the user first (see UI section).
+bar/heuristic fixes prompt the user first (see [§9 UI — Library Health Report](#9-ui--library-health-report)).
 
 ---
 
@@ -238,6 +265,46 @@ position 0 is a real duplicate.
 
 ---
 
+## Issue severity classification
+
+The matrix below pins every issue code to its trigger, score impact, and how it
+propagates into the [fix tier](#3-fix-tiers-in-detail). Severities are taken
+from the literal strings passed to `CueIssue(...)` in `quality.py` — they are
+**not** declared as a separate enum, they are positional `Literal["error",
+"warning", "info"]` arguments to the `CueIssue` dataclass
+(`quality.py:22, 26-30`).
+
+| Issue code | Severity | Trigger criterion | Score impact | Fix tier propagation |
+|---|---|---|---|---|
+| `NO_AUDIO_FILE` | `error` | `_resolve_audio_path(content)` returns `""` **or** `os.path.exists()` returns `False` (`quality.py:71-76`) | Forces `score = 0`, function returns immediately — `DjmdCue` is never queried, no other issue can fire. | Forces `fix_tier = "none"` (`_fix_tier` short-circuits when `audio_exists` is `False`, `quality.py:54-56`). |
+| `NO_CUES` | `error` | Zero rows in `DjmdCue` with `1 ≤ Kind ≤ 8` for this `ContentID` (`quality.py:88, 101-103`). | `−30`. | No direct effect — but `NO_CUES` is the issue that the per-tier "Fix" buttons in the UI act on, dispatched to whatever tier `_fix_tier` decided independently. |
+| `NO_PHRASE` | `info` | `DjmdContent.AnalysisDataPath` is empty / `None` (`quality.py:82, 94-96`). | `−10`. | Drops `fix_tier` from `phrase` to `bar` (since the `has_phrase and has_beatgrid` branch in `_fix_tier` requires `AnalysisDataPath`). Caps the achievable tier at `bar` (or `heuristic`, if also no beat grid). |
+| `NO_BEATGRID` | `info` | `DjmdContent.BPM` is `None`, `0`, falsy, or fails `float(bpm) > 0` (`quality.py:83-84, 97-99`). | `−10`. | Forces `fix_tier = "heuristic"` (when `has_beatgrid` is `False`, `_fix_tier` returns `"heuristic"` regardless of `has_phrase`, `quality.py:57-61`). |
+| `DUPLICATE_CUE` | `warning` | Any two hot cues with `InFrame` values differing by `< _DUPLICATE_FRAMES` (= 2, ≈ 13 ms) after sorting (`quality.py:107-113`). At most one penalty per track. | `−5`. | No tier change. |
+| `UNNAMED_CUES` | `info` | Any hot cue's `Comment` is empty / whitespace-only **or** matches `^Cue\s*\d+$` (case-insensitive, `_UNNAMED_RE`, `quality.py:20, 116-120`). | `−5`. | No tier change. |
+| `NO_MEMORY_CUE` | `info` | Zero rows in `DjmdCue` with `Kind == 0` for this `ContentID` (`quality.py:89, 123-125`). | `0` — info-only, deduction is deliberately omitted. | No tier change. |
+| `INTERNAL_ERROR` | `error` | An unhandled exception was raised inside `check_track_health()` while iterating in `check_library_health()` (`quality.py:162-171`). Also emitted by `/api/tracks/{id}/health` when the single-track handler catches an exception (`routes.py:835-843`). | Forces `score = 0` for the affected track. | Forces `fix_tier = "none"`. |
+
+### Severity is implicit, not enforced
+
+The `severity` field is a free-form string typed `Literal["error", "warning",
+"info"]` (`quality.py:22, 29`) and is only used downstream by the UI to pick an
+icon and color (`#health-section` renderer in `docs/index.html`). There is
+**no validation** that a given `code` always uses the same severity — if a
+future revision wires up a different severity for `NO_CUES`, the type checker
+won't catch it and the UI will just render whatever severity arrives.
+
+**Recommendation for a future revision**: promote the issue code → severity
+mapping to a single source of truth. Either (a) replace the loose `code: str`
+field with an enum where the severity is a property of the enum member, or
+(b) keep `code: str` but pull severities from a module-level
+`_SEVERITY_BY_CODE: dict[str, Severity]` so `CueIssue(...)` constructors only
+pass the code and the dataclass resolves the severity. The current arrangement
+is fine for the eight known codes, but it makes adding a ninth (or renaming
+one) a small refactor instead of a one-liner.
+
+---
+
 ## 7. `GET /api/tracks/{id}/health`
 
 Synchronous endpoint that returns the report for a single track.
@@ -403,6 +470,116 @@ const url = activePlaylistId
 - `DjmdSongPlaylist.PlaylistID` is `VARCHAR(255)`, so the underlying query
   coerces the int to `str` before filtering (`quality.py:156`). Pass the
   integer ID over the wire — the route handles the string coercion.
+
+---
+
+## Performance profile
+
+The Library Health scan is designed to be cheap enough to run on every library
+load. The per-track cost is dominated by one `DjmdCue` query and one syscall;
+no ANLZ parsing is involved at any point (see also [§4 Pure DB reads — why it
+matters](#4-pure-db-reads--why-it-matters)).
+
+### Per-track work
+
+For every track that survives the audio-existence check, `check_track_health()`
+does exactly this (`quality.py:64-135`):
+
+| Step | Cost |
+|---|---|
+| `_resolve_audio_path(content)` — string normalisation only | ~µs |
+| `os.path.exists(audio_path)` — one `stat` syscall against the audio file | typically <1 ms on a warm SSD; can spike to tens of ms on a cold cache or network volume |
+| `db.query(DjmdCue).filter(DjmdCue.ContentID == track_id).all()` | a few ms — indexed lookup against SQLCipher |
+| ~5 attribute reads on the `DjmdContent` row (`AnalysisDataPath`, `BPM`, `FolderPath`, `ID`) | ~µs |
+| Score deductions + issue list assembly | ~µs |
+
+For tracks that fail the audio-existence check, the function returns
+**immediately** at `quality.py:74-76` — no `DjmdCue` query is issued at all.
+That is the cheapest path through the scan.
+
+No analysis-module caches are read or written (`energy._cache`,
+`classify._class_cache`, `score._mixability_cache`, `similar._INDEX`). The
+health scan is fully decoupled from the rest of the analysis layer.
+
+See the [glossary](./GLOSSARY.md#djmdcontent) for `DjmdContent` / `DjmdCue`
+column definitions.
+
+### SSE event rate and payload size
+
+- **One `data:` event per track**, written via `yield f"data: {schema.model_dump_json()}\n\n"`
+  (`routes.py:902`). Plus one `{"total": N}` event up front and one final
+  `{"done": true, "summary": {...}}` event.
+- **Payload per event**: a serialised `TrackHealthReport`. Typical size is
+  ~150–400 bytes — `track_id`, `score`, a short `issues[]` (most tracks have
+  0–3 entries), `fix_tier`, and the two cue counts. Worst-case (all eight
+  codes fire) is still under ~1 KB.
+- **No batching**: the stream commits one event per iteration of the
+  generator. The Starlette `StreamingResponse` plus the `X-Accel-Buffering: no`
+  header in [§8](#8-get-apihealth--sse-stream) lets each event reach the
+  client immediately, so the JS UI can update its progress bar in real time.
+- **Bypasses GZip**: the `GZipMiddleware(minimum_size=1000)` in
+  `serve/app.py` skips `text/event-stream` responses, so events flush as
+  generated rather than buffering for a compression window.
+
+### Bottleneck on large libraries
+
+The single biggest factor in scan duration is the
+`os.path.exists(audio_path)` call inside `check_track_health()`
+(`quality.py:73`). It runs once per track — fast on a warm OS page cache, but
+on a cold cache against a library on an external drive or network volume,
+those `stat` syscalls dominate the runtime. Everything else — the `DjmdCue`
+query, the issue list, the JSON serialisation — is in-process work that
+finishes in single-digit milliseconds per track.
+
+### Rough throughput
+
+On a typical SSD with a warm OS cache, the scan moves at roughly **a few
+hundred tracks per second** end-to-end (i.e. a 3,000-track library scans in
+roughly 5–15 seconds). The number is dominated by the per-track `stat` syscall
+plus a single indexed `DjmdCue` lookup; anything that slows those down — cold
+cache, external drive, network volume, SQLCipher under load — moves throughput
+toward the low end of that range. The CI machines and a developer SSD differ
+enough that nailing the number to one figure would be misleading. If you need
+a precise figure for your environment, the SSE stream's per-event timestamps
+make ad-hoc measurement trivial.
+
+### Memory profile
+
+- **`check_library_health()` is a generator** (`quality.py:138-171`). It
+  yields one `TrackHealthReport` at a time and never accumulates the whole
+  scan in memory. A 10K-track scan and a 10-track scan use the same per-track
+  working set.
+- The route handler in `routes.py:867-917` keeps three running collectors:
+  `scores: list[int]`, `missing_audio: list[int]`, and two
+  `defaultdict(int)`s for issue and tier counts. These are **summary state**
+  only — O(tracks) integers total — and are needed to build the final
+  `LibraryHealthSummary`. No `TrackHealthReport` objects are retained past
+  the iteration that produced them.
+- The **JS UI** in `docs/index.html` does accumulate every event into
+  `healthData` (keyed by `String(track_id)`) so it can re-render per-track
+  chips and group fix-tier buckets after the scan completes. That is the only
+  O(tracks) memory growth in the pipeline, and it lives on the client.
+
+### Per-track exception isolation
+
+One bad row never aborts the scan. The `try` / `except Exception` in
+`check_library_health()` (`quality.py:162-171`) catches and re-yields a
+synthetic `INTERNAL_ERROR` report (score `0`, `fix_tier="none"`), and the
+loop continues to the next track. The error's `str(exc)` lands in the issue's
+`message` for debugging. The same pattern guards the single-track endpoint
+at `routes.py:835-843`.
+
+### Scoping via `?playlist_id=N` for incremental rescans
+
+If you only need to refresh a subset of the library (e.g. you just
+re-analyzed one playlist in Rekordbox), pass `?playlist_id=N` to `/api/health`.
+The route narrows the underlying `DjmdContent` query via a join on
+`DjmdSongPlaylist` (`quality.py:151-158`), the total event reflects only the
+scoped count (`routes.py:878-886`), and the summary is computed over the
+filtered set. The route also pre-validates the playlist ID and returns `404`
+before the stream opens if it does not exist (`routes.py:861-865`). This is
+the cheapest way to keep the report current without re-stat'ing every audio
+file in the library on every scan.
 
 ---
 
@@ -870,6 +1047,9 @@ across the full FastAPI surface).
 
 ## 15. Related reference
 
+- [`GLOSSARY.md`](./GLOSSARY.md) — definitions for `DjmdContent`, `DjmdCue`,
+  ANLZ `.EXT` / `.DAT`, `Kind`, `InFrame`, Camelot key wheel, etc. Linked
+  throughout this doc.
 - `cue-generation.md` — phrase / bar / heuristic generators, which is what the
   per-tier fix buttons actually call (via `/api/generate-apply-stream`).
 - `cue-library-tools.md` — full reference for the `cue-tools-stream`

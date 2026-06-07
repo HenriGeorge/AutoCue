@@ -24,13 +24,38 @@ the edge cases you should know about before flipping the feature on.
 
 ---
 
+## Table of Contents
+
+1. [Overview](#1-overview)
+2. [The MIK-compatible format](#2-the-mik-compatible-format)
+3. [`build_comment_string(content, db)`](#3-build_comment_stringcontent-db)
+4. [`DjmdContent.Commnt` spelling](#4-djmdcontentcommnt-spelling)
+5. [The sentinel block pattern](#5-the-sentinel-block-pattern)
+6. [`enrich_comment(content, db, *, overwrite, dry_run)`](#6-enrich_commentcontent-db--overwrite-dry_run)
+7. [`enrich_comments_batch(track_ids, db, *, overwrite, dry_run)`](#7-enrich_comments_batchtrack_ids-db--overwrite-dry_run)
+8. [REST endpoints](#8-rest-endpoints)
+9. [Backup behaviour](#9-backup-behaviour)
+10. [Rekordbox-running guard](#10-rekordbox-running-guard)
+11. [Energy 1–10 scale, in detail](#11-energy-110-scale-in-detail)
+12. [Intro info, in detail](#12-intro-info-in-detail)
+13. [UI surface](#13-ui-surface)
+14. [Examples](#14-examples)
+15. [Edge cases](#15-edge-cases)
+16. [Reversing AutoCue comments](#16-reversing-autocue-comments)
+17. [Comment length and truncation](#17-comment-length-and-truncation)
+18. [Testing](#18-testing)
+19. [Related references](#19-related-references)
+
+---
+
 ## 1. Overview
 
 ### What it does
 
-Comment enrichment populates `DjmdContent.Commnt` (the Rekordbox track comment
-column) with a deterministically-formatted string built from analysis results
-the rest of AutoCue already produces:
+Comment enrichment populates [`DjmdContent.Commnt`](./GLOSSARY.md#djmdcontent)
+(the Rekordbox track comment column — note the spelling) with a
+deterministically-formatted string built from analysis results the rest of
+AutoCue already produces:
 
 | Component       | Source                                                                          |
 | --------------- | ------------------------------------------------------------------------------- |
@@ -402,7 +427,7 @@ Behaviour:
 
 The streaming endpoint deliberately does **not** use this batch helper — it
 commits per track so that one failing track does not roll back the whole job.
-See §8.3.
+See [§8.3](#83-post-apienrich-commentsstream--sse-per-track-commit).
 
 ---
 
@@ -606,7 +631,7 @@ Two consequences worth knowing:
 
 ## 12. Intro info, in detail
 
-The intro segment is built by `_intro_bars` (see §2 for the source).
+The intro segment is built by `_intro_bars` (see [§2](#2-the-mik-compatible-format) for the source).
 Pseudocode:
 
 ```
@@ -716,7 +741,223 @@ Segments without data are dropped silently; the ` | ` separators are added by
 
 ---
 
-## 16. Testing
+## 16. Reversing AutoCue comments
+
+There is **no** `undo_comments_run()` helper today, in contrast with the
+auto-tag feature's [`undo_tag_run()`](./auto-tag.md#10-undo_data-and-undo_tag_run).
+The enrichment endpoints do not record an `undo_data` payload — they only
+make a `master.db` backup before writing. That gives you two practical
+ways to roll back a run:
+
+### 16.1 Sentinel-based reversal (preserves user text)
+
+Because every AutoCue contribution is wrapped in the
+`/* AutoCue: ... */` sentinel block (see [§5](#5-the-sentinel-block-pattern)),
+you can strip only AutoCue's contribution from each comment without touching
+prior user text. The sentinel string defined in `autocue/analysis/comment.py:21`
+is:
+
+```python
+_SENTINEL = "/* AutoCue:"
+```
+
+The block that ends up in `Commnt` has the shape
+`<existing> /* AutoCue: <enrichment> */`, with a single space between the
+user text and the opening sentinel. The regex below matches the AutoCue
+block (and the single space that precedes it when one exists) without
+swallowing any user-typed text:
+
+```python
+import re
+_AUTOCUE_BLOCK = re.compile(r"\s?/\* AutoCue:[^*]*\*/")
+```
+
+> **Caveat.** This regex assumes the AutoCue block contains no literal `*`
+> characters between `/* AutoCue:` and the closing `*/`. The current
+> enrichment format (`8A - Energy 7 | Peak | 4 bar intro`) never produces a
+> `*`, so this is safe for AutoCue-written comments. If a user manually
+> embedded a `*` inside the block, the regex would stop early; in that case,
+> use the substring-based approach in the Python snippet below instead.
+
+**One-shot Python snippet** — run this against an offline `master.db` copy
+(Rekordbox closed) to strip every AutoCue sentinel block library-wide:
+
+```python
+# strip_autocue_sentinels.py
+from pyrekordbox.db6 import Rekordbox6Database
+from autocue.analysis.comment import _SENTINEL
+
+db = Rekordbox6Database()  # opens the default Rekordbox library
+changed = 0
+for content in db.get_content():
+    existing = str(getattr(content, "Commnt", "") or "")
+    if _SENTINEL not in existing:
+        continue
+    start = existing.index(_SENTINEL)
+    # Walk back over the single separating space, if present.
+    base = existing[:start].rstrip()
+    if base != existing:
+        content.Commnt = base
+        changed += 1
+db.session.commit()
+print(f"Stripped AutoCue sentinel block from {changed} tracks.")
+```
+
+This mirrors the `existing[:sentinel_start].rstrip()` logic used by
+`enrich_comment` itself (`autocue/analysis/comment.py:138-142`), so it
+agrees byte-for-byte with how AutoCue itself locates the block boundary.
+
+**SQL alternative** (read-only inspection — Rekordbox uses SQLCipher, so a
+plain `sqlite3` shell needs the encryption key; in practice the Python
+snippet above is the supported path):
+
+```sql
+-- Tracks currently carrying an AutoCue sentinel block:
+SELECT ID, Title, Commnt
+FROM djmdContent
+WHERE Commnt LIKE '%/* AutoCue:%';
+```
+
+### 16.2 Full-database restore (rolls back everything since the backup)
+
+Every write endpoint (sync batch and SSE stream) makes a
+`master.db` backup before its first write — the backup path is reported in
+the response as `backup_path`. To roll the whole library back to that
+snapshot, call `POST /api/restore` with `{"filename": "<basename>"}`; see
+[`backup-and-restore.md`](./backup-and-restore.md) for the path-validation
+rules and the WAL/SHM sidecar handling.
+
+**Caveats**:
+
+- This is a **whole-database** rollback. Anything else you changed between
+  the backup and the restore — new hot cues, edited grids, modified
+  playlists, other AutoCue runs, Rekordbox-side edits — is also reverted.
+- Restoring closes and re-opens the database connection on the server side
+  and clears in-memory analysis state (see CLAUDE.md's "Restore backup"
+  note). You will need to re-run any analysis that hadn't been persisted.
+
+### 16.3 The `overwrite=True` trap
+
+When `enrich_comment` is called with `overwrite=True`, the path at
+`autocue/analysis/comment.py:134-135` writes the enrichment string **as the
+entire comment**, discarding any prior user text:
+
+```python
+if overwrite or not existing:
+    new_comment = enrichment
+```
+
+There is no sentinel to anchor on after this point — the user's original
+text is no longer present in `DjmdContent.Commnt`. The sentinel-based
+reversal in [§16.1](#161-sentinel-based-reversal-preserves-user-text) will
+leave you with an empty comment (which is correct for tracks that started
+empty, and lossy for tracks that didn't).
+
+**The only way to recover the user's original comment after an `overwrite=True`
+run is the `master.db` backup made by the endpoint.** The UI exposes the
+`overwrite` checkbox with an explicit warning ([§13](#13-ui-surface));
+treat it accordingly.
+
+---
+
+## 17. Comment length and truncation
+
+### What the column type is
+
+`DjmdContent.Commnt` is declared as SQL `Text`, not a fixed-length
+`VARCHAR(N)`. The pyrekordbox model is:
+
+```python
+# pyrekordbox/db6/tables.py — DjmdContent definition
+Commnt: Mapped[str] = mapped_column(Text, default=None)
+"""The comment of the track."""
+```
+
+`Text` in SQLite (Rekordbox's underlying storage, encrypted via SQLCipher)
+has **no hard length limit** at the column level — the practical ceiling is
+the SQLite per-row limit (`SQLITE_MAX_LENGTH`, default ~10⁹ bytes) and
+whatever Rekordbox's UI is willing to render. There is no
+`db.session.commit()`-time truncation: SQLite stores whatever bytes the
+ORM hands it, and the round-trip is lossless.
+
+### What AutoCue itself writes
+
+A canonical AutoCue enrichment string sits at ~40 ASCII characters:
+
+```
+8A - Energy 7 | Peak | 4 bar intro       # 36 chars
+12A - Energy 10 | After Hours | 16 bar intro  # 44 chars
+```
+
+Wrapped in the sentinel block it grows by 15 characters (`/* AutoCue: ` +
+` */`):
+
+```
+/* AutoCue: 8A - Energy 7 | Peak | 4 bar intro */    # 51 chars
+```
+
+Appended after existing user text, AutoCue adds one separating space plus
+the wrapped block — a worst case of ~52 ASCII characters on top of
+whatever was already there. That is well inside the practical comfort
+range for any track-comment column.
+
+### What happens with very long comments
+
+AutoCue performs **no truncation today**. The relevant write paths in
+`autocue/analysis/comment.py` always assign the full computed string to
+`content.Commnt`:
+
+```python
+# autocue/analysis/comment.py:147-148
+if not dry_run:
+    content.Commnt = new_comment
+```
+
+There is no length check, no clip-to-N, and no warning when the resulting
+string is unusually long. Because the column is `Text`, the
+`db.session.commit()` call also does not raise — the bytes simply land in
+the database.
+
+The implication for unusual inputs:
+
+| Scenario                                                    | What happens today                                                                                                                                                       |
+| ----------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| User comment ~50 chars, AutoCue appends ~52 chars           | Written as-is. Roughly 100 ASCII chars in the comment. Comfortable.                                                                                                       |
+| User comment 1 KB, AutoCue appends ~52 chars                | Written as-is. ~1 KB comment. Persists fine in SQLite; whether Rekordbox's track-list / CDJ UI renders all of it depends on the surface (CDJ-3000s clip to a few dozen chars). |
+| User comment 100 KB, AutoCue appends ~52 chars              | Written as-is. The DB accepts it. Rekordbox import/export, AppleScript bridges, and CDJ rendering have no contract for this; behaviour is undefined.                      |
+| Re-running enrichment on a 100 KB user comment              | Sentinel logic still finds `_SENTINEL` and rewrites only the sentinel block; the 100 KB stays put.                                                                        |
+| `overwrite=True` against a 100 KB user comment              | Replaced wholesale with the ~40-char AutoCue string. (Same caveat as [§16.3](#163-the-overwritetrue-trap) — the original is only recoverable from the backup.)             |
+
+### Known limitation / recommended future behaviour
+
+The lack of any length cap is a **known limitation** rather than a
+deliberate design choice. CDJ head units, Rekordbox's own track-list
+columns, and DJ-software bridges (Serato/Mixed In Key) typically render
+only the first few dozen characters of the comment, so a 1 KB user
+comment with an AutoCue block appended at the end will display the user
+text and clip the sentinel before it appears on-screen.
+
+If a future change introduces a comment-length cap, the recommended
+shape — and the one that preserves AutoCue's contract that the user's
+text is sacred — is:
+
+1. Define a soft cap (e.g. 255 chars, matching most legacy MIK / Serato
+   tooling). Make it a `GenerationPrefs`-style setting, not a hardcode.
+2. When `existing + sentinel block` would exceed the cap, **truncate
+   AutoCue's contribution first** (drop the `N bar intro` segment, then
+   the `Category` segment, then the energy block) until the whole row
+   fits. The user's text is never trimmed.
+3. If the user's text alone already exceeds the cap, log a warning and
+   skip enrichment for that track rather than silently lopping off user
+   data.
+
+Until that lands, callers writing into already-long comments should
+audit the result manually. AutoCue's behaviour today is "write whatever
+the format produces; trust the column."
+
+---
+
+## 18. Testing
 
 Relevant tests in `tests/test_serve_routes.py`:
 
@@ -748,7 +989,7 @@ When writing new tests:
 
 ---
 
-## 17. Related references
+## 19. Related references
 
 - `track-classification.md` — provides the `primary` category that becomes the
   human-readable label in the comment.

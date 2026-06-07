@@ -3,6 +3,59 @@
 Technical reference for AutoCue's two Discogs-powered features and the shared
 API client that backs them.
 
+## Table of Contents
+
+- [1. Overview](#1-overview)
+- [2. Discogs API client (`autocue/analysis/discogs.py`)](#2-discogs-api-client-autocueanalysisdiscogspy)
+- [3. Authentication](#3-authentication)
+  - [3.1 Where the token comes from](#31-where-the-token-comes-from)
+  - [3.2 `/api/config` — pre-filling the UI](#32-apiconfig--pre-filling-the-ui)
+  - [3.3 `/api/auto-tag/discogs/test` — token validation](#33-apiauto-tagdiscogstest--token-validation)
+- [4. Rate limiting (token bucket)](#4-rate-limiting-token-bucket)
+  - [4.1 Bucket math](#41-bucket-math)
+  - [4.2 Shared by both functions](#42-shared-by-both-functions)
+  - [4.3 Why a token bucket and not a leaky bucket](#43-why-a-token-bucket-and-not-a-leaky-bucket)
+  - [4.4 Multi-process caveat](#44-multi-process-caveat)
+- [5. Caches](#5-caches)
+  - [5.1 `discogs._cache` — Styles](#51-discogs_cache--styles)
+  - [5.2 `discogs._releases_cache` — Releases](#52-discogs_releases_cache--releases)
+  - [5.3 Test isolation](#53-test-isolation)
+  - [5.4 Cache rationale](#54-cache-rationale)
+- [6. `search_styles(artist, title, token) -> list[str]`](#6-search_stylesartist-title-token---liststr)
+  - [6.1 Behaviour](#61-behaviour)
+  - [6.2 Why union across the top 5 results, not just the first](#62-why-union-across-the-top-5-results-not-just-the-first)
+  - [6.3 Genre vs Style](#63-genre-vs-style)
+  - [6.4 Failure modes](#64-failure-modes)
+- [7. `search_artist_releases(artist, token, year_from) -> list[dict]`](#7-search_artist_releasesartist-token-year_from---listdict)
+  - [7.1 Behaviour](#71-behaviour)
+  - [7.2 URL construction](#72-url-construction)
+  - [7.3 `per_page=25` default](#73-per_page25-default)
+- [8. Discovery feature (`autocue/analysis/discovery.py`)](#8-discovery-feature-autocueanalysisdiscoverypy)
+  - [8.1 `library_artists(db, top_n=25) -> list[str]`](#81-library_artistsdb-top_n25---liststr)
+  - [8.2 `library_album_set(db) -> set[str]`](#82-library_album_setdb---setstr)
+  - [8.3 `iter_new_releases(db, token, since_year, max_artists, per_artist)`](#83-iter_new_releasesdb-token-since_year-max_artists-per_artist)
+  - [8.4 `suggest_new_releases(...)` — non-streaming wrapper](#84-suggest_new_releases--non-streaming-wrapper)
+- [9. `/api/discover` SSE endpoint](#9-apidiscover-sse-endpoint)
+  - [9.1 Request](#91-request)
+  - [9.2 Token resolution](#92-token-resolution)
+  - [9.3 Read-only DB](#93-read-only-db)
+  - [9.4 Streamed events](#94-streamed-events)
+- [10. `DiscoverItem` schema](#10-discoveritem-schema)
+- [11. Discogs auto-tag flow](#11-discogs-auto-tag-flow)
+  - [11.1 Flow](#111-flow)
+  - [11.2 Per-track commit semantics](#112-per-track-commit-semantics)
+  - [11.3 Token-bucket interaction](#113-token-bucket-interaction)
+- [12. UI surface — Discover tab](#12-ui-surface--discover-tab)
+- [13. UI surface — Auto-Tag panel](#13-ui-surface--auto-tag-panel)
+- [14. Performance characteristics](#14-performance-characteristics)
+- [15. Examples](#15-examples)
+- [16. Edge cases](#16-edge-cases)
+- [17. Testing](#17-testing)
+- [18. Network failures and error handling](#18-network-failures-and-error-handling)
+- [19. Cache strategy and persistence](#19-cache-strategy-and-persistence)
+- [20. Related documentation](#20-related-documentation)
+- [Appendix A: File reference index](#appendix-a-file-reference-index)
+
 ---
 
 ## 1. Overview
@@ -39,7 +92,7 @@ The features are surfaced in three places:
 
 Both features are **local-server-only** — they require `autocue serve` to be
 running because they read the Rekordbox database (artist/album/play counts)
-and, for tagging, write `DjmdMyTag` / `DjmdSongMyTag` rows. The static GitHub
+and, for tagging, write [`DjmdMyTag`](./GLOSSARY.md#djmdmytag--djmdsongmytag) / [`DjmdSongMyTag`](./GLOSSARY.md#djmdmytag--djmdsongmytag) rows. The static GitHub
 Pages build of `docs/index.html` cannot reach Discogs.
 
 ---
@@ -193,7 +246,7 @@ combine to exceed 60 req/min between them.
 Both `search_styles` (`discogs.py:67`) and `search_artist_releases`
 (`discogs.py:128`) call `_acquire_token()` immediately before
 `urllib.request.urlopen`. The identity-validation endpoint
-(`/api/auto-tag/discogs/test`) does **not** call it — see §3.3 above.
+(`/api/auto-tag/discogs/test`) does **not** call it — see [§3.3 `/api/auto-tag/discogs/test` — token validation](#33-apiauto-tagdiscogstest--token-validation) above.
 
 ### 4.3 Why a token bucket and not a leaky bucket
 
@@ -240,7 +293,7 @@ _releases_cache: dict[str, list[dict]] = {}    # discogs.py:97
 - **Key**: `f"{artist.lower().strip()}|||{year_from or 0}"` so different
   `year_from` filters get separate entries (a 2024-onward query and a
   2020-onward query of the same artist do not collide).
-- **Value**: the list of release dicts (see §7 for the shape).
+- **Value**: the list of release dicts (see [§7 `search_artist_releases`](#7-search_artist_releasesartist-token-year_from---listdict) for the shape).
 - **Population**: written at the end of `search_artist_releases`
   (`discogs.py:166`).
 - **Eviction**: none.
@@ -251,7 +304,7 @@ These caches are module globals, so tests that exercise the client need to
 clear them. The conftest fixture (`tests/conftest.py`) wipes the analysis
 caches between tests, and `test_discovery.py` sidesteps the issue entirely
 by patching `discovery.search_artist_releases` rather than calling through to
-the real `discogs.py` module (see §17).
+the real `discogs.py` module (see [§17 Testing](#17-testing)).
 
 ### 5.4 Cache rationale
 
@@ -390,7 +443,7 @@ URL (`discogs.py:161`). If `uri` is missing it falls back to the API's
 Per-page defaults to 25 because it's the largest single-page response that
 still fits one Discogs request and is more than enough headroom — discovery
 caps each artist's surfaced suggestions at `per_artist=5` upstream
-(see §8.3), so 25 leaves plenty of slack after the year filter and the
+(see [§8.3 `iter_new_releases`](#83-iter_new_releasesdb-token-since_year-max_artists-per_artist)), so 25 leaves plenty of slack after the year filter and the
 owned-album filter prune the list.
 
 ---
@@ -714,7 +767,7 @@ class DiscogsTagRequest(BaseModel):
    `DjmdMyTag` builds `{tag_id: name}` for the whole library so each
    per-track check is in-memory only (`routes.py:1644-1647`).
 3. **For each track**:
-   1. Fetch the `DjmdContent` row (`routes.py:1651`).
+   1. Fetch the [`DjmdContent`](./GLOSSARY.md#djmdcontent) row (`routes.py:1651`).
    2. **If `skip_existing`**: check `DjmdSongMyTag` for tags whose name is
       not in `auto_tag.ALL_AUTOCUE_TAG_NAMES`. The assumption is that
       non-AutoCue tags are pre-existing Discogs styles (or manually
@@ -937,7 +990,193 @@ discovery tests and the auto-tag route tests in `test_serve_routes.py`.
 
 ---
 
-## 18. Related documentation
+## 18. Network failures and error handling
+
+Both `search_styles` (`autocue/analysis/discogs.py:50`) and
+`search_artist_releases` (`autocue/analysis/discogs.py:100`) follow the same
+contract: **return `[]` on any failure**, log a warning, and let the caller
+decide what "no data" means. The HTTP layer is `urllib.request.urlopen` with a
+hard 10-second timeout. There is **no retry** — a single failed request becomes
+a single empty result.
+
+The blanket `except Exception` at `discogs.py:79` and `discogs.py:140` is
+deliberate: callers (the auto-tag SSE loop, the discovery generator) are
+designed to skip individual tracks/artists rather than abort the entire run.
+This means a network blip mid-scan degrades the result set but never crashes
+the server.
+
+### 18.1 Invalid token (401)
+
+| Surface | Exception path | User-visible behaviour | Cache poisoned? | Aborts batch? |
+|---|---|---|---|---|
+| `search_styles` / `search_artist_releases` | `urllib.error.HTTPError` (subclass of `URLError`) caught by the generic `except Exception` (`discogs.py:79`, `discogs.py:140`) | Returns `[]` + `WARNING` log line `"Discogs API error for ... : HTTP Error 401: Unauthorized"`. The track/artist is silently skipped. | **No** — the result is never written to `_cache` / `_releases_cache` because the `_cache[...] = styles` assignment is past the `return []` short-circuit. | **No** — the loop continues with the next item. |
+| `/api/auto-tag/discogs/test` | Calls Discogs' `/oauth/identity` endpoint via its own ad-hoc `urllib` call (bypasses the token bucket). On 401 the route's `try` catches and re-raises as `HTTPException(400)` carrying the underlying error string (`routes.py:1599-1616`). | UI shows the validation error in a toast ("Connected as ..." replaced with the error text). The user is prompted to re-enter the token before kicking off a batch. | n/a (does not touch `_cache` / `_releases_cache`). | n/a (validation runs before the batch). |
+
+The UI **recommends** the user click "Test connection" first so a bad token is
+caught up front, but nothing forces it — a batch with a bad token will run to
+completion writing zero tags and emitting one `WARNING` per track.
+
+### 18.2 Upstream 429 (rate limit hit)
+
+The token bucket ([§4](#4-rate-limiting-token-bucket)) is sized to match
+Discogs' 60 req/min ceiling, so a single `autocue serve` process should never
+trigger a 429 in normal use. The cases that can still produce one:
+
+- Two `autocue serve` processes sharing a token (see [§4.4](#44-multi-process-caveat)).
+- An unrelated script using the same PAT in parallel.
+- Discogs returning 429 spuriously under their own load.
+
+When a 429 does happen, `urllib.error.HTTPError` is raised mid-request and
+caught by the same generic handler. The result: `[]` + a `WARNING` log line,
+the affected track/artist is skipped, and the **next** request continues
+normally. There is no exponential backoff and no awareness that we're being
+rate-limited — the next `_acquire_token()` will hand out a token immediately
+because the local bucket is happy. This can produce a cascade of 429s if the
+upstream throttle persists, but each one independently fails-soft.
+
+The cache is **not** poisoned (same short-circuit reason as 18.1). On a retry
+in the same session, the affected items will be re-queried.
+
+### 18.3 Service unavailable (503)
+
+Same path as 401/429: `urllib.error.HTTPError` → generic handler → `[]` +
+`WARNING`. There is no retry, no service-health awareness, no fallback. If
+Discogs is having a bad day, the auto-tag run completes with most/all tracks
+emitting empty style lists and the discovery scan completes with most/all
+artists producing zero suggestions. Both endpoints still emit a clean `done`
+event so the UI doesn't hang.
+
+### 18.4 Timeout / network drop
+
+`urllib.request.urlopen(req, timeout=10)` raises `socket.timeout`
+(`TimeoutError` on Python 3.10+) after 10s. DNS failures and TCP resets raise
+`urllib.error.URLError`. Both are subclasses of `OSError` and are caught by
+the generic `except Exception`. Result: `[]` + `WARNING` log line, no retry,
+caller skips.
+
+The 10-second timeout is intentional. Longer would let one stuck request stall
+a per-track commit loop; shorter would false-positive against a slow
+intercontinental TLS handshake.
+
+### 18.5 Empty / malformed response
+
+Two flavours:
+
+- **HTTP 200 with empty `results`** — `data.get("results", [])` yields `[]`,
+  the style/release loop has nothing to do, the function returns `[]`
+  **and writes `[]` into the cache**. This is the one case where the cache
+  *is* populated with an empty result: a 200 OK with zero hits is treated as
+  authoritative ("Discogs has nothing for this artist/title") rather than a
+  transient failure. A second call with the same key will return `[]` from
+  the cache without hitting the network. To re-query, the user must restart
+  `autocue serve` (or clear `discogs._cache` / `discogs._releases_cache`
+  manually from a REPL).
+- **HTTP 200 with malformed JSON** — `json.loads` raises `json.JSONDecodeError`,
+  caught by the generic handler, treated identically to a network error
+  (`[]` + `WARNING`, no cache write). Reaching this state implies a
+  Discogs-side bug or a middlebox rewriting the response — neither has been
+  observed in practice.
+
+### 18.6 Summary
+
+| Failure | Python exception | UI surface | Cache poisoned? | Aborts batch? |
+|---|---|---|---|---|
+| Invalid token (401) | `urllib.error.HTTPError` | Silent skip + `WARNING` log; validation route returns 400 | No | No |
+| Rate limit (429) | `urllib.error.HTTPError` | Silent skip + `WARNING` log | No | No |
+| Service unavailable (503) | `urllib.error.HTTPError` | Silent skip + `WARNING` log | No | No |
+| Timeout (>10s) | `TimeoutError` / `socket.timeout` | Silent skip + `WARNING` log | No | No |
+| DNS / TCP reset | `urllib.error.URLError` | Silent skip + `WARNING` log | No | No |
+| Empty `results` (200 OK) | None | Silent skip (no error) | **Yes** — `[]` written to cache | No |
+| Malformed JSON | `json.JSONDecodeError` | Silent skip + `WARNING` log | No | No |
+
+The recurring theme: **the Discogs layer never crashes the run**. Every error
+path is squeezed into "no data for this item" and the loop moves on.
+
+---
+
+## 19. Cache strategy and persistence
+
+AutoCue's Discogs caches are minimal by design. The full picture, in one place:
+
+### 19.1 What's cached
+
+- `discogs._cache` (`autocue/analysis/discogs.py:24`) — `dict[str, list[str]]`,
+  keyed by `"{artist}|||{title}"` lowercased and stripped.
+- `discogs._releases_cache` (`autocue/analysis/discogs.py:97`) —
+  `dict[str, list[dict]]`, keyed by `"{artist}|||{year_from or 0}"` lowercased
+  and stripped.
+
+Both are written at the end of a successful API call ([§5.1](#51-discogs_cache--styles),
+[§5.2](#52-discogs_releases_cache--releases)) and consulted at the top of every
+subsequent call.
+
+### 19.2 Lifetime — in-process only
+
+- The caches live on module globals. They are populated lazily and **cleared
+  only when the Python process exits**.
+- Restarting `autocue serve` wipes both caches. The first scan after a restart
+  re-queries Discogs for every key, paying the full token-bucket cost.
+- There is no inter-process sharing. If a developer runs the CLI and the
+  server back-to-back, each starts with a cold cache.
+
+### 19.3 TTL — there isn't one
+
+- Entries never expire. Once `discogs._cache["daft punk|||one more time"]` is
+  populated, every subsequent call in the same process returns the same list
+  regardless of how stale it is.
+- This is acceptable in practice because Discogs Style metadata for a given
+  release is extremely stable — curators rarely re-tag old releases. New
+  pressings of the same artist/title would land under a different release ID
+  but Discogs' top-5 search ranking is unlikely to demote the cached match.
+- For discovery, the lack of TTL matters more — a release added to Discogs
+  *after* the artist was first scanned will not appear until the server
+  restarts. In practice the user starts a fresh scan once a day or week, so
+  process restarts happen frequently enough to keep results fresh.
+
+### 19.4 Disk persistence — there isn't one
+
+- Nothing is written to disk. Both caches live entirely in RAM.
+- There is no warm-start mechanism. A cold restart pays the full Discogs cost
+  every time.
+- Memory footprint is trivial — even a 5000-track library tops out at ~5MB
+  of strings (see [§5.4](#54-cache-rationale)), well below any concern.
+
+### 19.5 Test fixtures
+
+`tests/conftest.py` clears the analysis caches between tests (see
+[§5.3](#53-test-isolation)), and `tests/test_discovery.py` sidesteps the
+Discogs layer entirely by patching `discovery.search_artist_releases`. The
+Discogs client itself is not directly unit-tested, so `discogs._cache` and
+`discogs._releases_cache` are exercised only via the discovery and route
+integration tests.
+
+### 19.6 Possible future enhancements
+
+The current design is deliberately minimal — the project shipped without
+sophisticated caching because it didn't need any. Concrete improvements when
+the constraints change:
+
+- **Disk-backed cache with TTL** — persist `discogs._cache` /
+  `discogs._releases_cache` to a SQLite or JSON file under
+  `~/.autocue/` so restarts don't re-burn the Discogs budget. A TTL of 30
+  days for Styles and 7 days for releases would balance freshness against
+  rate-limit cost.
+- **Per-call cache bypass** — add an explicit `force_refresh=False` kwarg to
+  `search_styles` / `search_artist_releases`, and surface a "Refresh from
+  Discogs" button in the UI that bypasses the cache for a single track or a
+  single discovery scan.
+- **Cache size cap with LRU eviction** — not currently needed (memory budget
+  is trivial), but a long-running server scanning many libraries would
+  eventually want bounded memory.
+- **Shared cache across `autocue serve` and the CLI** — sharing requires
+  disk persistence first.
+
+None of these are scheduled. They are documented here so the design
+intent of "in-memory only, no eviction" is explicit rather than implicit.
+
+---
+
+## 20. Related documentation
 
 - **`auto-tag.md`** — Broader auto-tag architecture. `search_styles` is one
   of several detector inputs; the My Tags / `DjmdMyTag` write path is shared.

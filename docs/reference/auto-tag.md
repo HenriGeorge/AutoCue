@@ -29,6 +29,41 @@ Source modules:
 
 ---
 
+## Table of Contents
+
+1. [Overview](#1-overview)
+2. [Database tables](#2-database-tables)
+3. [`AUTOCUE_TAG_NAMES`](#3-autocue_tag_names)
+4. [`ALL_AUTOCUE_TAG_NAMES`](#4-all_autocue_tag_names)
+5. [`MIN_SCORE = 0.70`](#5-min_score--070)
+6. [Idempotent helpers](#6-idempotent-helpers)
+   - [`ensure_tag_by_name`](#ensure_tag_by_namedb-name-attribute1)
+   - [Duplicate and casing rules](#ensure_tag_by_name-duplicate-and-casing-rules)
+   - [`ensure_category_tags`](#ensure_category_tagsdb---dictstr-str)
+7. [`apply_tags()` — the multi-type entrypoint](#7-apply_tags--the-multi-type-entrypoint)
+8. [Detectors](#8-detectors)
+   - [`_detect_category`](#_detect_category--warmup--build--peak--after-hours--closing)
+   - [`_detect_vocal`](#_detect_vocal--vocal--instrumental)
+   - [`_detect_energy_level`](#_detect_energy_level--high--mid--low)
+   - [`_detect_energy_profile`](#_detect_energy_profile--build--wave--flat--drop-track)
+   - [`_detect_intro_outro`](#_detect_intro_outro--longshort-introoutro)
+   - [`_detect_decade`](#_detect_decade--60s--70s--80s--90s--00s--10s--20s)
+   - [`_detect_bpm_tier`](#_detect_bpm_tier--six-bpm-bands)
+   - [`_detect_play_history`](#_detect_play_history--never--rarely--frequently-played)
+9. [`apply_classification_tags()` — category-only entrypoint](#9-apply_classification_tags--category-only-entrypoint)
+10. [`undo_data` and `undo_tag_run`](#10-undo_data-and-undo_tag_run)
+11. [REST endpoints](#11-rest-endpoints)
+12. [Discogs auto-tag flow](#12-discogs-auto-tag-flow)
+13. [`skip_existing`](#13-skip_existing)
+14. [UI surface](#14-ui-surface)
+15. [Idempotency](#15-idempotency)
+16. [Safety](#16-safety)
+17. [Examples](#17-examples)
+18. [Testing](#18-testing)
+19. [Related references](#19-related-references)
+
+---
+
 ## 1. Overview
 
 ### What are Rekordbox "My Tags"?
@@ -40,8 +75,8 @@ browser can filter the library by one or more of them.
 
 My Tags live in two SQLCipher-encrypted tables in `master.db`:
 
-- `DjmdMyTag` — one row per **tag definition** (name + color + sort order).
-- `DjmdSongMyTag` — one row per **(track, tag) assignment** (the join table).
+- [`DjmdMyTag`](./GLOSSARY.md#djmdmytag--djmdsongmytag) — one row per **tag definition** (name + color + sort order).
+- [`DjmdSongMyTag`](./GLOSSARY.md#djmdmytag--djmdsongmytag) — one row per **(track, tag) assignment** (the join table).
 
 ### What AutoCue writes
 
@@ -86,6 +121,10 @@ Techno, Minimal, …) as tags. This is described in
 Both tables are accessed exclusively through `pyrekordbox.db6.tables`. None of
 the SQL is hand-written.
 
+For schema-level descriptions of these tables (and `DjmdContent`,
+[`DjmdCue`](./GLOSSARY.md#djmdcue), and friends), see the
+[**Glossary**](./GLOSSARY.md).
+
 ### `DjmdMyTag` — tag definitions
 
 | Column | Type | Notes |
@@ -103,7 +142,7 @@ the SQL is hand-written.
 | `ID` | VARCHAR(255) | Primary key, via `db.generate_unused_id(DjmdSongMyTag)`. |
 | `UUID` | VARCHAR(255) | `str(uuid4())`. |
 | `MyTagID` | VARCHAR(255) | FK → `DjmdMyTag.ID`. |
-| `ContentID` | VARCHAR(255) | FK → `DjmdContent.ID`. Always stringified. |
+| `ContentID` | VARCHAR(255) | FK → [`DjmdContent`](./GLOSSARY.md#djmdcontent)`.ID`. Always stringified. |
 | `TrackNo` | INTEGER | Position within the tag (defaults to 0 — Rekordbox does not require unique ordering here). |
 
 ### Required fields when inserting
@@ -264,6 +303,55 @@ Behaviour notes:
   (rare, but possible on a freshly-restored DB before any tags exist), the
   function falls through to the create branch rather than failing.
 
+#### `ensure_tag_by_name` duplicate and casing rules
+
+The reuse-by-name lookup is intentionally minimal. The single check that
+decides "reuse vs. create" is `auto_tag.py:349`:
+
+```python
+if t.Name == name:
+    return str(t.ID)
+```
+
+Concretely:
+
+| Question | Behaviour | Source |
+|---|---|---|
+| Is the lookup **case-sensitive**? | **Yes — strictly.** Python `==` on the raw `DjmdMyTag.Name` value. `"Vocal"` and `"vocal"` are different strings and will produce two separate rows. | `auto_tag.py:349` |
+| Is whitespace trimmed? | **No.** `" Deep House"` (leading space) is treated as distinct from `"Deep House"`. | `auto_tag.py:349` |
+| Is Unicode normalized? | **No.** Pre-composed `é` (U+00E9) and decomposed `e + ◌́` (U+0065 U+0301) are treated as different names. | `auto_tag.py:349` |
+| What if two existing rows already share a `Name`? | The **first** row returned by `db.get_my_tag().all()` wins. The function exits early on the first match and never sees subsequent duplicates. Iteration order is whatever pyrekordbox's SQLCipher query returns — effectively insertion order, but not formally guaranteed. The unreached duplicates are not pruned and remain in `DjmdMyTag`. | `auto_tag.py:348–350` |
+| What if `db.get_my_tag()` raises? | The exception is swallowed (`except Exception: pass`) and the function proceeds to **create a new row**. On a corrupt or freshly-restored DB this can therefore create a duplicate of a tag that already exists but could not be read. | `auto_tag.py:347–352` |
+| Does it touch `DjmdSongMyTag`? | **No.** This function only materialises a tag *definition*. Assignments are written by `apply_tags` / `apply_classification_tags` / the Discogs route. | n/a |
+
+**Risk: subtly different casing across runs.** If AutoCue is invoked twice
+with names that differ only in casing or whitespace — e.g. a previous run
+created `"vocal"` (lowercase) manually, then `apply_tags` calls
+`ensure_tags` with the canonical `"Vocal"` — the canonical path takes the
+**create** branch and Rekordbox ends up with **two** `DjmdMyTag` rows
+(`"vocal"` and `"Vocal"`). Both appear in the sidebar; both can be filtered
+on independently. The same applies to the Discogs flow if Discogs returns
+a style with inconsistent casing across releases (rare in practice — Discogs
+normalises its own taxonomy server-side).
+
+**Recommended user-facing guidance:**
+
+- **Do not hand-edit AutoCue-managed tag names in Rekordbox.** The five
+  category names in [`AUTOCUE_TAG_NAMES`](#3-autocue_tag_names) and the ~34
+  names in [`ALL_AUTOCUE_TAG_NAMES`](#4-all_autocue_tag_names) are the only
+  strings AutoCue will reuse. Renaming `"Peak"` to `"PEAK"` inside Rekordbox
+  causes the next AutoCue run to create a fresh `"Peak"` alongside it.
+- **If you see duplicate tags with different casing, delete the unwanted
+  one inside Rekordbox before re-running.** AutoCue cannot disambiguate
+  them.
+- **Discogs styles are written verbatim** from the Discogs API. If you
+  want consistent casing, run Discogs tagging in a single batch rather
+  than incrementally across schema-version upgrades.
+
+A future hardening of this code path could case-fold the lookup
+(`t.Name.casefold() == name.casefold()`) and `.strip()` both sides; today
+it does not.
+
 ### `ensure_category_tags(db) -> dict[str, str]`
 
 The same pattern, specialized for the five category rows. Returns
@@ -373,6 +461,22 @@ Three gates: PWAV present → classification produces a primary → top score
 display name via `_CATEGORIES`. See
 [§5 `MIN_SCORE`](#5-min_score--070) for the rationale.
 
+| Input | Condition | Output tag |
+|---|---|---|
+| `get_energy_curve(content, db)` | `None` / empty | (no tag) |
+| `get_classification(content, db)` | `None` | (no tag) |
+| `clf["scores"][clf["primary"]]` | `< 0.70` (`MIN_SCORE`) | (no tag) |
+| `clf["primary"] == "warmup"` | score ≥ 0.70 | "Warmup" |
+| `clf["primary"] == "build"` | score ≥ 0.70 | "Build" |
+| `clf["primary"] == "peak"` | score ≥ 0.70 | "Peak" |
+| `clf["primary"] == "after_hours"` | score ≥ 0.70 | "After Hours" |
+| `clf["primary"] == "closing"` | score ≥ 0.70 | "Closing" |
+
+The `primary` key and the `scores` dict are produced upstream by
+`classify.get_classification()` — see
+[`track-classification.md`](./track-classification.md) for the trapezoidal
+membership math that fixes those numbers.
+
 ### `_detect_vocal` — Vocal / Instrumental
 
 ```python
@@ -388,6 +492,17 @@ Reads `score.get_mixability(content, db)["vocal_proxy"]` — a heuristic
 boolean derived from genre, mood tag, and (where available) the
 high-frequency content of the energy curve. Always emits one of the two
 labels when mixability is available; both labels are mutually exclusive.
+
+| Input | Condition | Output tag |
+|---|---|---|
+| `get_mixability(content, db)` | `None` | (no tag) |
+| `mix["vocal_proxy"]` | truthy | "Vocal" |
+| `mix["vocal_proxy"]` | falsy | "Instrumental" |
+
+`vocal_proxy` is a boolean (or boolean-coerced value) produced by
+`score.get_mixability()` — the source-of-truth chain is documented in
+[`energy-and-mixability.md`](./energy-and-mixability.md). The detector
+itself defines no numeric threshold; it forwards whatever upstream decides.
 
 ### `_detect_energy_level` — High / Mid / Low
 
@@ -409,6 +524,17 @@ Thresholds 0.65 / 0.35 on the **mean of the normalized 0–1 PWAV curve**.
 The constants are tuned so a typical 124-BPM driving house track lands in
 "High", a downtempo cut lands in "Low", and most ambient/cinematic material
 falls in "Mid".
+
+| Input | Range | Output tag |
+|---|---|---|
+| `get_energy_curve(content, db)` | `None` / empty | (no tag) |
+| `mean(curve)` | `>= 0.65` | "High Energy" |
+| `mean(curve)` | `0.35 <= mean < 0.65` | "Mid Energy" |
+| `mean(curve)` | `< 0.35` | "Low Energy" |
+
+Note the boundaries are **inclusive on the lower edge**: exactly `0.65`
+→ High, exactly `0.35` → Mid. The curve itself is normalised to 0–1 by
+`energy.get_energy_curve()`.
 
 ### `_detect_energy_profile` — Build / Wave / Flat / Drop Track
 
@@ -433,6 +559,20 @@ Delegates to `energy.classify_energy_profile()`, which returns one of
 `flat` / `build` / `wave` / `drop-then-flat`. The name map renames them for
 display. Profile choices feed directly off the energy curve shape — see
 the `energy-and-mixability.md` reference for the trapezoid math.
+
+| Input | Upstream value | Output tag |
+|---|---|---|
+| `get_energy_curve(content, db)` | `None` / empty | (no tag) |
+| `classify_energy_profile(curve)` | `"build"` | "Build Track" |
+| `classify_energy_profile(curve)` | `"wave"` | "Wave Track" |
+| `classify_energy_profile(curve)` | `"flat"` | "Flat Track" |
+| `classify_energy_profile(curve)` | `"drop-then-flat"` | "Drop Track" |
+| `classify_energy_profile(curve)` | any other / unknown | (no tag — `name_map.get()` returns `None`) |
+
+The detector defines no thresholds of its own; the variance/local-maxima
+heuristics live in `energy.classify_energy_profile()`. See
+[`energy-and-mixability.md`](./energy-and-mixability.md) for the
+source-of-truth numbers.
 
 ### `_detect_intro_outro` — Long/Short Intro/Outro
 
@@ -466,6 +606,30 @@ detector requires the PSSI phrase grid (`phrase_count > 0`) — without
 phrases, intro/outro bars cannot be computed and the detector is silent.
 Intros/outros in the open interval (4, 16) bars are intentionally untagged.
 
+**Intro side** (`mix["intro_bars"]`):
+
+| Input | Range | Output tag |
+|---|---|---|
+| `get_mixability(content, db)` | `None` | (no tag for either side) |
+| `mix["phrase_count"]` | `0` | (no tag for either side) |
+| `intro_bars` | `>= 16` (`LONG_INTRO_BARS`) | "Long Intro" |
+| `intro_bars` | `0 < intro <= 4` (`SHORT_INTRO_BARS`) | "Short Intro" |
+| `intro_bars` | `4 < intro < 16` | (no intro tag) |
+| `intro_bars` | `0` or missing | (no intro tag) |
+
+**Outro side** (`mix["outro_bars"]`):
+
+| Input | Range | Output tag |
+|---|---|---|
+| `outro_bars` | `>= 16` (`LONG_OUTRO_BARS`) | "Long Outro" |
+| `outro_bars` | `0 < outro <= 4` (`SHORT_OUTRO_BARS`) | "Short Outro" |
+| `outro_bars` | `4 < outro < 16` | (no outro tag) |
+| `outro_bars` | `0` or missing | (no outro tag) |
+
+Both sides are evaluated independently — a track may receive Long Intro
+plus Short Outro, just one, or neither. The bar counts come from
+`score.get_mixability()`, which reads the PSSI phrase grid.
+
 ### `_detect_decade` — 60s / 70s / 80s / 90s / 00s / 10s / 20s
 
 ```python
@@ -489,6 +653,20 @@ def _detect_decade(content, db) -> list[str]:
 Pure metadata read. `DjmdContent.ReleaseYear` is sometimes blank, sometimes
 `"0"`, sometimes a stringified four-digit year — all three are gated. Years
 outside 1960–2029 are silently skipped (no 30s tag, no 50s tag).
+
+| Input | Range | Output tag |
+|---|---|---|
+| `content.ReleaseYear` | falsy (`None` / `""` / `0`) | (no tag) |
+| `int(content.ReleaseYear)` | `ValueError` / `TypeError` | (no tag) |
+| `int(year)` | `<= 0` | (no tag) |
+| `year // 10 * 10` | `1960` | "60s" |
+| `year // 10 * 10` | `1970` | "70s" |
+| `year // 10 * 10` | `1980` | "80s" |
+| `year // 10 * 10` | `1990` | "90s" |
+| `year // 10 * 10` | `2000` | "00s" |
+| `year // 10 * 10` | `2010` | "10s" |
+| `year // 10 * 10` | `2020` | "20s" |
+| `year // 10 * 10` | any other (e.g. `1950`, `2030`) | (no tag — missing from `decade_map`) |
 
 ### `_detect_bpm_tier` — six BPM bands
 
@@ -516,6 +694,18 @@ Note the `/ 100.0` — `DjmdContent.BPM` is stored as **BPM × 100** (an integer
 column). A track at 124.50 BPM is stored as `12450`. The tier boundaries
 are inclusive on the lower edge: 124.99 → 120–124, 125.00 → 125–128.
 
+| Input | Range (post `/100.0`) | Output tag |
+|---|---|---|
+| `content.BPM` | falsy (`None` / `""` / `0`) | (no tag) |
+| `float(content.BPM)` | `ValueError` / `TypeError` | (no tag) |
+| `bpm` | `<= 0` | (no tag) |
+| `bpm` | `< 120` | "<120 BPM" |
+| `bpm` | `120 <= bpm < 125` | "120–124 BPM" |
+| `bpm` | `125 <= bpm < 129` | "125–128 BPM" |
+| `bpm` | `129 <= bpm < 136` | "129–135 BPM" |
+| `bpm` | `136 <= bpm < 145` | "136–144 BPM" |
+| `bpm` | `>= 145` | ">144 BPM" |
+
 ### `_detect_play_history` — Never / Rarely / Frequently Played
 
 ```python
@@ -538,6 +728,19 @@ def _detect_play_history(content, db) -> list[str]:
 Three buckets: 0 plays → Never, 1–5 → Rarely, 25+ → Frequently. Tracks with
 6–24 plays receive no play-history tag (deliberately — they are neither
 buried nor over-played).
+
+| Input | Range | Output tag |
+|---|---|---|
+| `content.DJPlayCount` | `None` / unparseable | coerced to `0` → "Never Played" |
+| `count` | `== 0` | "Never Played" |
+| `count` | `1 <= count <= 5` | "Rarely Played" |
+| `count` | `6 <= count <= 24` | (no tag) |
+| `count` | `>= 25` | "Frequently Played" |
+
+Note the input fallback: unlike the other detectors, missing/unparseable
+`DJPlayCount` does **not** suppress the tag — it is coerced to `0` and the
+track is tagged "Never Played". A brand-new library import where the field
+is empty therefore still receives a play-history tag.
 
 ### Detector registry
 

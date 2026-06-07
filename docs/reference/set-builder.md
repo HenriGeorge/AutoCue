@@ -22,6 +22,45 @@ Related references:
 - [Energy and mixability](./energy-and-mixability.md) — `get_energy_curve` /
   `get_mixability` feed the similarity vector and the energy penalty.
 - [Auto-tag](./auto-tag.md) — uses the same category model for My Tag writes.
+- [Glossary](./GLOSSARY.md) — Pioneer DB terms ([`DjmdContent`](./GLOSSARY.md#djmdcontent),
+  [`DjmdCue`](./GLOSSARY.md#djmdcue), [`Kind`](./GLOSSARY.md#cue-encoding-kind-slot-inframe-outmsec), …).
+
+---
+
+## Table of Contents
+
+- [1. Overview](#1-overview)
+  - [Inputs](#inputs)
+  - [Output](#output)
+- [2. Algorithm](#2-algorithm)
+  - [Step by step](#step-by-step)
+- [Beam search visualized](#beam-search-visualized)
+- [Relaxation ladder visualized](#relaxation-ladder-visualized)
+- [3. `build_set(...)` — full signature](#3-build_set--full-signature)
+- [4. Seed selection — `_find_seed(...)`](#4-seed-selection--_find_seed)
+- [5. Category arc — `_category_order(prefs)`](#5-category-arc--_category_orderprefs)
+- [6. Candidate retrieval — `_get_candidates(...)`](#6-candidate-retrieval--_get_candidates)
+  - [Asymmetric BPM gate](#asymmetric-bpm-gate)
+  - [Candidate count](#candidate-count)
+  - [Per-candidate filtering](#per-candidate-filtering)
+- [7. Deduplication — three axes](#7-deduplication--three-axes)
+- [8. Setbuilder-specific transition reweighting](#8-setbuilder-specific-transition-reweighting)
+- [9. BPM-progress bonus](#9-bpm-progress-bonus)
+- [10. Energy penalty — `_energy_penalty(...)`](#10-energy-penalty--_energy_penalty)
+- [11. Relaxation tiers — `_relaxation_tiers(...)`](#11-relaxation-tiers--_relaxation_tiers)
+- [12. Anchor merging — `_merge_anchors(...)`](#12-anchor-merging--_merge_anchors)
+- [13. `mix_advice` per track](#13-mix_advice-per-track)
+- [14. `build_alternatives(...)` and `/api/setbuilder/alternatives`](#14-build_alternatives-and-apisetbuilderalternatives)
+- [15. `SetBuilderTrackItem` schema](#15-setbuildertrackitem-schema)
+- [16. `SetAlternativeItem` schema](#16-setalternativeitem-schema)
+- [17. Bug 4 history — full timeline](#17-bug-4-history--full-timeline)
+- [18. REST endpoints](#18-rest-endpoints)
+- [19. UI surface](#19-ui-surface)
+- [20. Performance](#20-performance)
+- [Performance and scaling](#performance-and-scaling)
+- [21. Examples](#21-examples)
+- [22. Testing](#22-testing)
+- [23. Related references](#23-related-references)
 
 ---
 
@@ -31,18 +70,18 @@ Related references:
 
 1. Start near a given BPM (`start_bpm`).
 2. Move toward an ending BPM (`end_bpm`) at no more than `bpm_step_max` per
-   step (default 8%, asymmetric — see §6).
+   step (default 8%, asymmetric — see [Candidate retrieval](#6-candidate-retrieval--_get_candidates)).
 3. Sum to roughly `duration_minutes` of playback.
 4. Honour an `energy_mode` of `build` / `flat` / `drop` (a soft penalty on each
    transition).
 5. Begin from `seed_track_id` if supplied, otherwise an algorithmically chosen
-   first track (see §4).
+   first track (see [Seed selection](#4-seed-selection--_find_seed)).
 6. Include every track in `anchor_track_ids` (merged at BPM-sorted positions —
-   see §12).
+   see [Anchor merging](#12-anchor-merging--_merge_anchors)).
 7. Maintain a category arc of `warmup → build → peak` when BPM ascends, or
-   `peak → after_hours → closing` when BPM descends (§5).
+   `peak → after_hours → closing` when BPM descends (see [Category arc](#5-category-arc--_category_orderprefs)).
 8. Never repeat the same track ID, the same title+artist string, or use any
-   single artist more than twice (§7).
+   single artist more than twice (see [Deduplication](#7-deduplication--three-axes)).
 
 The planner is a **beam search of width 5**
 ([`setbuilder.py:24`](../../autocue/analysis/setbuilder.py#L24)). At each step
@@ -60,10 +99,10 @@ when a safety cap (`3 × est_tracks` steps) is hit.
 | `start_bpm`         | `float`       | `110.0`     | Seed BPM target.                                                                   |
 | `end_bpm`           | `float`       | `135.0`     | Final BPM target. Direction controls the category arc and the asymmetric BPM gate. |
 | `duration_minutes`  | `float`       | `60.0`      | Stops the beam when cumulative track length reaches this.                          |
-| `energy_mode`       | `str`         | `"build"`   | One of `"build"`, `"flat"`, `"drop"`. Soft penalty only (§10).                     |
+| `energy_mode`       | `str`         | `"build"`   | One of `"build"`, `"flat"`, `"drop"`. Soft penalty only (see [Energy penalty](#10-energy-penalty--_energy_penalty)).                     |
 | `bpm_step_max`      | `float`       | `0.08`      | Max fractional BPM increase per step (8%).                                         |
 | `seed_track_id`     | `int \| None` | `None`      | Overrides `_find_seed` if supplied.                                                |
-| `anchor_track_ids`  | `list[int]`   | `None`      | Must-include tracks merged into the result (§12).                                  |
+| `anchor_track_ids`  | `list[int]`   | `None`      | Must-include tracks merged into the result (see [Anchor merging](#12-anchor-merging--_merge_anchors)).                                  |
 
 ### Output
 
@@ -91,7 +130,7 @@ when a safety cap (`3 × est_tracks` steps) is hit.
 
 The HTTP layer wraps this in `SetBuilderResponse` and adds
 `total_tracks` and `estimated_duration_minutes` computed from
-`DjmdContent.Length` of every slot
+[`DjmdContent`](./GLOSSARY.md#djmdcontent)`.Length` of every slot
 ([`routes.py:1383`](../../autocue/serve/routes.py#L1383)).
 
 ---
@@ -132,7 +171,7 @@ while True:
    subsequent classification lookups in the loop are O(1).
 2. **Seed** — `_find_seed(db, start_bpm, cat_sequence[0])` finds the best
    first track, or `db.get_content(ID=seed_track_id)` if the caller supplied
-   one (§4).
+   one (see [Seed selection](#4-seed-selection--_find_seed)).
 3. **Candidate retrieval** — per step, per beam, `find_similar(track_id, db,
    n=20|40, bpm_gate=...)` returns BPM-gated candidates from the similarity
    index. `n` doubles to 40 when `end_bpm ≠ start_bpm` so the pool is wide
@@ -140,12 +179,12 @@ while True:
    ([`setbuilder.py:459`](../../autocue/analysis/setbuilder.py#L459)).
 4. **Filter** — `_get_candidates` applies the asymmetric BPM gate, category
    threshold, dedup on track ID / title+artist / artist count, then returns
-   `[(track_id, bpm, key), ...]` (§6, §7).
+   `[(track_id, bpm, key), ...]` (see [Candidate retrieval](#6-candidate-retrieval--_get_candidates), [Deduplication](#7-deduplication--three-axes)).
 5. **Score** — each candidate gets `score_transition(current, cand, db)`. When
    BPM is changing, the overall score is **rebalanced** to `0.25×bpm +
-   0.40×key + 0.35×energy` (§8). A **BPM-progress bonus** of up to +15 is
-   added when the candidate moves toward `end_bpm` (§9). An **energy penalty**
-   of 0 or 15 is subtracted (§10). The final value drives the beam ranking.
+   0.40×key + 0.35×energy` (see [Reweighting](#8-setbuilder-specific-transition-reweighting)). A **BPM-progress bonus** of up to +15 is
+   added when the candidate moves toward `end_bpm` (see [BPM-progress bonus](#9-bpm-progress-bonus)). An **energy penalty**
+   of 0 or 15 is subtracted (see [Energy penalty](#10-energy-penalty--_energy_penalty)). The final value drives the beam ranking.
 6. **Beam expand** — each beam fans out to its top 5 candidates; the
    union of all fanouts is sorted by cumulative score and pruned back to 5
    beams.
@@ -155,7 +194,7 @@ while True:
    cap of `3 × est_tracks` steps is hit ("safety_cap_hit",
    [`setbuilder.py:179`](../../autocue/analysis/setbuilder.py#L179)).
 8. **Anchor merge** — if `anchor_track_ids` is non-empty, missing anchors are
-   inserted into the best beam's `tracks` at the BPM-sorted position (§12).
+   inserted into the best beam's `tracks` at the BPM-sorted position (see [Anchor merging](#12-anchor-merging--_merge_anchors)).
 
 The estimated track count drives both the category arc and the safety cap:
 
@@ -164,6 +203,131 @@ est_tracks = max(3, int(target_duration_s / 360))   # average 6-min track
 ```
 
 `setbuilder.py:130`.
+
+---
+
+## Beam search visualized
+
+A picture of one beam-search iteration. Beam width is **5**; each beam fans out
+to its top **K** candidates (`K = _CANDIDATES_PER_STEP × (2 if BPM is changing
+else 1)`, capped per beam at 5 fan-outs). After the fan-out, the **union** of
+all new partial sets is re-sorted by **cumulative score** and pruned back to 5.
+
+```
+                       BEAM POOL (top 5 partial sets, ranked by cumulative score)
+                       ─────────────────────────────────────────────────────────
+
+  Step 0 (seed)        ┌─────────┐
+  cumulative=0.0       │   B0    │   one seed → one beam
+                       │ 110 BPM │
+                       │   8A    │
+                       └────┬────┘
+                            │ fan-out to top 5 candidates per beam
+                            ▼
+                       ┌────┴────────────────────────────────────────────┐
+  Step 1 candidates   ─┤  scored = reweighted_overall + bpm_bonus − ep   ├─
+                       └─────────────────────────────────────────────────┘
+                        B0→a (113 BPM 8A)            92.5
+                        B0→b (115 BPM 8A)            91.0
+                        B0→c (113 BPM 9A)            88.5
+                        B0→d (118 BPM 8A)            85.0
+                        B0→e (116 BPM 4A) ← dropped  62.0   below transition_min
+
+  After step 1         B0→a   B0→b   B0→c   B0→d   B0→e   ← 5 new partials
+  (top 5 retained)     92.5   91.0   88.5   85.0    —     ← e pruned
+                         │      │      │      │
+                         ▼      ▼      ▼      ▼
+  Step 2 fan-out       each of the 4 surviving beams fans out to ≤5 candidates
+                       ┌──────────────────────────────────────────────────┐
+                       │  (B0→a)→x  +91.4 →  cum 183.9                     │
+                       │  (B0→a)→y  +88.0 →  cum 180.5                     │
+                       │  (B0→b)→x  +85.5 →  cum 176.5                     │
+                       │  (B0→b)→z  +83.0 →  cum 174.0                     │
+                       │  (B0→c)→x  +80.5 →  cum 169.0                     │
+                       │  (B0→d)→w  +60.0 →  cum 145.0  ← dropped          │
+                       │  ...                                              │
+                       └──────────────────────────────────────────────────┘
+
+  After step 2         top 5 by cumulative score retained, rest discarded
+  (top 5 retained)     183.9   180.5   176.5   174.0   169.0
+
+  Termination          when every surviving beam's total_duration ≥ target,
+                       or no tier produced any candidate, or the safety
+                       cap (3 × est_tracks steps) is hit. The single best
+                       beam by cumulative score is returned.
+```
+
+**Key invariants:**
+
+- The five beams are **alternate timelines** — they share no state. A track
+  chosen by one beam may still appear later in another beam's set.
+- The dedup structures (`visited`, `visited_titles`, `visited_artists`) are
+  **per beam**, not global.
+- A beam that produces zero candidates in **every** relaxation tier dies — it
+  is dropped from the pool and not retained even if its cumulative score is
+  high. Without this, dead beams would clog the top 5 indefinitely.
+- Cumulative score is the sum of per-step scored values (`overall − ep +
+  bpm_bonus`), not the mean — longer beams naturally accumulate more.
+
+---
+
+## Relaxation ladder visualized
+
+For each beam at each step, the planner walks **down** this ladder until a
+candidate passes. The first tier that produces ≥1 candidate wins; further tiers
+are skipped. Tracks placed via any tier ≥ 1 are flagged `relaxed=True`.
+
+```
+  ┌──────────────────────────────────────────────────────────────────────┐
+  │ TIER 0  ──  strict (default)                                         │
+  │   target category required                                           │
+  │   category_min     = 0.30                                            │
+  │   transition_min   = 40.0                                            │
+  │   bpm_step_max     = as passed (e.g. 0.08)                           │
+  └────────────────────────────┬─────────────────────────────────────────┘
+                               │ no candidate passes? ↓
+  ┌────────────────────────────┴─────────────────────────────────────────┐
+  │ TIER 1  ──  loosen category fit                                      │
+  │   target category required                                           │
+  │   category_min     = 0.20   ◄── relaxed (was 0.30)                   │
+  │   transition_min   = 40.0                                            │
+  │   bpm_step_max     = as passed                                       │
+  └────────────────────────────┬─────────────────────────────────────────┘
+                               │ no candidate passes? ↓
+  ┌────────────────────────────┴─────────────────────────────────────────┐
+  │ TIER 2  ──  loosen transition threshold                              │
+  │   target category required                                           │
+  │   category_min     = 0.20                                            │
+  │   transition_min   = 30.0   ◄── relaxed (was 40.0)                   │
+  │   bpm_step_max     = as passed                                       │
+  └────────────────────────────┬─────────────────────────────────────────┘
+                               │ no candidate passes? ↓
+  ┌────────────────────────────┴─────────────────────────────────────────┐
+  │ TIER 3  ──  widen BPM step                                           │
+  │   target category required                                           │
+  │   category_min     = 0.20                                            │
+  │   transition_min   = 30.0                                            │
+  │   bpm_step_max     = as passed + 0.02   ◄── relaxed                  │
+  └────────────────────────────┬─────────────────────────────────────────┘
+                               │ no candidate passes? ↓
+  ┌────────────────────────────┴─────────────────────────────────────────┐
+  │ TIER 4  ──  drop category filter entirely                            │
+  │   category         = None   ◄── filter removed                       │
+  │   category_min     = None                                            │
+  │   transition_min   = 30.0                                            │
+  │   bpm_step_max     = as passed + 0.02                                │
+  └────────────────────────────┬─────────────────────────────────────────┘
+                               │ still no candidate?
+                               ▼
+                  beam dies; if all beams die → terminate with
+                  `no_candidates_passed_thresholds`.
+```
+
+Tier 1 and tier 2 share the same candidate pool (only `transition_min`
+differs) — the inner `_cand_cache` keyed by `(category, category_min,
+bpm_step_max)` reuses the tier-1 result so tier 2's filter call is free.
+See [`setbuilder.py:375`](../../autocue/analysis/setbuilder.py#L375) for the
+tier list.
 
 ---
 
@@ -187,13 +351,13 @@ def build_set(
 | Argument            | Type           | Default    | Behaviour                                                                                                                                                          |
 |---------------------|----------------|------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | `db`                | RB6 DB         | —          | Required. SQLAlchemy session via `Rekordbox6Database`. The route uses `get_ro_db` (read-only) — Set Builder never writes.                                           |
-| `start_bpm`         | `float`        | `110.0`    | Seed BPM target. `_find_seed` requires `bpm ≥ start_bpm × 0.97` in pass one (§4).                                                                                  |
-| `end_bpm`           | `float`        | `135.0`    | Final BPM target. Controls `_category_order` direction (§5), the asymmetric BPM gate (§6), candidate count doubling (§2.3), reweighting (§8), and BPM bonus (§9).  |
+| `start_bpm`         | `float`        | `110.0`    | Seed BPM target. `_find_seed` requires `bpm ≥ start_bpm × 0.97` in pass one (see [Seed selection](#4-seed-selection--_find_seed)).                                                                                  |
+| `end_bpm`           | `float`        | `135.0`    | Final BPM target. Controls `_category_order` direction (see [Category arc](#5-category-arc--_category_orderprefs)), the asymmetric BPM gate (see [Candidate retrieval](#6-candidate-retrieval--_get_candidates)), candidate count doubling (see [Step by step](#step-by-step)), reweighting (see [Reweighting](#8-setbuilder-specific-transition-reweighting)), and BPM bonus (see [BPM-progress bonus](#9-bpm-progress-bonus)).  |
 | `duration_minutes`  | `float`        | `60.0`     | Loop exits when every beam's `total_duration` (in seconds) ≥ `duration_minutes × 60`. Tracks that overshoot are kept whole — no track is trimmed.                  |
-| `energy_mode`       | `str`          | `"build"`  | Soft penalty only — does not gate candidates. `_energy_penalty` returns `0.0` or `15.0`. See §10.                                                                  |
-| `bpm_step_max`      | `float`        | `0.08`     | Max fractional BPM increase per step. Feeds the secondary `bpm_lo`/`bpm_hi` filter and the relaxation tiers (§11).                                                 |
+| `energy_mode`       | `str`          | `"build"`  | Soft penalty only — does not gate candidates. `_energy_penalty` returns `0.0` or `15.0`. See [Energy penalty](#10-energy-penalty--_energy_penalty).                                                                  |
+| `bpm_step_max`      | `float`        | `0.08`     | Max fractional BPM increase per step. Feeds the secondary `bpm_lo`/`bpm_hi` filter and the relaxation tiers (see [Relaxation tiers](#11-relaxation-tiers--_relaxation_tiers)).                                                 |
 | `seed_track_id`     | `int \| None`  | `None`     | When set, bypasses `_find_seed` entirely. The seed is used regardless of its BPM or category.                                                                      |
-| `anchor_track_ids`  | `list[int]`    | `None`     | Tracks that **must** appear in the final result. Beam-found anchors are left in place; missing anchors are merged after the beam terminates (§12).                 |
+| `anchor_track_ids`  | `list[int]`    | `None`     | Tracks that **must** appear in the final result. Beam-found anchors are left in place; missing anchors are merged after the beam terminates (see [Anchor merging](#12-anchor-merging--_merge_anchors)).                 |
 
 `None` for `anchor_track_ids` skips the merge step entirely
 ([`setbuilder.py:324`](../../autocue/analysis/setbuilder.py#L324)).
@@ -226,7 +390,7 @@ def _find_seed(db, start_bpm: float, category: str):
     return best_content
 ```
 
-Two-pass design (Bug 4, layer C — see §17):
+Two-pass design (Bug 4, layer C — see [Bug 4 history](#17-bug-4-history--full-timeline)):
 
 - **Pass one** requires `bpm ≥ start_bpm × 0.97`. This prevents starting a
   110-BPM warmup set with a 95-BPM track. The 3% slack absorbs decimal rounding
@@ -287,7 +451,7 @@ For a 10-step set with `["warmup", "build", "peak"]`:
 
 The category becomes a **filter input** for `_get_candidates`: candidates must
 score `≥ category_min` (default 0.3) on the target category before they can be
-scored. The relaxation ladder (§11) lowers this threshold and eventually
+scored. The relaxation ladder (see [Relaxation tiers](#11-relaxation-tiers--_relaxation_tiers)) lowers this threshold and eventually
 removes the category filter entirely if no candidates pass.
 
 ---
@@ -341,7 +505,7 @@ Two clamps run:
 
 The asymmetry exists because the planner *wants* upward movement: making the
 gate symmetric meant the similarity index returned mostly same-BPM tracks,
-starving the planner of progression candidates (Bug 4, layer B — §17). The
+starving the planner of progression candidates (Bug 4, layer B — see [Bug 4 history](#17-bug-4-history--full-timeline)). The
 asymmetric gate gives the index more upside candidates while the fine filter
 still enforces the step constraint.
 
@@ -461,7 +625,7 @@ candidate is no longer auto-rejected) and redistributes them to key and energy
 For flat sets (`end_bpm == start_bpm`), the standard weighting is correct —
 you *want* same-BPM tracks — and Set Builder uses `ts["overall"]` unchanged.
 
-This is the **layer A** fix from Bug 4. See §17.
+This is the **layer A** fix from Bug 4. See [Bug 4 history](#17-bug-4-history--full-timeline).
 
 ---
 
@@ -507,7 +671,7 @@ useful).
 This bonus is the **counterforce** to the BPM penalty inside `score_transition`
 — without it, beam search would still get stuck at same-BPM tracks. With it,
 upward movement gets up to 15 points back. Combined with the reweighting
-(§8), this is what makes the planner actually escape same-BPM clusters.
+(see [Reweighting](#8-setbuilder-specific-transition-reweighting)), this is what makes the planner actually escape same-BPM clusters.
 
 ---
 
@@ -761,7 +925,7 @@ class SetBuilderTrackItem(BaseModel):
 | `category`         | `str`           | `get_classification(content)["primary"]` — `warmup`/`build`/`peak`/`after_hours`/`closing`/`unknown`. |
 | `transition_score` | `float \| None` | The **raw** `ts["overall"]` for inspection (NOT the reweighted/adjusted internal score). `None` for the seed. |
 | `mix_advice`       | `str \| None`   | `transition_advice(ts)`. `None` for the seed.                                     |
-| `relaxed`          | `bool`          | `True` if this track was placed via relaxation tier ≥ 1 (§11).                    |
+| `relaxed`          | `bool`          | `True` if this track was placed via relaxation tier ≥ 1 (see [Relaxation tiers](#11-relaxation-tiers--_relaxation_tiers)).                    |
 
 The full response wrapper:
 
@@ -807,7 +971,7 @@ class SetAlternativeItem(BaseModel):
 | `from_prev`    | `float \| None` | `None` when `prev_id` was not supplied (slot is the first track).                          |
 | `to_next`      | `float \| None` | `None` when `next_id` was not supplied (slot is the last track).                           |
 | `genre`        | `str`           | `DjmdContent.GenreName` of the candidate (best-effort).                                    |
-| `genre_match`  | `bool \| None`  | See §14. `None` is the "no opinion" state — used when no reference genre is available.     |
+| `genre_match`  | `bool \| None`  | See [`build_alternatives`](#14-build_alternatives-and-apisetbuilderalternatives). `None` is the "no opinion" state — used when no reference genre is available.     |
 
 The endpoint returns these wrapped in:
 
@@ -1158,6 +1322,100 @@ objects.
 
 ---
 
+## Performance and scaling
+
+A more precise look at how Set Builder scales for very large libraries — useful
+when sizing a deployment or diagnosing slow first calls.
+
+### Per-step work
+
+```
+work_per_step = beam_count × (similar_lookup + K × score_transition)
+              = 5         × (O(n)            + K × O(1))
+```
+
+where `K = beam_width × candidates_per_step`. With defaults that's `5 × 40 =
+200` candidates per step in the BPM-changing case, `5 × 20 = 100` in the flat
+case. `score_transition` is the **hot path**: it's O(1) per call once energy
+curves are cached, but it runs `N_steps × K` times across the whole build.
+
+### Memory
+
+The similarity index dominates Set Builder's footprint:
+
+- **6-dim feature vector + bpm + has_e flag** ≈ 96 bytes per track. See
+  [similar-tracks.md](./similar-tracks.md) for the exact vector layout.
+- 5 000 tracks → ~480 kB.
+- 50 000 tracks → ~4.8 MB (the similar-tracks reference cites ~3 MB for the raw
+  vectors and a little more for `_class_cache` and bookkeeping; treat ~5 MB at
+  50k as a working upper bound).
+
+Beam state is bounded by `5 × est_tracks × sizeof(SetTrack)` — a few kB.
+Negligible compared to the index.
+
+### First-call latency
+
+The similarity index build is **one-time** and pre-warmed on server startup by
+a background daemon thread
+([`autocue/serve/deps.py`](../../autocue/serve/deps.py), `_prewarm_index`).
+After warm-up:
+
+- **5 000 tracks, 90-min set (~18 steps)**: typically under one second
+  end-to-end, dominated by per-step `find_similar` walks. Cold (no warm
+  index) on the same library: usually under a few seconds for the build plus
+  the search.
+- **50 000 tracks**: index build moves into the multi-second range
+  (`_index_track` reads classification + energy per track, both cached
+  thereafter). The per-step search remains fast — O(n) over 96-byte vectors
+  is microseconds even at 50k.
+
+The CLI path has no pre-warm; first `build_set` call from a cold Python
+process pays the index-build cost up front.
+
+### CPU profile
+
+Two hot paths dominate measured runs:
+
+1. **`find_similar` index walk** — `n` vector comparisons per beam per step.
+   Pure NumPy/pure-Python dot product on 6 floats; effectively memory-bound.
+2. **`score_transition`** — `5 × K = 100–200` calls per step. Reads two
+   energy scalars from `ts["end_energy_a"]` / `ts["start_energy_b"]`
+   (no ANLZ re-read because the curves are already in `energy._cache`).
+
+The classification lookup is **not** on the hot path because `_index_track`
+pre-warms `classify._class_cache` during the index build, so per-candidate
+`get_classification` is O(1).
+
+### Operational caveats for libraries above 50 000 tracks
+
+- **Index build time grows linearly.** Cold first call may take noticeable
+  seconds. Mitigation: keep the server running so the index lives in process
+  memory; the daemon-thread pre-warm handles the rest.
+- **The doubled candidate pool (40 per step) is less necessary at scale.**
+  The whole point of `n=40` was to keep enough upside candidates around in
+  small libraries where same-BPM tracks crowd out the pool (see
+  [Bug 4 history](#17-bug-4-history--full-timeline)). At 50k+ a track-rich
+  pool means 20 candidates per step is already plenty; halving K halves the
+  per-step `score_transition` load if needed. This is not currently
+  configurable but would be a one-line change in
+  [`setbuilder.py:25`](../../autocue/analysis/setbuilder.py#L25).
+- **Memory is not the bottleneck.** Even at 100k tracks the index sits
+  comfortably under 10 MB; the FastAPI worker can host it without trouble.
+
+### Practical numbers
+
+| Library size | Index build (cold) | Build set (warm, 90 min) | Build set (cold) |
+|--------------|--------------------|--------------------------|------------------|
+| 1 000        | <1 s               | ~200 ms                  | ~1 s             |
+| 5 000        | ~2 s               | ~1 s                     | ~3 s             |
+| 50 000       | ~10–30 s           | ~3 s                     | ~15–35 s         |
+
+(Order-of-magnitude estimates from in-house mocked-DB tests; real-world
+numbers depend on disk-cache state for the ANLZ reads done during
+`_index_track`.)
+
+---
+
 ## 21. Examples
 
 ### Example A — 110 → 135 BPM, 90 min, build (house warmup → peak)
@@ -1316,7 +1574,7 @@ For tests that exercise the relaxation ladder, set the first-tier-mocked
 
 - [`docs/reference/transition-scoring.md`](./transition-scoring.md) —
   `score_transition`, the BPM / key / energy components, and the weighting
-  Set Builder rewrites in §8.
+  Set Builder rewrites in [Reweighting](#8-setbuilder-specific-transition-reweighting).
 - [`docs/reference/similar-tracks.md`](./similar-tracks.md) — `find_similar`
   and the 6-dim feature vector that drives Set Builder's candidate
   retrieval.

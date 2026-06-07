@@ -16,6 +16,19 @@ endpoint directly from a script.
 > [autocue.app](https://autocue.app) cannot reach them — they require a running
 > `autocue serve` instance with direct write access to your Rekordbox database.
 
+## Table of Contents
+
+- [Overview](#overview)
+- [The four operations](#the-four-operations)
+- [The endpoint — `POST /api/cue-tools-stream`](#the-endpoint--post-apicue-tools-stream)
+- [Safety guards](#safety-guards)
+- [Frame math and DB invariants](#frame-math-and-db-invariants)
+- [UI surface](#ui-surface)
+- [Performance](#performance)
+- [Edge cases](#edge-cases)
+- [Examples](#examples)
+- [Related](#related)
+
 ---
 
 ## Overview
@@ -35,8 +48,8 @@ streaming progress event, a final summary, and a database backup that is taken
 exactly once before the first write.
 
 The tools are intentionally narrow — they edit **only** existing rows in the
-`DjmdCue` table. They do not generate new cues, change the beatgrid, touch the
-ANLZ files on disk, or modify track metadata. Use the cue generation pipeline
+[`DjmdCue`](./GLOSSARY.md#djmdcue) table. They do not generate new cues, change the beatgrid, touch the
+[ANLZ files](./GLOSSARY.md#anlz-files-and-tags) on disk, or modify track metadata. Use the cue generation pipeline
 (`/api/generate-apply-stream`) when you need new cues; use these tools when you
 need to mutate the ones you already have.
 
@@ -120,7 +133,7 @@ elif operation == "recolor":
             reasons["no_match"] = reasons.get("no_match", 0) + 1
 ```
 
-The CLAUDE.md invariant **`Kind = slot + 1`** is the reason the conversion
+The CLAUDE.md invariant **[`Kind`](./GLOSSARY.md#cue-encoding-kind-slot-inframe-outmsec)` = slot + 1`** is the reason the conversion
 `slot_str = str(cue.Kind - 1)` is correct: a DjmdCue row with `Kind=1` lives
 in slot A, `Kind=2` in slot B, and so on through `Kind=8 → slot H`.
 
@@ -279,7 +292,7 @@ class CueToolsRequest(BaseModel):
 | Field            | Type                    | Notes                                                                                              |
 |------------------|-------------------------|----------------------------------------------------------------------------------------------------|
 | `operation`      | enum string             | One of `rename`, `recolor`, `shift`, `delete_orphan`.                                              |
-| `track_ids`      | `list[int]`             | DjmdContent IDs to scan. The web UI passes the IDs of the currently visible tracks.                |
+| `track_ids`      | `list[int]`             | [`DjmdContent`](./GLOSSARY.md#djmdcontent) IDs to scan. The web UI passes the IDs of the currently visible tracks.                |
 | `dry_run`        | `bool` (default `false`)| `true` skips the Rekordbox-running check, skips backup, and never writes to the DB.                |
 | `rename`         | object \| `null`        | Required when `operation == "rename"`.                                                              |
 | `recolor`        | object \| `null`        | Required when `operation == "recolor"`.                                                             |
@@ -509,7 +522,7 @@ Two CLAUDE.md invariants drive the cue-shift math.
 Rekordbox stores cue positions in two parallel units inside `DjmdCue`:
 
 - `InMsec` — milliseconds since the start of the track (integer).
-- `InFrame` — Rekordbox's internal "frames" unit, 150 frames per second.
+- [`InFrame`](./GLOSSARY.md#cue-encoding-kind-slot-inframe-outmsec) — Rekordbox's internal "frames" unit, 150 frames per second.
 
 When you shift a cue by `delta_ms`, you must update **both** fields:
 
@@ -559,7 +572,7 @@ non-loop cues stay non-loop cues.
 
 Cue colors are stored in `DjmdCue.ColorTableIndex` as integers 0–8 (0 = no
 color, 1 = Pink, 2 = Red, 3 = Orange, 4 = Yellow, 5 = Green, 6 = Aqua, 7 = Blue,
-8 = Purple). These map directly to the sort keys in `DjmdColor`.
+8 = Purple). These map directly to the sort keys in [`DjmdColor`](./GLOSSARY.md#djmdcolor).
 
 > Don't confuse `DjmdCue.ColorTableIndex` (the cue color, an integer) with
 > `DjmdContent.ColorID` (the track tint, a VARCHAR(255) FK to `djmdColor.ID`).

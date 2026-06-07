@@ -2,10 +2,32 @@
 
 Technical reference for AutoCue's two foundational track-analysis features:
 
-- **Energy curve** — a normalized 0.0–1.0 waveform overview extracted from Rekordbox's `PWAV` analysis tag.
+- **Energy curve** — a normalized 0.0–1.0 waveform overview extracted from Rekordbox's [`PWAV`](./GLOSSARY.md#anlz-files-and-tags) analysis tag.
 - **Mixability score** — a deterministic 0–100 score blending phrase structure, intro/outro length, vocal proxy, and energy variance.
 
 Both features live in `autocue/analysis/` and are exposed via REST endpoints in `autocue/serve/routes.py`. They feed almost every downstream intelligence feature in AutoCue.
+
+## Table of Contents
+
+- [1. Overview](#1-overview)
+- [2. Energy curve (PWAV)](#2-energy-curve-pwav)
+- [3. PWAV binary format — byte-level layout](#pwav-binary-format--byte-level-layout)
+- [4. `get_energy_curve(content, db, n_points=50)`](#4-get_energy_curvecontent-db-n_points50)
+- [5. Cache keying](#5-cache-keying)
+- [6. Mapping `position_ms` to a curve index](#6-mapping-position_ms-to-a-curve-index)
+- [7. Energy profile classification](#7-energy-profile-classification)
+- [8. Mixability score formula](#8-mixability-score-formula)
+- [9. Genre calibration](#9-genre-calibration)
+- [10. `get_mixability()` cache](#10-get_mixability-cache)
+- [11. REST endpoints](#11-rest-endpoints)
+- [12. UI surface](#12-ui-surface)
+- [13. Performance characteristics](#13-performance-characteristics)
+- [14. Behavior edge cases](#14-behavior-edge-cases)
+- [15. Examples](#15-examples)
+- [16. Testing](#16-testing)
+- [17. Related references](#17-related-references)
+
+> Terminology note: [ANLZ, PWAV, PQTZ, PSSI](./GLOSSARY.md#anlz-files-and-tags), and [`DjmdContent`](./GLOSSARY.md#djmdcontent) are documented in the [Glossary](./GLOSSARY.md). First use in this document links there.
 
 ---
 
@@ -13,7 +35,7 @@ Both features live in `autocue/analysis/` and are exposed via REST endpoints in 
 
 ### Energy curve
 
-`get_energy_curve(content, db, n_points=50)` returns a fixed-length list of 50 floats in the range `[0.0, 1.0]`. Each value represents the average loudness of the corresponding slice of the track. The curve is **derived from Rekordbox's own waveform overview** (the `PWAV` tag inside the `.DAT` ANLZ file), so it only requires that the track has been analysed in Rekordbox — AutoCue does not decode the audio itself.
+`get_energy_curve(content, db, n_points=50)` returns a fixed-length list of 50 floats in the range `[0.0, 1.0]`. Each value represents the average loudness of the corresponding slice of the track. The curve is **derived from Rekordbox's own waveform overview** (the `PWAV` tag inside the `.DAT` [ANLZ](./GLOSSARY.md#anlz-files-and-tags) file), so it only requires that the track has been analysed in Rekordbox — AutoCue does not decode the audio itself.
 
 Downstream consumers:
 
@@ -49,8 +71,8 @@ Downstream consumers:
 
 Rekordbox writes two analysis files per track:
 
-- `ANLZ0000.DAT` — beat grid (`PQTZ`), waveform overview (`PWAV`), waveform colour preview (`PCOB`).
-- `ANLZ0000.EXT` — phrase analysis (`PSSI`), high-resolution colour waveform, song structure.
+- `ANLZ0000.DAT` — beat grid ([`PQTZ`](./GLOSSARY.md#anlz-files-and-tags)), waveform overview (`PWAV`), waveform colour preview (`PCOB`).
+- `ANLZ0000.EXT` — phrase analysis ([`PSSI`](./GLOSSARY.md#anlz-files-and-tags)), high-resolution colour waveform, song structure.
 
 The energy curve comes from the **`.DAT` file's `PWAV` tag** — **not** the `.EXT` file. This is important:
 
@@ -141,11 +163,143 @@ The pipeline is three stages, all in `get_energy_curve` (`autocue/analysis/energ
 - Low enough that the JSON payload to the browser is tiny (~250 bytes serialized).
 - Round enough that one bin ≈ 2% of the track — easy to reason about ("the energy at 50%" = curve[24..25]).
 
-The pipeline does not assume any particular real-time interval per sample. See section 5 for how to map `position_ms` to a curve index correctly.
+The pipeline does not assume any particular real-time interval per sample. See [Mapping `position_ms` to a curve index](#6-mapping-position_ms-to-a-curve-index) for how to map `position_ms` to a curve index correctly.
 
 ---
 
-## 3. `get_energy_curve(content, db, n_points=50)`
+## PWAV binary format — byte-level layout
+
+This section documents how AutoCue extracts the PWAV payload from a Rekordbox `.DAT` analysis file. The information below is reconciled from `autocue/analysis/energy.py:1-26` and the `pyrekordbox` parsing structs (`pyrekordbox/anlz/structs.py:147-154` and `:261-297`). Where the format is reverse-engineered or assumed rather than documented by Pioneer, it is flagged explicitly.
+
+### Where PWAV lives
+
+PWAV is one of several **tags** inside the `ANLZ0000.DAT` file Rekordbox writes alongside each analysed track. The container is a binary file with:
+
+- A top-level `AnlzFileHeader` (magic bytes `"PMAI"` + lengths). Confirmed by `pyrekordbox/anlz/file.py:101` (`assert tag_type == "PMAI"`) and the `AnlzFileHeader` struct at `structs.py:261-269`.
+- A sequence of tags. Each tag has a fixed 4-byte ASCII name, a per-tag header length, a per-tag total length, then a payload whose shape depends on the tag name.
+
+A `.DAT` file typically holds `PQTZ` (beat grid), `PWAV` / `PWV2` (overview waveform), and `PCOB` (colour preview). Phrases ([`PSSI`](./GLOSSARY.md#anlz-files-and-tags)) live in the `.EXT` file and are not used here.
+
+### Tag header layout
+
+From `pyrekordbox/anlz/structs.py:272-297` (`AnlzTag`) — every tag (PWAV included) begins with the same header:
+
+| Offset | Size | Field | Notes |
+| ---: | ---: | --- | --- |
+| 0 | 4 B | `type` | 4-byte ASCII tag name — for our case, `"PWAV"`. |
+| 4 | 4 B | `len_header` | Tag-header length in bytes, big-endian `uint32`. For PWAV this is **20**. |
+| 8 | 4 B | `len_tag` | Total tag length including header + payload, big-endian `uint32`. |
+
+After the tag header comes the PWAV-specific payload (`pyrekordbox/anlz/structs.py:150-154`):
+
+| Offset (within tag) | Size | Field | Notes |
+| ---: | ---: | --- | --- |
+| 12 | 4 B | `len_preview` | Number of amplitude samples to follow, big-endian `uint32`. |
+| 16 | 4 B | `unknown` | Constant `0x00010000` per pyrekordbox's `Const(0x10000, Int32ub)`. Pioneer's purpose is undocumented — treated as a reserved field. |
+| 20 | `len_preview` × 1 B | `entries` | Amplitude samples, each a single `uint8` byte. |
+
+So a PWAV tag is a 20-byte header followed by one byte per sample.
+
+### Payload layout — sample byte semantics
+
+Each sample is a single `uint8` in the range `[0, 255]`. AutoCue treats the low 5 bits as amplitude and ignores the upper 3 bits — see `autocue/analysis/energy.py:24`:
+
+```python
+return [int(e) & 0x1F for e in entries]
+```
+
+`0x1F` is `0001_1111` — the bitmask for the low 5 bits.
+
+```
+bit:  7 6 5    4 3 2 1 0
+       └─┬─┘   └───┬───┘
+      ignored   amplitude (0–31)
+```
+
+This convention matches the Pioneer overview format used by CDJ "Waveform" displays. The upper 3 bits are widely reported (across the [`dysentery`](https://github.com/Deep-Symmetry/dysentery) reverse-engineering project and pyrekordbox itself) to encode a coarse visualisation colour / intensity hint — AutoCue does not consume it. The high-resolution colour waveform lives separately in `PWV3` / `PWV4` / `PWV5` (in the `.EXT` file) and is also not consumed.
+
+### Why `/ 31.0` specifically
+
+The amplitude field is **5 bits wide**, so its maximum value is `2^5 - 1 = 31`. Dividing by `31.0` maps the raw amplitude range `[0, 31]` to the normalized range `[0.0, 1.0]`:
+
+```python
+# autocue/analysis/energy.py:110
+normalized = [v / 31.0 for v in raw]
+```
+
+Using `31.0` (not `32.0` and not `255.0`) is correct because:
+
+- `255.0` would assume the full byte is amplitude — but only the low 5 bits are.
+- `32.0` would never let a sample reach exactly `1.0` (the max amplitude byte stays at `31/32 = 0.969`).
+- `31.0` gives the cleanest `0.0 → 1.0` mapping over the actual amplitude domain.
+
+### Sample rate (~150 ms per sample)
+
+The PWAV header does not contain an explicit sample rate field. The widely-reported (and observed) convention is **one sample per ~150 ms** of audio — the CDJ overview density. So a 6-minute track has roughly `6 × 60 / 0.150 ≈ 2400` samples.
+
+This is **not exact**: the actual per-sample interval depends on track duration and Rekordbox's internal overview generation step. AutoCue does not rely on the 150 ms figure for any calculation — it always resamples to a fixed `n_points`, so the absolute time-per-byte is discarded. See [Mapping `position_ms` to a curve index](#6-mapping-position_ms-to-a-curve-index).
+
+### Resample to fixed-length curve
+
+After normalisation and smoothing, AutoCue chunk-averages the (possibly ~2400-long) raw curve down to `n_points` (default 50). From `autocue/analysis/energy.py:41-55` (`_downsample_avg`), each output bin is:
+
+```python
+start = int(i * total / n)
+end   = int((i + 1) * total / n)
+end   = max(end, start + 1)   # guarantee at least 1 sample per bin
+result.append(sum(values[start:end]) / (end - start))
+```
+
+The implicit chunk-size is `chunk_size ≈ len(raw) // n_points`, with end-correction so every bin contains at least one sample. The `total <= n` branch short-circuits to a copy (no upsampling — see `energy.py:46-47`).
+
+### 3-point smoothing
+
+Before downsampling, the normalised amplitudes are passed through a 3-sample symmetric moving-average filter — `autocue/analysis/energy.py:29-38` (`_smooth_3`):
+
+```python
+out[0]      = values[0]            # endpoints pass through
+out[i]      = (values[i-1] + values[i] + values[i+1]) / 3   # 1 ≤ i ≤ n-2
+out[-1]     = values[-1]
+```
+
+This kills the alternating-byte noise common in raw PWAV data (adjacent samples can swing several amplitude levels purely from Pioneer's overview quantisation), without distorting the overall energy envelope. It is applied **before** `_downsample_avg`, so the smoothing operates on the full-resolution signal.
+
+### ASCII layout
+
+```
+.DAT file
+┌─────────────────────────────────┐
+│ ANLZ header (magic, version)    │
+├─────────────────────────────────┤
+│ PQTZ tag (beat grid)            │
+├─────────────────────────────────┤
+│ PWAV tag                        │
+│   ┌─────────────────────────┐   │
+│   │ tag name: "PWAV" (4 B)  │   │
+│   │ tag length: uint32 (4)  │   │
+│   │ data length: uint32 (4) │   │
+│   │ reserved (8 B)          │   │
+│   │ amplitude samples ...   │   │
+│   │   sample[0]: uint8      │   │
+│   │   sample[1]: uint8      │   │
+│   │   ... (~N samples)      │   │
+│   └─────────────────────────┘   │
+├─────────────────────────────────┤
+│ PSSI tag (phrases) — in .EXT    │
+└─────────────────────────────────┘
+```
+
+Note that the "reserved (8 B)" block in the diagram corresponds to PWAV's `len_preview` (4 B) + `unknown` constant (4 B) — the 8 bytes that sit between the generic tag header and the first amplitude byte. PSSI is shown for context but actually lives in the `.EXT` sibling file, not in `.DAT`.
+
+### What is confirmed vs. assumed
+
+- **Confirmed by pyrekordbox source**: tag header layout (`structs.py:272-297`), PWAV payload layout (`structs.py:150-154`), magic bytes `"PMAI"` (`file.py:101`), `Int32ub` big-endian encoding throughout.
+- **Confirmed by AutoCue source**: the `& 0x1F` mask, the `/ 31.0` normalisation, and the smoothing + resample pipeline (`autocue/analysis/energy.py:1-117`).
+- **Assumed / reverse-engineered (not Pioneer-documented)**: the upper-3-bit colour hint semantics, the ~150 ms per-sample cadence, and the meaning of PWAV's `Const(0x10000)` reserved field. AutoCue does not depend on any of these.
+
+---
+
+## 4. `get_energy_curve(content, db, n_points=50)`
 
 ### Signature
 
@@ -153,7 +307,7 @@ The pipeline does not assume any particular real-time interval per sample. See s
 def get_energy_curve(content, db, n_points: int = 50) -> list[float] | None:
 ```
 
-- `content` — a `DjmdContent` row (must have `.ID`).
+- `content` — a [`DjmdContent`](./GLOSSARY.md#djmdcontent) row (must have `.ID`).
 - `db` — a `Rekordbox6Database`. Used for `db.read_anlz_file(content, "DAT")`.
 - `n_points` — output length. Defaults to 50.
 
@@ -182,7 +336,7 @@ autocue/analysis/energy.py:94-117
 
 ---
 
-## 4. Cache keying
+## 5. Cache keying
 
 ### `_cache` is keyed by `(content.ID, n_points)`
 
@@ -237,7 +391,7 @@ The CLAUDE.md invariant explicitly calls this out:
 
 ---
 
-## 5. Mapping `position_ms` to a curve index
+## 6. Mapping `position_ms` to a curve index
 
 **It is NOT one float per 150ms column.** This is the single most common mistake when working with the energy curve.
 
@@ -271,7 +425,7 @@ The CLAUDE.md invariant for this:
 
 ---
 
-## 6. Energy profile classification
+## 7. Energy profile classification
 
 `classify_energy_profile(curve)` reduces a 50-point curve to one of four labels:
 
@@ -335,7 +489,7 @@ Tests covering all four labels live in `tests/test_energy.py:157-188`.
 
 ---
 
-## 7. Mixability score formula
+## 8. Mixability score formula
 
 `get_mixability(content, db)` returns a dict with a 0–100 `score` plus a `components` sub-dict that breaks the score down into its five inputs.
 
@@ -409,7 +563,7 @@ Number of phrases capped at 6 (`min(phrase_count / 6.0, 1.0)`). The reasoning: a
 
 ---
 
-## 8. Genre calibration
+## 9. Genre calibration
 
 The score is not normalized per-genre — the same formula applies to every track. As a result the absolute numbers cluster by genre:
 
@@ -425,7 +579,7 @@ These are observations from the score formula, not rules baked into the code. Do
 
 ---
 
-## 9. `get_mixability()` cache
+## 10. `get_mixability()` cache
 
 ```python
 # autocue/analysis/score.py:19-20
@@ -445,7 +599,7 @@ Test coverage: `tests/test_score.py:186-197` (`test_cache_returns_same_result_se
 
 ---
 
-## 10. REST endpoints
+## 11. REST endpoints
 
 ### `GET /api/tracks/{track_id}/energy`
 
@@ -535,7 +689,7 @@ Note that `outro_length_unknown` is set in the analysis dict but the route does 
 
 ---
 
-## 11. UI surface
+## 12. UI surface
 
 ### Per-card SVG sparkline
 
@@ -579,7 +733,7 @@ This is purely a UI-side cache; it has no relationship to the Python `energy._ca
 
 ---
 
-## 12. Performance characteristics
+## 13. Performance characteristics
 
 ### First call
 
@@ -610,7 +764,7 @@ Both caches are bounded by the library size; there is no eviction.
 
 ---
 
-## 13. Behavior edge cases
+## 14. Behavior edge cases
 
 ### Track with no ANLZ data at all
 
@@ -665,7 +819,7 @@ This is a known quirk: a perfectly silent track scores 100 on the energy consist
 
 ---
 
-## 14. Examples
+## 15. Examples
 
 ### A real 50-point energy curve
 
@@ -744,7 +898,7 @@ A score of 32 correctly reflects that this track is hard to blend — short intr
 
 ---
 
-## 15. Testing
+## 16. Testing
 
 ### `tests/test_energy.py` (36 tests)
 
@@ -776,7 +930,7 @@ Both fallbacks are required by the design principle: **metadata absence is not t
 
 ---
 
-## 16. Related references
+## 17. Related references
 
 - [`track-classification.md`](./track-classification.md) — how `energy_mean` and `energy_peak` are derived from the curve and used to score `warmup` / `build` / `peak` / `after_hours` / `closing`.
 - [`similar-tracks.md`](./similar-tracks.md) — how `energy_mean` and `energy_variance` enter the 6-dim cosine similarity vector, and the data-quality cap when both candidates lack energy data.

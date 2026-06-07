@@ -11,10 +11,34 @@ The engine lives in three primary modules:
 | Module                              | Role                                                          |
 | ----------------------------------- | ------------------------------------------------------------- |
 | `autocue/generator.py`              | Strategy selection, smart slot ordering, memory-cue building. |
-| `autocue/analyzer.py`               | ANLZ parser (PSSI phrases + PQTZ beat grid).                  |
+| `autocue/analyzer.py`               | [ANLZ](GLOSSARY.md#anlz-files-and-tags) parser ([PSSI](GLOSSARY.md#anlz-files-and-tags) phrases + [PQTZ](GLOSSARY.md#anlz-files-and-tags) beat grid). |
 | `autocue/models.py`                 | `PhraseLabel` enum + `CuePoint` dataclass + color tables.     |
 | `autocue/writer.py`                 | Rekordbox XML output.                                         |
-| `autocue/db_writer.py`              | Direct `DjmdCue` insert with backup + safety checks.          |
+| `autocue/db_writer.py`              | Direct [`DjmdCue`](GLOSSARY.md#djmdcue) insert with backup + safety checks. |
+
+---
+
+## Table of Contents
+
+1. [Overview](#1-overview)
+2. [The Three Strategies](#2-the-three-strategies)
+3. [Phrase Analysis](#3-phrase-analysis)
+4. [Smart Slot Ordering](#4-smart-slot-ordering)
+5. [Bar-Interval Mode](#5-bar-interval-mode)
+6. [Heuristic Mode](#6-heuristic-mode)
+7. [Memory Cues (Kind=0)](#7-memory-cues-kind0)
+8. [Cue Color Mapping](#8-cue-color-mapping)
+9. [Cue Naming](#9-cue-naming)
+10. [Confidence Levels](#10-confidence-levels)
+11. [GenerationPrefs](#11-generationprefs)
+12. [Writing to XML vs Writing to DB](#12-writing-to-xml-vs-writing-to-db)
+13. [Skipping and Overwriting](#13-skipping-and-overwriting)
+14. [Edge Cases](#14-edge-cases)
+15. [XML Import Semantics](#15-xml-import-semantics)
+16. [Examples](#16-examples)
+17. [File Map](#17-file-map)
+18. [Testing](#18-testing)
+19. [Related References](#19-related-references)
 
 ---
 
@@ -92,10 +116,11 @@ phrase data to be visible, not silently masked by bar placement.
 
 ## 3. Phrase Analysis
 
-Rekordbox stores its song-structure analysis in a `.EXT` ANLZ file alongside
-each track. The relevant tag is **PSSI** (Phrase Structure Sensing
-Information). The beat grid lives in the `.DAT` ANLZ file under the **PQTZ**
-tag.
+Rekordbox stores its song-structure analysis in a `.EXT`
+[ANLZ](GLOSSARY.md#anlz-files-and-tags) file alongside each track. The
+relevant tag is **[PSSI](GLOSSARY.md#anlz-files-and-tags)** (Phrase
+Structure Sensing Information). The beat grid lives in the `.DAT` ANLZ
+file under the **[PQTZ](GLOSSARY.md#anlz-files-and-tags)** tag.
 
 ### 3.1 PSSI tag
 
@@ -215,26 +240,75 @@ correctness feature.
 - `prefs.slot_priority == "smart"` (the default; `"sequential"` preserves
   chronological assignment for legacy compatibility).
 
-### 4.1 The rules
+### 4.1 The deterministic priority list
 
-1. **Slot A** = the first non-Intro phrase in chronological order. This is
-   the **mix-in point** — the moment the DJ presses to start playing the
-   track during a transition. If a track has a chorus at 00:00 and an intro
-   at 00:08, slot A goes to the chorus.
+The rule set below is what `_apply_smart_slot_order()`
+(`autocue/generator.py:65-121`) implements, in the exact order it runs.
 
-   The label is annotated with `(Mix In)` suffix when it isn't already named
-   "Intro" (see `autocue/generator.py:89-95`).
+1. **Slot A — the mix-in point.** Always the first non-Intro phrase in
+   chronological order. Why: a DJ triggering hot cue A wants the moment they
+   can start a transition, not the intro buildup. If a track has a chorus at
+   00:00 and an intro at 00:08, slot A goes to the chorus.
 
-2. **Slot B** = the first Outro phrase chronologically. This is the
-   **mix-out window** — DJs build muscle memory: B = "I can start phasing
-   this track out here". If there is no Outro, slot B falls through to the
-   normal priority queue.
+   The label is annotated with a `(Mix In)` suffix when it isn't already
+   named "Intro" (see `autocue/generator.py:89-95`). If the only non-Intro
+   phrase is itself named "Intro" (because of mood/kind quirks), no suffix
+   is added.
 
-3. **Slots C+** = remaining phrases ordered by `_SMART_PRIORITY`, with
-   chronological tie-breaking inside each tier.
+2. **Slot B — the first OUTRO phrase.** Reserved for the start of the
+   mix-out window. Why: DJ ergonomics — at mix-out time a DJ's thumb
+   instinctively finds slot B as the second-most-used pad. The label is
+   prefixed with `(Outro)` if its existing name does not already contain
+   "Outro" (`autocue/generator.py:108-114`). If there is no OUTRO phrase in
+   the track, slot B falls through to the normal priority queue (the next
+   most important phrase by `_SMART_PRIORITY` lands there instead).
 
-If **every** phrase in the track is labelled Intro, the function falls back
-to pure chronological ordering (`autocue/generator.py:84-87`).
+3. **Slots C through H — by `_SMART_PRIORITY`.** Remaining phrases are
+   sorted by `(priority_tier, position_ms)` and assigned to the next free
+   slot. The tier table (`autocue/generator.py:21-30`):
+
+   | Tier | `PhraseLabel` | Default slot if no ties | Why this priority |
+   | ---- | ------------- | ----------------------- | ----------------- |
+   | 0 | CHORUS  | **Slot C** | The main drop — highest musical importance, the "money shot" of the track. |
+   | 1 | UP      | **Slot D** | Build-ups. Often used as a "spinback" or filter-sweep cue. |
+   | 2 | OUTRO   | **Slot E** | Second outro candidate if multiple outros exist (slot B took the first). |
+   | 3 | VERSE   | **Slot F** | Verses — useful for vocal-line entry points. |
+   | 4 | DOWN    | **Slot G** | Breakdowns — the calm before the next drop. |
+   | 5 | BRIDGE  | **Slot H** | Bridges — the rarest phrase type in EDM. |
+   | 6 | INTRO   | (overflow, deprioritized) | Intros rarely get a hot cue since slot A already captures the mix-in. |
+   | 7 | UNKNOWN | (overflow, last)          | Phrases that didn't resolve via `_KIND_MAP`. |
+
+4. **Tie-breaking within a tier — chronological.** When multiple phrases
+   share the same priority (e.g. two CHORUS phrases), they are ordered by
+   `position_ms` ascending. The sort key at `autocue/generator.py:119`:
+
+   ```python
+   remaining.sort(key=lambda c: (_SMART_PRIORITY.get(c.label, 7), c.position_ms))
+   ```
+
+   Mood, fill flags, and phrase length do **not** influence the tiebreak —
+   only the timestamp does. This is intentional: the chronologically first
+   Drop is almost always the "main" Drop a DJ wants on the lowest free slot.
+
+5. **Overflow cap at 8 cues.** After A and B are assigned, only six free
+   slots remain (C–H). If the chronologically-sorted, priority-sorted
+   `remaining` list has more than six entries, the **last entries are
+   simply dropped** — i.e. phrases whose final slot index would be `>= 8`
+   never get written. In practice this means low-priority Intros and
+   Unknowns fall off first, then later Bridges and Breakdowns. CHORUS
+   phrases are essentially never dropped.
+
+6. **All-Intro fallback.** If **every** phrase in the track is labelled
+   `INTRO`, there is no candidate for slot A. The function then falls back
+   to pure chronological assignment (`autocue/generator.py:84-87`) — slot A
+   = first Intro by time, slot B = second, etc. — rather than producing
+   zero cues.
+
+7. **Only runs in phrase mode.** Bar mode and heuristic mode do **not**
+   apply smart slot ordering — they fill slots A through H sequentially in
+   the order the cues were generated. `_apply_smart_slot_order()` is gated
+   at the call site by `mode_used == "phrase"` and
+   `prefs.slot_priority == "smart"`.
 
 ### 4.2 The priority table
 
@@ -257,7 +331,7 @@ The Intro is deliberately the **last** priority. Intros are background; what
 DJs reach for under stage lights is the next drop. The same logic applies to
 unknown-label phrases — they fall to the lowest-numbered slot still free.
 
-### 4.3 Worked example
+### 4.3 Worked example — 6-phrase track
 
 Phrases (chronological): `Intro@0s → Build@16s → Drop@32s → Verse@64s →
 Drop@96s → Outro@128s`.
@@ -272,6 +346,53 @@ After smart ordering:
 | D    | Drop 2  | 96s      | Priority 0, chronologically second.  |
 | E    | Verse   | 64s      | Priority 3.                          |
 | F    | Intro   | 0s       | Priority 6 (lowest non-unknown).     |
+
+### 4.4 Worked example — 12-phrase track (overflow)
+
+A long progressive track with twelve PSSI entries:
+
+```
+Intro@0s    →  Build@16s   →  Drop@32s    →  Verse@48s   →
+Bridge@64s  →  Drop@80s    →  Break@112s  →  Build@128s  →
+Drop@144s   →  Verse@176s  →  Outro@200s  →  Outro@216s
+```
+
+Step 1 — Slot A is the first non-Intro chronologically: **Build@16s**.
+
+Step 2 — Slot B is the first OUTRO: **Outro@200s**.
+
+Step 3 — Remaining 10 phrases, sorted by `(priority, position)`:
+
+| Sort key (priority, ms) | Label  | Position |
+| ----------------------- | ------ | -------- |
+| (0, 32 000)             | Drop   | 32s      |
+| (0, 80 000)             | Drop 2 | 80s      |
+| (0, 144 000)            | Drop 3 | 144s     |
+| (1, 128 000)            | Build  | 128s     |
+| (2, 216 000)            | Outro 2| 216s     |
+| (3, 48 000)             | Verse  | 48s      |
+| (3, 176 000)            | Verse 2| 176s     |
+| (4, 112 000)            | Break  | 112s     |
+| (5, 64 000)             | Bridge | 64s      |
+| (6, 0)                  | Intro  | 0s       |
+
+Step 4 — Take the first six (slots C–H), drop the rest:
+
+| Slot | Label   | Position | Notes                                  |
+| ---- | ------- | -------- | -------------------------------------- |
+| A    | Build   | 16s      | Mix-in point. Renamed `Build (Mix In)`.|
+| B    | Outro   | 200s     | First OUTRO = mix-out window.          |
+| C    | Drop    | 32s      | Priority 0.                            |
+| D    | Drop 2  | 80s      | Priority 0.                            |
+| E    | Drop 3  | 144s     | Priority 0.                            |
+| F    | Build 2 | 128s     | Priority 1.                            |
+| G    | Outro 2 | 216s     | Priority 2.                            |
+| H    | Verse   | 48s      | Priority 3, chronologically first.     |
+
+**Dropped (would have been slot 8+):** the second Verse@176s, Break@112s,
+Bridge@64s, and Intro@0s. Notice that every Drop survived — the cap
+preferentially preserves high-priority phrases. The intro is the first
+casualty, exactly as the priority table intends.
 
 ---
 
@@ -351,8 +472,10 @@ Memory cues are a separate Rekordbox concept from hot cues:
 - They appear as **white triangles** on the waveform on the CDJ display.
 - The CDJ's "Auto Cue" feature jumps to the first memory cue on track load.
 - They do **not** consume hot cue slots (A–H).
-- In `DjmdCue` they are encoded as `Kind = 0` (whereas hot cues are
-  `Kind = 1..8`). See [Section 12](#12-writing-to-xml-vs-writing-to-db).
+- In [`DjmdCue`](GLOSSARY.md#djmdcue) they are encoded as
+  [`Kind`](GLOSSARY.md#cue-encoding-kind-slot-inframe-outmsec) `= 0`
+  (whereas hot cues are `Kind = 1..8`). See
+  [Section 12](#12-writing-to-xml-vs-writing-to-db).
 - In the Rekordbox XML format they have `Num = -1`.
 
 `CuePoint.slot = -1` represents a memory cue (`autocue/models.py:92-94`).
@@ -623,7 +746,8 @@ Key invariants:
 
 - `ID` is `VARCHAR(255)` with **no auto-generate default** — you must call
   `db.generate_unused_id(DjmdCue)` explicitly.
-- `InFrame = round(position_ms * 150 / 1000)` because the CDJ stores cues
+- [`InFrame`](GLOSSARY.md#cue-encoding-kind-slot-inframe-outmsec)
+  `= round(position_ms * 150 / 1000)` because the CDJ stores cues
   at 150 sub-frames per second.
 - `OutMsec = -1` marks the cue as a point (not a loop).
 
@@ -635,11 +759,80 @@ Before any write, `db_writer.backup_database()` copies `master.db` (plus
 
 `db_writer.rekordbox_is_running()` enforces that Rekordbox is closed before
 writing — the SQLCipher database is locked while Rekordbox holds it open
-and writes would silently fail or corrupt state.
+and writes would silently fail or corrupt state. The mechanics of that
+check are documented in detail in [Section 12.5](#125-db-lock-out-verification).
 
 The DB-write code path uses a SAVEPOINT (`db.session.begin_nested()`) so a
 failure inside the cue insert rolls back cleanly. On success both the
 nested savepoint and the outer session commit.
+
+### 12.5 DB lock-out verification
+
+The full implementation at `autocue/db_writer.py:28-34`:
+
+```python
+def rekordbox_is_running() -> bool:
+    """Return True if a Rekordbox process is running."""
+    try:
+        import psutil
+        return any("rekordbox" in p.name().lower() for p in psutil.process_iter(["name"]))
+    except ImportError:
+        return False
+```
+
+**What it does.** It enumerates every running process via
+`psutil.process_iter(['name'])`, lowercases each process name, and returns
+`True` if the substring `"rekordbox"` appears anywhere in any of them.
+
+- The match is **case-insensitive** (`.name().lower()`).
+- The match is **substring-based**, not exact equality. So all of these
+  trip it: `rekordbox`, `Rekordbox` (macOS app), `rekordbox.exe` (Windows),
+  `rekordbox-helper`, `com.pioneerdj.rekordbox`.
+- The check is **one process scan per call**; there is no caching. Each
+  write endpoint re-checks immediately before backing up the DB.
+
+**What it does NOT check.**
+
+- It does **not** check for a SQLite/SQLCipher file lock on
+  [`master.db`](GLOSSARY.md#db-filenames-and-sqlcipher-locking).
+- It does **not** check for the presence of `master.db-wal` or
+  `master.db-shm` sidecars.
+- It does **not** open the database to attempt a probe write.
+- It does **not** check that the running Rekordbox is actually using the
+  same `master.db` the user is pointing AutoCue at.
+
+This is purely a process-name probe. It is a fast, conservative heuristic,
+not a true database-lock check.
+
+**Failure modes.**
+
+| Scenario | Effect | Honest assessment |
+| -------- | ------ | ----------------- |
+| User runs an unrelated process named `rekordbox-something` (e.g. a helper script, a renamed binary) | False positive — AutoCue refuses to write. | Annoying but safe. |
+| User runs a custom Rekordbox build / wrapper whose process name does not contain `rekordbox` | False negative — AutoCue proceeds to write. The actual DB write may then succeed (no lock contention) or fail at the SQLCipher layer (lock contention). | Data risk if Rekordbox is genuinely holding the DB open. |
+| `psutil` is not installed (e.g. minimal install missing the dependency) | The `ImportError` is caught and the function returns `False` — i.e. it **fails open**. AutoCue will attempt the write. | This is by design so that environments without `psutil` are not bricked, but it means the safety net is silently disabled. |
+| User starts Rekordbox **after** the check passes but **before** the write completes | The check is point-in-time. No re-check during the write. The write may fail with an obscure SQLCipher error. | Race window. |
+
+**HTTP surface.** Every write endpoint in `autocue/serve/routes.py` calls
+`rekordbox_is_running()` at the top of its handler and returns
+**HTTP 409 Conflict** with a `{"detail": "Rekordbox is running…"}` body
+when it returns `True`. The endpoints that gate on this include
+`/api/apply`, `/api/generate-apply`, `/api/generate-apply-stream`,
+`/api/delete-cues`, `/api/color-tracks`, `/api/auto-tag`,
+`/api/auto-tag/undo`, `/api/enrich-comments`, `/api/enrich-comments/stream`,
+and `/api/restore`. Read-only endpoints (`/api/tracks`, `/api/health`,
+`/api/classify`, etc.) do **not** call the check — they can safely run
+while Rekordbox is open.
+
+**Testing bypass.** The test suite never spawns a real Rekordbox process,
+so two patterns short-circuit the check:
+
+- `tests/test_db_writer.py` builds a mocked `db` via `_make_db()` and
+  imports `db_writer` directly; the check is bypassed by patching the
+  function or by never calling the write functions that gate on it.
+- `tests/test_serve_routes.py` patches the symbol at its import site:
+  `patch("autocue.db_writer.rekordbox_is_running", return_value=False)`.
+  Tests covering the 409 path patch it with `return_value=True`.
 
 ---
 
@@ -752,7 +945,10 @@ than emitting zero cues.
 
 `db_writer.rekordbox_is_running()` polls `psutil` for any process whose
 name contains "rekordbox". If true, the CLI/server refuse to write —
-SQLCipher cannot tolerate two writers.
+SQLCipher cannot tolerate two writers. See
+[Section 12.5](#125-db-lock-out-verification) for the full mechanism, what
+it does **not** check, and the failure modes (false positives, false
+negatives, missing `psutil`, race window).
 
 ---
 

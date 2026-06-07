@@ -9,6 +9,36 @@ Set Builder beam search — and is exposed over HTTP at
 
 Source: [`autocue/analysis/similar.py`](../../autocue/analysis/similar.py)
 
+Domain terms used below — [Camelot wheel](./GLOSSARY.md#camelot-key-wheel),
+[`DjmdContent`](./GLOSSARY.md#djmdcontent), [ANLZ](./GLOSSARY.md#anlz-files-and-tags) — are
+defined in the [glossary](./GLOSSARY.md).
+
+---
+
+## Table of Contents
+
+- [1. Overview](#1-overview)
+- [2. Feature vector — six dimensions](#2-feature-vector--six-dimensions)
+- [3. L2 normalization + cosine similarity](#3-l2-normalization--cosine-similarity)
+- [4. BPM gate](#4-bpm-gate)
+- [5. Vector normalization and dimensional scaling](#5-vector-normalization-and-dimensional-scaling)
+- [6. The no-ANLZ data-quality cap](#6-the-no-anlz-data-quality-cap)
+- [7. 15 % maximum BPM penalty](#7-15--maximum-bpm-penalty)
+- [8. In-process index](#8-in-process-index)
+- [9. Module index access pattern (critical for setbuilder)](#9-module-index-access-pattern-critical-for-setbuilder)
+- [10. `clear_index()`](#10-clear_index)
+- [11. `_index_track()` — warming side effects](#11-_index_track--warming-side-effects)
+- [12. `find_similar()` — full signature](#12-find_similar--full-signature)
+- [13. Set Builder integration](#13-set-builder-integration)
+- [14. REST endpoint](#14-rest-endpoint)
+- [15. UI surface — the `≈ Similar` button](#15-ui-surface--the--similar-button)
+- [16. Bug 1 — degenerate cluster history](#16-bug-1--degenerate-cluster-history)
+- [17. Residual limitation](#17-residual-limitation)
+- [18. Performance](#18-performance)
+- [19. Worked example](#19-worked-example)
+- [20. Testing](#20-testing)
+- [21. Related references](#21-related-references)
+
 ---
 
 ## 1. Overview
@@ -21,7 +51,8 @@ consume the result:
   `find_similar(track_id, db, n=20)` at every beam-search step to retrieve
   candidate next tracks. When `end_bpm != start_bpm` it doubles the candidate
   pool to `n=40` so higher-BPM tracks have a chance to surface inside the same
-  BPM gate. (See section 12 for the rationale.)
+  BPM gate. (See [§13 Set Builder integration](#13-set-builder-integration)
+  for the rationale.)
 - **`≈ Similar` button** in the web app (`docs/index.html:5282`,
   `_toggleSimilarPanel`) renders the **top 5** similar tracks in a panel under
   each track card. The panel is populated on first open and cached afterwards.
@@ -82,7 +113,8 @@ return [x / mag for x in v]
 
 ### 2.1 Camelot key → angle (dims 0 + 1)
 
-Camelot notation maps 24 musical keys around a circle: 1A through 12A on the
+[Camelot notation](./GLOSSARY.md#camelot-key-wheel) maps 24 musical keys around a
+circle: 1A through 12A on the
 "minor" ring, 1B through 12B on the "major" ring. AutoCue encodes the key as
 a **(cos, sin)** pair on the unit circle so that adjacent keys are close in
 feature space and **wrap-around is free** (12A is next to 1A geometrically).
@@ -110,14 +142,15 @@ Two design notes:
   them with a small geometric offset preserves distinction without spending
   an extra dimension.
 - **Missing / unparseable → angle 0.0.** Tracks without a parsed key collapse
-  to the same angle. This is the original Bug 1 trigger (see section 15).
+  to the same angle. This is the original Bug 1 trigger (see
+  [§16 Bug 1 — degenerate cluster history](#16-bug-1--degenerate-cluster-history)).
 
 ### 2.2 energy_mean (dim 2)
 
 The average of the track's normalized PWAV energy curve (typically 50 points).
 Computed by `get_energy_curve()` in `autocue/analysis/energy.py`. Tracks with
-no ANLZ data — or whose PWAV cannot be read — get **`energy_mean = 0.0`**
-(not 0.5; the latter was the original Bug 1 trigger).
+no [ANLZ](./GLOSSARY.md#anlz-files-and-tags) data — or whose PWAV cannot be read — get
+**`energy_mean = 0.0`** (not 0.5; the latter was the original Bug 1 trigger).
 
 ### 2.3 energy variance × 10 (dim 3)
 
@@ -142,7 +175,7 @@ heuristic — Rekordbox does not tag vocals directly.
 The BPM is encoded as a 6th dimension so that no-ANLZ tracks at different
 BPMs end up at different points on the unit hypersphere after normalization.
 Without this dimension, every no-key no-energy track collapsed to the same
-unit vector (see section 15).
+unit vector (see [§16 Bug 1 — degenerate cluster history](#16-bug-1--degenerate-cluster-history)).
 
 The divisor `200` is chosen so that virtually all DJ-relevant tempos
 (80 – 200 BPM) sit in [0.4, 1.0]; anything above 200 is clipped to 1.0.
@@ -188,7 +221,9 @@ score = max(0.0, min(1.0, score))
 
 After normalization, **two tracks with identical raw features have identical
 unit vectors and therefore cosine = 1.0**. This is the structural limitation
-the data-quality cap (section 5) was added to mitigate — see also section 16.
+the data-quality cap ([§6 The no-ANLZ data-quality cap](#6-the-no-anlz-data-quality-cap))
+was added to mitigate — see also
+[§17 Residual limitation](#17-residual-limitation).
 
 ---
 
@@ -211,7 +246,8 @@ for tid, (bpm, vec, has_e) in _INDEX.items():
   the DJ literature; a 8 BPM gap is at the upper end of what can be
   beat-mixed without dramatic pitch-shifting.
 - **Caller override.** Set Builder uses a wider, asymmetric gate (12+ BPM)
-  when end_bpm != start_bpm. See section 12.
+  when end_bpm != start_bpm. See
+  [§13 Set Builder integration](#13-set-builder-integration).
 
 The gate is **symmetric** at the `similar.py` layer. Asymmetric / directional
 gating is the Set Builder's responsibility — `similar.py` deliberately knows
@@ -219,14 +255,137 @@ nothing about set direction.
 
 ---
 
-## 5. Data-quality cap
+## 5. Vector normalization and dimensional scaling
 
-Two tracks with no ANLZ data and the same BPM end up with identical feature
-vectors (key = 0, energy_mean = 0, variance = 0, vocal_proxy = 0,
-bpm/200 = same). After L2 normalization they are the *same point* on the
-unit sphere, and their cosine similarity is exactly 1.0. This is meaningless —
-the engine knows nothing about either track. The cap exists to keep the UI
-honest:
+The L2-normalization step in `_build_vector` (`autocue/analysis/similar.py:79–82`)
+is short but load-bearing. Understanding it requires looking at the **raw**
+vector — the list of six floats *before* division by magnitude — and asking
+which dimensions would dominate if the scaling were left naïve.
+
+### 5.1 Raw per-dimension ranges (pre-normalization)
+
+| Idx | Dimension          | Raw value built at `similar.py:71–78`               | Practical range                  |
+|----:|--------------------|------------------------------------------------------|----------------------------------|
+| 0   | `cos(camelot_angle)` | `math.cos(angle)`                                  | `[-1, 1]`                        |
+| 1   | `sin(camelot_angle)` | `math.sin(angle)`                                  | `[-1, 1]`                        |
+| 2   | `energy_mean`        | mean of PWAV curve in `[0, 1]`                     | `[0, 1]` (typically 0.3 – 0.7)   |
+| 3   | `energy_variance × 10` | population variance ×10, clipped at 1.0          | `[0, 1]` (typical raw var 0.005–0.08 → 0.05–0.80) |
+| 4   | `vocal_proxy`        | `1.0` if any PSSI verse phrase else `0.0`          | `{0.0, 1.0}`                     |
+| 5   | `bpm / 200`          | raw BPM ÷ 200, clipped at 1.0                      | `[0.4, 1.0]` for 80–200 BPM      |
+
+Every dimension is **already in `[-1, 1]` before normalization happens**. This
+is not an accident — it's the whole reason the scaling factors (×10 on
+variance, ÷200 on BPM) exist.
+
+### 5.2 The L2 normalization step
+
+```python
+# autocue/analysis/similar.py:79-82
+mag = math.sqrt(sum(x * x for x in v))
+if mag < 1e-9:
+    return [0.0] * len(v)
+return [x / mag for x in v]
+```
+
+Formally:
+
+```
+        v_i
+v̂_i = ─────       where ‖v‖₂ = √Σ v_i²
+       ‖v‖₂
+```
+
+After normalization, `‖v̂‖₂ = 1` — every track sits on the surface of a 6-D
+unit hypersphere. Similarity then becomes the dot product `v̂_A · v̂_B`, which
+on unit vectors equals `cos(θ)` — the cosine of the angle between the two
+points on the sphere.
+
+### 5.3 Why pre-normalization scaling matters
+
+Cosine similarity reduces a vector to its **direction**, not its magnitude.
+But the *direction* is set entirely by the relative sizes of the components
+before normalization. If one dimension were 100× bigger than the others, that
+one dimension would set the direction of the unit vector, and the cosine
+between any two vectors would be ≈ 1.0 — they all point roughly the same way.
+
+Concretely: if dim 5 were raw BPM (130) instead of `bpm / 200` (0.65), the
+raw vector for two same-key tracks at 120 and 130 BPM would look like:
+
+```
+v_120 = [-0.866, -0.500, 0.55, 0.12, 1.0, 120]      ‖v‖ ≈ 120.013
+v_130 = [-0.866, -0.500, 0.55, 0.12, 1.0, 130]      ‖v‖ ≈ 130.012
+```
+
+After normalization, the first five components would be in the range
+`±0.01` and dim 5 would be `≈ 1.0` for both — every track would look like
+`[~0, ~0, ~0, ~0, ~0, 1]`, and cosine similarity ≈ 1.0 for nearly any pair.
+BPM would dominate to the point of erasing every other signal.
+
+### 5.4 The scaling decisions in `_build_vector`
+
+| Dim | Raw input        | Scaling                | Why                                                           |
+|----:|------------------|------------------------|---------------------------------------------------------------|
+| 0,1 | Camelot angle    | `cos`/`sin` → `[-1,1]` | Geometric encoding of a circular variable; already bounded.   |
+| 2   | `energy_mean`    | none — already `[0,1]` | PWAV is normalized upstream.                                   |
+| 3   | `energy_variance`| `× 10`, clipped at 1.0 | Raw variance is 0.005–0.08; without ×10 the dim contributes <1% of magnitude and the signal is invisible to cosine. |
+| 4   | `vocal_proxy`    | bool → `{0.0, 1.0}`    | A 0/1 toggle that costs one unit of magnitude when set — strong enough to shift direction without dominating. |
+| 5   | `bpm`            | `÷ 200`, clipped at 1.0 | Maps 80–200 BPM into `[0.4, 1.0]` — same order of magnitude as the other dims, so it informs direction without swamping. |
+
+The `÷ 200` divisor is chosen so that a normal DJ-tempo BPM (e.g. 130 →
+`0.65`) sits in the same neighbourhood as `energy_mean ≈ 0.5` and
+`vocal_proxy = 1.0`. No single dimension dictates the direction.
+
+### 5.5 Worked example — does a 1-BPM difference swamp the score?
+
+Two tracks, identical key (8A → angle `7π/6`), identical energy_mean (0.50),
+identical variance (0.01 → 0.10 after ×10), both vocal, **1 BPM apart**.
+
+```
+Track A — 8A, BPM 120:
+  raw   = [-0.866, -0.500, 0.50, 0.10, 1.0, 0.600]
+  ‖v‖   = √(0.750 + 0.250 + 0.250 + 0.010 + 1.000 + 0.360) = √2.620 ≈ 1.619
+  v̂_A  ≈ [-0.535, -0.309, 0.309, 0.062, 0.618, 0.371]
+
+Track B — 8A, BPM 121:
+  raw   = [-0.866, -0.500, 0.50, 0.10, 1.0, 0.605]
+  ‖v‖   = √(0.750 + 0.250 + 0.250 + 0.010 + 1.000 + 0.366) = √2.626 ≈ 1.620
+  v̂_B  ≈ [-0.535, -0.309, 0.309, 0.062, 0.617, 0.373]
+
+cos(θ) = v̂_A · v̂_B
+       = 0.286 + 0.095 + 0.095 + 0.004 + 0.381 + 0.138 = 0.999
+```
+
+A 1-BPM difference moves the cosine from `1.000` to `0.999` — about
+**0.1%**. The BPM distance penalty (`bpm_diff / 20 = 0.05`) then scales the
+result down by 5%, so the final reported score is `0.999 × 0.95 ≈ 0.949` →
+displayed as **95 %**.
+
+**Practical implication.** Same-key, same-energy tracks 1 BPM apart score in
+the mid-90s, not 100. The cosine itself is essentially insensitive to a
+1-BPM gap; the visible drop comes almost entirely from the BPM-distance
+penalty in [§7](#7-15--maximum-bpm-penalty). This is exactly the desired
+behaviour: similarity is about *character*, BPM proximity is layered on top.
+
+### 5.6 The role of the BPM gate as a safety rail
+
+Even with sensible scaling, BPM at a 1.0 magnitude is the second-largest
+single contribution to most vectors (after `vocal_proxy = 1.0`). If `÷ 200`
+had been chosen too generously, BPM would still dominate. The default
+`bpm_gate = 8.0` (`find_similar(..., bpm_gate=8.0)`) is a hard pre-filter:
+candidates with `|Δ BPM| > 8` are rejected before the cosine is computed
+at all. This means the worst-case BPM divergence inside the dot product is
+`8 / 200 = 0.04` per dimension — negligible against the `cos`/`sin` swings
+of `±1.0` driven by key disagreement.
+
+**Bottom line.** Scaling keeps every dimension in the same order of
+magnitude so direction reflects all of them. The BPM gate cleans up the
+edge case where raw BPM range could still trade off against a key
+component. Together they let cosine similarity behave as a key-and-character
+score with BPM acting as a sanity check, not a dominator.
+
+---
+
+## 6. The no-ANLZ data-quality cap
 
 ```python
 # autocue/analysis/similar.py:219-223
@@ -237,22 +396,143 @@ elif not target_has_e or not has_e:
     score = min(score, 0.82)
 ```
 
+### 6.1 Why a cap is necessary at all
+
+Without [ANLZ](./GLOSSARY.md#anlz-files-and-tags) energy data, three of the six dimensions
+collapse to a fixed value for the whole no-data population:
+
+| Dim | Without ANLZ                             |
+|----:|------------------------------------------|
+| 2   | `energy_mean = 0.0`                      |
+| 3   | `energy_variance × 10 = 0.0`             |
+| 4   | `vocal_proxy = 0.0` (no PSSI to read)    |
+
+That leaves only the key dims (0, 1) and BPM (5) to distinguish two no-data
+tracks. **For two no-data tracks at the same BPM with the same (or both
+missing) key, the raw vectors are bit-identical** — and L2 normalization
+preserves that identity. Cosine similarity becomes exactly 1.0. This is the
+original Bug 1 failure mode (see
+[§16 Bug 1 — degenerate cluster history](#16-bug-1--degenerate-cluster-history)):
+the Similar panel showed a wall of "100% match" rows for tracks that the
+engine knew nothing about.
+
+The cap exists to keep the UI honest by mapping the absence of evidence to a
+visibly lower score, not silently to 1.0.
+
+### 6.2 Why 0.65 specifically
+
+Reasoning the threshold from first principles:
+
+- **A pair of fully-analyzed, well-matched tracks** typically scores in the
+  range `0.85 – 0.95` (see the worked example in [§19](#19-worked-example)
+  and the test fixtures in `tests/test_similar.py::TestDataQualityCap`).
+- **A pair of opposite-key fully-analyzed tracks** still scores in the
+  `0.4 – 0.6` range because dims 2–5 (energy + BPM) keep the vectors mostly
+  aligned even when the key dims disagree.
+- **A no-data pair** has no signal at all, so its cap should land **below**
+  the typical opposite-key real-data score — otherwise "we know nothing
+  about either of these" would rank ahead of "we know they're in opposite
+  keys".
+
+`0.65` was chosen because:
+
+1. It sits **above** the `0.4–0.6` opposite-key real-data band, so a
+   matching same-BPM no-data pair is not absurdly demoted below tracks that
+   actually disagree on key.
+2. It sits **below** the `0.85+` band of well-matched real-data pairs, so
+   a no-data track can never out-rank a real-data match in the Similar
+   panel's top-5.
+3. It maps to "65%" in the UI — a value users intuitively read as
+   *"probably similar but unverified"*, which is exactly the epistemic
+   state.
+
+Other thresholds considered:
+
+- `0.50` — would have demoted no-data pairs *below* opposite-key real-data
+  pairs. Rejected: it overstates the engine's confidence in disagreement.
+- `0.75` — would have let no-data pairs occasionally out-rank real-data
+  pairs of `0.70`. Rejected: undermines the "real data ranks first" goal.
+- A learned cap (percentile of the score distribution per library) was
+  considered and rejected as too much machinery for a UI affordance.
+
+### 6.3 When the cap applies
+
 | Situation                            | Cap   | Intent                                          |
 |--------------------------------------|-------|-------------------------------------------------|
-| Neither track has ANLZ energy data   | 0.65  | "We don't really know — partial match at best." |
-| One track has ANLZ data, one doesn't | 0.82  | "Asymmetric confidence — likely but not sure."  |
-| Both have ANLZ data                  | none  | Trust the score in full.                        |
+| **Neither** track has ANLZ energy data | 0.65 | "We don't really know — partial match at best." |
+| **One** track has ANLZ data, one doesn't | 0.82 | "Asymmetric confidence — likely but not sure."  |
+| **Both** have ANLZ data              | none  | Trust the score in full.                        |
 
-The cap is applied *before* the BPM distance penalty (section 6), so a same-
-BPM no-energy pair lands at exactly 0.65, and a 4-BPM-apart no-energy pair
-ends up around `0.65 × (1 - 0.20) = 0.52`.
+The two-tier design (0.65 vs 0.82) reflects that **one side of evidence is
+better than none**: the analyzed track contributes its real energy and
+vocal signal to the dot product, so the result carries some information.
+The cap at `0.82` keeps it under the typical `0.85+` of fully-analyzed
+pairs, but well above the `0.65` of total-blind matches.
 
-The `has_e` flag is stored in the index (`_INDEX[track_id] = (bpm, vec, has_e)`)
-specifically so this check is O(1) at query time without re-reading ANLZ.
+### 6.4 Cap order with the BPM penalty
+
+The cap is applied **before** the BPM distance penalty (`similar.py:224-226`),
+so the two interact multiplicatively:
+
+```
+Both no-data, same BPM:       0.65 × (1 − 0.00) = 0.65
+Both no-data, 4 BPM apart:    0.65 × (1 − 0.20) = 0.52
+One side ANLZ, same BPM:      0.82 × (1 − 0.00) = 0.82
+One side ANLZ, 4 BPM apart:   0.82 × (1 − 0.20) = 0.66
+```
+
+This composition is intentional: BPM-distance is an independent signal
+that should still degrade the score even when the cap has bounded it.
+
+The `has_e` flag is stored in the index
+(`_INDEX[track_id] = (bpm, vec, has_e)`, `similar.py:160`) specifically so
+this check is O(1) at query time without re-reading [ANLZ](./GLOSSARY.md#anlz-files-and-tags).
+
+### 6.5 The 75 (transition scoring) vs 0.65 (similarity) difference
+
+Transition scoring uses a missing-data neutral value of `50.0` and caps a
+one-side-missing transition at `75.0` (see
+[transition-scoring.md](./transition-scoring.md) and the CLAUDE.md note on
+`_energy_score(None, None) = 50.0`). The similarity engine uses `0.65` and
+`0.82`. These are **the same idea on different scales**:
+
+| Layer            | Scale     | Both missing | One missing |
+|------------------|-----------|--------------|-------------|
+| `similar.py`     | `[0, 1]`  | `0.65`       | `0.82`      |
+| transition score | `[0, 100]`| `50`         | `75`        |
+
+Mapping `0.65 → 65` and `0.82 → 82` lands close to the transition-scoring
+numbers; the small offset reflects that similarity already has a separate
+BPM penalty applied multiplicatively while the transition scorer applies
+its components additively with weights. The principle in both layers is
+the same: *absence of data must map to a non-elite score, regardless of
+how aligned the bit-identical-by-default features look*.
+
+### 6.6 Future considerations: per-dimension data-quality flags
+
+The current cap is **single-bit per track** — `has_energy` is the only
+quality signal stored in the index. A natural extension would be a
+per-dimension quality vector:
+
+```python
+# Hypothetical future shape
+_INDEX[track_id] = (bpm, vec, quality_flags)
+# quality_flags: { "key": bool, "energy_mean": bool,
+#                  "energy_var": bool, "vocals": bool }
+```
+
+This would enable graded caps — e.g. cap at `0.75` when only
+`energy_variance` is missing but `energy_mean` is known, or cap at `0.60`
+when key is missing on top of energy. The trade-off is index size (one
+flag → four+ flags per row) versus the marginal accuracy gain. For a
+library where most tracks are either fully-analyzed or completely
+unanalyzed, the marginal gain is small; for libraries with partial
+analysis (a recurring case after Rekordbox upgrades that invalidate older
+ANLZ versions), this could meaningfully sharpen the Similar panel.
 
 ---
 
-## 6. 15 % maximum BPM penalty
+## 7. 15 % maximum BPM penalty
 
 After the cap, similarity is scaled down linearly by BPM distance:
 
@@ -271,7 +551,7 @@ score = round(score * (1.0 - bpm_penalty), 3)
 
 ---
 
-## 7. In-process index
+## 8. In-process index
 
 The index lives in three module-level globals in `autocue/analysis/similar.py`:
 
@@ -283,7 +563,7 @@ _INDEX_BUILT = False
 _INDEX_LOCK = threading.Lock()
 ```
 
-### 7.1 Build semantics
+### 8.1 Build semantics
 
 `_build_index(db)` (`autocue/analysis/similar.py:99–125`) walks every row in
 `db.get_content().all()` and calls `_index_track()` for each one. Per-track
@@ -303,7 +583,7 @@ This guarantees only **one builder runs at a time**. Concurrent callers
 (e.g. a `find_similar()` call racing with `deps._prewarm_index`) block on
 the lock until the build finishes, then return without redoing the work.
 
-### 7.2 Pre-warm on server startup
+### 8.2 Pre-warm on server startup
 
 `autocue/serve/deps.py:77-79` kicks off a daemon thread to build the index
 as soon as the FastAPI app starts:
@@ -320,7 +600,7 @@ does not conflict with write operations on the main `app.state.db`. It is
 strictly best-effort — failures are logged and swallowed so the server
 still serves.
 
-### 7.3 First-call build
+### 8.3 First-call build
 
 If a `find_similar()` arrives before the pre-warm finishes, it triggers the
 build itself:
@@ -341,7 +621,7 @@ The similarity index is still warming up — please wait a few seconds and try a
 
 (`docs/index.html:6420`)
 
-### 7.4 On-demand single-track indexing
+### 8.4 On-demand single-track indexing
 
 If a `find_similar(track_id, ...)` arrives for a track that **isn't** in
 the index (e.g. it was added after the pre-warm finished), `similar.py`
@@ -368,7 +648,7 @@ This won't help the *candidate* side though — only tracks already in
 
 ---
 
-## 8. Module index access pattern (critical for setbuilder)
+## 9. Module index access pattern (critical for setbuilder)
 
 Other modules sometimes need to check whether the similarity index has been
 built — `setbuilder.py:122` does this to decide whether to call
@@ -417,7 +697,7 @@ state.
 
 ---
 
-## 9. `clear_index()`
+## 10. `clear_index()`
 
 A simple reset:
 
@@ -445,7 +725,7 @@ It is called from three places:
 
 ---
 
-## 10. `_index_track()` — warming side effects
+## 11. `_index_track()` — warming side effects
 
 ```python
 # autocue/analysis/similar.py:128-166
@@ -467,9 +747,9 @@ def _index_track(content, db) -> None:
 
 Two pieces worth flagging:
 
-- **BPM is read raw and divided by 100.** `DjmdContent.BPM` is stored as
-  an integer scaled by 100 (e.g. `BPM = 12500` for 125.00 BPM). Always
-  divide by 100 when reading it.
+- **BPM is read raw and divided by 100.** [`DjmdContent`](./GLOSSARY.md#djmdcontent)`.BPM`
+  is stored as an integer scaled by 100 (e.g. `BPM = 12500` for 125.00 BPM).
+  Always divide by 100 when reading it.
 - **The `_class_cache` warm-up is intentional.** Set Builder calls
   `get_classification()` for every candidate at every beam step. By warming
   the cache during the *same* DB pass that built the index, beam-search
@@ -479,7 +759,7 @@ Two pieces worth flagging:
 
 ---
 
-## 11. `find_similar()` — full signature
+## 12. `find_similar()` — full signature
 
 ```python
 # autocue/analysis/similar.py:180-233
@@ -496,7 +776,7 @@ to `n=10` but accepts `1..100`.)
 
 | Parameter      | Type   | Default | Meaning                                              |
 |----------------|--------|---------|------------------------------------------------------|
-| `track_id`     | int    | —       | Target track's `DjmdContent.ID`                      |
+| `track_id`     | int    | —       | Target track's [`DjmdContent`](./GLOSSARY.md#djmdcontent)`.ID` |
 | `db`           | Database | —     | `Rekordbox6Database` instance (read-only is enough)  |
 | `n`            | int    | `10`    | Max number of results to return                      |
 | `bpm_gate`     | float  | `8.0`   | Maximum allowed BPM distance, in absolute BPM        |
@@ -531,7 +811,7 @@ A list (length ≤ `n`) of dicts, sorted by descending score:
 
 ---
 
-## 12. Set Builder integration
+## 13. Set Builder integration
 
 `autocue/analysis/setbuilder.py` is the heaviest caller. Two specifics
 matter:
@@ -558,7 +838,7 @@ similar = find_similar(track_id, db, n=n, bpm_gate=bpm_gate)
 
 ---
 
-## 13. REST endpoint
+## 14. REST endpoint
 
 ```
 GET /api/tracks/{track_id}/similar
@@ -619,7 +899,7 @@ class SimilarTracksResponse(BaseModel):
 
 ---
 
-## 14. UI surface — the `≈ Similar` button
+## 15. UI surface — the `≈ Similar` button
 
 Every track card in the web app gets a small `≈ Similar` button on the right
 edge of its header (`docs/index.html:5830-5845`):
@@ -658,12 +938,12 @@ Behaviour notes:
   energy + BPM proximity only — harmonic mixing scoring lives in the
   **Transition** panel, not here.
 - **No similar in XML mode.** This feature requires the local server (it
-  needs `_INDEX` and ANLZ access). The button is hidden when the app is
-  loaded from `file://` without a backing server.
+  needs `_INDEX` and [ANLZ](./GLOSSARY.md#anlz-files-and-tags) access). The button is
+  hidden when the app is loaded from `file://` without a backing server.
 
 ---
 
-## 15. Bug 1 — degenerate cluster history
+## 16. Bug 1 — degenerate cluster history
 
 A long-form post-mortem lives in
 [`SCORING_BUGS.md`](../../SCORING_BUGS.md) (Bug 1). The short version:
@@ -709,7 +989,7 @@ matches produce.
 
 ---
 
-## 16. Residual limitation
+## 17. Residual limitation
 
 The 6-dim BPM addition cannot break a **same-BPM cluster**. After
 normalization, two tracks with:
@@ -740,7 +1020,7 @@ scores cannot rank them.
 
 ---
 
-## 17. Performance
+## 18. Performance
 
 | Library size | `_INDEX` RAM | Pre-warm wall-time      |
 |--------------|--------------|-------------------------|
@@ -761,7 +1041,7 @@ scores cannot rank them.
 
 ---
 
-## 18. Worked example
+## 19. Worked example
 
 Two tracks, both fully analyzed:
 
@@ -812,7 +1092,7 @@ The UI displays it as **90 %**.
 
 ---
 
-## 19. Testing
+## 20. Testing
 
 `tests/test_similar.py` — 28 tests. Highlights:
 
@@ -846,7 +1126,7 @@ This is the pattern used by `TestDataQualityCap`.
 
 ---
 
-## 20. Related references
+## 21. Related references
 
 - [`docs/reference/energy-and-mixability.md`](./energy-and-mixability.md) —
   source of `energy_mean`, `energy_variance`, and the `vocal_proxy` flag.

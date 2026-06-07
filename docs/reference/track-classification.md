@@ -4,15 +4,37 @@
 > into five DJ-set roles based on BPM, PWAV energy curves, and a vocal proxy.
 
 `autocue/analysis/classify.py` is the scoring core. It takes a single
-`DjmdContent` row plus a live `Rekordbox6Database` handle and returns a dict
-of five fuzzy membership scores in `[0.0, 1.0]` plus the argmax (`primary`).
-There is no training, no model file, and no network call — the result is a
-pure function of three observable inputs:
+[`DjmdContent`](./GLOSSARY.md#djmdcontent) row plus a live `Rekordbox6Database` handle
+and returns a dict of five fuzzy membership scores in `[0.0, 1.0]` plus the argmax
+(`primary`). There is no training, no model file, and no network call — the result
+is a pure function of three observable inputs:
 
-1. **BPM** (`DjmdContent.BPM`, stored as integer × 100).
-2. **PWAV energy curve** (mean + peak) from `get_energy_curve()`
+1. **BPM** ([`DjmdContent.BPM`](./GLOSSARY.md#djmdcontent), stored as integer × 100).
+2. **[PWAV](./GLOSSARY.md#pwav) energy curve** (mean + peak) from `get_energy_curve()`
    (see [`energy-and-mixability.md`](./energy-and-mixability.md)).
-3. **Vocal proxy** (`bool`) from `get_mixability()`.
+3. **Vocal proxy** (`bool`) from `get_mixability()` — derived from
+   [PSSI](./GLOSSARY.md#pssi) phrase labels.
+
+---
+
+## Table of Contents
+
+1. [Overview](#1-overview)
+2. [The five categories](#2-the-five-categories)
+3. [`get_classification(content, db)` return shape](#3-get_classificationcontent-db-return-shape)
+4. [The trapezoidal membership function](#4-the-trapezoidal-membership-function)
+5. [Per-category formulas](#5-per-category-formulas)
+6. [Energy fallback (Bug 2 fix)](#6-energy-fallback-bug-2-fix)
+7. [`primary` selection](#7-primary-selection)
+8. [Caching](#8-caching)
+9. [REST endpoints](#9-rest-endpoints)
+10. [UI surface](#10-ui-surface)
+11. [Property tests](#11-property-tests)
+12. [Examples](#12-examples)
+13. [Edge cases](#13-edge-cases)
+14. [Testing](#14-testing)
+15. [Related](#15-related)
+16. [Vocal proxy: how it influences classification](#16-vocal-proxy-how-it-influences-classification)
 
 ---
 
@@ -149,14 +171,127 @@ Key invariants verified by `tests/test_properties.py:36` (Hypothesis):
 - **Continuous at corners**: no jump at `lo_zero`, `lo_full`, `hi_full`, `hi_zero`.
 - **Midpoint of ramp is 0.5** (`test_midpoint_rising_ramp_is_half` at `test_properties.py:179`).
 
-The `max(... , 1e-9)` guard prevents division-by-zero if a caller passes
-`lo_zero == lo_full` (degenerate trapezoid that collapses to a half-line).
+### 4.1 Algebraic form
+
+The signature in `classify.py:35` uses four corners (`lo_zero, lo_full, hi_full, hi_zero`).
+The same shape can be expressed with a plateau (`full_lo`, `full_hi`) plus a symmetric
+`falloff` width on each side — set `lo_zero = full_lo - falloff` and
+`hi_zero = full_hi + falloff`. In that compact form `_trap(x, full_lo, full_hi, falloff)`
+is piecewise-linear with four regions:
+
+| Region | Condition | Score |
+|---|---|---|
+| Left zero | `x ≤ full_lo - falloff` | `0` |
+| Rising ramp | `full_lo - falloff < x < full_lo` | `(x - (full_lo - falloff)) / falloff` |
+| Plateau | `full_lo ≤ x ≤ full_hi` | `1.0` |
+| Falling ramp | `full_hi < x < full_hi + falloff` | `((full_hi + falloff) - x) / falloff` |
+| Right zero | `x ≥ full_hi + falloff` | `0` |
+
+ASCII shape (the four corners are marked `*`):
+
+```
+score
+ 1.0 ┤        *━━━━━━━━━━━━*
+     │       ╱              ╲
+     │      ╱                ╲
+ 0.5 ┤     ╱                  ╲
+     │    ╱                    ╲
+     │   ╱                      ╲
+ 0.0 ┤──*                        *──────
+     └──┼──────┼────────────┼────┼─────► x
+   full_lo  full_lo       full_hi  full_hi
+   -falloff                       +falloff
+```
+
+The four labelled corners correspond, in the source's 4-corner naming, to
+`lo_zero`, `lo_full`, `hi_full`, `hi_zero` respectively.
+
+### 4.2 The `1e-9` divide-zero guard
+
+```python
+return (value - lo_zero) / max(lo_full - lo_zero, 1e-9)
+```
+
+If a caller passes `lo_full == lo_zero` (a degenerate trapezoid with zero-width
+rising ramp — i.e. a vertical step at that corner), the naïve denominator is `0`
+and the division blows up. `max(..., 1e-9)` clamps the denominator to a tiny
+positive value, so the ramp is replaced by an effectively-vertical slope and
+the function still returns a finite number in `[0, 1]`. The same guard is used
+on the falling-ramp branch.
+
+No production category in `classify.py` actually hits the degenerate case — the
+guard exists purely as a safety net for hand-rolled future categories and for
+Hypothesis property tests that can generate any well-ordered tuple.
+
+### 4.3 Worked example: `_trap(x=125, full_lo=128, full_hi=140, falloff=8)`
+
+In source-form parameters that means
+`_trap(125, lo_zero=120, lo_full=128, hi_full=140, hi_zero=148)`. Step by step:
+
+1. **Region check.** Is `125 ≤ 120`? No. Is `125 ≥ 148`? No. Not in either zero region.
+2. **Plateau check.** Is `128 ≤ 125 ≤ 140`? No (`125 < 128`). Not on the plateau.
+3. **Which ramp?** `125 < lo_full (128)` → rising ramp.
+4. **Compute.** `(value - lo_zero) / max(lo_full - lo_zero, 1e-9)`
+   = `(125 - 120) / max(128 - 120, 1e-9)`
+   = `5 / 8`
+   = **`0.625`**.
+
+The value `125` is 5 units into an 8-unit-wide falloff, so it gets 5/8 of the
+plateau's full score. Geometrically, you are 62.5% of the way up the rising ramp.
+
+### 4.4 Exact-boundary behaviour
+
+The function is closed at the plateau corners and open at the outer corners
+in a way that preserves continuity at every joint:
+
+| `value` | Branch hit | Result | Why |
+|---|---|---|---|
+| `value == lo_zero` | First `if`: `value <= lo_zero` | `0.0` | Left of the rising ramp's foot. |
+| `value == lo_zero + ε` | Rising-ramp branch | `≈ ε / (lo_full - lo_zero)` | Just inside the ramp; tiny positive. |
+| `value == lo_full` | Plateau (`lo_full <= value <= hi_full`) | `1.0` | The rising ramp's ceiling and the plateau both yield 1.0 here, so the discontinuity is removable. |
+| `value == hi_full` | Plateau | `1.0` | Same logic on the right edge. |
+| `value == hi_zero` | First `if`: `value >= hi_zero` | `0.0` | Right of the falling ramp's foot. |
+
+Note the asymmetry in the first guard: `value <= lo_zero` and `value >= hi_zero`
+are both inclusive of the outer corner, so `_trap(lo_zero) = 0.0` exactly.
+The plateau guard `lo_full <= value <= hi_full` is also inclusive, so
+`_trap(lo_full) = 1.0` exactly. The ramps are open intervals — they never
+actually execute at the corners. This is what makes the function continuous
+at all four corners (an invariant verified by the Hypothesis
+`test_continuous_at_*` properties).
+
+### 4.5 Overlap between categories
+
+The five category trapezoids overlap deliberately. A BPM of 125 lands in
+several zones at once:
+
+- `build` BPM trapezoid (`108, 123, 123, 140`) — `125` is on the falling ramp
+  between plateau-peak `123` and `hi_zero=140`. `bpm_s = (140-125)/(140-123) ≈ 0.88`.
+- `peak` BPM trapezoid (`116, 136, 136, 158`) — `125` is on the rising ramp.
+  `bpm_s = (125-116)/(136-116) = 0.45`.
+- `after_hours` BPM trapezoid (`88, 107, 107, 132`) — `125` is on the falling
+  ramp. `bpm_s = (132-125)/(132-107) = 0.28`.
+- `warmup` BPM trapezoid (`75, 100, 100, 130`) — `125` is on the falling ramp.
+  `bpm_s = (130-125)/(130-100) = 0.17`.
+- `closing` BPM trapezoid (`55, 88, 88, 118`) — `125 ≥ hi_zero=118`, so `bpm_s = 0`.
+
+Each category that returns a non-zero BPM score combines it with its own energy
+trapezoid and (for `build` / `peak`) a vocal factor. The final per-category score
+is what `_score_category()` returns. The argmax picks the highest of the five —
+so a 125 BPM track will typically resolve to `build` (highest BPM trapezoid
+membership) unless its energy clearly belongs elsewhere. **Both `warmup`'s
+falloff zone and `build`'s plateau-adjacent ramp give non-zero scores
+simultaneously**; that is the design, and the argmax is the disambiguator.
+
+### 4.6 Collapsed plateaux (triangle membership)
 
 `lo_zero == lo_full` and `hi_zero == hi_full`: in classify.py's actual
 calls, the plateau is collapsed in some categories (e.g. warmup's BPM
 plateau is 100→100, a triangle peak at 100). This is intentional — the
 trapezoid degrades gracefully into a triangular membership when the
-plateau collapses.
+plateau collapses. The `1e-9` guard in [4.2](#42-the-1e-9-divide-zero-guard)
+also covers the degenerate case where one of the ramps collapses to zero
+width.
 
 ---
 
@@ -581,8 +716,8 @@ consumers that read `data["bpm"]` should be aware.
 
 ### No energy data (`energy_mean is None`)
 
-Falls into the `else 0.5` branch in every category formula. See section 6.
-Max score is ~0.70.
+Falls into the `else 0.5` branch in every category formula. See
+[Energy fallback (Bug 2 fix)](#6-energy-fallback-bug-2-fix). Max score is ~0.70.
 
 ### Both `energy_mean` and `energy_peak` are `None`
 
@@ -679,6 +814,135 @@ pytest tests/test_properties.py::TestTrapProperties -v
 - [`../FEATURES.md`](../FEATURES.md) — end-user-facing feature list.
 - `SCORING_BUGS.md` (repo root) — the adversarial review session that
   produced the 0.70 cap (Bug 2).
+
+---
+
+## 16. Vocal proxy: how it influences classification
+
+The `vocal_proxy` input is a **boolean**, not a scalar. It is set to `True`
+when **any** [PSSI](./GLOSSARY.md#pssi) phrase on the track carries the
+`PhraseLabel.VERSE` label, and `False` otherwise. The detection lives in
+`autocue/analysis/score.py:82`:
+
+```python
+vocal_proxy = any(lbl == PhraseLabel.VERSE for lbl in phrase_labels)
+```
+
+`get_classification()` reads it via `get_mixability(content, db)["vocal_proxy"]`
+(see `classify.py:110-113`). It is a proxy, not a measurement: it asks "did
+Rekordbox label any phrase as VERSE?" — vocals usually live in VERSE phrases,
+so the presence of a VERSE label is a coarse but reliable signal that the
+track has sung content. It does not detect instrumentals that are mislabeled
+as VERSE, nor vocals that fall outside VERSE phrases.
+
+### 16.1 Where it enters the formula
+
+`vocal_proxy` is **not** part of a weighted sum and **not** a gating term —
+it is a **scalar multiplier** applied as the last step of `_score_category()`
+for the two categories that care about vocals. The relevant code is in
+`classify.py:46-86`:
+
+| Category | Code line | `vocal_proxy=True` multiplier | `vocal_proxy=False` multiplier |
+|---|---|---|---|
+| `warmup` | `classify.py:58-61` | **`1.0` (no effect)** | `1.0` |
+| `build` | `classify.py:66` | **`0.85` (×0.85 penalty)** | `1.0` |
+| `peak` | `classify.py:73` | **`0.80` (×0.80 penalty)** | `1.0` |
+| `after_hours` | `classify.py:76-79` | **`1.0` (no effect)** | `1.0` |
+| `closing` | `classify.py:81-84` | **`1.0` (no effect)** | `1.0` |
+
+So vocal presence only matters for `build` and `peak`. Three of the five
+categories ignore it entirely. The penalty applies multiplicatively to the
+final per-category score:
+
+```python
+# build
+return bpm_s * (eng_s * 0.60 + 0.40) * vocal_f   # vocal_f = 0.85 or 1.0
+# peak
+return bpm_s * (eng_s * 0.60 + 0.40) * vocal_f   # vocal_f = 0.80 or 1.0
+```
+
+That makes the influence easy to reason about: a vocal track's `build` score
+is exactly **15% lower** than the same track would score without vocals, and
+a vocal track's `peak` score is exactly **20% lower**. The other three
+categories are unaffected.
+
+### 16.2 Per-category score behaviour
+
+Holding BPM and energy constant inside each category's plateau (so `bpm_s = 1.0`
+and the energy term is `(0.60 + 0.40) = 1.0` for a fully analyzed track with
+energy on the plateau):
+
+| Category | `vocal_proxy=False` | `vocal_proxy=True` | Δ |
+|---|---|---|---|
+| `warmup` | 1.000 | 1.000 | 0% |
+| `build` | 1.000 | 0.850 | **−15%** |
+| `peak` | 1.000 | 0.800 | **−20%** |
+| `after_hours` | 1.000 | 1.000 | 0% |
+| `closing` | 1.000 | 1.000 | 0% |
+
+For the `peak` category specifically, the eng_s term reads `energy_peak`
+(not `energy_mean`) but the vocal multiplier is identical.
+
+### 16.3 Missing phrase data
+
+`get_mixability(content, db)` returns `None` when no PSSI phrase data is
+available (the track has no `.EXT` ANLZ, or the ANLZ file is unparseable).
+The `classify.py:110-113` guard substitutes `False`:
+
+```python
+vocal_proxy = False
+mix = get_mixability(content, db)
+if mix:
+    vocal_proxy = mix["vocal_proxy"]
+```
+
+This default is conservative: when phrase data is missing, we assume **no
+vocals**, which means **no penalty** is applied — `build` and `peak` are
+scored as if the track were instrumental. The reasoning is that we should
+not penalise a track for a vocal we cannot confirm; the trade-off is that
+unanalyzed vocal tracks will score slightly too high on `build` / `peak`.
+The Bug 2 energy cap (section 6) already caps unanalyzed tracks at ~0.70,
+which partially compensates by ensuring those tracks never dominate the
+ranking.
+
+### 16.4 Sensitivity: when does vocal presence flip `primary`?
+
+At the same BPM and energy, switching `vocal_proxy` from `False` to `True`
+can flip the `primary` category only when the runner-up was within the
+penalty margin (15% for `build`, 20% for `peak`).
+
+Realistic flip scenarios:
+
+- **`build` → `after_hours`**: A 122 BPM track sitting near the
+  build/after_hours BPM boundary, with mid-band energy ≈ 0.40. Without
+  vocals, `build` wins. With vocals, `build` is multiplied by 0.85 — if the
+  pre-penalty `build` score is within 15% of the `after_hours` score (which
+  pays no penalty), the argmax flips to `after_hours`.
+- **`peak` → `build`**: A 128 BPM track with `energy_peak ≈ 0.65`. Without
+  vocals, both score similarly; the peak's −20% vocal penalty (vs. build's
+  −15%) means with vocals, `build` wins more often than `peak`.
+- **`peak` → `warmup` / `closing`**: virtually impossible — the BPM
+  trapezoids for `peak` (116→158) and `warmup` (75→130) / `closing`
+  (55→118) barely overlap, so even a 20% penalty on `peak` cannot let
+  `warmup` or `closing` overtake it inside the peak BPM range.
+
+Outside these edge zones (clear plateau membership in one category and
+weak membership in others), `vocal_proxy` does not change `primary`. It
+nudges the confidence number but the argmax stays put.
+
+### 16.5 Why a boolean and not a scalar?
+
+A scalar "vocal-ness" estimate would need either a vocal-separation model
+(too heavy for a deterministic pure-Python pipeline) or a finer ANLZ tag
+than Rekordbox actually exposes. The boolean derived from VERSE phrases is
+the cheapest reliable signal available, and the chosen penalties (15% / 20%)
+are calibrated to nudge category preference without overriding the BPM /
+energy signal.
+
+If you want richer vocal handling downstream, the same `vocal_proxy` boolean
+is surfaced verbatim in the response JSON (see [`get_classification`
+return shape](#3-get_classificationcontent-db-return-shape)); UI code can
+read it directly without re-deriving anything.
 
 ---
 
