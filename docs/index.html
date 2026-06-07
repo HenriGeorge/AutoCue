@@ -1136,6 +1136,44 @@
       line-height: 1.5;
     }
     html.dark .warning-banner { background: #332900; border-color: #f9a825; color: #ffe082; }
+
+    /* A6: persistent phrase-analysis progress banner — always mounted, slides via max-height. */
+    #phrase-progress-banner {
+      max-height: 0; overflow: hidden;
+      transition: max-height 180ms ease, margin-bottom 180ms ease, padding 180ms ease;
+      display: flex; align-items: center; gap: 12px;
+      background: var(--surface); border-radius: 8px;
+      font-size: 13px; color: var(--text);
+      padding: 0 14px;          /* vertical padding pinned to 0 when collapsed */
+      margin-bottom: 0;
+    }
+    #phrase-progress-banner.visible {
+      max-height: 100px;        /* overestimate — accommodates future content */
+      padding: 10px 14px;
+      margin-bottom: 10px;
+      border: 1px solid var(--border);
+    }
+    #phrase-progress-banner .ppb-spinner {
+      width: 14px; height: 14px; border-radius: 50%;
+      border: 2px solid var(--border); border-top-color: var(--green);
+      animation: _ppbSpin 0.9s linear infinite;
+      flex-shrink: 0;
+    }
+    @keyframes _ppbSpin { to { transform: rotate(360deg); } }
+    #phrase-progress-banner strong { font-weight: 600; }
+    #phrase-progress-banner #phrase-progress-count {
+      color: var(--muted); font-variant-numeric: tabular-nums;
+    }
+    #phrase-progress-banner progress {
+      flex: 1; height: 6px; min-width: 80px;
+    }
+    #phrase-progress-banner #phrase-progress-cancel {
+      font-size: 12px; padding: 4px 10px;
+    }
+    @media (prefers-reduced-motion: reduce) {
+      #phrase-progress-banner { transition: none; }
+    }
+
     /* ── Secondary button — ElevenLabs white pill ── */
     .secondary-btn {
       background: var(--surface); color: var(--text);
@@ -1858,6 +1896,14 @@
     <div class="tracks-header">
       <h2 class="tracks-title">Tracks</h2>
       <span class="tracks-count" id="tracks-count">0 tracks</span>
+    </div>
+    <!-- A6: persistent phrase-analysis progress banner. Always mounted; slides in via max-height. -->
+    <div id="phrase-progress-banner" aria-live="polite">
+      <span class="ppb-spinner" aria-hidden="true"></span>
+      <strong>Computing phrase cues</strong>
+      <span id="phrase-progress-count">0 / 0</span>
+      <progress id="phrase-progress-bar" max="100" value="0"></progress>
+      <button id="phrase-progress-cancel" class="secondary-btn" type="button">Cancel</button>
     </div>
     <!-- F4: Search + F6: Phrase-only filter -->
     <div id="filter-bar" style="display:none;">
@@ -2774,7 +2820,21 @@ const SLOT_NAMES = ['A','B','C','D','E','F','G','H'];
 // ── State ──────────────────────────────────────────────────────────────────────
 let parsedDoc    = null;
 let parsedTracks = [];
+// O(1) lookup index for parsedTracks, kept in sync via _setParsedTracks.
+// Replaces parsedTracks.find(t => t.id === id) which is O(n).
+let parsedTracksById = new Map();
+function _setParsedTracks(arr) {
+  parsedTracks = arr;
+  parsedTracksById = new Map(arr.map(t => [String(t.id), t]));
+  _libraryEpoch++;  // invalidates the phrase-result cache (B7)
+}
 let originalXmlText = null;
+
+// Monotonic counter incremented on every library reload (or playlist change).
+// loadPhraseFromServer stashes its value into _phraseLoadedEpoch; the next call
+// short-circuits the network fan-out when the epoch hasn't changed.
+let _libraryEpoch = 0;
+let _phraseLoadedEpoch = -1;
 
 let analysisMode = 'bar'; // 'bar' | 'phrase'
 let phraseCueState = {};  // trackId → [{position_ms, label, slot}]
@@ -2898,10 +2958,11 @@ async function loadTracksFromServer(playlistId = null) {
   _energyCache = {};           // D4 fix: invalidate on reload so stale curves don't persist
   _cardMap.clear();            // C: force full rebuild on library reload
   _cardSettingsFingerprint = '';
-  parsedTracks = tracksData.map(t => ({
+  _setParsedTracks(tracksData.map(t => ({
     id: String(t.id), name: t.title, artist: t.artist, album: t.album || '',
     bpm: t.bpm, totalTime: t.duration, tempo: null,
     existingHotCues: t.existing_hot_cues, hasPhrase: t.has_phrase, hasBeats: t.has_beats,
+    source: t.source || 'file', // B1 — server tells us if it's file/streaming/unknown
     key: t.key || '',
     rating: t.rating || 0,
     playCount: t.play_count || 0,
@@ -2911,7 +2972,7 @@ async function loadTracksFromServer(playlistId = null) {
     genre: t.genre || '',
     comment: t.comment || '',
     locationFilename: '',
-  }));
+  })));
   parsedDoc = null;
   selectedTrackIds.clear();
   updateSelectionBar();
@@ -5026,7 +5087,7 @@ function _drawMiniWaveform(trackId) {
   const ctx = canvas.getContext('2d');
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   const W = cssW, H = cssH;
-  const track = parsedTracks.find(t => t.id === trackId);
+  const track = parsedTracksById.get(String(trackId));
   const pct = (track && track.totalTime)
     ? Math.min(audioPlayer.currentTime / track.totalTime, 1) : 0;
   const isDark = document.documentElement.classList.contains('dark');
@@ -5155,7 +5216,7 @@ function updatePlaybackUI() {
 }
 
 function showMiniPlayer(trackId) {
-  const track = parsedTracks.find(t => t.id === trackId);
+  const track = parsedTracksById.get(String(trackId));
   if (!track) return;
 
   document.getElementById('mini-track-name').textContent   = track.name;
@@ -5211,7 +5272,7 @@ function updateTimeline() {
   if (!nowPlayingId) return;
   const card = document.querySelector(`.track-card[data-track-id="${nowPlayingId}"]`);
   if (!card) return;
-  const track = parsedTracks.find(t => t.id === nowPlayingId);
+  const track = parsedTracksById.get(String(nowPlayingId));
   if (!track?.totalTime) return;
   let ph = card.querySelector('.timeline-playhead');
   const tl = card.querySelector('.timeline');
@@ -6237,9 +6298,41 @@ function _computeSettingsFingerprint() {
   var s = getSettings();
   var skipExisting = document.getElementById('skip-existing-cues').checked;
   var mcMode = document.getElementById('memory-cue-mode').value;
-  // Sum total phrase cue count (not just key count) so different cue positions force a rebuild
-  var phraseTotal = Object.values(phraseCueState).reduce(function(a, arr) { return a + arr.length; }, 0);
-  return s.barsInterval + '|' + s.startBar + '|' + s.maxCues + '|' + skipExisting + '|' + mcMode + '|' + analysisMode + '|' + phraseTotal + '|' + Object.keys(pendingCues).length + '|' + Object.keys(healthData).length;
+  // NOTE: phraseCueState size deliberately NOT in the fingerprint. Surgical
+  // per-card updates via _updateTrackCardCues handle phrase-cue arrivals;
+  // including phraseTotal here caused the per-batch storm fixed in feat/phrase-storm-orphans.
+  console.assert(parsedTracksById.size === parsedTracks.length, 'parsedTracksById drift');
+  return s.barsInterval + '|' + s.startBar + '|' + s.maxCues + '|' + skipExisting + '|' + mcMode + '|' + analysisMode + '|' + Object.keys(pendingCues).length + '|' + Object.keys(healthData).length;
+}
+
+// Surgical per-card update — used by loadPhraseFromServer to refresh ONE card
+// without rebuilding the library. The card must already be mounted (visible);
+// off-screen / filtered-out tracks pick up new cues on their next natural
+// render via the standard renderTracks() path (which reads phraseCueState).
+function _updateTrackCardCues(trackId) {
+  const tid = String(trackId);
+  const oldCard = _cardMap.get(tid);
+  if (!oldCard || !oldCard.parentNode) return;
+  const track = parsedTracksById.get(tid);
+  if (!track) return;
+  const skipExisting = document.getElementById('skip-existing-cues')?.checked;
+  if (skipExisting && track.existingHotCues > 0) return; // skipped card; nothing to refresh
+  // Replay the cue computation from renderTracks's inner computeCues — limited to
+  // the phrase-mode branch since this entry point only fires while phrase cues land.
+  let cues = [];
+  if (analysisMode === 'phrase' && phraseCueState[track.id]?.length) {
+    cues = phraseCueState[track.id].map(c => ({
+      slot: c.slot, posSec: c.position_ms / 1000,
+      label: c.label, isPhrase: true, name: c.name || '',
+      confidence: c.confidence ?? 1.0, phraseMode: 'phrase',
+      phraseBars: c.phrase_bars ?? 0,
+    }));
+  }
+  if (!cues.length) return; // nothing to render (no phrase data yet for this track)
+  const willSkip = false;
+  const newCard = buildTrackCard(track, cues, willSkip, {});
+  oldCard.parentNode.replaceChild(newCard, oldCard);
+  _cardMap.set(tid, newCard);
 }
 
 function renderTracks() {
@@ -6614,6 +6707,18 @@ function renderTracks() {
       _mixObserver.observe(el);
     }
   }
+
+  // A8: prune _cardMap of trackIds whose card is no longer in the DOM. Bounds
+  // memory across long sessions where filters / playlist swaps thin the list.
+  if (_cardMap.size > 0) {
+    const visibleIds = new Set(
+      Array.from(list.querySelectorAll('.track-card[data-track-id]'))
+        .map(el => el.dataset.trackId)
+    );
+    for (const id of Array.from(_cardMap.keys())) {
+      if (!visibleIds.has(String(id))) _cardMap.delete(id);
+    }
+  }
 }
 
 // ── XML export ─────────────────────────────────────────────────────────────────
@@ -6686,7 +6791,7 @@ function handleFile(file) {
 
     const { doc, tracks } = result;
     parsedDoc    = doc;
-    parsedTracks = tracks;
+    _setParsedTracks(tracks);
     _energyCache = {};           // D4 fix: clear stale curves on XML reload
     _cardMap.clear();            // C: force full rebuild on XML reload
     _cardSettingsFingerprint = '';
@@ -7294,29 +7399,45 @@ document.getElementById('mode-phrase-btn').addEventListener('click', async () =>
   }
 });
 
+// Module-level so Cancel button can reach it.
+let _phraseLoadAbort = null;
+
 async function loadPhraseFromServer() {
+  // B7 cache short-circuit: if phrase data was already loaded for the current
+  // library epoch, skip the network fan-out and just re-render visible cards.
+  // Off-screen tracks pick up cues on next natural render (via renderTracks
+  // building cards through buildTrackCard which reads phraseCueState).
+  if (_phraseLoadedEpoch === _libraryEpoch && Object.keys(phraseCueState).length > 0) {
+    for (const tid of _cardMap.keys()) _updateTrackCardCues(tid);
+    return;
+  }
+
   const phraseTrackIds = parsedTracks
     .filter(t => t.hasPhrase)
     .map(t => parseInt(t.id));
 
   if (!phraseTrackIds.length) {
     showToast('No tracks with phrase analysis data found');
-    renderTracks();
     return;
   }
 
   phraseCueState = {};
   const BATCH = 300;
   const total = phraseTrackIds.length;
-  showToast(`Loading phrase cues for ${total} tracks…`);
 
-  for (let i = 0; i < total; i += BATCH) {
-    const batch = phraseTrackIds.slice(i, i + BATCH);
-    try {
+  // A6 banner — show, AbortController for Cancel
+  _phraseLoadAbort = new AbortController();
+  _showPhraseBanner(0, total);
+
+  let networkFailed = false;
+  try {
+    for (let i = 0; i < total; i += BATCH) {
+      const batch = phraseTrackIds.slice(i, i + BATCH);
       const resp = await fetch('/api/generate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ track_ids: batch, mode: 'phrase' }),
+        signal: _phraseLoadAbort.signal,
       }).then(r => r.json());
 
       for (const result of (resp.tracks || [])) {
@@ -7329,20 +7450,50 @@ async function loadPhraseFromServer() {
             confidence: c.confidence ?? 1.0,
             phrase_bars: c.phrase_bars ?? 0,
           }));
+          // Surgical per-card update — no library-wide rebuild.
+          _updateTrackCardCues(result.id);
         }
       }
-    } catch (err) {
-      console.warn('Phrase batch failed', err);
+      _showPhraseBanner(Math.min(i + BATCH, total), total);
     }
-    // Render after every batch so user sees results progressively
-    renderTracks();
-    const loaded = Math.min(i + BATCH, total);
-    if (loaded < total) showToast(`Phrase cues: ${loaded} / ${total}…`);
+    // Mark this epoch as having phrase data loaded for the cache hit on next toggle.
+    _phraseLoadedEpoch = _libraryEpoch;
+  } catch (err) {
+    if (err.name === 'AbortError' && _phraseLoadAbort && _phraseLoadAbort.signal.aborted) {
+      showToast('Phrase load cancelled');
+    } else {
+      networkFailed = true;
+      showToast('Phrase load failed: ' + (err.message || 'network error'), true);
+    }
+  } finally {
+    _hidePhraseBanner();
+    _phraseLoadAbort = null;
   }
 
-  const matched = Object.keys(phraseCueState).length;
-  showToast(`Phrase analysis ready — ${matched} track${matched !== 1 ? 's' : ''}`);
+  if (!networkFailed && _phraseLoadAbort === null) {
+    const matched = Object.keys(phraseCueState).length;
+    if (matched > 0) showToast(`Phrase analysis ready — ${matched} track${matched !== 1 ? 's' : ''}`);
+  }
 }
+
+function _showPhraseBanner(loaded, total) {
+  const b = document.getElementById('phrase-progress-banner');
+  if (!b) return;
+  b.classList.add('visible');
+  const count = document.getElementById('phrase-progress-count');
+  if (count) count.textContent = `${loaded} / ${total}`;
+  const bar = document.getElementById('phrase-progress-bar');
+  if (bar) bar.value = total > 0 ? (loaded / total) * 100 : 0;
+}
+
+function _hidePhraseBanner() {
+  const b = document.getElementById('phrase-progress-banner');
+  if (b) b.classList.remove('visible');
+}
+
+document.getElementById('phrase-progress-cancel')?.addEventListener('click', () => {
+  if (_phraseLoadAbort) _phraseLoadAbort.abort();
+});
 
 // ── Camelot key filter ─────────────────────────────────────────────────────────
 (function initCamelotFilter() {

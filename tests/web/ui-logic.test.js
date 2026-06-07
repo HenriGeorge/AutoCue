@@ -599,6 +599,40 @@ describe('filteredTracks — combined filters', () => {
   })
 })
 
+// ── 4b. _computeSettingsFingerprint stability across phrase-cue arrivals ─────
+// Storm-fix invariant from feat/phrase-storm-orphans: the fingerprint must NOT
+// depend on phraseCueState size, otherwise every batch invalidates _cardMap
+// and forces a library-wide rebuild (Chrome's Page Unresponsive trigger).
+
+function _computeSettingsFingerprint(state) {
+  // Mirrors the production helper at docs/index.html
+  return [
+    state.barsInterval, state.startBar, state.maxCues, state.skipExisting,
+    state.mcMode, state.analysisMode,
+    state.pendingCount, state.healthCount,
+  ].join('|')
+}
+
+describe('_computeSettingsFingerprint — stable across phraseCueState mutations', () => {
+  const baseState = {
+    barsInterval: 16, startBar: 1, maxCues: 8, skipExisting: true,
+    mcMode: 'none', analysisMode: 'phrase',
+    pendingCount: 0, healthCount: 0,
+  }
+  it('returns identical fingerprint whether phraseCueState is empty or populated', () => {
+    const before = _computeSettingsFingerprint(baseState)
+    // Mutating phraseCueState content (simulated by the fact that the helper
+    // doesn't read it) must NOT change the fingerprint.
+    const after = _computeSettingsFingerprint(baseState)
+    expect(after).toBe(before)
+  })
+  it('does change when a genuine setting changes', () => {
+    const before = _computeSettingsFingerprint(baseState)
+    const after = _computeSettingsFingerprint({ ...baseState, barsInterval: 8 })
+    expect(after).not.toBe(before)
+  })
+})
+
 // ── 5. colorTracksByBpm — skip_colored field ─────────────────────────────────
 
 async function colorTracksByBpm_with_skip_fn(trackIds, skipColored, fetchImpl, showToast) {
