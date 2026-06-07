@@ -2995,6 +2995,9 @@ autocue --library --mode bar --bars-interval 8 --start-bar 1</pre>
     <!-- Post-scan delta strip — appears for a few seconds after a scan finishes -->
     <div id="disc-v2-scan-delta" style="display:none;font-size:11px;color:var(--muted);background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:6px 10px;margin-bottom:12px;"></div>
 
+    <!-- Per-feeder warnings (non-fatal events surfaced by the orchestrator) -->
+    <div id="disc-v2-scan-warnings" style="display:none;font-size:11px;color:var(--amber, #c98a00);background:var(--surface2);border:1px solid var(--amber, #c98a00);border-radius:6px;padding:6px 10px;margin-bottom:12px;"></div>
+
     <!-- Empty / error states -->
     <div id="disc-v2-empty-state" style="display:none;text-align:center;padding:32px 12px;color:var(--muted);">
       <p id="disc-v2-empty-state-msg" style="margin:0 0 12px;font-size:13px;"></p>
@@ -4398,6 +4401,8 @@ const DiscoverV2 = (() => {
     scanReleasesByFeeder: {artist: 0, label: 0, novelty: 0},
     scanSparseAdjacency: false,
     scanLastSummary: null,                                  // {releases_surfaced, requests_used, duration_ms}
+    scanError: null,                                        // {kind, message, status}  — null when no error
+    scanWarnings: [],                                       // [{feeder, message}] — non-fatal per-feeder errors
     tokenValid: null,           // null = unknown
     settingsOpen: false,
     youtubeByKey: new Map(),    // release_key → {status, candidates, error}
@@ -4472,6 +4477,8 @@ const DiscoverV2 = (() => {
     state.scanReleasesByFeeder = {artist: 0, label: 0, novelty: 0};
     state.scanSparseAdjacency = false;
     state.scanLastSummary = null;
+    state.scanError = null;
+    state.scanWarnings = [];
     state.cards = [];
     state.cardsByKey.clear();
     notify();
@@ -4490,19 +4497,34 @@ const DiscoverV2 = (() => {
     try {
       res = await fetch('/api/discover/feed?' + params.toString());
     } catch (e) {
+      // Network failure — surface as a structured error so the empty-state can
+      // render a Retry button instead of going silent (PRD §9 — every empty
+      // state must say WHY it's empty).
       state.scanRunning = false;
+      state.scanError = {kind: 'network', message: String(e && e.message || e)};
       notify();
       return;
     }
     if (res.status === 409) {
-      // Another scan is running — surface the status and bail out.
       state.scanRunning = false;
+      state.scanError = {kind: 'conflict', status: 409,
+                         message: 'A Discover scan is already running.'};
       notify();
-      alert('A Discover scan is already running. Wait for it to finish or cancel via the progress bar.');
+      return;
+    }
+    if (res.status === 400) {
+      let detail = '';
+      try { const j = await res.json(); detail = j.detail || ''; } catch (_) {}
+      state.scanRunning = false;
+      state.scanError = {kind: 'bad-request', status: 400,
+                         message: detail || 'Bad request — check the filter parameters.'};
+      notify();
       return;
     }
     if (!res.ok) {
       state.scanRunning = false;
+      state.scanError = {kind: 'http', status: res.status,
+                         message: `Server returned HTTP ${res.status}.`};
       notify();
       return;
     }
@@ -4510,13 +4532,18 @@ const DiscoverV2 = (() => {
     const reader = res.body.getReader();
     const decoder = new TextDecoder();
     let buf = '';
-    while (true) {
-      const {done, value} = await reader.read();
-      if (done) break;
-      buf += decoder.decode(value, {stream: true});
-      const chunks = buf.split('\n\n');
-      buf = chunks.pop();  // last partial chunk
-      for (const chunk of chunks) _handleSSEChunk(chunk);
+    try {
+      while (true) {
+        const {done, value} = await reader.read();
+        if (done) break;
+        buf += decoder.decode(value, {stream: true});
+        const chunks = buf.split('\n\n');
+        buf = chunks.pop();  // last partial chunk
+        for (const chunk of chunks) _handleSSEChunk(chunk);
+      }
+    } catch (e) {
+      // Reader broke mid-stream — partial results may still be visible.
+      state.scanError = {kind: 'stream', message: String(e && e.message || e)};
     }
     state.scanRunning = false;
     notify();
@@ -4555,6 +4582,14 @@ const DiscoverV2 = (() => {
     } else if (event === 'sparse_adjacency') {
       state.scanSparseAdjacency = true;
       notify();
+    } else if (event === 'warning') {
+      // Non-fatal per-feeder warning — record it so the user sees what fell
+      // through (e.g., a single artist with no recent releases).
+      state.scanWarnings.push({
+        feeder: data.feeder || 'unknown',
+        message: data.exc || data.message || 'warning',
+      });
+      notify();
     } else if (event === 'done') {
       state.scanFeeder = null;
       state.scanLastSummary = {
@@ -4564,7 +4599,18 @@ const DiscoverV2 = (() => {
       };
       notify();
     } else if (event === 'error') {
+      // The orchestrator labels its own crashes with feeder === 'orchestrator';
+      // a per-feeder error fall-back is non-fatal and goes into scanWarnings.
       state.scanFeeder = null;
+      const isFatal = (data.feeder || '') === 'orchestrator';
+      if (isFatal) {
+        state.scanError = {kind: 'orchestrator', message: data.exc || 'scan crashed'};
+      } else {
+        state.scanWarnings.push({
+          feeder: data.feeder || 'unknown',
+          message: data.exc || 'feeder failed',
+        });
+      }
       notify();
     }
   }
@@ -4832,17 +4878,42 @@ function _renderDiscoverV2Feed() {
   } else if (!visible.length) {
     if (emptyEl) {
       emptyEl.style.display = '';
+      emptyAction.style.display = 'none';
+      // Order: token missing > scan error > no labels > filters too tight > truly empty.
       if (s.tokenValid === false) {
-        emptyMsg.textContent = 'Your Discogs token is invalid or missing. Configure DISCOGS_TOKEN in .env and restart the server.';
-        emptyAction.style.display = 'none';
+        emptyMsg.innerHTML = '<strong>Discogs token invalid or missing.</strong> ' +
+          'Configure <code>DISCOGS_TOKEN</code> in <code>.env</code> and restart the server.';
+      } else if (s.scanError) {
+        const e = s.scanError;
+        emptyMsg.innerHTML =
+          '<strong>Couldn’t finish the scan.</strong> ' + _esc(e.message || '') +
+          (e.kind === 'conflict' ? ' Wait for the other scan to finish or cancel it.' : '');
+        emptyAction.style.display = '';
+        emptyAction.textContent = e.kind === 'conflict' ? 'Refresh' : 'Retry';
+        emptyAction.onclick = () => DiscoverV2.runScan();
       } else if (!s.followedLabels.length) {
         emptyMsg.textContent = 'Follow some labels to start seeing releases.';
         emptyAction.style.display = '';
         emptyAction.textContent = 'Pick from your library';
         emptyAction.onclick = () => _openOnboarding();
+      } else if (s.cards.length > 0) {
+        // We scanned + got cards, but all are dismissed/snoozed. That's an
+        // ALL-FILTERED state, not a no-results state.
+        emptyMsg.textContent =
+          `Everything from this scan is already dismissed or snoozed (${s.cards.length} hidden). ` +
+          'Try a different sort or run Refresh.';
+        emptyAction.style.display = '';
+        emptyAction.textContent = 'Refresh';
+        emptyAction.onclick = () => DiscoverV2.runScan();
+      } else if (s.scanLastSummary && s.scanLastSummary.releases_surfaced === 0) {
+        emptyMsg.textContent =
+          'No new releases right now. The labels you watch haven’t posted anything new.';
       } else {
-        emptyMsg.textContent = 'No new releases right now. Try Refresh, or follow more labels.';
-        emptyAction.style.display = 'none';
+        emptyMsg.textContent =
+          'No new releases yet. Click Refresh to run your first scan.';
+        emptyAction.style.display = '';
+        emptyAction.textContent = 'Refresh';
+        emptyAction.onclick = () => DiscoverV2.runScan();
       }
     }
     return;
@@ -4871,6 +4942,27 @@ function _feederProgressPercent(scanFeeder, feedersDone) {
     else if (scanFeeder === f) consumed += Math.round(budget * 0.5);
   }
   return total ? Math.round((consumed / total) * 100) : 0;
+}
+
+// Per-feeder non-fatal warning bar — visible until the next scan starts.
+function _renderDiscoverV2ScanWarnings() {
+  const el = document.getElementById('disc-v2-scan-warnings');
+  if (!el) return;
+  const w = DiscoverV2.state.scanWarnings || [];
+  if (!w.length) {
+    el.style.display = 'none';
+    return;
+  }
+  el.style.display = '';
+  // Collapse duplicates and surface a count next to each feeder.
+  const byFeeder = new Map();
+  for (const x of w) byFeeder.set(x.feeder, (byFeeder.get(x.feeder) || 0) + 1);
+  const lines = Array.from(byFeeder.entries()).map(
+    ([f, n]) => `⚠ ${_esc(f)} (${n})`
+  );
+  el.innerHTML =
+    `<strong>Some feeders had trouble:</strong> ${lines.join(' · ')} ` +
+    `<span style="color:var(--muted);">— partial results shown below.</span>`;
 }
 
 function _renderDiscoverV2ScanProgress() {
@@ -5807,6 +5899,7 @@ function initDiscoverV2() {
   // Subscribe each renderer once.
   DiscoverV2.subscribe(_renderDiscoverV2Feed);
   DiscoverV2.subscribe(_renderDiscoverV2ScanProgress);
+  DiscoverV2.subscribe(_renderDiscoverV2ScanWarnings);
   DiscoverV2.subscribe(_renderDiscoverV2Onboarding);
   DiscoverV2.subscribe(_renderDiscoverV2TokenBanner);
   DiscoverV2.subscribe(_renderDiscoverV2Followed);
