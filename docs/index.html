@@ -3775,9 +3775,22 @@ async function loadTracksFromServer(playlistId = null) {
   } else {
     info.style.display = 'none';
   }
-  // Staggered fade-in-up on initial connect
+  // Staggered fade-in-up on initial connect.
+  // #download-bar is the Pages-mode XML round-trip bar ("Ready to import: …").
+  // In local mode the canonical bottom bar is #action-bar (selection-driven),
+  // so #download-bar must NOT fade in here — it would show stale default text
+  // (e.g. "Ready to import: 1 track · 8 cues") before any XML upload and
+  // persist across all tabs (Cues / Library / Discover). See issue #15.
+  var _fadeSections = ['settings-section', 'tracks-section'];
+  if (!localMode) _fadeSections.push('download-bar');
+  // Defensive: ensure the bar is hidden in local mode even if a prior code
+  // path added .visible.
+  if (localMode) {
+    var _dlBar = document.getElementById('download-bar');
+    if (_dlBar) _dlBar.classList.remove('visible');
+  }
   var _sectDelay = 0;
-  ['settings-section', 'tracks-section', 'download-bar'].forEach(function(id) {
+  _fadeSections.forEach(function(id) {
     var el = document.getElementById(id);
     setTimeout(function() {
       el.classList.add('visible');
