@@ -357,6 +357,7 @@ path and every write path goes through it.
 function filteredTracks() {
   let tracks = parsedTracks;
   if (phraseOnlyFilter) tracks = tracks.filter(t => t.hasPhrase);
+  if (beatsOnlyFilter)  tracks = tracks.filter(t => t.hasBeats);
   if (searchQuery) {
     const q = searchQuery.toLowerCase();
     tracks = tracks.filter(t =>
@@ -394,9 +395,13 @@ Important invariants:
   (`index.html:5115`), which intersects `filteredTracks()` with
   `selectedTrackIds`. There is no code path that reaches the server with
   hidden tracks.
-- **Order matters.** `phraseOnlyFilter` runs first because it's the most
-  selective on a typical library; the OR-logic `genreFilters` runs last so
-  the cheap text search short-circuits early.
+- **Order matters.** `phraseOnlyFilter` and `beatsOnlyFilter` run first
+  because they're the most selective on a typical library; the OR-logic
+  `genreFilters` runs last so the cheap text search short-circuits early.
+- **`phraseOnlyFilter` ∩ `beatsOnlyFilter`** is the canonical "fully
+  analyzed in Rekordbox" view; either flag alone surfaces what's still
+  missing. Both ride on cheap row-level fields (`AnalysisDataPath` and
+  `BPM > 0`) — no ANLZ parsing on the server, no caching on the client.
 - **`filteredTracks()` is fully covered by `ui-logic.test.js`** including
   the cross-filter matrix (search ∩ rating ∩ plays ∩ last-played ∩ tags ∩
   keys ∩ genres).

@@ -398,6 +398,7 @@ describe('applyToRekordbox — SSE error handling and progress', () => {
 
 function filteredTracks(parsedTracks, {
   phraseOnlyFilter = false,
+  beatsOnlyFilter = false,
   searchQuery = '',
   ratingFilter = 0,
   playsFilter = 'all',
@@ -407,6 +408,7 @@ function filteredTracks(parsedTracks, {
 } = {}) {
   let tracks = parsedTracks
   if (phraseOnlyFilter) tracks = tracks.filter(t => t.hasPhrase)
+  if (beatsOnlyFilter) tracks = tracks.filter(t => t.hasBeats)
   if (searchQuery) {
     const q = searchQuery.toLowerCase()
     tracks = tracks.filter(t =>
@@ -432,9 +434,9 @@ function filteredTracks(parsedTracks, {
 }
 
 const sampleTracks = [
-  { id: '1', name: 'Acid Rain', artist: 'Burial', hasPhrase: true,  rating: 5, playCount: 10, lastPlayed: new Date(Date.now() - 2 * 86400000).toISOString(), myTags: ['Techno'] },
-  { id: '2', name: 'Midnight',  artist: 'Aphex',  hasPhrase: false, rating: 3, playCount: 0,  lastPlayed: null, myTags: [] },
-  { id: '3', name: 'Flux',      artist: 'Burial', hasPhrase: true,  rating: 1, playCount: 5,  lastPlayed: new Date(Date.now() - 40 * 86400000).toISOString(), myTags: ['House', 'Techno'] },
+  { id: '1', name: 'Acid Rain', artist: 'Burial', hasPhrase: true,  hasBeats: true,  rating: 5, playCount: 10, lastPlayed: new Date(Date.now() - 2 * 86400000).toISOString(), myTags: ['Techno'] },
+  { id: '2', name: 'Midnight',  artist: 'Aphex',  hasPhrase: false, hasBeats: true,  rating: 3, playCount: 0,  lastPlayed: null, myTags: [] },
+  { id: '3', name: 'Flux',      artist: 'Burial', hasPhrase: true,  hasBeats: false, rating: 1, playCount: 5,  lastPlayed: new Date(Date.now() - 40 * 86400000).toISOString(), myTags: ['House', 'Techno'] },
 ]
 
 describe('filteredTracks — phrase-only', () => {
@@ -446,6 +448,21 @@ describe('filteredTracks — phrase-only', () => {
     const result = filteredTracks(sampleTracks, { phraseOnlyFilter: true })
     expect(result).toHaveLength(2)
     expect(result.every(t => t.hasPhrase)).toBe(true)
+  })
+
+  it('returns only tracks with a beat grid when beatsOnlyFilter is true', () => {
+    const result = filteredTracks(sampleTracks, { beatsOnlyFilter: true })
+    expect(result).toHaveLength(2)
+    expect(result.every(t => t.hasBeats)).toBe(true)
+    expect(result.map(t => t.id)).toEqual(['1', '2'])
+  })
+
+  it('intersects phraseOnlyFilter and beatsOnlyFilter (fully-analyzed tracks)', () => {
+    const result = filteredTracks(sampleTracks, {
+      phraseOnlyFilter: true, beatsOnlyFilter: true,
+    })
+    expect(result).toHaveLength(1)
+    expect(result[0].id).toBe('1')
   })
 })
 

@@ -1869,6 +1869,10 @@
             <input type="checkbox" id="phrase-only-cb" />
             ✨ Phrase only
           </label>
+          <label class="phrase-only-pill" title="Show only tracks that have a Rekordbox beat grid (BPM &gt; 0). Tracks without one fall back to heuristic cue placement.">
+            <input type="checkbox" id="beats-only-cb" />
+            ♪ Beat grid only
+          </label>
           <button class="secondary-btn" id="select-all-btn">Select all</button>
           <button class="secondary-btn" id="deselect-all-btn" style="display:none">Deselect all</button>
           <span id="selection-count"></span>
@@ -2787,6 +2791,7 @@ let activePlaylistId = null;
 let searchQuery = '';
 // F6: phrase-only filter
 let phraseOnlyFilter = false;
+let beatsOnlyFilter = false;
 // Rating/plays/lastplayed/tag filters (local mode)
 let ratingFilter = 0;
 let playsFilter = 'all';   // 'all' | 'played' | 'unplayed'
@@ -2896,7 +2901,7 @@ async function loadTracksFromServer(playlistId = null) {
   parsedTracks = tracksData.map(t => ({
     id: String(t.id), name: t.title, artist: t.artist, album: t.album || '',
     bpm: t.bpm, totalTime: t.duration, tempo: null,
-    existingHotCues: t.existing_hot_cues, hasPhrase: t.has_phrase,
+    existingHotCues: t.existing_hot_cues, hasPhrase: t.has_phrase, hasBeats: t.has_beats,
     key: t.key || '',
     rating: t.rating || 0,
     playCount: t.play_count || 0,
@@ -4588,6 +4593,13 @@ document.getElementById('phrase-only-cb').addEventListener('change', e => {
   AppState.signal('filters');
 });
 
+// Beat-grid-only filter (tracks with BPM > 0 — i.e. analyzed in Rekordbox)
+document.getElementById('beats-only-cb').addEventListener('change', e => {
+  beatsOnlyFilter = e.target.checked;
+  updateActiveFiltersChip();
+  AppState.signal('filters');
+});
+
 // Genre filter is handled by chip click listeners created in populateGenreChips()
 
 // Rating / plays / last-played / tag filters
@@ -4768,7 +4780,7 @@ document.getElementById('lastplayed-filter').addEventListener('change', e => {
 })();
 
 function updateActiveFiltersChip() {
-  const active = ratingFilter > 0 || playsFilter !== 'all' || lastPlayedFilter !== 'all' || myTagFilters.size > 0 || selectedKeys.size > 0 || phraseOnlyFilter || searchQuery || genreFilters.size > 0;
+  const active = ratingFilter > 0 || playsFilter !== 'all' || lastPlayedFilter !== 'all' || myTagFilters.size > 0 || selectedKeys.size > 0 || phraseOnlyFilter || beatsOnlyFilter || searchQuery || genreFilters.size > 0;
   const chip = document.getElementById('active-filters-chip');
   if (chip) chip.classList.toggle('visible', !!active);
 }
@@ -4776,6 +4788,7 @@ function updateActiveFiltersChip() {
 function clearAllFilters() {
   searchQuery = '';
   phraseOnlyFilter = false;
+  beatsOnlyFilter = false;
   ratingFilter = 0;
   playsFilter = 'all';
   lastPlayedFilter = 'all';
@@ -4785,6 +4798,8 @@ function clearAllFilters() {
   if (si) si.value = '';
   const pc = document.getElementById('phrase-only-cb');
   if (pc) pc.checked = false;
+  const bc = document.getElementById('beats-only-cb');
+  if (bc) bc.checked = false;
   const rf = document.getElementById('rating-filter');
   if (rf) rf.value = '0';
   const pf = document.getElementById('plays-filter');
@@ -5378,6 +5393,7 @@ function camelotSortKey(key) {
 function filteredTracks() {
   let tracks = parsedTracks;
   if (phraseOnlyFilter) tracks = tracks.filter(t => t.hasPhrase);
+  if (beatsOnlyFilter) tracks = tracks.filter(t => t.hasBeats);
   if (searchQuery) {
     const q = searchQuery.toLowerCase();
     tracks = tracks.filter(t =>
