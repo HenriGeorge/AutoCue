@@ -172,8 +172,13 @@ def tracks(
     limit: int = Query(5000),
     offset: int = 0,
     if_none_match: str | None = Header(default=None, alias="If-None-Match"),
+    accept: str | None = Header(default=None),
     db=Depends(get_ro_db),
 ):
+    # TASK-025 — optional NDJSON streaming response (one JSON object per line)
+    # when the client opts in via ``Accept: application/x-ndjson``. The default
+    # JSON-array path is preserved for back-compat with autocue-qa harness.
+    _ndjson_requested = bool(accept and "application/x-ndjson" in accept)
     from pyrekordbox.db6 import DjmdAlbum, DjmdArtist, DjmdContent, DjmdKey, DjmdPlaylist, DjmdSongPlaylist
     from sqlalchemy import asc, desc, func
     from .. import perf as _perf
@@ -219,8 +224,27 @@ def tracks(
                     if ids_subset is not None
                     else payload
                 )
+                page = filtered[offset:offset + limit]
+                if _ndjson_requested:
+                    import json as _json
+                    from fastapi.responses import StreamingResponse
+                    headers = {
+                        "X-Total-Count": str(len(filtered)),
+                    }
+                    if etag is not None:
+                        headers["ETag"] = etag
+
+                    def _stream():
+                        for item in page:
+                            yield (_json.dumps(item.model_dump()) + "\n").encode("utf-8")
+
+                    return StreamingResponse(
+                        _stream(),
+                        media_type="application/x-ndjson",
+                        headers=headers,
+                    )
                 response.headers["X-Total-Count"] = str(len(filtered))
-                return filtered[offset:offset + limit]
+                return page
 
     # TASK-046 — wrap the SQL-build path so /api/perf/recent can show the
     # cold-vs-warm cost split.
