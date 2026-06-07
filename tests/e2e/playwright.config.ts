@@ -1,38 +1,125 @@
 import { defineConfig, devices } from "@playwright/test";
+import * as fs from "node:fs";
+import * as net from "node:net";
+import * as os from "node:os";
+import * as path from "node:path";
 
 /**
  * AutoCue QA harness config.
  *
- * Ports and the sandbox DB path are resolved in `globalSetup.ts`, which
- * writes the chosen values to env vars that this config (and the spec
- * files) read. Never hard-code 7432 here — that's the production port.
+ * Setup happens at CONFIG LOAD TIME — port allocation and sandbox-DB
+ * creation must finish before Playwright interpolates `webServer.command`,
+ * which it does the moment this module is evaluated. Doing it in
+ * `globalSetup` (a separate file) is too late: by then the webServer
+ * command string has already been frozen with empty env values.
  *
- * SAFETY: globalSetup verifies via `/api/status` (with the
- * `X-AutoCue-Diagnostic: 1` header) that the server is bound to a sandbox
- * copy of master.db, NOT the user's real library. If verification fails,
- * the entire run aborts before any spec executes.
+ * SAFETY: `safety.spec.ts` runs first in the project order and verifies
+ * via `/api/status` + `X-AutoCue-Diagnostic: 1` that the server is bound
+ * to the sandbox copy. That spec is the load-bearing safety check — this
+ * file is only responsible for putting the right files / ports in place.
  */
 
-const PORT = Number(process.env.AUTOCUE_PORT) || 0;
-const PAGES_PORT = Number(process.env.AUTOCUE_PAGES_PORT) || 0;
-const SANDBOX_DB = process.env.AUTOCUE_SANDBOX_DB || "";
+async function findFreePort(): Promise<number> {
+  return new Promise((resolve, reject) => {
+    const srv = net.createServer();
+    srv.unref();
+    srv.on("error", reject);
+    srv.listen(0, "127.0.0.1", () => {
+      const addr = srv.address();
+      if (typeof addr === "object" && addr) {
+        const p = addr.port;
+        srv.close(() => resolve(p));
+      } else {
+        reject(new Error("could not allocate port"));
+      }
+    });
+  });
+}
 
-if (!PORT || !PAGES_PORT || !SANDBOX_DB) {
-  // These get filled in by globalSetup. If they're empty when a worker
-  // imports this file directly (rare), fail loud rather than silently
-  // hitting the real server.
+async function findFreePortWithRetry(): Promise<number> {
+  try {
+    return await findFreePort();
+  } catch {
+    return await findFreePort();
+  }
+}
+
+function defaultSourceDb(): string {
+  return path.join(
+    os.homedir(),
+    "Library",
+    "Pioneer",
+    "rekordbox",
+    "master.db",
+  );
+}
+
+// Playwright re-imports this config in each worker process. Without
+// memoization, every import would allocate fresh ports + create a new
+// sandbox copy — the launched webServer would be on port A while the
+// worker imported port B and connected to nothing. Cache via env so
+// child processes inherit the parent's allocation.
+let PORT: number;
+let PAGES_PORT: number;
+let sandboxDbReal: string;
+let sourceDbReal: string;
+let sandboxDir: string;
+
+if (
+  process.env.AUTOCUE_PORT &&
+  process.env.AUTOCUE_PAGES_PORT &&
+  process.env.AUTOCUE_SANDBOX_DB &&
+  process.env.AUTOCUE_SANDBOX_DIR
+) {
+  PORT = Number(process.env.AUTOCUE_PORT);
+  PAGES_PORT = Number(process.env.AUTOCUE_PAGES_PORT);
+  sandboxDbReal = process.env.AUTOCUE_SANDBOX_DB;
+  sandboxDir = process.env.AUTOCUE_SANDBOX_DIR;
+  sourceDbReal = process.env.AUTOCUE_SOURCE_DB_REAL ?? "";
+} else {
+  const sourceDb =
+    process.env.AUTOCUE_SOURCE_DB && process.env.AUTOCUE_SOURCE_DB.length > 0
+      ? process.env.AUTOCUE_SOURCE_DB
+      : defaultSourceDb();
+
+  if (!fs.existsSync(sourceDb)) {
+    throw new Error(
+      `[autocue-qa] Source DB not found at ${sourceDb}. Set AUTOCUE_SOURCE_DB to a master.db file (or install Rekordbox and analyze at least one track).`,
+    );
+  }
+
+  sandboxDir = fs.mkdtempSync(path.join(os.tmpdir(), "autocue-qa-"));
+  const sandboxDb = path.join(sandboxDir, "master.db");
+  fs.copyFileSync(sourceDb, sandboxDb);
+  for (const suffix of ["-wal", "-shm"]) {
+    const sidecar = sourceDb + suffix;
+    if (fs.existsSync(sidecar)) {
+      fs.copyFileSync(sidecar, sandboxDb + suffix);
+    }
+  }
+
+  sandboxDbReal = fs.realpathSync(sandboxDb);
+  sourceDbReal = fs.realpathSync(sourceDb);
+  PORT = await findFreePortWithRetry();
+  PAGES_PORT = await findFreePortWithRetry();
+
+  process.env.AUTOCUE_PORT = String(PORT);
+  process.env.AUTOCUE_PAGES_PORT = String(PAGES_PORT);
+  process.env.AUTOCUE_SANDBOX_DB = sandboxDbReal;
+  process.env.AUTOCUE_SANDBOX_DIR = sandboxDir;
+  process.env.AUTOCUE_SOURCE_DB_REAL = sourceDbReal;
+
   // eslint-disable-next-line no-console
-  console.warn(
-    "[autocue-qa] PORT / PAGES_PORT / SANDBOX_DB unset — globalSetup will populate them.",
+  console.log(
+    `[autocue-qa] sandbox=${sandboxDbReal} port=${PORT} pages_port=${PAGES_PORT}`,
   );
 }
 
 export default defineConfig({
   testDir: ".",
-  globalSetup: "./globalSetup.ts",
   globalTeardown: "./globalTeardown.ts",
-  globalTimeout: 300_000, // 5 min for full suite (covers slow DB copy / first scan)
-  fullyParallel: false, // single shared sandbox DB; serial keeps state predictable
+  globalTimeout: 300_000,
+  fullyParallel: false,
   forbidOnly: !!process.env.CI,
   retries: 0,
   workers: 1,
@@ -42,23 +129,26 @@ export default defineConfig({
     ["html", { open: "never" }],
   ],
   use: {
-    baseURL: `http://localhost:${PORT}`,
+    baseURL: `http://127.0.0.1:${PORT}`,
     screenshot: "only-on-failure",
     video: "retain-on-failure",
     trace: "retain-on-failure",
   },
   webServer: [
     {
-      // Local mode — `autocue serve` against the sandbox DB.
-      command: `autocue serve --no-browser --port ${PORT} --db-path ${SANDBOX_DB}`,
-      url: `http://localhost:${PORT}/api/status`,
+      // Use `python -m autocue.cli` with PYTHONPATH pinned to the
+      // worktree root, so the harness exercises THIS checkout's autocue
+      // source — not whatever a global `pip install -e .` happens to
+      // resolve. Keeps test runs isolated from the user's parallel
+      // editing in the main checkout.
+      command: `PYTHONPATH=../.. python3 -m autocue serve --no-browser --port ${PORT} --db-path ${sandboxDbReal}`,
+      url: `http://127.0.0.1:${PORT}/api/status`,
       timeout: 60_000,
-      reuseExistingServer: false, // always fresh, never hijack the user's running server
+      reuseExistingServer: false,
     },
     {
-      // Pages mode — static serve of docs/ via Python stdlib (no npm dep).
       command: `python3 -m http.server ${PAGES_PORT} --directory ../../docs`,
-      url: `http://localhost:${PAGES_PORT}/index.html`,
+      url: `http://127.0.0.1:${PAGES_PORT}/index.html`,
       timeout: 30_000,
       reuseExistingServer: false,
     },

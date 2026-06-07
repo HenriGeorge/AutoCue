@@ -20,7 +20,7 @@ const REQUIRED_SELECTORS: string[] = [
   // Filter controls (Cues tab)
   "#search-input",
   "#phrase-only-cb",
-  "#beatgrid-only-cb",
+  "#beats-only-cb",
   // Action bar + primary actions
   "#action-bar",
   "#preview-cues-btn",
