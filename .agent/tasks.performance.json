@@ -4,7 +4,7 @@
     "title": "Introduce shared ThreadPoolExecutor primitive (autocue.analysis.concurrency)",
     "category": "functional",
     "specFilePath": ".agent/tasks/performance/TASK-001.json",
-    "passes": false
+    "passes": true
   },
   {
     "id": "TASK-002",
