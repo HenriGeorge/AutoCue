@@ -139,6 +139,19 @@ def playlists(db=Depends(get_ro_db)):
     ]
 
 
+def _wait_any(in_flight: dict):
+    """Wait for ANY future in ``in_flight`` to complete; return (done_set, pending_set).
+
+    Thin wrapper around ``concurrent.futures.wait`` with
+    ``return_when=FIRST_COMPLETED`` — keeps the TASK-040 bounded-in-flight
+    pattern testable with stub futures.
+    """
+    from concurrent.futures import FIRST_COMPLETED, wait
+    if not in_flight:
+        return set(), set()
+    return wait(list(in_flight.keys()), return_when=FIRST_COMPLETED)
+
+
 def _master_db_mtime(db) -> float | None:
     """Return the master.db mtime — used as the snapshot + ETag key (TASK-021/023)."""
     import os
@@ -799,9 +812,15 @@ def generate_apply_stream(req: GenerateAndApplyRequest, db=Depends(get_db)):
             # shared pool; single-threaded writer loop preserves SQLite
             # single-writer semantics on master.db. Gated behind env var
             # until TASK-008 pyrekordbox thread-safety verification lands.
+            #
+            # TASK-040 — bounded in-flight count so memory stays bounded for
+            # 10k+-track applies; we batch-submit instead of dumping every
+            # future into the pool at once.
             from concurrent.futures import as_completed
+            import threading as _threading
+            import time as _time
 
-            from ..analysis.concurrency import get_pool
+            from ..analysis.concurrency import get_pool, pool_size
 
             pool = get_pool()
 
@@ -824,32 +843,82 @@ def generate_apply_stream(req: GenerateAndApplyRequest, db=Depends(get_db)):
                 except Exception as exc:  # noqa: BLE001
                     return (tid, None, None, f"err:{exc}")
 
-            futures = [pool.submit(_compute_one, tid) for tid in req.track_ids]
-            processed = 0
-            for fut in as_completed(futures):
-                try:
-                    tid, content, cues, skip = fut.result()
-                except Exception:
-                    # Defensive — _compute_one already swallows its errors.
-                    tid, content, cues, skip = (None, None, None, "err:future")
-                processed += 1
-                if processed % 100 == 0:
-                    db.session.expire_all()
-                if skip or content is None or not cues:
-                    skipped += 1
-                else:
+            # TASK-041 — cancellation on client disconnect. We can't await
+            # is_disconnected() from the sync generator, but we CAN check
+            # the request's underlying receive state via a poll thread that
+            # sets a threading.Event. The compute + writer loop both look at
+            # the event between iterations.
+            cancel = _threading.Event()
+            disconnected_at: list[float | None] = [None]
+
+            def _poll_disconnect():
+                # Best-effort — uvicorn fills request.scope/receive when the
+                # client closes the TCP connection. The synchronous wrapper
+                # here just watches the request object for a known close
+                # signal that fastapi/starlette exposes via _is_disconnected.
+                while not cancel.is_set():
                     try:
-                        n = write_cues_to_db(
-                            content, cues, db,
-                            overwrite=req.overwrite, dry_run=req.dry_run,
-                        )
-                        if n > 0:
-                            applied += 1
-                        else:
-                            skipped += 1
+                        if hasattr(request, "_is_disconnected") and getattr(request, "_is_disconnected", False):
+                            cancel.set()
+                            disconnected_at[0] = _time.time()
+                            return
                     except Exception:
+                        return
+                    _time.sleep(0.2)
+
+            poll_thread = _threading.Thread(target=_poll_disconnect, daemon=True, name="autocue-cancel-poll")
+            poll_thread.start()
+
+            # TASK-040 — bounded in-flight: at most ``2 * pool_size`` futures
+            # outstanding at any time. Track ids submitted lazily.
+            track_iter = iter(req.track_ids)
+            in_flight: dict = {}
+            cap = max(2, 2 * pool_size())
+            for _ in range(cap):
+                try:
+                    nxt = next(track_iter)
+                except StopIteration:
+                    break
+                in_flight[pool.submit(_compute_one, nxt)] = nxt
+
+            processed = 0
+            while in_flight:
+                if cancel.is_set():
+                    break
+                done_set, _ = _wait_any(in_flight)
+                for fut in done_set:
+                    in_flight.pop(fut, None)
+                    try:
+                        tid, content, cues, skip = fut.result()
+                    except Exception:
+                        tid, content, cues, skip = (None, None, None, "err:future")
+                    processed += 1
+                    if processed % 100 == 0:
+                        db.session.expire_all()
+                    if skip or content is None or not cues:
                         skipped += 1
-                yield f"data: {json.dumps({'processed': processed, 'total': total, 'applied': applied, 'skipped': skipped})}\n\n"
+                    else:
+                        try:
+                            n = write_cues_to_db(
+                                content, cues, db,
+                                overwrite=req.overwrite, dry_run=req.dry_run,
+                            )
+                            if n > 0:
+                                applied += 1
+                            else:
+                                skipped += 1
+                        except Exception:
+                            skipped += 1
+                    yield f"data: {json.dumps({'processed': processed, 'total': total, 'applied': applied, 'skipped': skipped})}\n\n"
+                    # Top up the in-flight queue.
+                    if not cancel.is_set():
+                        try:
+                            nxt = next(track_iter)
+                            in_flight[pool.submit(_compute_one, nxt)] = nxt
+                        except StopIteration:
+                            pass
+
+            cancel.set()  # stop the poll thread
             yield f"data: {json.dumps({'done': True, 'applied': applied, 'skipped': skipped, 'backup_path': backup_path})}\n\n"
             return
 

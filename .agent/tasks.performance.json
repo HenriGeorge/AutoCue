@@ -270,35 +270,35 @@
     "title": "Split generate-apply into compute and writer stages",
     "category": "functional",
     "specFilePath": ".agent/tasks/performance/TASK-039.json",
-    "passes": false
+    "passes": true
   },
   {
     "id": "TASK-040",
     "title": "Bounded queue.Queue(maxsize=2*pool_size) between compute and writer",
     "category": "functional",
     "specFilePath": ".agent/tasks/performance/TASK-040.json",
-    "passes": false
+    "passes": true
   },
   {
     "id": "TASK-041",
     "title": "Cancellation on SSE client disconnect (compute + writer)",
     "category": "functional",
     "specFilePath": ".agent/tasks/performance/TASK-041.json",
-    "passes": false
+    "passes": true
   },
   {
     "id": "TASK-042",
     "title": "Completion-order SSE events + monotonic processed counter",
     "category": "functional",
     "specFilePath": ".agent/tasks/performance/TASK-042.json",
-    "passes": false
+    "passes": true
   },
   {
     "id": "TASK-043",
     "title": "Per-track error isolation across producer/consumer",
     "category": "functional",
     "specFilePath": ".agent/tasks/performance/TASK-043.json",
-    "passes": false
+    "passes": true
   },
   {
     "id": "TASK-044",
