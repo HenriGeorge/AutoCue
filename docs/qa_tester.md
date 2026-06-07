@@ -135,6 +135,56 @@ endpoints against the sandbox DB and is intended for opt-in runs only.
 
 ---
 
+## 3a. Per-control sweep
+
+Behavioural layer between the smoke and the Chrome DevTools feature
+sweep. Each interactive control with a stable id in `docs/index.html`
+gets its own Playwright test row.
+
+```mermaid
+flowchart LR
+    A[control-inventory.json] -->|drift guard| B[control-inventory.spec.ts]
+    A -->|test rows| C[per-control-sweep.spec.ts]
+    B -->|fails on missing or extra id| dev[Maintainer]
+    C -->|fails on console error per row| dev
+    scope[/--scope cues library/] -->|AUTOCUE_QA_SCOPE env| C
+```
+
+Three artifacts under `tests/e2e/`:
+
+| File | Job |
+|---|---|
+| `control-inventory.json` | Source of truth. Three keys: `globalControls`, `panelControls.{cues,library,discover}`, `perTrack`. |
+| `control-inventory.spec.ts` | Drift guard. Enumerates live DOM (after clearing inline `display: none` on every section), diffs against the inventory, fails with one id per line in two sections. |
+| `per-control-sweep.spec.ts` | One Playwright `test()` per inventory row. v1 covers presence + click/focus + no console error. `AUTOCUE_QA_SCOPE` env var (`cues,library,discover`) filters panels; global controls always run. |
+
+### Adding a new control — 3 steps
+
+1. **Append a row** to `tests/e2e/control-inventory.json` in the right array (`globalControls`, or `panelControls.cues/library/discover`). Required fields: `id`, `kind`. Optional: `collapsible: [...]` (section ids whose inline `display: none` must be cleared before the control becomes reachable), `safeOnRealDb: false` (write-path control, exercised only with sandbox DB), `skipSweep: true` + `skipReason: "..."` (password fields, etc.).
+2. **Run `cd tests/e2e && npm test`** — the drift guard pass tells you the inventory matches the DOM.
+3. **Done.** The per-control sweep iterates the inventory automatically; the new row gets a test next run.
+
+You do NOT need to author a Playwright test. Richer per-row verify (network expectations, SSE assertions, requiresState) layers on later via optional `verify` fields on the row.
+
+### What v1 catches
+
+- New control added to the UI without an inventory entry → drift guard fails with "DOM has IDs NOT in inventory: #my-new-button".
+- Control renamed in the UI but not the inventory → drift guard fails with "inventory has IDs NOT in DOM: #my-old-name".
+- Clicking a button throws an uncaught error in the page console → per-control sweep fails for that row with the console error text.
+- Checkbox doesn't toggle, select has no options, password field can't focus, etc. → per-row failures with row-id attribution.
+
+### What v1 does NOT catch (planned for v2+)
+
+- Per-row network expectations (e.g. "clicking `health-scan-btn` MUST fire `GET /api/health` and the response status is 2xx").
+- SSE row helpers (assert minimum data events + terminator pattern + connection close).
+- `forbiddenRequests` — fail when an unexpected request fires during the action.
+- `requiresState` — pre-condition state (selected tracks, filter expanded) before the row's action runs.
+- Per-track sampling — pick the first 3 `#track-list [data-testid="track-card"]` per run and exercise their per-track buttons.
+
+These land incrementally via JSON-only edits + helper functions in `tests/e2e/sse-helper.ts` / `tests/e2e/test-state-helpers.ts`. No spec rewrites needed.
+
+---
+
 ## 4. Chrome DevTools sweep — documented feature coverage
 
 After the Playwright smoke layer passes, the agent drives the live UI
