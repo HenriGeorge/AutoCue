@@ -146,11 +146,11 @@ def check_library_health(
     Per-track exceptions are caught and emitted as score=0 / NO_AUDIO_FILE stand-ins
     so one bad row never aborts a 10K-track scan.
 
-    TASK-003 — when ``AUTOCUE_PARALLEL_HEALTH=1``, fans out per-track checks
-    via the shared analysis pool (TASK-001) so SSE events stream in
-    completion order instead of input order. Behavior gated by the env var
-    until TASK-008 pyrekordbox thread-safety verification is signed off by
-    the maintainer; default path is unchanged.
+    TASK-003 — fans out per-track checks via the shared analysis pool
+    (TASK-001) so SSE events stream in completion order instead of input
+    order. Default-on as of TASK-008 pyrekordbox thread-safety verification
+    (Jun 2026). Set ``AUTOCUE_PARALLEL_HEALTH=0`` to fall back to the
+    serial path if a regression is observed.
     """
     import os
 
@@ -167,7 +167,7 @@ def check_library_health(
     else:
         contents = db.query(DjmdContent).all()
 
-    if os.environ.get("AUTOCUE_PARALLEL_HEALTH") == "1":
+    if os.environ.get("AUTOCUE_PARALLEL_HEALTH", "1") != "0":
         yield from _check_library_health_parallel(contents, db)
         return
 

@@ -77,7 +77,7 @@ def _shutdown_pool_between_tests():
 class TestParallelDefaultOff:
     def test_flag_unset_runs_serial_path(self, monkeypatch, _shutdown_pool_between_tests):
         """Without AUTOCUE_PARALLEL_AUTO_TAG=1, pool.submit is NEVER called."""
-        monkeypatch.delenv("AUTOCUE_PARALLEL_AUTO_TAG", raising=False)
+        monkeypatch.setenv("AUTOCUE_PARALLEL_AUTO_TAG", "0")
         db = _make_db()
         db.get_content.side_effect = lambda ID: _content(ID)
         mix = {"vocal_proxy": True, "phrase_count": 4, "intro_bars": 8, "outro_bars": 8}

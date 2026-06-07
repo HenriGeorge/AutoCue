@@ -119,10 +119,10 @@ def _build_index(db) -> None:
             _INDEX_BUILT = True
             return
         errors = 0
-        # TASK-007 — parallel index build behind AUTOCUE_PARALLEL_SIMILAR=1
-        # until TASK-008 verification. Default = serial.
+        # TASK-007 — parallel index build (default-on as of TASK-008
+        # verification; set AUTOCUE_PARALLEL_SIMILAR=0 to disable).
         import os as _os
-        if _os.environ.get("AUTOCUE_PARALLEL_SIMILAR") == "1":
+        if _os.environ.get("AUTOCUE_PARALLEL_SIMILAR", "1") != "0":
             from concurrent.futures import as_completed as _as_completed
             from .concurrency import get_pool as _get_pool
             pool = _get_pool()

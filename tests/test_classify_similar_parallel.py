@@ -23,7 +23,7 @@ def _fresh_pool():
 
 def test_build_index_parallel_default_off(monkeypatch):
     """Without AUTOCUE_PARALLEL_SIMILAR=1, the serial path runs."""
-    monkeypatch.delenv("AUTOCUE_PARALLEL_SIMILAR", raising=False)
+    monkeypatch.setenv("AUTOCUE_PARALLEL_SIMILAR", "0")
     db = MagicMock()
     db.get_content.return_value.all.return_value = []
     similar._build_index(db)

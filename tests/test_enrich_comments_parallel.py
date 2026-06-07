@@ -95,7 +95,7 @@ def _parse_sse(text: str) -> list[dict]:
 
 def test_default_off_runs_serial_path(monkeypatch):
     """No flag → existing serial path; pool.submit must NOT be called."""
-    monkeypatch.delenv("AUTOCUE_PARALLEL_ENRICH_COMMENTS", raising=False)
+    monkeypatch.setenv("AUTOCUE_PARALLEL_ENRICH_COMMENTS", "0")
     tracks = [_make_track(i) for i in range(1, 4)]
     db = _make_db(tracks)
     client = _make_client(db)

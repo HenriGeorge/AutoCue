@@ -72,7 +72,7 @@ def test_parallel_isolates_per_track_exception():
 
 def test_parallel_disabled_when_flag_unset(monkeypatch):
     """Without AUTOCUE_PARALLEL_HEALTH=1, the serial path runs verbatim."""
-    monkeypatch.delenv("AUTOCUE_PARALLEL_HEALTH", raising=False)
+    monkeypatch.setenv("AUTOCUE_PARALLEL_HEALTH", "0")
     contents = [_content(i) for i in range(1, 4)]
     db = _mock_db(contents)
     fake = quality.TrackHealthReport(track_id=0, score=100, issues=[], fix_tier="none")

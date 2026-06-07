@@ -63,7 +63,7 @@ def _enable_flag(monkeypatch):
 
 @pytest.fixture
 def _disable_flag(monkeypatch):
-    monkeypatch.delenv("AUTOCUE_PARALLEL_GENERATE_APPLY", raising=False)
+    monkeypatch.setenv("AUTOCUE_PARALLEL_GENERATE_APPLY", "0")
     shutdown_pool()
     yield
     shutdown_pool()
