@@ -598,27 +598,55 @@ If a cue has `confidence == null && phraseMode == null` — indicating it was pl
 
 ---
 
-## Feature 14: New-Release Discovery
+## Feature 14: New-Release Discovery (Discover v2)
 
 ### What it does
 
-The **Discover** tab (local server mode only) finds recent albums released by the artists already in your library — so you can keep crates fresh without manually trawling release calendars. It reuses your Discogs token (the same one the Discogs Genre Tags panel uses), so no extra setup is needed.
+The **Discover** tab (local server mode only) is a personalised feed of new releases driven by your own listening history. It blends three independent sources — artists you play, labels you follow, and adjacent finds you don't yet know — so the feed surfaces both retrieval (your familiar territory) and exploration (one step beyond) every scan.
 
 ### How it works
 
-1. AutoCue ranks the artists in your library by how many of their tracks you own (a proxy for the artists you actually play). Only the top *N* artists (default 25, configurable) are queried, which keeps you well under Discogs' 60-requests-per-minute limit.
-2. For each artist it asks Discogs for their newest releases and keeps anything released on or after the **Released since** year (defaults to last year).
-3. Releases whose album title already appears in your library are dropped, as are duplicate compilations that show up across multiple artists.
-4. Results stream in live (`GET /api/discover`, Server-Sent Events) as cards showing the cover art, artist, album, year, and Discogs genre styles, with a link straight to the Discogs page and — when download tools are installed — a one-click **Download** button.
+1. **Taste vector** — On scan start, AutoCue walks your library to count plays per artist, label, and style. This becomes your taste profile; it's recomputed each scan so the feed tracks your library as it grows.
+2. **Three feeders run in sequence**, each with a hard request budget:
+   - **Artist watch** (20 requests) — your top 20 most-played artists, page-1 of recent releases each.
+   - **Label watch** (15 requests) — the labels you've explicitly followed, longest-unscanned first, with a 24-hour TTL so a freshly-scanned label isn't re-hit until tomorrow.
+   - **Novelty** (10 requests) — one of three rotated strategies per scan: style-adjacent (releases in styles next to your top styles in a curated graph), label-adjacent (parent + sub-labels of labels you follow), or artist-adjacent (groups + member projects of artists you play). The rotation cycles so over three scans you cover all three angles.
+3. **Hard cap**: total ≤ 60 requests per scan, matching Discogs' authenticated rate-limit window. The orchestrator validates this at scan start and refuses any feeder budget table that sums above 60.
+4. **Ranker** scores every candidate (taste match + novelty bonus + freshness + already-owned guard) and produces a deduped feed. Results stream in live via SSE; the UI renders cards as soon as the first feeder yields its first hit.
+5. **Persistent state** — saves / dismisses / snoozes / followed labels / blocked artists+labels all live in a sidecar `discover.db` next to your master.db. The state survives reloads and rides along with your backups.
 
 ### Controls
 
-- **Released since** — earliest release year to include.
-- **Top artists** — how many of your most-played artists to scan (1–100). Higher values find more but take longer and use more of your Discogs rate budget.
+- **Source filter chips** — toggle artist / label / novelty on or off to focus the scan.
+- **Year filter** — All / This year / Last 2 years.
+- **Sort** — Taste match (the ranker's default) / Newest / Title / Artist / Explore mode (50/50 round-robin of novelty against the rest).
+- **Refresh** — re-run the scan; the prior result clears immediately.
+- **Cancel** — cancel a running scan; the orchestrator backs out cleanly.
+
+### Per-card actions
+
+Every card carries hover-reveal **Save / Snooze / Dismiss** buttons; clicking the card opens a detail panel with the full tracklist, a Discogs link, a YouTube preview carousel (up to 3 candidates, lazy-loaded), a **Download album** action, contextual **Follow this label** and **Block artist / label** CTAs, and a save-to-favorites toggle.
+
+### Snooze popover
+
+Clicking 💤 opens a popover anchored at the button with three durations: **1 week**, **1 month** (default), **3 months**. Cards whose snooze has since expired and surfaced in a later scan get a **🔁 Resurfaced** badge so you know it's coming back from the snooze pile.
+
+### Power-user flow
+
+- **Shift+click a card** — bypass the detail panel and jump straight to a confirmation modal whose default focus is **Cancel** (so sticky-Shift + accidental-Enter never starts a download).
+- **Keyboard shortcuts** — `j` / `k` navigate cards, `Enter` opens the detail panel, `s` saves, `x` dismisses, `z` opens the snooze popover, `D` (Shift+d, on purpose) opens the download confirm, `?` toggles a help overlay.
+
+### Settings sub-panel
+
+Under the **⚙ Settings** button next to the Discover header:
+- **Labels you watch** — list of followed labels with last-scanned time, an Unfollow button per row, an inline **Search Discogs to add a label** input, and a **Suggest** button that lists labels surfaced from your library's existing Discogs metadata.
+- **Blocked artists / labels** — separate "Artists (N)" and "Labels (M)" sections with Unblock buttons per row.
+- **Sync between machines** — Export discover.db as a timestamped `.gz` (so re-exports don't overwrite); Import on another machine to share saves / dismisses / follows / blocks. Import surfaces a per-field diff in the success toast.
+- **Stats** — total scans, avg scan duration, saves per scan, novelty mix per strategy, top label / artist sources.
 
 ### Requirements
 
-A Discogs personal access token (free, from discogs.com/settings/developers). Set it once in the **Library → Discogs Genre Tags** panel, or via the `DISCOGS_TOKEN` environment variable / project `.env`.
+A Discogs personal access token (free, from discogs.com/settings/developers). Set it via the `DISCOGS_TOKEN` environment variable or your project `.env`. The Discover tab's onboarding banner walks you through following labels the first time you open it.
 
 ---
 
