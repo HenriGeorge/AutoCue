@@ -77,6 +77,77 @@ def _prewarm_index(db) -> None:
         logger.warning("Similarity index pre-warm failed: %s", e)
 
 
+def _run_warmup_pipeline(app, db) -> None:
+    """Multi-step warm-up pipeline — TASK-027.
+
+    Steps (each updates ``app.state.warmup_progress`` so /api/warmup can
+    report progress, and each checks ``app.state.warmup_cancel_event``
+    so shutdown lands quickly):
+      1. ``cache``    — hydrate CacheStore rows for any track with stale/
+         missing entries (uses CacheStore.warm_up + the shared pool).
+      2. ``index``    — build similarity index from cached vectors.
+      3. ``done``     — pipeline finished; UI hides the indexing badge.
+    """
+    from datetime import datetime, timezone
+
+    def _set(step: str, done: int, total: int):
+        with app.state.warmup_lock:
+            app.state.warmup_progress = {
+                "step": step,
+                "done": done,
+                "total": total,
+                "finished_at": None,
+            }
+
+    try:
+        cancel_event = app.state.warmup_cancel_event
+        # Step 1 — cache hydration.
+        _set("cache", 0, 0)
+        cache_store = getattr(app.state, "cache_store", None)
+        if cache_store is not None:
+            try:
+                from ..analysis.concurrency import get_pool
+                contents = []
+                try:
+                    contents = [int(c.ID) for c in db.get_content().all()]
+                except Exception as exc:
+                    logger.warning("warmup: get_content failed: %s", exc)
+
+                def _progress(done: int, total: int) -> None:
+                    _set("cache", done, total)
+
+                cache_store.warm_up(
+                    db,
+                    contents,
+                    get_pool(),
+                    progress_cb=_progress,
+                    cancel_event=cancel_event,
+                )
+            except Exception as exc:
+                logger.warning("warmup: cache hydration failed: %s", exc)
+        if cancel_event.is_set():
+            return
+        # Step 2 — similarity index.
+        _set("index", 0, 1)
+        try:
+            from ..analysis.similar import _build_index
+            _build_index(db)
+        except Exception as exc:
+            logger.warning("warmup: similarity index failed: %s", exc)
+        if cancel_event.is_set():
+            return
+        # Step 3 — done.
+        with app.state.warmup_lock:
+            app.state.warmup_progress = {
+                "step": "done",
+                "done": 1,
+                "total": 1,
+                "finished_at": datetime.now(timezone.utc).isoformat(),
+            }
+    except Exception as exc:  # pragma: no cover — defensive
+        logger.warning("warmup pipeline crashed: %s", exc)
+
+
 def _get_discover_db_path_safe() -> Path | None:
     """Return the active discover.db path if it exists, else None.
 
@@ -219,9 +290,29 @@ async def lifespan(app: FastAPI):
             logger.warning("Could not open sidecar cache: %s", exc)
             app.state.cache_store = None
 
-        threading.Thread(
-            target=_prewarm_index, args=(app.state.ro_db or app.state.db,), daemon=True, name="index-prewarm"
-        ).start()
+        # TASK-027 — multi-step warm-up pipeline. State lives on app.state so
+        # /api/warmup can report progress; cancel_event lets shutdown land
+        # within ~5s. Falls back to the legacy single-step _prewarm_index path
+        # when the cache_store could not be opened.
+        app.state.warmup_lock = threading.Lock()
+        app.state.warmup_cancel_event = threading.Event()
+        app.state.warmup_progress = {
+            "step": "init", "done": 0, "total": 0, "finished_at": None
+        }
+        warmup_db = app.state.ro_db or app.state.db
+        if getattr(app.state, "cache_store", None) is not None:
+            app.state.warmup_thread = threading.Thread(
+                target=_run_warmup_pipeline,
+                args=(app, warmup_db),
+                daemon=True,
+                name="warmup-pipeline",
+            )
+            app.state.warmup_thread.start()
+        else:
+            app.state.warmup_thread = threading.Thread(
+                target=_prewarm_index, args=(warmup_db,), daemon=True, name="index-prewarm"
+            )
+            app.state.warmup_thread.start()
     except Exception as e:
         logger.warning("Could not open Rekordbox DB: %s — server will still start", e)
         app.state.db = None
@@ -238,6 +329,17 @@ async def lifespan(app: FastAPI):
         except Exception as exc:  # pragma: no cover — best-effort shutdown
             logger.warning("Could not close discover store cleanly: %s", exc)
     app.state.discover_store = None
+    # TASK-030 — cancel the warm-up pipeline and join the daemon thread
+    # so a partial cache leaves cleanly committed rows behind.
+    cancel = getattr(app.state, "warmup_cancel_event", None)
+    if cancel is not None:
+        cancel.set()
+    warmup_thread = getattr(app.state, "warmup_thread", None)
+    if warmup_thread is not None:
+        try:
+            warmup_thread.join(timeout=5.0)
+        except Exception as exc:  # pragma: no cover — defensive
+            logger.warning("warmup thread join failed: %s", exc)
     # Tear down the shared analysis thread-pool (TASK-001).
     try:
         from ..analysis.concurrency import shutdown_pool
