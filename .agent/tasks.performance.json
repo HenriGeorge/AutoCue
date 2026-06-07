@@ -74,14 +74,14 @@
     "title": "Define and ship the sidecar cache schema (DDL + version metadata)",
     "category": "data-model",
     "specFilePath": ".agent/tasks/performance/TASK-011.json",
-    "passes": false
+    "passes": true
   },
   {
     "id": "TASK-012",
     "title": "Implement anlz_mtime invalidation + ANLZ-missing sentinel",
     "category": "data-model",
     "specFilePath": ".agent/tasks/performance/TASK-012.json",
-    "passes": false
+    "passes": true
   },
   {
     "id": "TASK-013",
@@ -130,14 +130,14 @@
     "title": "Document sidecar cache invariants in CLAUDE.md",
     "category": "documentation",
     "specFilePath": ".agent/tasks/performance/TASK-019.json",
-    "passes": false
+    "passes": true
   },
   {
     "id": "TASK-020",
     "title": "Add autocue serve --reset-cache CLI flag",
     "category": "functional",
     "specFilePath": ".agent/tasks/performance/TASK-020.json",
-    "passes": false
+    "passes": true
   },
   {
     "id": "TASK-021",
@@ -312,7 +312,7 @@
     "title": "GET /api/perf/recent returns recent perf stats",
     "category": "api-endpoint",
     "specFilePath": ".agent/tasks/performance/TASK-045.json",
-    "passes": false
+    "passes": true
   },
   {
     "id": "TASK-046",
