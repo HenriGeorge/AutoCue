@@ -233,17 +233,29 @@ def _bpm_fit(release_bpm: Optional[float], tv: TasteVector) -> float:
     return bucket_count / max_count
 
 
-def _recency(year: Optional[int], today: Optional[date]) -> float:
+def _recency(year, today: Optional[date]) -> float:
     """Linear decay over :data:`RECENCY_WINDOW_DAYS`. Returns 0 for unknown
     year (compilation reissues often lack year — that's fine, they just don't
-    get the recency boost)."""
-    if year is None or year <= 0:
+    get the recency boost).
+
+    Discogs occasionally returns ``year`` as a string (``"2024"``) instead
+    of an int — the type-annotation lied. Comparing a str to int raised
+    ``TypeError`` that aborted the whole scan. Coerce defensively; anything
+    that won't parse as an int is treated as unknown.
+    """
+    if year is None:
+        return 0.0
+    try:
+        year_int = int(year)
+    except (TypeError, ValueError):
+        return 0.0
+    if year_int <= 0:
         return 0.0
     today = today or date.today()
     # Approximate "today" against year by treating year as Jan 1 of that year —
     # more precise than nothing, less precise than a real release-date field
     # which Discogs doesn't reliably expose on the listing endpoints.
-    age_days = (today - date(int(year), 1, 1)).days
+    age_days = (today - date(year_int, 1, 1)).days
     if age_days < 0:
         return 1.0  # released in the future (Discogs occasionally has these)
     if age_days >= RECENCY_WINDOW_DAYS:

@@ -181,7 +181,11 @@ class TestDedup:
         with patch.object(discogs_client, "search_artist_releases", side_effect=fake_artist_releases):
             by_kind, _ = _collect(run_scan(
                 store, basic_taste, simple_adjacency, token="t", config=cfg,
-                library_album_set={"madvillain|||madvillainy"},
+                # library_album_set returns plain lowercased album names — no
+                # artist prefix. The old "{artist}|||{title}" shape used here
+                # was a TEST-FIXTURE BUG that masked a production bug where
+                # every owned album leaked into Discover. Locks the real shape.
+                library_album_set={"madvillainy"},
             ))
 
         # Owned → filtered out for that artist; Larry Heard's still flows.
