@@ -199,3 +199,9 @@ async def lifespan(app: FastAPI):
         except Exception as exc:  # pragma: no cover — best-effort shutdown
             logger.warning("Could not close discover store cleanly: %s", exc)
     app.state.discover_store = None
+    # Tear down the shared analysis thread-pool (TASK-001).
+    try:
+        from ..analysis.concurrency import shutdown_pool
+        shutdown_pool()
+    except Exception as exc:  # pragma: no cover — best-effort shutdown
+        logger.warning("Could not shut down analysis pool cleanly: %s", exc)
