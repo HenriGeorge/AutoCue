@@ -1,0 +1,30 @@
+project:
+  name: "AutoCue"
+  repo: "HenriGeorge/AutoCue"
+
+# Three validation legs, run independently by the agent (NOT && chained).
+# The agent skips a leg whose tracked inputs haven't changed since the last
+# green run for that leg. See `.claude/agents/autocue-fixer.md` Phase 2.
+test_cmd_python: "pytest -x -q"
+test_cmd_web: "npm test --silent"
+test_cmd_e2e: "cd tests/e2e && AUTOCUE_SOURCE_DB=$HOME/Library/Pioneer/rekordbox/master.db npm test"
+
+# Label → workflow routing. Every current AutoCue label routes to `fix`.
+# If `plan` / `docs` / `research` workflows are ever added, the workflow
+# script picks the FIRST matched label from `gh issue view --json labels`;
+# GitHub's label order is non-deterministic, so add at most one non-`fix`
+# mapping per issue to avoid ambiguity.
+routing:
+  bug: fix
+  enhancement: plan
+  docs: docs
+  safety: fix
+  ux: fix
+  api: fix
+  data-quality: fix
+
+dispatch:
+  # Workflow defaults; the slash command's args.issues overrides.
+  parallel: 2
+  max_iterations: 10
+  label: bug
