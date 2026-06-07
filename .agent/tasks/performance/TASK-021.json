@@ -1,0 +1,56 @@
+{
+  "id": "TASK-021",
+  "title": "/api/tracks in-memory snapshot keyed by master.db mtime",
+  "category": "api-endpoint",
+  "description": "Build the full TrackItem list once per master.db mtime; subsequent /api/tracks requests return the snapshot directly. Reduces warm-load p95 from ~6s to ~200ms.",
+  "acceptanceCriteria": [
+    "First /api/tracks call (cold) builds the snapshot and stores it on app.state.tracks_snapshot = {mtime, payload: list[TrackItem]}.",
+    "Subsequent calls with the same mtime return the cached payload (no DB query).",
+    "Calls after master.db mtime changes rebuild the snapshot lazily.",
+    "Memory footprint of the snapshot on 10k tracks is < 50MB.",
+    "tests/test_serve_routes.py confirms cold-vs-warm distinction (mock get_mtime; first call hits DB; second does not)."
+  ],
+  "steps": [
+    {
+      "step": 1,
+      "description": "app.state init",
+      "details": "serve/deps.py lifespan: app.state.tracks_snapshot = None; app.state.tracks_snapshot_lock = threading.Lock().",
+      "pass": false
+    },
+    {
+      "step": 2,
+      "description": "/api/tracks fast path",
+      "details": "Handler: current_mtime = os.path.getmtime(db._db_dir / 'master.db'). With app.state.tracks_snapshot_lock: if app.state.tracks_snapshot is not None and app.state.tracks_snapshot['mtime'] == current_mtime: return app.state.tracks_snapshot['payload']. Else fall through to build path.",
+      "pass": false
+    },
+    {
+      "step": 3,
+      "description": "Build path",
+      "details": "Build the TrackItem list using existing SQL pattern (CLAUDE.md notes this is intentional fetch-all-then-filter for SQLCipher perf). After building, with the lock: app.state.tracks_snapshot = {'mtime': current_mtime, 'payload': payload}. Return payload.",
+      "pass": false
+    },
+    {
+      "step": 4,
+      "description": "Concurrency: avoid duplicate builds",
+      "details": "If two requests arrive cold simultaneously, both could try to build. Use a 'build-in-progress' flag inside the lock: first one sets _building=True, releases the lock, builds, then re-acquires + stores result. Others detect _building=True and wait on a threading.Event.",
+      "pass": false
+    },
+    {
+      "step": 5,
+      "description": "Playlist filter compatibility",
+      "details": "/api/tracks?playlist_id=N still filters - but the filter happens on the FULL snapshot in memory (intersection with playlist's content_ids). Snapshot is always the full library.",
+      "pass": false
+    },
+    {
+      "step": 6,
+      "description": "Tests",
+      "details": "tests/test_serve_routes.py: mock os.path.getmtime + the build path. First call builds; second returns same payload without hitting build. Concurrent test: 10 simultaneous requests result in only 1 build call."
+    }
+  ],
+  "dependencies": [],
+  "estimatedComplexity": "medium",
+  "technicalNotes": [
+    "Per CLAUDE.md: do not 'optimize' the SQL pattern back to IN(row_ids) - fetch-all-then-filter wins for SQLCipher at ~3k. At 10k the breakpoint may shift; TASK-024 re-evaluates.",
+    "Memory estimate: ~50 fields/track * 10k tracks * ~30 bytes avg = ~15MB. Conservative cap is 50MB."
+  ]
+}

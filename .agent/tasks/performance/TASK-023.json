@@ -1,0 +1,38 @@
+{
+  "id": "TASK-023",
+  "title": "Add ETag / If-None-Match revalidation to /api/tracks",
+  "category": "api-endpoint",
+  "description": "Reduce wire bytes on UI tab switches: send ETag header derived from master.db mtime; client revalidates via If-None-Match; server returns 304 on match.",
+  "acceptanceCriteria": [
+    "GET /api/tracks responses include header ETag: \"<master.db_mtime>\".",
+    "Subsequent GET with If-None-Match: \"<master.db_mtime>\" returns 304 Not Modified with empty body and no DB or snapshot read.",
+    "ETag changes when master.db mtime changes; client request with old ETag returns 200 + new payload.",
+    "tests/test_serve_routes.py covers 304 path and 200-with-new-mtime path.",
+    "Frontend stores last seen ETag and sends it on subsequent /api/tracks requests (UI part below)."
+  ],
+  "steps": [
+    {
+      "step": 1,
+      "description": "Server-side ETag emit",
+      "details": "/api/tracks handler: response.headers['ETag'] = f'\"{int(current_mtime)}\"' (integer seconds is enough granularity). Check request.headers.get('if-none-match') against the same value; if match -> return Response(status_code=304).",
+      "pass": false
+    },
+    {
+      "step": 2,
+      "description": "Frontend ETag storage",
+      "details": "docs/index.html: AppState._tracksEtag stored in module scope (not localStorage - per-session). On fetch /api/tracks, send headers If-None-Match: <stored_etag>. On 304, reuse the cached parsedTracks. On 200, store the new ETag from response.headers.get('ETag').",
+      "pass": false
+    },
+    {
+      "step": 3,
+      "description": "Tests",
+      "details": "tests/test_serve_routes.py: first call returns 200 + ETag; second call with If-None-Match returns 304 + empty body. Vitest test for tests/web/ui-logic.test.js: fetch + ETag round-trip."
+    }
+  ],
+  "dependencies": ["TASK-021"],
+  "estimatedComplexity": "low",
+  "technicalNotes": [
+    "FastAPI normalizes header lookups case-insensitively but emits them as-is - use 'ETag' canonical casing.",
+    "GZipMiddleware (existing) compresses the 200 path; 304 has no body so compression is moot."
+  ]
+}

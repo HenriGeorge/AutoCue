@@ -1,0 +1,42 @@
+{
+  "id": "TASK-033",
+  "title": "Lock card height for virtualization math + document constraint",
+  "category": "ui-ux",
+  "description": "Virtualizer requires uniform card height to compute the visible window without measuring each card. Current cards are uniform; pin this as an invariant in CLAUDE.md.",
+  "acceptanceCriteria": [
+    "All track cards render with a fixed height (CSS: .card { height: 72px; box-sizing: border-box; } - or whatever the current uniform height is).",
+    "Vitest test asserts every card in a rendered set has the same offsetHeight.",
+    "CLAUDE.md (or .claude/project/web-ui.md) documents: 'Track cards must remain uniform height for virtualization. Variable heights require measured-height virtualization.'",
+    "Future card features that need expansion (e.g., inline expand) must use overlays or modals, NOT in-list expansion."
+  ],
+  "steps": [
+    {
+      "step": 1,
+      "description": "Confirm current height",
+      "details": "Open docs/index.html, inspect .card CSS. If height is implicit (line-height-driven), pin it explicitly: .card { height: 72px; }. Adjust value to match current visual height.",
+      "pass": false
+    },
+    {
+      "step": 2,
+      "description": "Constant in JS",
+      "details": "Define CARD_HEIGHT_PX = 72 (or computed value) at top of script. Virtualizer.attach receives itemHeight: CARD_HEIGHT_PX.",
+      "pass": false
+    },
+    {
+      "step": 3,
+      "description": "Test",
+      "details": "tests/web/ui-logic.test.js: render 100 cards in jsdom; assert all have the same getBoundingClientRect().height (jsdom may not compute this; use offsetHeight after setting explicit CSS).",
+      "pass": false
+    },
+    {
+      "step": 4,
+      "description": "Doc the invariant",
+      "details": ".claude/project/web-ui.md (or CLAUDE.md): 'Card height is locked at CARD_HEIGHT_PX (TASK-033). The virtualizer assumes uniformity. Inline expand is forbidden; use overlay or modal.'"
+    }
+  ],
+  "dependencies": ["TASK-031"],
+  "estimatedComplexity": "low",
+  "technicalNotes": [
+    "If a future feature truly needs variable height: switch to a measured virtualizer (e.g., react-window's variable-size patterns) but stay in vanilla JS."
+  ]
+}

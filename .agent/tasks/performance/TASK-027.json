@@ -1,0 +1,63 @@
+{
+  "id": "TASK-027",
+  "title": "Extend serve/deps.py:_prewarm_index into a multi-step pipeline",
+  "category": "functional",
+  "description": "The existing _prewarm_index daemon thread builds the similarity index. Extend it into a 4-step pipeline: (1) build tracks_snapshot, (2) hydrate CacheStore for stale rows, (3) build similarity index from cached vectors, (4) mark ready. State is exposed via app.state.warmup_progress for UI display (TASK-028).",
+  "acceptanceCriteria": [
+    "On autocue serve startup, the daemon thread runs steps 1-4 sequentially.",
+    "app.state.warmup_progress is a dict {step: 'snapshot'|'cache'|'index'|'done', done: int, total: int, finished_at: str|None}.",
+    "Pre-warm is interruptible via app.state.warmup_cancel_event (threading.Event); set on shutdown.",
+    "UI is usable during warm-up (existing semantics preserved - the existing _prewarm_index was non-blocking).",
+    "Step 1 (snapshot) completes in < 1s on 10k library.",
+    "Step 2 (cache hydration) on a fully cold cache completes in < 60s on 10k library."
+  ],
+  "steps": [
+    {
+      "step": 1,
+      "description": "State init",
+      "details": "serve/deps.py:lifespan: app.state.warmup_progress = {'step': 'init', 'done': 0, 'total': 0, 'finished_at': None}; app.state.warmup_cancel_event = threading.Event(); app.state.warmup_lock = threading.Lock().",
+      "pass": false
+    },
+    {
+      "step": 2,
+      "description": "Step 1 - snapshot build",
+      "details": "Update warmup_progress to step='snapshot'. Call the /api/tracks build path directly (factored from TASK-021) - populates app.state.tracks_snapshot AND CacheStore.tracks_snapshot. Total = 1 (single op); done = 0 -> 1.",
+      "pass": false
+    },
+    {
+      "step": 3,
+      "description": "Step 2 - cache hydration",
+      "details": "Update warmup_progress to step='cache'. Get list of all content_ids from app.state.tracks_snapshot. Call CacheStore.warm_up(db, content_ids, pool, progress_cb, cancel_event=app.state.warmup_cancel_event). progress_cb updates warmup_progress.done.",
+      "pass": false
+    },
+    {
+      "step": 4,
+      "description": "Step 3 - similarity index build",
+      "details": "Update warmup_progress to step='index'. Build the similarity index (existing logic, now reading from cache for feature vectors). Single op for total.",
+      "pass": false
+    },
+    {
+      "step": 5,
+      "description": "Step 4 - mark done",
+      "details": "Update warmup_progress to step='done'; finished_at = datetime.now().isoformat().",
+      "pass": false
+    },
+    {
+      "step": 6,
+      "description": "Cancellation on shutdown",
+      "details": "serve/deps.py:lifespan shutdown: app.state.warmup_cancel_event.set(). The warm_up call (TASK-018) drains in-flight futures and returns. Lifespan waits up to 5s for the daemon thread to join.",
+      "pass": false
+    },
+    {
+      "step": 7,
+      "description": "Tests",
+      "details": "tests/test_warmup.py: mock CacheStore + db; verify pipeline transitions through all 4 step values. Verify cancel mid-step-2 results in partial progress and a 'cancelled' marker."
+    }
+  ],
+  "dependencies": ["TASK-001", "TASK-018", "TASK-021", "TASK-022"],
+  "estimatedComplexity": "medium",
+  "technicalNotes": [
+    "The pre-warm thread is daemon=True so it doesn't block process exit - but the cancel_event + 5s join gives it a graceful shutdown window.",
+    "Don't block the lifespan handler waiting on warm-up to finish - the server is usable immediately."
+  ]
+}

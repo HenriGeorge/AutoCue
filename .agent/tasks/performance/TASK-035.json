@@ -1,0 +1,51 @@
+{
+  "id": "TASK-035",
+  "title": "Preserve existing UX: _cardMap fingerprint, FLIP scope, IntersectionObservers",
+  "category": "ui-ux",
+  "description": "Adapt the existing _cardMap smart-diffing fingerprint, FLIP reorder animations, and IntersectionObservers to work with the new virtualized list (TASK-031, TASK-032).",
+  "acceptanceCriteria": [
+    "_computeSettingsFingerprint() (existing) still triggers full repool/reset on barsInterval/startBar/maxCues/etc. change.",
+    "FLIP animations fire only for cards visible before AND after a reorder.",
+    "_sparkObserver, _mixObserver, _enterObserver are still .disconnect()-ed before reuse - no observer leaks.",
+    "Observers are attached only to currently visible nodes (not the off-screen pool).",
+    "Existing UX behaviors (multi-select, keyboard nav, hover sparkline lazy-load) work identically.",
+    "tests/web/ui-logic.test.js + virtualization.test.js cover these adapations."
+  ],
+  "steps": [
+    {
+      "step": 1,
+      "description": "Fingerprint-driven full reset",
+      "details": "On fingerprint change, call Virtualizer.detach() + reset _cardPool + Virtualizer.attach(). Full rebuild.",
+      "pass": false
+    },
+    {
+      "step": 2,
+      "description": "FLIP for visible-only reorders",
+      "details": "Before update(), capture .getBoundingClientRect() for currently visible nodes (in _visibleIndex). After update(), capture new rects. For nodes whose content_id is in both maps and changed position, run Element.animate({transform: oldDelta}, [{transform: newDelta}], {duration: 200}). Off-screen 'moves' are skipped.",
+      "pass": false
+    },
+    {
+      "step": 3,
+      "description": "Re-observe on recycle",
+      "details": "When renderItem assigns a new content_id to a node: _sparkObserver.unobserve(oldNode would not work since it's the same node); just .observe(node) again - IntersectionObserver dedupes observations of the same target.",
+      "pass": false
+    },
+    {
+      "step": 4,
+      "description": "Large-exit threshold preserved",
+      "details": "Per CLAUDE.md: if >30 cards exit at once (e.g., big filter), skip FLIP entirely (instant snap). Apply the same rule to virtualizer: large filter shrink -> no animation.",
+      "pass": false
+    },
+    {
+      "step": 5,
+      "description": "Tests",
+      "details": "tests/web/virtualization.test.js: scroll through 1000 tracks; assert observer.observe call count is bounded (~40); assert FLIP fires only on visible reorders."
+    }
+  ],
+  "dependencies": ["TASK-031", "TASK-032", "TASK-034"],
+  "estimatedComplexity": "medium",
+  "technicalNotes": [
+    "IntersectionObserver.observe() is idempotent on the same target - safe to call multiple times.",
+    "FLIP via Element.animate is GPU-accelerated when only transform changes; avoid top/left."
+  ]
+}

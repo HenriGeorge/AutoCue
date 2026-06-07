@@ -1,0 +1,50 @@
+{
+  "id": "TASK-041",
+  "title": "Cancellation on SSE client disconnect (compute + writer)",
+  "category": "functional",
+  "description": "When the SSE client disconnects (browser tab closed, Cancel button), both stages stop cleanly. Compute drains in-flight futures; writer flushes current track then exits. No orphaned threads, no half-committed transactions.",
+  "acceptanceCriteria": [
+    "_check_disconnect background task polls request.is_disconnected() every 200ms; on disconnect sets cancel_event.",
+    "_compute_stage stops submitting new futures on cancel; lets in-flight futures resolve.",
+    "_writer_stage processes whatever remains in queue then exits on sentinel.",
+    "Final 'cancelled' SSE event emitted before stream closes (if client still listening).",
+    "tests/test_serve_routes.py: simulate client disconnect mid-stream; assert thread exits within 500ms; assert no exceptions in server logs."
+  ],
+  "steps": [
+    {
+      "step": 1,
+      "description": "Disconnect poll task",
+      "details": "async def _poll_disconnect(request, cancel_event): while not cancel_event.is_set(): if await request.is_disconnected(): cancel_event.set(); return; await asyncio.sleep(0.2). Spawn as asyncio.create_task in the SSE generator.",
+      "pass": false
+    },
+    {
+      "step": 2,
+      "description": "Compute stage cancel check",
+      "details": "After each as_completed result, check cancel_event.is_set(); if set, stop submitting more futures (early-exit the submit loop). Already-submitted futures keep running until they finish (don't future.cancel() - lets them complete).",
+      "pass": false
+    },
+    {
+      "step": 3,
+      "description": "Writer stage cancel check",
+      "details": "After each queue.get() + commit, check cancel_event.is_set(); if set, drain remaining queue items (commit each) then exit. The point is: data already computed should still be saved.",
+      "pass": false
+    },
+    {
+      "step": 4,
+      "description": "Final event",
+      "details": "When the writer exits, emit {done: true, cancelled: cancel_event.is_set(), processed: N, errors: M}. May not reach the client if connection already closed - that's fine.",
+      "pass": false
+    },
+    {
+      "step": 5,
+      "description": "Tests",
+      "details": "tests/test_serve_routes.py: open SSE; read 5 events; close httpx client; sleep 600ms; assert writer thread.is_alive() == False; assert any in-flight cues were committed (not orphaned)."
+    }
+  ],
+  "dependencies": ["TASK-039", "TASK-040"],
+  "estimatedComplexity": "medium",
+  "technicalNotes": [
+    "The 'finish what you started' semantics matter: a partial cancellation that loses 8 minutes of compute work would be a regression vs the serial v0 path which had no cancel at all.",
+    "request.is_disconnected() is async; the cancel_event is threading - bridge them via the poll task."
+  ]
+}

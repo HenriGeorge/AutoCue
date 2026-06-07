@@ -1,0 +1,62 @@
+{
+  "id": "TASK-038",
+  "title": "Vitest coverage in tests/web/virtualization.test.js",
+  "category": "ui-ux",
+  "description": "Comprehensive Vitest suite for the Virtualizer module + recycle pool + filter-indices interaction.",
+  "acceptanceCriteria": [
+    "tests/web/virtualization.test.js exists with >=20 test cases covering: attach/update/detach, visible-window correctness on scroll, recycle-pool size cap, no observer leaks across 100 attaches, filter recompute updates the index list correctly, selection state survives scroll.",
+    "Tests run in jsdom (matching the existing Vitest config).",
+    "All tests pass in CI; flake rate < 1% over 10 runs.",
+    "Test file copies the Virtualizer IIFE verbatim from docs/index.html (matching the existing pattern for xml-processing.test.js and ui-logic.test.js)."
+  ],
+  "steps": [
+    {
+      "step": 1,
+      "description": "Test harness",
+      "details": "Set up jsdom container with a known itemHeight (e.g., 72px). Mock window.requestAnimationFrame to fire immediately. Stub IntersectionObserver if needed.",
+      "pass": false
+    },
+    {
+      "step": 2,
+      "description": "Attach/update/detach lifecycle tests",
+      "details": "(a) attach with totalCount=100 renders ~visible-window-size cards; (b) update with totalCount=10 collapses; (c) detach removes scroll listener (verify via add/remove count).",
+      "pass": false
+    },
+    {
+      "step": 3,
+      "description": "Visible window correctness",
+      "details": "Set container.scrollTop = 720 (10 cards down). Trigger scroll handler. Assert visibleStart === 10 (or near).",
+      "pass": false
+    },
+    {
+      "step": 4,
+      "description": "Pool cap",
+      "details": "Render 1000 tracks. Scroll to bottom (scrollTop = 1000 * 72). Count DOM nodes. Assert <= ~50 (40 + buffer slack).",
+      "pass": false
+    },
+    {
+      "step": 5,
+      "description": "Selection persistence",
+      "details": "Set selectedTrackIds = new Set([5, 50, 500]). Scroll past index 5. Scroll back. Assert the rendered card for index 5 has class .selected.",
+      "pass": false
+    },
+    {
+      "step": 6,
+      "description": "Filter integration",
+      "details": "Set parsedTracks = 1000 items. Filter to 100. Call Virtualizer.update. Assert totalCount * itemHeight is the new spacer height; visible cards are from the filtered subset.",
+      "pass": false
+    },
+    {
+      "step": 7,
+      "description": "Observer no-leak",
+      "details": "Spy on IntersectionObserver.observe / unobserve / disconnect. Attach + detach 100 times. Assert .disconnect() is called between each attach.",
+      "pass": false
+    }
+  ],
+  "dependencies": ["TASK-031", "TASK-032", "TASK-034", "TASK-035"],
+  "estimatedComplexity": "medium",
+  "technicalNotes": [
+    "Per CLAUDE.md testing approach: JS tests copy functions verbatim from docs/index.html. If a future PR changes the Virtualizer IIFE, the copy in virtualization.test.js must update too.",
+    "jsdom doesn't run real layout - mocked dimensions are fine for correctness, but real fps must be verified in playwright."
+  ]
+}

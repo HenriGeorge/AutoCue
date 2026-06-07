@@ -1,0 +1,44 @@
+{
+  "id": "TASK-024",
+  "title": "Re-evaluate /api/tracks SQL pattern at 10k tracks",
+  "category": "api-endpoint",
+  "description": "Per CLAUDE.md, the current 'fetch all rows then filter in Python' beats SQLAlchemy IN-filter on SQLCipher at ~3k tracks. Verify whether this still holds at 10k; if not, switch to indexed lookups and document the breakpoint.",
+  "acceptanceCriteria": [
+    "Benchmark in tests/perf/test_tracks_sql.py measures: (a) fetch-all-then-filter approach (current); (b) SQL IN(content_ids) approach; on a 10k sandbox library.",
+    "Results are written to .agent/prd/PERFORMANCE_NOTES.md with timings.",
+    "If IN-filter wins at 10k: refactor /api/tracks to use it; preserve a comment 'breakpoint determined empirically at TASK-024' and the timing data.",
+    "If fetch-all-then-filter still wins: leave code alone, update CLAUDE.md note to extend the claim to 10k.",
+    "Decision is reviewable: the benchmark script is checked in and re-runnable."
+  ],
+  "steps": [
+    {
+      "step": 1,
+      "description": "Build a 10k sandbox DB",
+      "details": "tests/e2e/sandbox-10k.db (or generated via a fixture from the existing sandbox). 10k DjmdContent rows, 50k DjmdSongHistory rows, 30k DjmdSongMyTag rows. If generating, document the seed in the fixture.",
+      "pass": false
+    },
+    {
+      "step": 2,
+      "description": "Benchmark both paths",
+      "details": "tests/perf/test_tracks_sql.py: implement fetch_all_then_filter() and in_filter() variants; time each over 20 iterations; report min/median/p95.",
+      "pass": false
+    },
+    {
+      "step": 3,
+      "description": "Document findings",
+      "details": "Append to .agent/prd/PERFORMANCE_NOTES.md a section 'TASK-024 results' with absolute timings and the chosen path. Include the date and pyrekordbox version.",
+      "pass": false
+    },
+    {
+      "step": 4,
+      "description": "Conditionally refactor",
+      "details": "If in_filter wins by > 1.5x at 10k, switch /api/tracks. Update the CLAUDE.md note to reflect the new approach. If fetch-all wins, leave code untouched; update CLAUDE.md to extend the claim to 10k."
+    }
+  ],
+  "dependencies": ["TASK-021"],
+  "estimatedComplexity": "medium",
+  "technicalNotes": [
+    "Per CLAUDE.md: 'For full-library page loads (~3k rows) the IN filter is slower than fetch-all-then-filter against pyrekordbox's SQLCipher. Do not optimize this back to .filter(...ContentID.in_(row_ids)).' This task tests if that breakpoint shifts at 10k.",
+    "Run the benchmark with the master.db file's OS page cache warm and cold - report both. Warm is the realistic case."
+  ]
+}

@@ -1,0 +1,352 @@
+[
+  {
+    "id": "TASK-001",
+    "title": "Introduce shared ThreadPoolExecutor primitive (autocue.analysis.concurrency)",
+    "category": "functional",
+    "specFilePath": ".agent/tasks/performance/TASK-001.json",
+    "passes": false
+  },
+  {
+    "id": "TASK-002",
+    "title": "Refactor /api/generate-apply-stream to parallel compute + single writer",
+    "category": "api-endpoint",
+    "specFilePath": ".agent/tasks/performance/TASK-002.json",
+    "passes": false
+  },
+  {
+    "id": "TASK-003",
+    "title": "Refactor /api/health SSE to parallel per-track checks",
+    "category": "api-endpoint",
+    "specFilePath": ".agent/tasks/performance/TASK-003.json",
+    "passes": false
+  },
+  {
+    "id": "TASK-004",
+    "title": "Refactor /api/classify SSE to parallel classification",
+    "category": "api-endpoint",
+    "specFilePath": ".agent/tasks/performance/TASK-004.json",
+    "passes": false
+  },
+  {
+    "id": "TASK-005",
+    "title": "Refactor /api/auto-tag to parallel detector evaluation + single tag writer",
+    "category": "api-endpoint",
+    "specFilePath": ".agent/tasks/performance/TASK-005.json",
+    "passes": false
+  },
+  {
+    "id": "TASK-006",
+    "title": "Refactor /api/enrich-comments/stream to parallel comment building",
+    "category": "api-endpoint",
+    "specFilePath": ".agent/tasks/performance/TASK-006.json",
+    "passes": false
+  },
+  {
+    "id": "TASK-007",
+    "title": "Parallelize similar.py index build (_index_track)",
+    "category": "functional",
+    "specFilePath": ".agent/tasks/performance/TASK-007.json",
+    "passes": false
+  },
+  {
+    "id": "TASK-008",
+    "title": "Verify pyrekordbox read_anlz_file() thread-safety; fallback to thread-local DB if needed",
+    "category": "functional",
+    "specFilePath": ".agent/tasks/performance/TASK-008.json",
+    "passes": false
+  },
+  {
+    "id": "TASK-009",
+    "title": "Concurrency test coverage: pool, exception isolation, ordering, no leaks, single-writer invariant",
+    "category": "functional",
+    "specFilePath": ".agent/tasks/performance/TASK-009.json",
+    "passes": false
+  },
+  {
+    "id": "TASK-010",
+    "title": "Create autocue/cache.py with CacheStore SQLite sidecar",
+    "category": "data-model",
+    "specFilePath": ".agent/tasks/performance/TASK-010.json",
+    "passes": false
+  },
+  {
+    "id": "TASK-011",
+    "title": "Define and ship the sidecar cache schema (DDL + version metadata)",
+    "category": "data-model",
+    "specFilePath": ".agent/tasks/performance/TASK-011.json",
+    "passes": false
+  },
+  {
+    "id": "TASK-012",
+    "title": "Implement anlz_mtime invalidation + ANLZ-missing sentinel",
+    "category": "data-model",
+    "specFilePath": ".agent/tasks/performance/TASK-012.json",
+    "passes": false
+  },
+  {
+    "id": "TASK-013",
+    "title": "Wire energy.get_energy_curve through CacheStore (L2)",
+    "category": "functional",
+    "specFilePath": ".agent/tasks/performance/TASK-013.json",
+    "passes": false
+  },
+  {
+    "id": "TASK-014",
+    "title": "Wire classify.get_classification through CacheStore (L2)",
+    "category": "functional",
+    "specFilePath": ".agent/tasks/performance/TASK-014.json",
+    "passes": false
+  },
+  {
+    "id": "TASK-015",
+    "title": "Wire similar.py 6-dim feature vectors through CacheStore (L2)",
+    "category": "functional",
+    "specFilePath": ".agent/tasks/performance/TASK-015.json",
+    "passes": false
+  },
+  {
+    "id": "TASK-016",
+    "title": "Wire score.get_mixability through CacheStore (L2)",
+    "category": "functional",
+    "specFilePath": ".agent/tasks/performance/TASK-016.json",
+    "passes": false
+  },
+  {
+    "id": "TASK-017",
+    "title": "Extend /api/restore to invalidate CacheStore (master.db swap)",
+    "category": "api-endpoint",
+    "specFilePath": ".agent/tasks/performance/TASK-017.json",
+    "passes": false
+  },
+  {
+    "id": "TASK-018",
+    "title": "CacheStore.warm_up(db, content_ids, pool) for parallel cache hydration",
+    "category": "functional",
+    "specFilePath": ".agent/tasks/performance/TASK-018.json",
+    "passes": false
+  },
+  {
+    "id": "TASK-019",
+    "title": "Document sidecar cache invariants in CLAUDE.md",
+    "category": "documentation",
+    "specFilePath": ".agent/tasks/performance/TASK-019.json",
+    "passes": false
+  },
+  {
+    "id": "TASK-020",
+    "title": "Add autocue serve --reset-cache CLI flag",
+    "category": "functional",
+    "specFilePath": ".agent/tasks/performance/TASK-020.json",
+    "passes": false
+  },
+  {
+    "id": "TASK-021",
+    "title": "/api/tracks in-memory snapshot keyed by master.db mtime",
+    "category": "api-endpoint",
+    "specFilePath": ".agent/tasks/performance/TASK-021.json",
+    "passes": false
+  },
+  {
+    "id": "TASK-022",
+    "title": "Persist /api/tracks snapshot to CacheStore.tracks_snapshot",
+    "category": "data-model",
+    "specFilePath": ".agent/tasks/performance/TASK-022.json",
+    "passes": false
+  },
+  {
+    "id": "TASK-023",
+    "title": "Add ETag / If-None-Match revalidation to /api/tracks",
+    "category": "api-endpoint",
+    "specFilePath": ".agent/tasks/performance/TASK-023.json",
+    "passes": false
+  },
+  {
+    "id": "TASK-024",
+    "title": "Re-evaluate /api/tracks SQL pattern at 10k tracks",
+    "category": "api-endpoint",
+    "specFilePath": ".agent/tasks/performance/TASK-024.json",
+    "passes": false
+  },
+  {
+    "id": "TASK-025",
+    "title": "Optional NDJSON streaming response for /api/tracks",
+    "category": "api-endpoint",
+    "specFilePath": ".agent/tasks/performance/TASK-025.json",
+    "passes": false
+  },
+  {
+    "id": "TASK-026",
+    "title": "Invalidate tracks_snapshot on every DB-mutating endpoint",
+    "category": "api-endpoint",
+    "specFilePath": ".agent/tasks/performance/TASK-026.json",
+    "passes": false
+  },
+  {
+    "id": "TASK-027",
+    "title": "Extend serve/deps.py:_prewarm_index into a multi-step pipeline",
+    "category": "functional",
+    "specFilePath": ".agent/tasks/performance/TASK-027.json",
+    "passes": false
+  },
+  {
+    "id": "TASK-028",
+    "title": "GET /api/warmup endpoint returns pre-warm progress",
+    "category": "api-endpoint",
+    "specFilePath": ".agent/tasks/performance/TASK-028.json",
+    "passes": false
+  },
+  {
+    "id": "TASK-029",
+    "title": "UI: Pre-warm progress badge in #app-status",
+    "category": "ui-ux",
+    "specFilePath": ".agent/tasks/performance/TASK-029.json",
+    "passes": false
+  },
+  {
+    "id": "TASK-030",
+    "title": "Pre-warm cancellation: clean shutdown via threading.Event",
+    "category": "functional",
+    "specFilePath": ".agent/tasks/performance/TASK-030.json",
+    "passes": false
+  },
+  {
+    "id": "TASK-031",
+    "title": "Introduce Virtualizer IIFE in docs/index.html",
+    "category": "ui-ux",
+    "specFilePath": ".agent/tasks/performance/TASK-031.json",
+    "passes": false
+  },
+  {
+    "id": "TASK-032",
+    "title": "DOM node recycling pool (~40 nodes) replaces full-render _cardMap",
+    "category": "ui-ux",
+    "specFilePath": ".agent/tasks/performance/TASK-032.json",
+    "passes": false
+  },
+  {
+    "id": "TASK-033",
+    "title": "Lock card height for virtualization math + document constraint",
+    "category": "ui-ux",
+    "specFilePath": ".agent/tasks/performance/TASK-033.json",
+    "passes": false
+  },
+  {
+    "id": "TASK-034",
+    "title": "filteredTracks() returns indices into parsedTracks (not full objects)",
+    "category": "ui-ux",
+    "specFilePath": ".agent/tasks/performance/TASK-034.json",
+    "passes": false
+  },
+  {
+    "id": "TASK-035",
+    "title": "Preserve existing UX: _cardMap fingerprint, FLIP scope, IntersectionObservers",
+    "category": "ui-ux",
+    "specFilePath": ".agent/tasks/performance/TASK-035.json",
+    "passes": false
+  },
+  {
+    "id": "TASK-036",
+    "title": "Search/filter debounce: 80ms requestIdleCallback",
+    "category": "ui-ux",
+    "specFilePath": ".agent/tasks/performance/TASK-036.json",
+    "passes": false
+  },
+  {
+    "id": "TASK-037",
+    "title": "Preserve sticky filter bar + footer action bar layout under virtualization",
+    "category": "ui-ux",
+    "specFilePath": ".agent/tasks/performance/TASK-037.json",
+    "passes": false
+  },
+  {
+    "id": "TASK-038",
+    "title": "Vitest coverage in tests/web/virtualization.test.js",
+    "category": "ui-ux",
+    "specFilePath": ".agent/tasks/performance/TASK-038.json",
+    "passes": false
+  },
+  {
+    "id": "TASK-039",
+    "title": "Split generate-apply into compute and writer stages",
+    "category": "functional",
+    "specFilePath": ".agent/tasks/performance/TASK-039.json",
+    "passes": false
+  },
+  {
+    "id": "TASK-040",
+    "title": "Bounded queue.Queue(maxsize=2*pool_size) between compute and writer",
+    "category": "functional",
+    "specFilePath": ".agent/tasks/performance/TASK-040.json",
+    "passes": false
+  },
+  {
+    "id": "TASK-041",
+    "title": "Cancellation on SSE client disconnect (compute + writer)",
+    "category": "functional",
+    "specFilePath": ".agent/tasks/performance/TASK-041.json",
+    "passes": false
+  },
+  {
+    "id": "TASK-042",
+    "title": "Completion-order SSE events + monotonic processed counter",
+    "category": "functional",
+    "specFilePath": ".agent/tasks/performance/TASK-042.json",
+    "passes": false
+  },
+  {
+    "id": "TASK-043",
+    "title": "Per-track error isolation across producer/consumer",
+    "category": "functional",
+    "specFilePath": ".agent/tasks/performance/TASK-043.json",
+    "passes": false
+  },
+  {
+    "id": "TASK-044",
+    "title": "autocue/perf.py with perf_span context manager + ring buffer",
+    "category": "functional",
+    "specFilePath": ".agent/tasks/performance/TASK-044.json",
+    "passes": false
+  },
+  {
+    "id": "TASK-045",
+    "title": "GET /api/perf/recent returns recent perf stats",
+    "category": "api-endpoint",
+    "specFilePath": ".agent/tasks/performance/TASK-045.json",
+    "passes": false
+  },
+  {
+    "id": "TASK-046",
+    "title": "Add perf_span timing to all SSE endpoints + key sync handlers",
+    "category": "functional",
+    "specFilePath": ".agent/tasks/performance/TASK-046.json",
+    "passes": false
+  },
+  {
+    "id": "TASK-047",
+    "title": "tests/perf/ suite enforcing performance budgets",
+    "category": "functional",
+    "specFilePath": ".agent/tasks/performance/TASK-047.json",
+    "passes": false
+  },
+  {
+    "id": "TASK-048",
+    "title": "pytest -m perf marker + local 'make perf' target",
+    "category": "documentation",
+    "specFilePath": ".agent/tasks/performance/TASK-048.json",
+    "passes": false
+  },
+  {
+    "id": "TASK-049",
+    "title": "Frontend _perf helper with mark / measure",
+    "category": "ui-ux",
+    "specFilePath": ".agent/tasks/performance/TASK-049.json",
+    "passes": false
+  },
+  {
+    "id": "TASK-050",
+    "title": "Frontend perf marks around library load, filter, sort, virtualized render, audio load",
+    "category": "ui-ux",
+    "specFilePath": ".agent/tasks/performance/TASK-050.json",
+    "passes": false
+  }
+]

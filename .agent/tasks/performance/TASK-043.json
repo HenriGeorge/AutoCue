@@ -1,0 +1,43 @@
+{
+  "id": "TASK-043",
+  "title": "Per-track error isolation across producer/consumer",
+  "category": "functional",
+  "description": "A per-track exception in either compute or writer must not abort the stream. Compute exceptions forwarded as (content_id, None, error); writer emits error event and continues. Mirrors the existing 'one bad row never aborts' contract.",
+  "acceptanceCriteria": [
+    "Future.exception() captured in compute and packaged into the queue as (content_id, None, exc).",
+    "Writer detects err is not None and emits {error: str, content_id} SSE event; does not rollback or stop.",
+    "DB transaction for the failed track is properly rolled back (the writer's per-track try/except handles this).",
+    "tests/test_concurrency.py: inject 50 tracks with 5 raising; assert 45 success events + 5 error events; assert stream completes with {done:true, processed: 45, errors: 5}.",
+    "Logged errors include stack traces (logger.exception not logger.error)."
+  ],
+  "steps": [
+    {
+      "step": 1,
+      "description": "Capture compute exceptions",
+      "details": "In _compute_stage's as_completed loop: try: result = future.result() except Exception as e: queue.put((content_id_for(future), None, e)) continue. Use a dict {future: content_id} populated at submission time.",
+      "pass": false
+    },
+    {
+      "step": 2,
+      "description": "Writer-side handler",
+      "details": "After queue.get(): content_id, cues, err = item. If err: emit {content_id, error: str(err)}; logger.exception('compute failed for %d', content_id); continue. Don't commit, don't increment processed.",
+      "pass": false
+    },
+    {
+      "step": 3,
+      "description": "Writer-side write failure",
+      "details": "Per existing CLAUDE.md semantics: try: write+commit except Exception as e: db.rollback() emit error event continue. Writer is the only one calling commit/rollback.",
+      "pass": false
+    },
+    {
+      "step": 4,
+      "description": "Tests",
+      "details": "tests/test_concurrency.py + tests/test_serve_routes.py: mock 50 tracks where 5 raise in compute and 3 raise in write; assert 42 success + 8 error events; assert stream completes; assert no thread alive after."
+    }
+  ],
+  "dependencies": ["TASK-039", "TASK-040", "TASK-041", "TASK-042"],
+  "estimatedComplexity": "low",
+  "technicalNotes": [
+    "logger.exception in __init__ logger config prints stack to stderr; production users (autocue serve) see it; in tests, capture via caplog."
+  ]
+}

@@ -1,0 +1,49 @@
+{
+  "id": "TASK-037",
+  "title": "Preserve sticky filter bar + footer action bar layout under virtualization",
+  "category": "ui-ux",
+  "description": "Virtualization happens inside #track-list. Surrounding sticky elements (#tracks-sticky filter bar at top, #action-bar at bottom) must continue to behave correctly. The container that scrolls is the list, not the page.",
+  "acceptanceCriteria": [
+    "Sticky filter bar (#tracks-sticky position:sticky) still pins at top during scroll.",
+    "Action bar (#action-bar position:fixed bottom:0) still slides in on selection.",
+    "Mini player + audio probe banner are unaffected.",
+    "Verified in browser using playwright: sticky behavior intact, action bar fires on multi-select, no visual jank.",
+    "Vitest test covers AppState selection signaling -> action bar visibility transitions."
+  ],
+  "steps": [
+    {
+      "step": 1,
+      "description": "Identify the scroll container",
+      "details": "Currently document/window scrolls. With virtualization, #track-list (or a wrapping #track-list-scroll element) must have overflow-y: auto + max-height to be the scroll source. Add the wrapper if needed.",
+      "pass": false
+    },
+    {
+      "step": 2,
+      "description": "Sticky bar position update",
+      "details": "If the scroll source changes (page -> container), #tracks-sticky's 'sticky' anchor must be relative to the container. Use position: sticky; top: 0 inside the container.",
+      "pass": false
+    },
+    {
+      "step": 3,
+      "description": "Preserve shadow-on-scroll",
+      "details": "Per CLAUDE.md, IntersectionObserver on a sentinel div toggles .shadowed on the sticky bar. Sentinel must be inside the new scroll container.",
+      "pass": false
+    },
+    {
+      "step": 4,
+      "description": "Verify action bar",
+      "details": "Action bar is fixed to viewport (position: fixed) - unaffected by scroll container changes. Confirm body.has-action-bar still toggles correctly.",
+      "pass": false
+    },
+    {
+      "step": 5,
+      "description": "Tests",
+      "details": "tests/e2e/qa-smoke.spec.ts: scroll #track-list; assert filter bar stays at top (boundingClientRect.top === 0); assert .shadowed class toggles."
+    }
+  ],
+  "dependencies": ["TASK-031"],
+  "estimatedComplexity": "medium",
+  "technicalNotes": [
+    "If page-level scroll is preserved (no inner scroll container), virtualization still works but the math uses window.scrollY + getBoundingClientRect for the track list. Slightly more complex; document the choice."
+  ]
+}

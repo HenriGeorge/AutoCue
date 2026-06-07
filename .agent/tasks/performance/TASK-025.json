@@ -1,0 +1,44 @@
+{
+  "id": "TASK-025",
+  "title": "Optional NDJSON streaming response for /api/tracks",
+  "category": "api-endpoint",
+  "description": "When the client sends Accept: application/x-ndjson, stream rows incrementally so the UI can render as data arrives. Default JSON-list response preserved for autocue-qa Playwright back-compat.",
+  "acceptanceCriteria": [
+    "Accept: application/json -> existing JSON list response (default).",
+    "Accept: application/x-ndjson -> StreamingResponse with one JSON object per line.",
+    "Frontend can render first ~50 cards within 200ms of request start (perceived faster paint).",
+    "tests/test_serve_routes.py covers both content types.",
+    "ETag (TASK-023) is still emitted for the NDJSON variant; 304 path returns empty body."
+  ],
+  "steps": [
+    {
+      "step": 1,
+      "description": "Detect Accept header",
+      "details": "if 'application/x-ndjson' in request.headers.get('accept', ''): return ndjson_response() else return list_response().",
+      "pass": false
+    },
+    {
+      "step": 2,
+      "description": "ndjson_response generator",
+      "details": "async def stream(): for item in payload: yield (json.dumps(item) + '\\n').encode('utf-8'). Return StreamingResponse(stream(), media_type='application/x-ndjson').",
+      "pass": false
+    },
+    {
+      "step": 3,
+      "description": "Frontend NDJSON consumer",
+      "details": "docs/index.html: extend _consumeSSE pattern (the existing fetch + ReadableStream reader) to parse NDJSON. Each newline = one TrackItem. Push into parsedTracks and signal AppState 'tracks' for incremental render.",
+      "pass": false
+    },
+    {
+      "step": 4,
+      "description": "Tests",
+      "details": "tests/test_serve_routes.py: request Accept: application/x-ndjson; assert response.headers['content-type'] starts with 'application/x-ndjson'; parse lines; assert track count matches. Vitest: stub the streaming fetch and assert incremental renders fire."
+    }
+  ],
+  "dependencies": ["TASK-021", "TASK-022", "TASK-023"],
+  "estimatedComplexity": "medium",
+  "technicalNotes": [
+    "Per CLAUDE.md SSE consumption: 'New SSE-driven UI should reuse _consumeSSE rather than re-inlining the reader loop.' NDJSON is similar to SSE but framed by '\\n' not 'data: ... \\n\\n'. Share the underlying reader; just swap the framer.",
+    "Don't break the GZipMiddleware path - NDJSON should still compress (minimum_size=1000 will skip small responses, but full library payloads are huge)."
+  ]
+}

@@ -1,0 +1,77 @@
+{
+  "id": "TASK-010",
+  "title": "Create autocue/cache.py with CacheStore SQLite sidecar",
+  "category": "data-model",
+  "description": "Introduce a plain-SQLite sidecar at <rekordbox_dir>/autocue_cache.sqlite to memoize analysis results across autocue serve runs. This module owns the connection lifecycle and exposes a typed API for the analysis modules in TASK-013..016.",
+  "acceptanceCriteria": [
+    "autocue/cache.py exists and exports class CacheStore with methods: open(rekordbox_dir), close(), get_energy_curve / put_energy_curve, get_classification / put_classification, get_similarity_vector / put_similarity_vector, get_mixability / put_mixability, get_tracks_snapshot / put_tracks_snapshot, invalidate_all(), invalidate_track(content_id).",
+    "Cache file is created on first open() if missing; existing file is opened if present.",
+    "Cache file is NOT encrypted (plain SQLite) - never holds Rekordbox credentials, audio, or Discogs tokens.",
+    "Schema is initialized in a single transaction on first open(); is idempotent on subsequent opens.",
+    "All public methods are thread-safe (use a single connection per CacheStore + an internal threading.Lock OR pass check_same_thread=False with WAL mode + serialized SQL).",
+    "Closing the CacheStore commits + closes the connection cleanly."
+  ],
+  "steps": [
+    {
+      "step": 1,
+      "description": "Module skeleton",
+      "details": "Create autocue/cache.py. Imports: sqlite3, os, struct, gzip, threading, json, time. Constants: SCHEMA_VERSION = 1; CACHE_FILENAME = 'autocue_cache.sqlite'. Class CacheStore with __init__(self, path: str): self._path = path; self._conn = None; self._lock = threading.Lock().",
+      "pass": false
+    },
+    {
+      "step": 2,
+      "description": "open(rekordbox_dir) class method",
+      "details": "Static method open_for(rekordbox_dir: str) -> CacheStore. Resolves path = os.path.join(rekordbox_dir, CACHE_FILENAME). Returns CacheStore(path) with self._conn = sqlite3.connect(path, check_same_thread=False, isolation_level=None) + PRAGMA journal_mode=WAL + PRAGMA synchronous=NORMAL + PRAGMA foreign_keys=ON. Calls self._init_schema().",
+      "pass": false
+    },
+    {
+      "step": 3,
+      "description": "_init_schema()",
+      "details": "Wrap in self._lock + BEGIN/COMMIT. Run CREATE TABLE IF NOT EXISTS for all 6 tables per the PRD schema (meta, energy_curve, classification, similarity_vector, mixability, tracks_snapshot). Run CREATE INDEX IF NOT EXISTS for idx_energy_mtime and idx_class_mtime. INSERT OR IGNORE INTO meta(key, value) VALUES ('schema_version', '1'). Check existing schema_version vs SCHEMA_VERSION; if mismatch, DROP and recreate (no migrations in v1).",
+      "pass": false
+    },
+    {
+      "step": 4,
+      "description": "Typed getter/setter for energy_curve",
+      "details": "get_energy_curve(content_id) -> tuple[curve: list[float], n_points: int, anlz_mtime: float] | None. Reads row; unpacks struct.unpack(f'{n_points}f', blob). put_energy_curve(content_id, curve, anlz_mtime): packs struct.pack(f'{len(curve)}f', *curve), INSERT OR REPLACE INTO energy_curve VALUES (?,?,?,?).",
+      "pass": false
+    },
+    {
+      "step": 5,
+      "description": "Typed getter/setter for classification, similarity_vector, mixability",
+      "details": "Mirror the pattern. classification: JSON-encode scores dict for scores_json. similarity_vector: struct.pack('6f', *vec); on read, struct.unpack('6f', blob) -> tuple of 6 floats. mixability: JSON-encode components.",
+      "pass": false
+    },
+    {
+      "step": 6,
+      "description": "Tracks snapshot getter/setter",
+      "details": "get_tracks_snapshot(master_db_mtime) -> bytes | None (gzipped JSON). put_tracks_snapshot(master_db_mtime, payload: bytes): DELETE FROM tracks_snapshot (keep only the latest); INSERT.",
+      "pass": false
+    },
+    {
+      "step": 7,
+      "description": "invalidate_all() and invalidate_track(content_id)",
+      "details": "invalidate_all(): DELETE FROM each of the 5 per-track tables + tracks_snapshot. Reset meta master_db_mtime. invalidate_track(content_id): DELETE FROM each per-track table WHERE content_id = ?. Each wrapped in self._lock.",
+      "pass": false
+    },
+    {
+      "step": 8,
+      "description": "close()",
+      "details": "self._conn.commit(); self._conn.close(); self._conn = None. Guarded by self._lock.",
+      "pass": false
+    },
+    {
+      "step": 9,
+      "description": "Tests in tests/test_cache.py",
+      "details": "Cover: open creates file; reopen reuses file; schema_version round-trip; energy_curve roundtrip preserves float precision (assert allclose with atol=1e-6); invalidate_track removes the row; invalidate_all clears every table; close is idempotent.",
+      "pass": false
+    }
+  ],
+  "dependencies": [],
+  "estimatedComplexity": "medium",
+  "technicalNotes": [
+    "WAL mode (journal_mode=WAL) lets readers continue while a writer commits - critical because the pre-warm pipeline (TASK-027) writes to cache while request handlers read.",
+    "check_same_thread=False is intentional - the threading.Lock serializes access; sqlite3 raises if you don't disable check_same_thread when sharing a connection.",
+    "DO NOT use SQLCipher - the cache contains no secrets; encryption would force a new dependency and add startup cost."
+  ]
+}

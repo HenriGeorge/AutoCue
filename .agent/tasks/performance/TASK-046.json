@@ -1,0 +1,46 @@
+{
+  "id": "TASK-046",
+  "title": "Add perf_span timing to all SSE endpoints + key sync handlers",
+  "category": "functional",
+  "description": "Sprinkle perf_span() context managers across hot paths: /api/tracks (snapshot vs build), all 6 SSE endpoints (per-track inner span + outer total span), and CacheStore.get_* methods (cold vs warm).",
+  "acceptanceCriteria": [
+    "perf_span('tracks.build') wraps the snapshot rebuild path in /api/tracks.",
+    "perf_span('tracks.cached') wraps the cached return path.",
+    "Each SSE endpoint has perf_span('<endpoint>.compute') around the parallel compute call and perf_span('<endpoint>.write') around the writer commit.",
+    "CacheStore.get_* methods have perf_span('cache.<table>.hit') / 'miss' around their dispatch logic.",
+    "Sampled at 1-in-10 by default (AUTOCUE_PERF_SAMPLE_RATE=0.1).",
+    "Overhead when disabled is unmeasurable (<1us per span).",
+    "tests/test_perf.py asserts spans accumulate when AUTOCUE_PERF=1."
+  ],
+  "steps": [
+    {
+      "step": 1,
+      "description": "Wrap /api/tracks paths",
+      "details": "with perf_span('tracks.build'): build_payload(); with perf_span('tracks.cached'): return payload.",
+      "pass": false
+    },
+    {
+      "step": 2,
+      "description": "Wrap SSE compute/write stages",
+      "details": "_compute_stage outer: with perf_span(f'{endpoint}.compute'): ...; _writer_stage per-track inner: with perf_span(f'{endpoint}.write_one'): commit.",
+      "pass": false
+    },
+    {
+      "step": 3,
+      "description": "Wrap CacheStore.get_* dispatch",
+      "details": "In each get_* method: name = 'cache.energy.hit' if row matches else 'cache.energy.miss'; with perf_span(name): ... .",
+      "pass": false
+    },
+    {
+      "step": 4,
+      "description": "Tests",
+      "details": "tests/test_perf.py: enable + drive each endpoint with 10 tracks; query get_stats for each span name; assert count > 0 and durations are reasonable."
+    }
+  ],
+  "dependencies": ["TASK-044"],
+  "estimatedComplexity": "medium",
+  "technicalNotes": [
+    "Don't span inside tight inner loops (per-array-element) - reserve for per-track and per-request boundaries.",
+    "Names should follow 'subsystem.operation.outcome' for easy aggregation."
+  ]
+}

@@ -1,0 +1,44 @@
+{
+  "id": "TASK-026",
+  "title": "Invalidate tracks_snapshot on every DB-mutating endpoint",
+  "category": "api-endpoint",
+  "description": "Any endpoint that writes to master.db must set app.state.tracks_snapshot = None so the next read rebuilds. Covers: /api/apply, /api/restore, /api/auto-tag (multi-type + Discogs), /api/enrich-comments, /api/color-tracks, /api/playlists (create), /api/delete-cues, /api/generate-apply-stream (writes), /api/auto-tag/undo, /api/enrich-comments/undo.",
+  "acceptanceCriteria": [
+    "Every DB-mutating handler ends with a snapshot-invalidation call.",
+    "Helper autocue.serve.routes._invalidate_tracks_snapshot(app) centralizes the call.",
+    "After any of the above endpoints succeeds, the next /api/tracks call rebuilds the snapshot.",
+    "tests/test_serve_routes.py adds a parameterized test: for each mutating endpoint, run it, then /api/tracks; assert the snapshot was rebuilt (e.g., via a counter on the build function).",
+    "ETag changes after a mutation because master.db mtime changes."
+  ],
+  "steps": [
+    {
+      "step": 1,
+      "description": "Centralize the invalidation helper",
+      "details": "serve/routes.py: def _invalidate_tracks_snapshot(app): with app.state.tracks_snapshot_lock: app.state.tracks_snapshot = None.",
+      "pass": false
+    },
+    {
+      "step": 2,
+      "description": "Wire into each mutating endpoint",
+      "details": "Add the call at the END of each mutating handler (after db.commit and any SSE final event). Specifically in: apply_route, generate_apply_stream_route, delete_cues_route, color_tracks_route, color_tracks_stream_route, restore_route, auto_tag_route, auto_tag_undo_route, auto_tag_discogs_route, enrich_comments_route, enrich_comments_stream_route, enrich_comments_undo_route, playlists_create_route.",
+      "pass": false
+    },
+    {
+      "step": 3,
+      "description": "Mtime touch on stream endpoints",
+      "details": "SSE streaming endpoints commit per-track. The master.db mtime updates with each commit, so the snapshot is invalidated implicitly by mtime comparison on the next /api/tracks. But we still call _invalidate_tracks_snapshot() at the END so callers don't see a stale in-memory snapshot for the duration of the stream.",
+      "pass": false
+    },
+    {
+      "step": 4,
+      "description": "Tests",
+      "details": "tests/test_serve_routes.py: parameterize over the 12+ endpoints; for each: GET /api/tracks (warm), invoke endpoint, GET /api/tracks (asserts a fresh build via spy on the build function)."
+    }
+  ],
+  "dependencies": ["TASK-021"],
+  "estimatedComplexity": "low",
+  "technicalNotes": [
+    "Don't forget the SSE endpoints - the FINAL {done:true} event handler is the natural place for the invalidation call.",
+    "If a future writer endpoint is added, the parameterized test in step 4 acts as a forcing function: it iterates a route registry; new mutating routes must be added to the registry."
+  ]
+}

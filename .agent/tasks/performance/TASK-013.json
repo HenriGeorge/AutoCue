@@ -1,0 +1,51 @@
+{
+  "id": "TASK-013",
+  "title": "Wire energy.get_energy_curve through CacheStore (L2)",
+  "category": "functional",
+  "description": "Layer the sidecar cache underneath the existing in-process energy._cache. Reads check L1 (in-process), then L2 (CacheStore), then compute. Writes populate both. Existing _cache stays as a thin LRU.",
+  "acceptanceCriteria": [
+    "analysis/energy.py:get_energy_curve(content, db, n_points=50) returns identical values to v0 on cache miss; same values on warm cache.",
+    "Warm-cache call latency < 1 ms (no ANLZ parse).",
+    "Cold-cache call still parses ANLZ and populates CacheStore.",
+    "ANLZ-missing tracks return None and store the -1 sentinel - subsequent calls also return None without re-reading.",
+    "tests/test_energy.py adds cases for L2 hit, L1 hit, miss-and-populate, and missing-ANLZ sentinel.",
+    "conftest autouse fixture clears both energy._cache AND CacheStore between tests (so cached results don't leak across cases)."
+  ],
+  "steps": [
+    {
+      "step": 1,
+      "description": "Pass CacheStore into energy module",
+      "details": "Add a module-level _cache_store: CacheStore | None = None. Provide energy.set_cache_store(store) called from serve/deps.py lifespan after CacheStore is opened.",
+      "pass": false
+    },
+    {
+      "step": 2,
+      "description": "Rewrite get_energy_curve",
+      "details": "Order: (1) check _cache (L1) by (content.ID, n_points) - return on hit; (2) if _cache_store, get expected_anlz_mtime = get_anlz_mtime(content, db); call _cache_store.get_energy_curve(content.ID, expected_anlz_mtime) - if data: populate L1 and return; if MISSING sentinel: populate L1 with None and return None; (3) compute curve via existing ANLZ parse; (4) write to L1 and L2 (with anlz_mtime).",
+      "pass": false
+    },
+    {
+      "step": 3,
+      "description": "Per-curve-length keying",
+      "details": "CLAUDE.md notes energy._cache is keyed by (content.ID, n_points). The CacheStore.energy_curve table stores n_points and the full BLOB. Reader checks: if cached n_points == requested n_points, return; else recompute (rare - only when callers explicitly ask for non-default).",
+      "pass": false
+    },
+    {
+      "step": 4,
+      "description": "Tests",
+      "details": "tests/test_energy.py: (a) miss-and-populate writes to both L1 and L2 (assert CacheStore row exists); (b) L1 hit short-circuits (no DB read); (c) L2 hit populates L1 (assert L1 dict updates); (d) sentinel after first None result causes subsequent calls to return None without ANLZ access (use mock to assert read_anlz_file is not re-invoked).",
+      "pass": false
+    },
+    {
+      "step": 5,
+      "description": "conftest update",
+      "details": "tests/conftest.py: extend the autouse fixture to also clear CacheStore. For unit tests use an in-memory CacheStore (sqlite3.connect(':memory:')) bound to energy via set_cache_store. Reset between tests by closing + reopening."
+    }
+  ],
+  "dependencies": ["TASK-010", "TASK-011", "TASK-012"],
+  "estimatedComplexity": "medium",
+  "technicalNotes": [
+    "energy._cache is the existing LRU. After this task it's an L1 cache (small, hot). Sidecar is L2 (large, durable).",
+    "If energy.set_cache_store is never called (e.g., in unit tests that don't use CacheStore), get_energy_curve falls back to L1+compute - no breakage."
+  ]
+}

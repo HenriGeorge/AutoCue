@@ -1,0 +1,66 @@
+{
+  "id": "TASK-002",
+  "title": "Refactor /api/generate-apply-stream to parallel compute + single writer",
+  "category": "api-endpoint",
+  "description": "Replace the serial per-track loop in /api/generate-apply-stream with a producer/consumer pattern: the shared ThreadPool (TASK-001) computes phrase/bar/heuristic cues in parallel; a single writer thread commits to DjmdCue and emits SSE progress events. Preserves the single-writer rule for master.db.",
+  "acceptanceCriteria": [
+    "POST /api/generate-apply-stream still streams text/event-stream with the existing event shape ({processed, total, ...}, then {done:true, ...}).",
+    "On a sandbox 3k-track library, sustained throughput is >=50 tracks/sec (currently ~5 tracks/sec).",
+    "A per-track exception is reported as an SSE error event for that track-id and the stream continues.",
+    "Client disconnect mid-stream cancels the compute stage and stops the writer after the current track commits.",
+    "Existing tests/test_serve_routes.py cases for this endpoint still pass; new test verifies completion order and cancellation.",
+    "Rekordbox-running guard still fires before any work starts."
+  ],
+  "steps": [
+    {
+      "step": 1,
+      "description": "Extract the per-track compute path",
+      "details": "In serve/routes.py, factor the body of the existing loop into _compute_cues_for_track(content, prefs, db_reader) returning (content_id, cues_list, error_or_none). The compute path must not touch the DB write session-pyrekordbox read calls only.",
+      "pass": false
+    },
+    {
+      "step": 2,
+      "description": "Wire ThreadPool fanout",
+      "details": "Use get_pool() from TASK-001. Submit one future per content_id via pool.submit(_compute_cues_for_track, content, prefs, db). Feed results into a queue.Queue(maxsize=2*pool_size()) as they complete via concurrent.futures.as_completed().",
+      "pass": false
+    },
+    {
+      "step": 3,
+      "description": "Add a single writer thread",
+      "details": "Spawn one threading.Thread(target=_writer, args=(queue, db, send_event)). The writer drains the queue, for each (content_id, cues, err): if err -> emit error event; else open per-track transaction on db, write CuePoints to DjmdCue (existing helper), commit, emit progress event. Increment a monotonic 'processed' counter. When queue receives a sentinel None, drain stops and writer exits.",
+      "pass": false
+    },
+    {
+      "step": 4,
+      "description": "Wire cancellation",
+      "details": "Create a threading.Event called cancel_event. Background poll await request.is_disconnected() every 200ms; on disconnect set cancel_event. Both stages check cancel_event between iterations. Compute stops submitting more work; writer flushes current track then exits. Final SSE event {done:true, cancelled:true, processed:N} is emitted unless the connection is already gone.",
+      "pass": false
+    },
+    {
+      "step": 5,
+      "description": "Update existing tests",
+      "details": "tests/test_serve_routes.py: the streamed events may arrive in any content-completion order now. Update assertions that previously expected input order to assert on (a) total count, (b) set equality of content_ids, (c) monotonic processed counter. Add a new test asserting that submitting 50 mock tracks with one that raises results in 49 progress events + 1 error event.",
+      "pass": false
+    },
+    {
+      "step": 6,
+      "description": "Add cancellation test",
+      "details": "New test in tests/test_serve_routes.py: open the SSE stream with httpx, read 5 events, close the connection, then assert that the writer thread exits within 500ms by checking thread.is_alive() after a brief sleep.",
+      "pass": false
+    },
+    {
+      "step": 7,
+      "description": "Benchmark on 3k sandbox",
+      "details": "Run RUN_PERF=1 pytest tests/perf/test_generate_apply.py (created in TASK-047). Confirm sustained throughput >=50 tracks/sec. If below, profile with py-spy to find the bottleneck (likely the writer commit cadence) and consider batching commits in groups of 10 inside a single transaction.",
+      "pass": false
+    }
+  ],
+  "dependencies": ["TASK-001", "TASK-008"],
+  "estimatedComplexity": "high",
+  "technicalNotes": [
+    "Pyrekordbox's DjmdCue write path requires db.generate_unused_id(DjmdCue), UUID, ContentUUID, InFrame, OutMsec=-1 - see CLAUDE.md DjmdCue notes. Don't refactor the cue insert path; only parallelize the cue *computation* path.",
+    "Per-track commit is intentional - one bad track must not roll back the batch. Do not batch commits unless throughput target is missed.",
+    "SQLite's WAL mode permits parallel readers + 1 writer. The writer thread must use the same db._engine that the request handler holds.",
+    "is_disconnected() needs asyncio integration; use asyncio.create_task(_poll_disconnect()) inside the SSE generator and bridge to the threading.Event."
+  ]
+}

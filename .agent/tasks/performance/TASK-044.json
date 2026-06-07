@@ -1,0 +1,45 @@
+{
+  "id": "TASK-044",
+  "title": "autocue/perf.py with perf_span context manager + ring buffer",
+  "category": "functional",
+  "description": "Lightweight in-process performance instrumentation. perf_span(name) records start/stop wall-clock; results stream into a fixed-size ring buffer. Used by all SSE endpoints (TASK-046) to capture per-request latency.",
+  "acceptanceCriteria": [
+    "autocue/perf.py exports perf_span(name) context manager.",
+    "Module maintains a ring buffer of last 1000 (name, start_ts, duration_ms) tuples.",
+    "perf_span is a no-op when AUTOCUE_PERF env var is unset (zero overhead path).",
+    "When AUTOCUE_PERF=1, samples 100% of spans; AUTOCUE_PERF_SAMPLE_RATE=0.1 samples 10%.",
+    "Tests in tests/test_perf.py cover: enable/disable, sampling rate, ring buffer eviction.",
+    "Span records p50/p95/p99 helpers: get_stats(name) -> {count, p50, p95, p99}."
+  ],
+  "steps": [
+    {
+      "step": 1,
+      "description": "Module skeleton",
+      "details": "autocue/perf.py: imports time, os, threading, collections.deque, random. Module-level _enabled = os.environ.get('AUTOCUE_PERF', '0') == '1'; _sample_rate = float(os.environ.get('AUTOCUE_PERF_SAMPLE_RATE', '1.0')); _buffer = deque(maxlen=1000); _lock = threading.Lock().",
+      "pass": false
+    },
+    {
+      "step": 2,
+      "description": "perf_span context manager",
+      "details": "@contextmanager def perf_span(name): if not _enabled or random.random() > _sample_rate: yield; return. start = time.perf_counter(); yield; dur = (time.perf_counter() - start) * 1000; with _lock: _buffer.append((name, start, dur)).",
+      "pass": false
+    },
+    {
+      "step": 3,
+      "description": "get_stats(name)",
+      "details": "Filter _buffer by name; compute p50/p95/p99 from durations using statistics.quantiles or numpy.percentile. Return {count, p50, p95, p99} or None if no samples.",
+      "pass": false
+    },
+    {
+      "step": 4,
+      "description": "Tests",
+      "details": "tests/test_perf.py: enable_perf monkeypatches _enabled = True; spans capture into buffer; get_stats returns correct percentiles; buffer evicts at >1000 entries."
+    }
+  ],
+  "dependencies": [],
+  "estimatedComplexity": "low",
+  "technicalNotes": [
+    "time.perf_counter is monotonic + high-resolution - the right choice over time.time.",
+    "The 'zero overhead when disabled' branch is critical - perf_span will be sprinkled across hot paths."
+  ]
+}

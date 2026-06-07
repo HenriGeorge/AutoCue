@@ -1,0 +1,37 @@
+{
+  "id": "TASK-040",
+  "title": "Bounded queue.Queue(maxsize=2*pool_size) between compute and writer",
+  "category": "functional",
+  "description": "Add backpressure so the compute stage doesn't outrun the writer. queue.Queue(maxsize=2*pool_size()) caps memory; producer blocks on put() when full.",
+  "acceptanceCriteria": [
+    "The queue between _compute_stage and _writer_stage is queue.Queue(maxsize=2 * pool_size()).",
+    "Memory growth during a 10k-track apply is bounded (queue holds at most ~16 results).",
+    "Throughput is not capped below 50 tracks/sec (queue is large enough to overlap compute + write).",
+    "tests/test_concurrency.py adds a test that producer blocks when queue is full + unblocks when writer drains."
+  ],
+  "steps": [
+    {
+      "step": 1,
+      "description": "Compute pool_size at request time",
+      "details": "queue_capacity = 2 * pool_size() (from TASK-001). For a default pool of 8, queue holds 16 results.",
+      "pass": false
+    },
+    {
+      "step": 2,
+      "description": "Backpressure on put",
+      "details": "_compute_stage uses queue.put(result, block=True, timeout=10). On timeout (writer hung), log warning + check cancel_event + retry. Don't drop results.",
+      "pass": false
+    },
+    {
+      "step": 3,
+      "description": "Test backpressure",
+      "details": "tests/test_concurrency.py: make writer artificially slow (sleep 100ms per get); push 100 results via _compute_stage; assert queue.qsize() <= maxsize at all times."
+    }
+  ],
+  "dependencies": ["TASK-039"],
+  "estimatedComplexity": "low",
+  "technicalNotes": [
+    "Without bounded queue, a fast compute + slow writer would buffer all 10k results in memory.",
+    "10s timeout on put: if writer is stuck, we'd rather log than silently overflow."
+  ]
+}

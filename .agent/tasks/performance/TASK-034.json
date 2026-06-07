@@ -1,0 +1,49 @@
+{
+  "id": "TASK-034",
+  "title": "filteredTracks() returns indices into parsedTracks (not full objects)",
+  "category": "ui-ux",
+  "description": "Decouple filter from render: filteredTracks() returns Int32Array of indices into parsedTracks. Virtualizer renders by index. Filter recompute = O(library) predicate pass; DOM update = O(viewport).",
+  "acceptanceCriteria": [
+    "filteredTracks() returns Int32Array (or number[]) of indices, sorted per current sort.",
+    "Existing call sites (rendering, batch ops, write endpoints) updated to dereference via parsedTracks[i].",
+    "Vitest test in tests/web/ui-logic.test.js asserts filteredTracks returns indices and that parsedTracks[i] matches the expected sorted result.",
+    "All write op call sites use filteredTracks indices to derive content_ids (per CLAUDE.md: 'All write operations use filteredTracks() - not parsedTracks directly').",
+    "parsedTracks is never mutated by filters."
+  ],
+  "steps": [
+    {
+      "step": 1,
+      "description": "Rewrite filteredTracks signature",
+      "details": "Return Int32Array of indices. Internally: build the predicate (existing search/phrase/rating/plays/last-played/My-Tag filter logic) and iterate parsedTracks, pushing matching indices.",
+      "pass": false
+    },
+    {
+      "step": 2,
+      "description": "Apply current sort",
+      "details": "After collecting indices, sort them by the current sort key: indices.sort((a, b) => compareSortValue(parsedTracks[a], parsedTracks[b], currentSort)). Use camelotSortKey for key sort (per CLAUDE.md).",
+      "pass": false
+    },
+    {
+      "step": 3,
+      "description": "Update render call sites",
+      "details": "Virtualizer.update({totalCount: filteredIndices.length}); renderItem(i, node) reads parsedTracks[filteredIndices[i]].",
+      "pass": false
+    },
+    {
+      "step": 4,
+      "description": "Update write op call sites",
+      "details": "Generate / Apply / Color / Auto-tag / Enrich all derive content_ids from filteredIndices.map(i => parsedTracks[i].id). Don't pass raw parsedTracks to the batch APIs.",
+      "pass": false
+    },
+    {
+      "step": 5,
+      "description": "Tests",
+      "details": "tests/web/ui-logic.test.js: existing filteredTracks tests need to update return type. Add a test that filtered indices, when dereferenced, match the expected track objects in expected order."
+    }
+  ],
+  "dependencies": [],
+  "estimatedComplexity": "medium",
+  "technicalNotes": [
+    "Int32Array vs plain array: Int32Array has fixed memory layout (faster iteration); use it when filteredIndices.length > 1000. Below that, plain array works fine."
+  ]
+}

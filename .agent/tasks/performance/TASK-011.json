@@ -1,0 +1,51 @@
+{
+  "id": "TASK-011",
+  "title": "Define and ship the sidecar cache schema (DDL + version metadata)",
+  "category": "data-model",
+  "description": "Formalize the SQLite schema for autocue_cache.sqlite. Schema is created inside TASK-010's _init_schema, but this task pins the DDL, columns, indexes, and version metadata so reviewers can sign off on the storage layout independently of the wiring code.",
+  "acceptanceCriteria": [
+    "Schema file (or constant string in autocue/cache.py) contains all 6 CREATE TABLE statements and 2 CREATE INDEX statements exactly as specified in the PRD §7.",
+    "Schema version stored in meta(key='schema_version', value='1').",
+    "All floating-point fields stored as REAL.",
+    "BLOB packing format is documented inline (struct format strings).",
+    "Schema is documented in CLAUDE.md under the sidecar cache section.",
+    "A schema-dump utility (autocue/cache.py:dump_schema(path) -> str) returns the live CREATE statements for diffing."
+  ],
+  "steps": [
+    {
+      "step": 1,
+      "description": "Lock the DDL constants",
+      "details": "In autocue/cache.py define a module-level constant SCHEMA_DDL: list[str] containing each CREATE TABLE / CREATE INDEX statement verbatim. Tables: meta, energy_curve, classification, similarity_vector, mixability, tracks_snapshot. Indexes: idx_energy_mtime, idx_class_mtime. _init_schema iterates SCHEMA_DDL.",
+      "pass": false
+    },
+    {
+      "step": 2,
+      "description": "Define struct packing constants",
+      "details": "ENERGY_CURVE_PACK_FORMAT = lambda n: f'{n}f'. SIMILARITY_VECTOR_PACK_FORMAT = '6f'. Inline comments in cache.py explain that float32 (NOT float64) is used to keep blob sizes small (~200 bytes per energy curve at n_points=50).",
+      "pass": false
+    },
+    {
+      "step": 3,
+      "description": "dump_schema utility",
+      "details": "dump_schema(cache_path) opens the file, runs SELECT sql FROM sqlite_master WHERE type IN ('table','index'), returns concatenated SQL. Used by tests and for ops.",
+      "pass": false
+    },
+    {
+      "step": 4,
+      "description": "Document in CLAUDE.md",
+      "details": "Add a 'sidecar cache schema' subsection under 'Must-know constraints' (or in a depth file under .claude/project/). Include the DDL block and the BLOB format note.",
+      "pass": false
+    },
+    {
+      "step": 5,
+      "description": "Schema test",
+      "details": "tests/test_cache.py: test_schema_dump_matches_ddl(): open a fresh CacheStore; dump_schema; normalize whitespace; assert each SCHEMA_DDL entry is a substring. Future schema bumps will fail this test until SCHEMA_DDL is updated."
+    }
+  ],
+  "dependencies": ["TASK-010"],
+  "estimatedComplexity": "low",
+  "technicalNotes": [
+    "No migrations in v1. If SCHEMA_VERSION must bump, the open path drops + recreates all tables. Cache is regenerable from ANLZ files, so user impact is one-time warm-up.",
+    "SQLite TEXT/INTEGER/REAL types are dynamic - column types are advisory. Keep them anyway for readability and for tools that introspect schema."
+  ]
+}

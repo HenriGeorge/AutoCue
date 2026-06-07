@@ -1,0 +1,61 @@
+{
+  "id": "TASK-050",
+  "title": "Frontend perf marks around library load, filter, sort, virtualized render, audio load",
+  "category": "ui-ux",
+  "description": "Sprinkle _perf.mark/measure around the hot frontend paths so we can profile in real sessions by setting localStorage.autocue_perf=1.",
+  "acceptanceCriteria": [
+    "Marks around: loadTracksFromServer (library load); filteredTracks recompute; sort change; Virtualizer.render; audio.play setup in mini player.",
+    "Each measure logs under [AutoCue Perf] with a descriptive name and duration.",
+    "Vitest test verifies marks fire when localStorage flag set.",
+    "Verified in browser using playwright: enable flag, load app, assert console.log lines appear with expected names."
+  ],
+  "steps": [
+    {
+      "step": 1,
+      "description": "Library load mark",
+      "details": "loadTracksFromServer: _perf.mark('library-load-start'); ... await fetch + parse ... _perf.measure('library-load', 'library-load-start');",
+      "pass": false
+    },
+    {
+      "step": 2,
+      "description": "Filter recompute mark",
+      "details": "Inside the debounced rIC callback (TASK-036): _perf.mark('filter-start'); const indices = filteredTracks(); _perf.measure('filter-recompute', 'filter-start');",
+      "pass": false
+    },
+    {
+      "step": 3,
+      "description": "Sort change mark",
+      "details": "On sort key change, before re-applying filteredTracks: _perf.mark('sort-start'); ... _perf.measure('sort', 'sort-start');",
+      "pass": false
+    },
+    {
+      "step": 4,
+      "description": "Virtualizer render mark",
+      "details": "Virtualizer._render: _perf.mark('vrender-start'); ... renderItem loop ... _perf.measure('vrender', 'vrender-start');",
+      "pass": false
+    },
+    {
+      "step": 5,
+      "description": "Audio load mark",
+      "details": "Mini player audio setup: _perf.mark('audio-load-start'); audio.src = ...; await audio.canplay; _perf.measure('audio-load', 'audio-load-start');",
+      "pass": false
+    },
+    {
+      "step": 6,
+      "description": "Tests",
+      "details": "tests/web/ui-logic.test.js: stub performance.mark; set localStorage.autocue_perf=1; trigger each marked path; assert mark called with expected names.",
+      "pass": false
+    },
+    {
+      "step": 7,
+      "description": "Verify in browser using playwright",
+      "details": "tests/e2e/qa-smoke.spec.ts: page.evaluate(() => localStorage.setItem('autocue_perf','1')); reload; intercept console.log; assert [AutoCue Perf] library-load, filter-recompute, vrender lines appear."
+    }
+  ],
+  "dependencies": ["TASK-031", "TASK-034", "TASK-036", "TASK-049"],
+  "estimatedComplexity": "low",
+  "technicalNotes": [
+    "Don't mark inside the hot inner loops (per-card render) - measure the whole render pass, not each call to renderItem.",
+    "Mark names should be terse - they're console-logged in real time when enabled."
+  ]
+}

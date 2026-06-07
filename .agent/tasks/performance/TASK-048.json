@@ -1,0 +1,43 @@
+{
+  "id": "TASK-048",
+  "title": "pytest -m perf marker + local 'make perf' target",
+  "category": "documentation",
+  "description": "Enable local benchmark runs via 'pytest -m perf' (or RUN_PERF=1). Document the workflow in CLAUDE.md so devs can run the suite locally before pushing perf-sensitive changes.",
+  "acceptanceCriteria": [
+    "pyproject.toml [tool.pytest.ini_options] markers includes 'perf: gated performance benchmarks (RUN_PERF=1)'.",
+    "conftest.py skips marker=perf tests unless RUN_PERF=1 in env.",
+    "Makefile target 'make perf' wraps RUN_PERF=1 pytest -m perf -v with a summary line.",
+    "CLAUDE.md documents the workflow under 'Development commands'.",
+    "Running pytest without RUN_PERF leaves the 819 existing tests untouched (no slowdown)."
+  ],
+  "steps": [
+    {
+      "step": 1,
+      "description": "pyproject marker registration",
+      "details": "[tool.pytest.ini_options] markers = ['perf: performance benchmark (run with RUN_PERF=1)']. Registers the marker so pytest doesn't warn.",
+      "pass": false
+    },
+    {
+      "step": 2,
+      "description": "conftest skip logic",
+      "details": "Root conftest.py: def pytest_collection_modifyitems(config, items): if os.environ.get('RUN_PERF') != '1': skip = pytest.mark.skip(reason='RUN_PERF not set'); for item in items: if 'perf' in item.keywords: item.add_marker(skip).",
+      "pass": false
+    },
+    {
+      "step": 3,
+      "description": "Makefile target",
+      "details": "Makefile: perf:\\n\\t@RUN_PERF=1 pytest -m perf -v --tb=short. If Makefile doesn't exist, add a one-liner.",
+      "pass": false
+    },
+    {
+      "step": 4,
+      "description": "CLAUDE.md doc",
+      "details": "Add to Development commands: 'make perf  # run gated performance suite (creates 10k sandbox once, cached at tests/perf/_cache_10k.db)'."
+    }
+  ],
+  "dependencies": ["TASK-047"],
+  "estimatedComplexity": "low",
+  "technicalNotes": [
+    "Makefile is optional - many AutoCue contributors use raw pytest. The 'make perf' target is a convenience."
+  ]
+}

@@ -1,0 +1,70 @@
+{
+  "id": "TASK-047",
+  "title": "tests/perf/ suite enforcing performance budgets",
+  "category": "functional",
+  "description": "Gated perf suite that benchmarks /api/tracks, generate-apply, health, classify on a synthetic 10k-track sandbox DB. Fails if any §2 budget regresses by >20%. Run via pytest -m perf or RUN_PERF=1.",
+  "acceptanceCriteria": [
+    "tests/perf/ directory contains: test_tracks_endpoint.py, test_generate_apply.py, test_health_endpoint.py, test_classify.py, test_similar_index.py, test_auto_tag.py, test_enrich.py.",
+    "All tests use pytest.mark.perf and skip by default (gated by RUN_PERF=1).",
+    "10k-track sandbox DB is built via tests/perf/conftest.py fixture (in-memory or temp file).",
+    "Each test asserts against the §2 budget table with a 20% headroom (so test fails on >20% regression but tolerates noise).",
+    "Tests output a summary table on success (timing, throughput).",
+    "GitHub Actions workflow runs perf suite nightly (not on every PR) to detect regressions over time."
+  ],
+  "steps": [
+    {
+      "step": 1,
+      "description": "Synthetic 10k sandbox DB fixture",
+      "details": "tests/perf/conftest.py: fixture build_10k_db() copies the test sandbox + duplicates rows to reach 10k DjmdContent + proportional DjmdSongHistory + DjmdSongMyTag. Cached to tests/perf/_cache_10k.db across runs to avoid rebuilding.",
+      "pass": false
+    },
+    {
+      "step": 2,
+      "description": "tracks endpoint perf test",
+      "details": "tests/perf/test_tracks_endpoint.py: time first call (cold snapshot rebuild) - assert <= 800ms * 1.2; time second call (warm) - assert <= 200ms * 1.2.",
+      "pass": false
+    },
+    {
+      "step": 3,
+      "description": "generate-apply perf test",
+      "details": "tests/perf/test_generate_apply.py: time full 3k-track apply; assert sustained >= 50 tracks/sec * 0.8 (= 40 tracks/sec floor). Also assert no DB lock contention errors.",
+      "pass": false
+    },
+    {
+      "step": 4,
+      "description": "health endpoint perf test",
+      "details": "Similar: assert >= 80 * 0.8 = 64 tracks/sec floor.",
+      "pass": false
+    },
+    {
+      "step": 5,
+      "description": "classify perf tests (cold + warm)",
+      "details": "Cold: empty CacheStore; assert >= 30 * 0.8 = 24/sec. Warm: pre-populate CacheStore; assert >= 500 * 0.8 = 400/sec.",
+      "pass": false
+    },
+    {
+      "step": 6,
+      "description": "similar index build perf",
+      "details": "Cold cache: <= 30s * 1.2 = 36s (initial budget pre-cache). Warm cache: <= 5s * 1.2 = 6s.",
+      "pass": false
+    },
+    {
+      "step": 7,
+      "description": "Reporting",
+      "details": "Pytest plugin or simple conftest hook to collect timings and print a summary table at end-of-session.",
+      "pass": false
+    },
+    {
+      "step": 8,
+      "description": "CI workflow",
+      "details": ".github/workflows/perf.yml: runs nightly on schedule (cron); uses RUN_PERF=1; uploads timing summary as artifact; fails the workflow on budget violation."
+    }
+  ],
+  "dependencies": ["TASK-001", "TASK-002", "TASK-003", "TASK-004", "TASK-005", "TASK-006", "TASK-007", "TASK-021", "TASK-022"],
+  "estimatedComplexity": "high",
+  "technicalNotes": [
+    "Perf tests on shared CI runners are noisy; the 20% headroom + nightly cadence (not PR-blocking) tame this.",
+    "Cached 10k sandbox DB is critical - rebuilding it on every run would itself take ~30s.",
+    "If a PR introduces a true regression > 20%, the nightly job catches it within 24h and creates an issue (or maintainer reviews the run)."
+  ]
+}

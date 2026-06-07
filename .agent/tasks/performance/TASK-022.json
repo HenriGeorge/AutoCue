@@ -1,0 +1,44 @@
+{
+  "id": "TASK-022",
+  "title": "Persist /api/tracks snapshot to CacheStore.tracks_snapshot",
+  "category": "data-model",
+  "description": "Survive autocue serve restarts: the in-memory snapshot from TASK-021 is mirrored to CacheStore.tracks_snapshot as gzipped JSON. Cold-start /api/tracks reads from sidecar instead of rebuilding from DB.",
+  "acceptanceCriteria": [
+    "After TASK-021's build path completes, the payload is gzipped and stored via CacheStore.put_tracks_snapshot(mtime, gzip_bytes).",
+    "Startup hydration: serve/deps.py:lifespan reads CacheStore.get_tracks_snapshot(current_mtime); on hit, populates app.state.tracks_snapshot before the first request arrives.",
+    "Gzip blob size on 10k tracks is < 5MB (compressed JSON).",
+    "tests/test_cache.py + tests/test_serve_routes.py: snapshot survives restart in a fixture that opens, closes, reopens the CacheStore.",
+    "If gzip decompression fails or mtime mismatches at startup, lifespan silently falls through to rebuild (no exception)."
+  ],
+  "steps": [
+    {
+      "step": 1,
+      "description": "put_tracks_snapshot wiring",
+      "details": "After the in-memory store in TASK-021, also: app.state.cache_store.put_tracks_snapshot(current_mtime, gzip.compress(json.dumps(payload).encode('utf-8'))).",
+      "pass": false
+    },
+    {
+      "step": 2,
+      "description": "Lifespan hydration",
+      "details": "serve/deps.py:lifespan after CacheStore.open_for: current_mtime = os.path.getmtime(db._db_dir / 'master.db'); blob = app.state.cache_store.get_tracks_snapshot(current_mtime); if blob: payload = json.loads(gzip.decompress(blob).decode('utf-8')); app.state.tracks_snapshot = {'mtime': current_mtime, 'payload': payload}.",
+      "pass": false
+    },
+    {
+      "step": 3,
+      "description": "Error tolerance",
+      "details": "Wrap step 2 in try/except (json.JSONDecodeError, gzip.BadGzipFile, OSError) -> log a warning, leave app.state.tracks_snapshot = None. Next /api/tracks request rebuilds from DB.",
+      "pass": false
+    },
+    {
+      "step": 4,
+      "description": "Tests",
+      "details": "tests/test_cache.py: put a snapshot, close CacheStore, reopen, get_tracks_snapshot returns the same blob. Mtime mismatch returns None."
+    }
+  ],
+  "dependencies": ["TASK-010", "TASK-021"],
+  "estimatedComplexity": "low",
+  "technicalNotes": [
+    "Single-row table: tracks_snapshot keeps only the latest mtime's payload. Old payloads are deleted on each put.",
+    "gzip level 6 (default) is the right tradeoff - level 9 saves ~5% size for ~3x CPU."
+  ]
+}

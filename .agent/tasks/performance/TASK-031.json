@@ -1,0 +1,65 @@
+{
+  "id": "TASK-031",
+  "title": "Introduce Virtualizer IIFE in docs/index.html",
+  "category": "ui-ux",
+  "description": "Add a vanilla-JS virtualization helper inside docs/index.html. Tracks viewport scroll position; renders only viewport + 5-card buffer above and below. No build step. No external library.",
+  "acceptanceCriteria": [
+    "docs/index.html contains a module-level IIFE 'Virtualizer = (() => { ... })()' inside the existing <script> block.",
+    "Virtualizer.attach(containerEl, {itemHeight, totalCount, renderItem, onWindowChange}) sets up scroll listener + initial render.",
+    "Virtualizer.update({totalCount, scrollToIndex?}) repaints when filter changes.",
+    "Virtualizer.detach() removes listeners and clears state.",
+    "Renders only (visibleEnd - visibleStart + buffer) DOM nodes; off-screen cards are not in the DOM.",
+    "Verified in browser using playwright: scroll 10k tracks at 60 fps via DevTools perf trace.",
+    "Vitest test in tests/web/virtualization.test.js covers attach/update/detach and visible-window correctness."
+  ],
+  "steps": [
+    {
+      "step": 1,
+      "description": "API design",
+      "details": "Virtualizer.attach({container, itemHeight, totalCount, renderItem, onWindowChange}). Internal state: scrollTop, visibleStart, visibleEnd, bufferTop=5, bufferBottom=5. Container's child is a tall spacer div height = totalCount * itemHeight; visible cards are positioned absolutely.",
+      "pass": false
+    },
+    {
+      "step": 2,
+      "description": "Scroll handler",
+      "details": "container.addEventListener('scroll', _onScroll, {passive: true}). _onScroll computes newVisibleStart = Math.floor(scrollTop / itemHeight). If changed by >=1 row, schedule a render via requestAnimationFrame (coalesce multiple scroll events into 1 RAF callback).",
+      "pass": false
+    },
+    {
+      "step": 3,
+      "description": "Render loop",
+      "details": "_render() computes start = max(0, visibleStart - bufferTop), end = min(totalCount, visibleEnd + bufferBottom). Calls renderItem(index, recycledNode) for each. Positions each card via element.style.transform = `translateY(${index * itemHeight}px)` (cheap; avoids reflow).",
+      "pass": false
+    },
+    {
+      "step": 4,
+      "description": "update() for filter changes",
+      "details": "Virtualizer.update({totalCount, scrollToIndex?}). Updates totalCount + spacer height; if scrollToIndex, scrolls to that row; re-renders the visible window.",
+      "pass": false
+    },
+    {
+      "step": 5,
+      "description": "detach()",
+      "details": "Remove scroll listener; clear card pool; reset state. Used on tab switch or library reload.",
+      "pass": false
+    },
+    {
+      "step": 6,
+      "description": "Vitest test",
+      "details": "tests/web/virtualization.test.js: stub a container with explicit scrollTop; assert visible window is correct (start/end indices); assert update() with smaller totalCount removes off-screen cards.",
+      "pass": false
+    },
+    {
+      "step": 7,
+      "description": "Playwright smoke",
+      "details": "tests/e2e/qa-smoke.spec.ts: load app with 10k mock tracks; scroll to bottom; assert document.querySelectorAll('.card').length is bounded (< 100, not 10000); assert no exceptions."
+    }
+  ],
+  "dependencies": [],
+  "estimatedComplexity": "high",
+  "technicalNotes": [
+    "translateY positioning skips layout - critical for 60fps. Don't use top/left.",
+    "passive: true on scroll listener tells the browser the handler won't preventDefault, enabling fast scroll.",
+    "Don't store card-to-content mapping in attributes; use a Map<DOMNode, content_id> kept in Virtualizer state."
+  ]
+}

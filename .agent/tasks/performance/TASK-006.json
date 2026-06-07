@@ -1,0 +1,50 @@
+{
+  "id": "TASK-006",
+  "title": "Refactor /api/enrich-comments/stream to parallel comment building",
+  "category": "api-endpoint",
+  "description": "Fan out comment-string building (analysis/comment.py) through the shared ThreadPool. DjmdContent.Commnt writes stay on a single writer thread; the per-track commit pattern documented in CLAUDE.md is preserved.",
+  "acceptanceCriteria": [
+    "POST /api/enrich-comments/stream produces identical resulting comment strings compared to the v0 serial path on the same library.",
+    "Throughput >= 100 tracks/sec on a 10k library.",
+    "The DB backup is still made once up-front before any writes (no change in safety semantics).",
+    "Per-track exception emits an error event and decrements 'enriched' as before; undo_data still returns {modified: [...]}.",
+    "/api/enrich-comments/undo continues to fully reverse a run."
+  ],
+  "steps": [
+    {
+      "step": 1,
+      "description": "Factor _build_comment_for_track",
+      "details": "In analysis/comment.py pull build_comment_string + the per-track decision logic into _build_comment_for_track(content, db, prefs) returning {content_id, new_comment, previous_comment}.",
+      "pass": false
+    },
+    {
+      "step": 2,
+      "description": "Pool fan-out",
+      "details": "In serve/routes.py /api/enrich-comments/stream handler: backup first (unchanged), then pool.submit _build_comment_for_track per content. Drain results into a queue.Queue.",
+      "pass": false
+    },
+    {
+      "step": 3,
+      "description": "Single writer + per-track commit",
+      "details": "Writer thread: for each result, write DjmdContent.Commnt = new_comment, db.commit(), append {content_id, previous: previous_comment} to undo_data, emit SSE progress event. On per-track exception: rollback that single track, increment errors, decrement enriched (existing semantics).",
+      "pass": false
+    },
+    {
+      "step": 4,
+      "description": "Tests",
+      "details": "Update tests/test_serve_routes.py enrich-comments cases. Add test: 100 tracks, 1 raises - 99 enriched + 1 error, undo restores 99 tracks to their previous comment. Also assert MAX_COMMENT_LEN cap (256) still enforced and user-only-text-over-cap tracks still skipped (no truncation of user text)."
+    },
+    {
+      "step": 5,
+      "description": "Benchmark",
+      "details": "RUN_PERF=1 pytest tests/perf/test_enrich.py - confirm >=100 tracks/sec warm.",
+      "pass": false
+    }
+  ],
+  "dependencies": ["TASK-001", "TASK-002"],
+  "estimatedComplexity": "medium",
+  "technicalNotes": [
+    "The /* AutoCue: ... */ sentinel-block convention must be preserved exactly (idempotent rewrite). String building is pure - safe in any thread.",
+    "User-authored text is never trimmed: when user text alone exceeds MAX_COMMENT_LEN, the writer must skip the track."
+  ]
+}

@@ -1,0 +1,55 @@
+{
+  "id": "TASK-007",
+  "title": "Parallelize similar.py index build (_index_track)",
+  "category": "functional",
+  "description": "The similarity index pre-warm thread iterates every track and computes a 6-dim feature vector serially. Parallelize the per-track feature extraction; keep the index-dict assembly single-threaded behind _INDEX_LOCK.",
+  "acceptanceCriteria": [
+    "On a 10k-track library, cold-start index build completes in <= 5 seconds (currently ~30s).",
+    "After build, similar._INDEX_BUILT is True and find_similar returns identical results to the v0 serial build (deterministic).",
+    "Concurrent calls to clear_index() and find_similar() are safe (lock semantics preserved).",
+    "Existing tests/test_similar.py cases stay green; the conftest similar.clear_index() fixture continues to reset state."
+  ],
+  "steps": [
+    {
+      "step": 1,
+      "description": "Extract feature extraction body",
+      "details": "In analysis/similar.py find _index_track(content, db) and the loop that calls it. Confirm _index_track is read-only (no writes to module state). If not, factor the read part into _extract_features(content, db) returning the 6-dim vector plus classification cache priming data.",
+      "pass": false
+    },
+    {
+      "step": 2,
+      "description": "Pool fan-out for extraction",
+      "details": "In the index-build function (currently the loop), submit pool.futures for _extract_features per content. Collect into a results list as_completed.",
+      "pass": false
+    },
+    {
+      "step": 3,
+      "description": "Single-threaded index assembly",
+      "details": "Acquire _INDEX_LOCK once; populate _INDEX dict from collected results; set _INDEX_BUILT=True; release lock. This serializes all writes to module-global state.",
+      "pass": false
+    },
+    {
+      "step": 4,
+      "description": "Pre-warm classification cache",
+      "details": "Per CLAUDE.md, get_classification() is pre-warmed during _index_track so beam search lookup is O(1). If extraction in step 1 separated this priming out, call it inside the writer (after lock acquisition) so cache writes are also single-threaded. Or use per-thread cache writes if classify._class_cache writes are documented as thread-safe; default to single-threaded to be safe.",
+      "pass": false
+    },
+    {
+      "step": 5,
+      "description": "Tests",
+      "details": "tests/test_similar.py: add a test that builds the index twice (clear in between) and asserts result equality for find_similar(track_id, n=10). Verify no flaky ordering."
+    },
+    {
+      "step": 6,
+      "description": "Benchmark",
+      "details": "RUN_PERF=1 pytest tests/perf/test_similar_index.py. Should reach <=5s on 10k.",
+      "pass": false
+    }
+  ],
+  "dependencies": ["TASK-001", "TASK-008", "TASK-014", "TASK-015"],
+  "estimatedComplexity": "medium",
+  "technicalNotes": [
+    "_INDEX, _INDEX_BUILT, _INDEX_LOCK are module-level; per CLAUDE.md, other modules must check _INDEX_BUILT via 'from . import similar as _similar_mod' to avoid stale copies.",
+    "Once TASK-015 lands, the per-track feature vector comes from the sidecar cache (microseconds) - this task's parallelism is mostly about cold-cache builds."
+  ]
+}
