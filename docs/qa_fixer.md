@@ -22,7 +22,7 @@ a single Workflow script are the entire mechanism.
 flowchart TD
     A[/autocue-fixer invoked/] --> B[Stale marker reap<br/>~/.claude/state/fixer-running > 6h]
     B --> C[Touch marker<br/>.claude/state/fixer-running]
-    C --> D[Invoke Workflow<br/>.claude/workflows/autocue-fixer.ts]
+    C --> D[Invoke Workflow<br/>.claude/workflows/autocue-fixer.js]
 
     D --> E1[Phase 1: Fetch<br/>gh issue list / explicit args]
     E1 --> E2[Phase 2: Dedup<br/>state + PR head + Closes #N]
@@ -288,7 +288,7 @@ Periodic cleanup (~monthly): move resolved artifacts to
 |---|---|
 | Slash command | `.claude/commands/autocue-fixer.md` |
 | Sub-agent prompt | `.claude/agents/autocue-fixer.md` |
-| Workflow script | `.claude/workflows/autocue-fixer.ts` |
+| Workflow script | `.claude/workflows/autocue-fixer.js` |
 | Config | `.claude/fixer.yaml` |
 | Marker file (runtime) | `.claude/state/fixer-running` (gitignored) |
 | Stop hook bypass (optional) | `.claude/hooks/stop_log.py` |
