@@ -1891,10 +1891,34 @@
     .disc-v2-yt-title {
       flex: 1; min-width: 0; overflow: hidden;
       text-overflow: ellipsis; white-space: nowrap;
-      color: var(--text);
+      color: var(--text); font-size: 12px; line-height: 1.3;
     }
     .disc-v2-yt-counter {
-      color: var(--muted); flex-shrink: 0;
+      color: var(--muted); flex-shrink: 0; font-size: 11px;
+    }
+    /* Result-meta strip above the iframe — UX audit Issue 3. Lets the user
+       spot an unrelated audiobook BEFORE pressing play. */
+    .disc-v2-yt-result-meta {
+      display: flex; align-items: center; gap: 8px;
+      padding: 6px 8px; background: var(--surface2);
+      border-bottom: 1px solid var(--border);
+    }
+    .disc-v2-yt-result-text {
+      flex: 1; min-width: 0; overflow: hidden;
+    }
+    .disc-v2-yt-channel {
+      color: var(--muted); font-size: 11px; line-height: 1.3;
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+    .disc-v2-yt-mismatch {
+      color: var(--amber, #c98a00); font-size: 14px; flex-shrink: 0;
+      cursor: help;
+    }
+    /* Failed suggestion chip in the onboarding banner (UX audit Issue 10). */
+    .disc-v2-suggest-failed {
+      border-color: var(--amber, #c98a00) !important;
+      color: var(--amber, #c98a00) !important;
+      cursor: help;
     }
     .disc-v2-yt-placeholder {
       padding: 14px; font-size: 12px; color: var(--muted);
@@ -5135,11 +5159,15 @@ function _renderDiscoverV2Feed() {
           'Configure <code>DISCOGS_TOKEN</code> in <code>.env</code> and restart the server.';
       } else if (s.scanError) {
         const e = s.scanError;
+        // For 'conflict' (409) errors the suggestion isn't "wait for the
+        // other scan" because in practice the lock has usually since cleared
+        // (PR #61 prevents orchestrator-crash leaks). Just nudge the user
+        // to retry — the next click does the right thing.
         emptyMsg.innerHTML =
           '<strong>Couldn’t finish the scan.</strong> ' + _esc(e.message || '') +
-          (e.kind === 'conflict' ? ' Wait for the other scan to finish or cancel it.' : '');
+          (e.kind === 'conflict' ? ' Click Refresh to try again.' : '');
         emptyAction.style.display = '';
-        emptyAction.textContent = e.kind === 'conflict' ? 'Refresh' : 'Retry';
+        emptyAction.textContent = 'Refresh';
         emptyAction.onclick = () => DiscoverV2.runScan();
       } else if (!s.followedLabels.length) {
         emptyMsg.textContent = 'Follow some labels to start seeing releases.';
@@ -5329,6 +5357,12 @@ async function _loadOnboardingSuggestions() {
       chip.style.fontSize = '11px';
       chip.setAttribute('data-suggest-name', sug.name);
       chip.textContent = sug.name;
+      // Tooltip + visible chip text both name the suggestion source so the
+      // user knows WHY a label appears (UX audit M-3 — recognition-over-recall).
+      const tooltip = sug.weight != null
+        ? `Suggested from your library (relevance: ${sug.weight.toFixed(1)})`
+        : 'Suggested from your library';
+      chip.title = tooltip;
       chip.addEventListener('click', async () => {
         chip.disabled = true;
         chip.textContent = '… ' + sug.name;
@@ -5336,8 +5370,15 @@ async function _loadOnboardingSuggestions() {
         if (followed) {
           chip.textContent = '✓ ' + sug.name;
         } else {
-          chip.disabled = false;
-          chip.textContent = sug.name;
+          // UX audit Issue 10: previously the chip silently re-enabled on
+          // failure, hiding the fact that "Add all" only added 8 of 10. Now
+          // we mark unresolved chips with ⚠ + a tooltip explaining the
+          // reason. The chip stays disabled (clicking it would just retry
+          // the same failing search).
+          chip.disabled = true;
+          chip.classList.add('disc-v2-suggest-failed');
+          chip.textContent = '⚠ ' + sug.name;
+          chip.title = `Couldn't find "${sug.name}" on Discogs. The library label name may contain a catalog code or disambiguator.`;
         }
       });
       container.appendChild(chip);
@@ -5770,17 +5811,47 @@ async function _loadYouTubePreview(release) {
     slot.innerHTML = '<div class="disc-v2-yt-placeholder">No YouTube previews found for this release.</div>';
     return;
   }
-  _renderYouTubeCarousel(slot, candidates, 0);
+  _renderYouTubeCarousel(slot, candidates, 0, release);
 }
 
-function _renderYouTubeCarousel(slot, candidates, index) {
+// Cheap mismatch heuristic for UX audit Issue 3: if neither the album nor
+// the artist token appears in the YT result title, mark the result as a
+// likely mismatch so the user notices before clicking play. Tokenizes both
+// sides on whitespace + lowercases, then checks for any 4+ char overlap.
+function _ytLikelyMismatch(ytTitle, expectedArtist, expectedAlbum) {
+  const norm = (s) => String(s || '').toLowerCase().split(/[^a-z0-9]+/).filter(t => t.length >= 4);
+  const haystack = new Set(norm(ytTitle));
+  const needles = [...norm(expectedArtist), ...norm(expectedAlbum)];
+  if (!needles.length || !haystack.size) return false;
+  return !needles.some(n => haystack.has(n));
+}
+
+function _renderYouTubeCarousel(slot, candidates, index, releaseHint) {
   const cur = candidates[index];
   const videoId = _extractYouTubeId(cur.url);
   // rel=0 disables related-video sidebar; do NOT autoplay (avoid alert/dialog
   // analogue and respect user agency).
   const embedUrl = 'https://www.youtube.com/embed/' + encodeURIComponent(videoId) + '?rel=0';
+  // UX audit Issue 3: surface YouTube result title + channel ABOVE the
+  // iframe (not below) so the user spots an unrelated audiobook before
+  // pressing play. Also flag obvious mismatches with a ⚠ icon.
+  const r = releaseHint?.release || {};
+  const expectedArtist = r.artist || '';
+  const expectedAlbum = r.album || r.title || '';
+  const mismatch = _ytLikelyMismatch(cur.title, expectedArtist, expectedAlbum);
+  const mismatchBadge = mismatch
+    ? `<span class="disc-v2-yt-mismatch" title="This result doesn't seem to match the album. Check before downloading." aria-label="Possible mismatch">⚠</span>`
+    : '';
   slot.innerHTML = `
     <div class="disc-v2-yt-carousel" data-yt-index="${index}">
+      <div class="disc-v2-yt-result-meta">
+        ${mismatchBadge}
+        <div class="disc-v2-yt-result-text">
+          <div class="disc-v2-yt-title" title="${_esc(cur.title || '')}">${_esc(cur.title || 'Untitled')}</div>
+          ${cur.channel ? `<div class="disc-v2-yt-channel">${_esc(cur.channel)}</div>` : ''}
+        </div>
+        <div class="disc-v2-yt-counter">${index + 1} / ${candidates.length}</div>
+      </div>
       <div class="disc-v2-yt-frame">
         <iframe src="${_esc(embedUrl)}"
                 title="${_esc(cur.title || 'YouTube preview')}"
@@ -5793,8 +5864,6 @@ function _renderYouTubeCarousel(slot, candidates, index) {
           <button data-yt-act="prev" aria-label="Previous YouTube candidate" ${index === 0 ? 'disabled' : ''}>‹</button>
           <button data-yt-act="next" aria-label="Next YouTube candidate" ${index === candidates.length - 1 ? 'disabled' : ''}>›</button>
         </div>
-        <div class="disc-v2-yt-title" title="${_esc(cur.title || '')}">${_esc(cur.title || 'Untitled')}</div>
-        <div class="disc-v2-yt-counter">${index + 1} / ${candidates.length}</div>
       </div>
     </div>
   `;
@@ -5803,7 +5872,7 @@ function _renderYouTubeCarousel(slot, candidates, index) {
       const act = btn.getAttribute('data-yt-act');
       const next = act === 'prev' ? index - 1 : index + 1;
       if (next < 0 || next >= candidates.length) return;
-      _renderYouTubeCarousel(slot, candidates, next);
+      _renderYouTubeCarousel(slot, candidates, next, releaseHint);
     });
   });
 }
@@ -6508,8 +6577,29 @@ function initDiscoverV2() {
   document.getElementById('disc-v2-onboarding-add-all')?.addEventListener('click', async () => {
     const container = document.getElementById('disc-v2-onboarding-suggestions');
     if (!container) return;
-    const chips = container.querySelectorAll('button:not([disabled])');
-    for (const chip of chips) chip.click();
+    const chips = [...container.querySelectorAll('button:not([disabled])')];
+    if (!chips.length) return;
+    const total = chips.length;
+    // Fire-and-wait each chip click in sequence so the toast at the end
+    // sees the final state. The chip click handler awaits an HTTP round-trip.
+    for (const chip of chips) {
+      chip.click();
+      // Give the chip click's async work time to flip the chip state.
+      await new Promise(r => setTimeout(r, 250));
+    }
+    // Count successes vs failures via the per-chip text marker.
+    const followed = container.querySelectorAll('button[disabled]:not(.disc-v2-suggest-failed)').length;
+    const failed = container.querySelectorAll('.disc-v2-suggest-failed').length;
+    if (typeof showToast === 'function') {
+      if (failed === 0) {
+        showToast(`Followed ${followed} labels.`);
+      } else {
+        showToast(
+          `Followed ${followed} of ${total} labels — ${failed} couldn't be matched on Discogs (⚠ chips show why).`,
+          /* isError */ failed === total,
+        );
+      }
+    }
   });
 
   // Label search.
@@ -6608,7 +6698,18 @@ function initDiscoverV2() {
   });
 
   // Initial state + initial scan on tab activation.
-  DiscoverV2.loadInitialState().then(() => {
+  DiscoverV2.loadInitialState().then(async () => {
+    // UX audit Issue 9: clear any stale scanError before deciding what to do.
+    // If the server says no scan is running, then any in-memory scanError is
+    // either from a prior session or from a 409 that has since resolved —
+    // wiping it prevents the "Couldn't finish the scan" empty state from
+    // appearing on a fresh page load.
+    try {
+      const status = await fetch('/api/discover/feed/status').then(r => r.json());
+      if (status && status.running === false) {
+        DiscoverV2.state.scanError = null;
+      }
+    } catch (_) { /* ignore, fall through */ }
     // Auto-scan on first open if labels are followed and the token is valid.
     if (DiscoverV2.state.tokenValid && DiscoverV2.state.followedLabels.length > 0) {
       DiscoverV2.runScan();
