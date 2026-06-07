@@ -4731,50 +4731,89 @@ function _renderDiscoverV2ScanProgress() {
   }
 }
 
+// The onboarding banner is auto-loaded the first time it becomes visible per
+// session. The flag lives on a module-scope variable (not localStorage) so a
+// page reload re-fetches in case the user's library grew.
+let _onboardingLoaded = false;
+
 function _renderDiscoverV2Onboarding() {
   const banner = document.getElementById('disc-v2-onboarding-banner');
   if (!banner) return;
   // Show only when no labels are followed AND we haven't been told to skip.
-  if (DiscoverV2.state.followedLabels.length === 0 && !localStorage.getItem('disc-v2-onboarding-skipped')) {
+  const shouldShow =
+    DiscoverV2.state.followedLabels.length === 0 &&
+    !localStorage.getItem('disc-v2-onboarding-skipped');
+  if (shouldShow) {
     banner.style.display = '';
+    if (!_onboardingLoaded) {
+      _onboardingLoaded = true;
+      _loadOnboardingSuggestions();
+    }
   } else {
     banner.style.display = 'none';
   }
 }
 
+// _openOnboarding is the empty-state action ("Pick from your library") that
+// reveals the banner regardless of the skipped flag. It re-fires the load too
+// so a user who originally skipped sees fresh suggestions.
 async function _openOnboarding() {
   const banner = document.getElementById('disc-v2-onboarding-banner');
-  const container = document.getElementById('disc-v2-onboarding-suggestions');
-  if (!banner || !container) return;
+  if (!banner) return;
   banner.style.display = '';
+  // Re-fetch even if previously loaded — the user explicitly asked.
+  _onboardingLoaded = true;
+  await _loadOnboardingSuggestions();
+}
+
+async function _loadOnboardingSuggestions() {
+  const container = document.getElementById('disc-v2-onboarding-suggestions');
+  if (!container) return;
   container.innerHTML = '<em style="color:var(--muted);">Loading suggestions…</em>';
   try {
     const suggestions = await DiscoverV2.fetchSuggestedLabels(10);
     container.innerHTML = '';
     if (!suggestions.length) {
-      container.innerHTML = '<em style="color:var(--muted);">No suggested labels (library too thin).</em>';
+      container.innerHTML = '<em style="color:var(--muted);">No suggested labels — your library has no Discogs label metadata yet.</em>';
       return;
     }
     suggestions.forEach(sug => {
       const chip = document.createElement('button');
       chip.className = 'secondary-btn';
       chip.style.fontSize = '11px';
+      chip.setAttribute('data-suggest-name', sug.name);
       chip.textContent = sug.name;
       chip.addEventListener('click', async () => {
-        // Resolve a label_id via search; pick the first hit.
-        try {
-          const found = await DiscoverV2.searchLabels(sug.name);
-          if (found.length) {
-            await DiscoverV2.followLabel(found[0].id, found[0].name || sug.name);
-            chip.disabled = true;
-            chip.textContent = '✓ ' + sug.name;
-          }
-        } catch (_) {}
+        chip.disabled = true;
+        chip.textContent = '… ' + sug.name;
+        const followed = await _followByName(sug.name);
+        if (followed) {
+          chip.textContent = '✓ ' + sug.name;
+        } else {
+          chip.disabled = false;
+          chip.textContent = sug.name;
+        }
       });
       container.appendChild(chip);
     });
   } catch (_) {
     container.innerHTML = '<em style="color:var(--muted);">Could not load suggestions.</em>';
+  }
+}
+
+// Shared helper: the suggested-labels endpoint returns only `name` + `weight`,
+// so to follow we have to resolve a Discogs label_id by searching. Returns
+// truthy on success so callers can update their UI to ✓.
+async function _followByName(name) {
+  if (!name) return false;
+  try {
+    const hits = await DiscoverV2.searchLabels(name);
+    if (!hits || !hits.length) return false;
+    const top = hits[0];
+    await DiscoverV2.followLabel(top.id, top.name || name);
+    return true;
+  } catch (_) {
+    return false;
   }
 }
 
@@ -4841,7 +4880,9 @@ function _renderDiscoverV2Followed() {
 
 // Render the "Suggested from your library" inline list. Each row has a
 // Follow button that disables itself on success — so the user can fan-add
-// without having to re-render the whole list between clicks.
+// without having to re-render the whole list between clicks. The suggested
+// endpoint returns `{name, weight}` only — the Discogs label_id has to be
+// resolved via /labels/search at follow time (see _followByName).
 function _renderSuggestedLabels(suggestions) {
   const results = document.getElementById('disc-v2-label-suggest-results');
   if (!results) return;
@@ -4850,20 +4891,23 @@ function _renderSuggestedLabels(suggestions) {
     return;
   }
   results.innerHTML = '';
-  const followed = new Set((DiscoverV2.state.followedLabels || []).map(l => l.label_id));
+  const followedNames = new Set(
+    (DiscoverV2.state.followedLabels || []).map(l => (l.name || '').toLowerCase())
+  );
   suggestions.forEach(s => {
     const row = document.createElement('div');
     row.style.display = 'flex';
     row.style.justifyContent = 'space-between';
     row.style.alignItems = 'center';
     row.style.padding = '4px 0';
-    const trackInfo = s.track_count != null ? ` <span style="color:var(--muted);font-size:11px;">(${s.track_count} tracks)</span>` : '';
-    row.innerHTML = `<span>${_esc(s.name)}${trackInfo}</span>`;
+    const weight = (s.weight != null)
+      ? ` <span style="color:var(--muted);font-size:11px;">(score ${_esc(String(s.weight))})</span>`
+      : '';
+    row.innerHTML = `<span>${_esc(s.name)}${weight}</span>`;
     const btn = document.createElement('button');
     btn.className = 'secondary-btn';
     btn.style.fontSize = '11px';
-    btn.setAttribute('data-suggest-label-id', String(s.id));
-    if (followed.has(s.id)) {
+    if (followedNames.has((s.name || '').toLowerCase())) {
       btn.disabled = true;
       btn.textContent = '✓ Following';
     } else {
@@ -4871,10 +4915,10 @@ function _renderSuggestedLabels(suggestions) {
       btn.addEventListener('click', async () => {
         btn.disabled = true;
         btn.textContent = '…';
-        try {
-          await DiscoverV2.followLabel(s.id, s.name);
+        const followed = await _followByName(s.name);
+        if (followed) {
           btn.textContent = '✓ Following';
-        } catch (e) {
+        } else {
           btn.disabled = false;
           btn.textContent = 'Follow';
         }

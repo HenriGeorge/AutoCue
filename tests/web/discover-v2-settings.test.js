@@ -34,6 +34,19 @@ function _relativeTime(iso, nowMs) {
 
 let DiscoverV2
 
+async function _followByName(name) {
+  if (!name) return false
+  try {
+    const hits = await DiscoverV2.searchLabels(name)
+    if (!hits || !hits.length) return false
+    const top = hits[0]
+    await DiscoverV2.followLabel(top.id, top.name || name)
+    return true
+  } catch (_) {
+    return false
+  }
+}
+
 function _renderSuggestedLabels(suggestions) {
   const results = document.getElementById('disc-v2-label-suggest-results')
   if (!results) return
@@ -42,14 +55,15 @@ function _renderSuggestedLabels(suggestions) {
     return
   }
   results.innerHTML = ''
-  const followed = new Set((DiscoverV2.state.followedLabels || []).map(l => l.label_id))
+  const followedNames = new Set(
+    (DiscoverV2.state.followedLabels || []).map(l => (l.name || '').toLowerCase())
+  )
   suggestions.forEach(s => {
     const row = document.createElement('div')
-    const trackInfo = s.track_count != null ? ` <span>(${s.track_count} tracks)</span>` : ''
-    row.innerHTML = `<span>${_esc(s.name)}${trackInfo}</span>`
+    const weight = (s.weight != null) ? ` <span>(score ${_esc(String(s.weight))})</span>` : ''
+    row.innerHTML = `<span>${_esc(s.name)}${weight}</span>`
     const btn = document.createElement('button')
-    btn.setAttribute('data-suggest-label-id', String(s.id))
-    if (followed.has(s.id)) {
+    if (followedNames.has((s.name || '').toLowerCase())) {
       btn.disabled = true
       btn.textContent = '✓ Following'
     } else {
@@ -57,10 +71,10 @@ function _renderSuggestedLabels(suggestions) {
       btn.addEventListener('click', async () => {
         btn.disabled = true
         btn.textContent = '…'
-        try {
-          await DiscoverV2.followLabel(s.id, s.name)
+        const followed = await _followByName(s.name)
+        if (followed) {
           btn.textContent = '✓ Following'
-        } catch (e) {
+        } else {
           btn.disabled = false
           btn.textContent = 'Follow'
         }
@@ -117,6 +131,9 @@ describe('_renderSuggestedLabels', () => {
     document.body.innerHTML = `<div id="disc-v2-label-suggest-results"></div>`
     DiscoverV2 = {
       state: {followedLabels: []},
+      // The suggested endpoint returns name+weight only; the UI resolves the
+      // Discogs label_id via /labels/search at follow time.
+      searchLabels: vi.fn(async (q) => [{id: 999, name: q}]),
       followLabel: vi.fn(async () => {}),
     }
   })
@@ -126,22 +143,22 @@ describe('_renderSuggestedLabels', () => {
     expect(document.body.textContent).toContain('No suggestions')
   })
 
-  it('renders a row + Follow button per suggestion', () => {
+  it('renders a row + Follow button per suggestion using {name, weight} shape', () => {
     _renderSuggestedLabels([
-      {id: 1, name: 'Stones Throw', track_count: 14},
-      {id: 2, name: 'Hyperdub',     track_count: 7},
+      {name: 'Stones Throw', weight: 14.5},
+      {name: 'Hyperdub',     weight: 7.2},
     ])
     expect(document.body.textContent).toContain('Stones Throw')
-    expect(document.body.textContent).toContain('14 tracks')
+    expect(document.body.textContent).toContain('14.5')
     expect(document.body.textContent).toContain('Hyperdub')
     expect(document.querySelectorAll('button').length).toBe(2)
   })
 
-  it('disables the Follow button for labels already in followedLabels', () => {
+  it('disables Follow for labels whose name is already followed (case-insensitive)', () => {
     DiscoverV2.state.followedLabels = [{label_id: 1, name: 'Stones Throw'}]
     _renderSuggestedLabels([
-      {id: 1, name: 'Stones Throw'},
-      {id: 2, name: 'Hyperdub'},
+      {name: 'stones throw'},  // different case — still matched
+      {name: 'Hyperdub'},
     ])
     const buttons = document.querySelectorAll('button')
     expect(buttons[0].disabled).toBe(true)
@@ -149,15 +166,16 @@ describe('_renderSuggestedLabels', () => {
     expect(buttons[1].disabled).toBe(false)
   })
 
-  it('Follow click calls DiscoverV2.followLabel with label id + name', async () => {
-    _renderSuggestedLabels([{id: 42, name: 'Test Label'}])
+  it('Follow click resolves label_id via searchLabels then follows', async () => {
+    _renderSuggestedLabels([{name: 'Test Label'}])
     document.querySelector('button').click()
     await new Promise(r => setTimeout(r, 0))
-    expect(DiscoverV2.followLabel).toHaveBeenCalledWith(42, 'Test Label')
+    expect(DiscoverV2.searchLabels).toHaveBeenCalledWith('Test Label')
+    expect(DiscoverV2.followLabel).toHaveBeenCalledWith(999, 'Test Label')
   })
 
   it('Follow button shows ✓ Following on success', async () => {
-    _renderSuggestedLabels([{id: 42, name: 'Test Label'}])
+    _renderSuggestedLabels([{name: 'Test Label'}])
     const btn = document.querySelector('button')
     btn.click()
     await new Promise(r => setTimeout(r, 0))
@@ -165,9 +183,20 @@ describe('_renderSuggestedLabels', () => {
     expect(btn.disabled).toBe(true)
   })
 
-  it('Follow button re-enables on failure', async () => {
+  it('Follow button re-enables when searchLabels returns no hits', async () => {
+    DiscoverV2.searchLabels = vi.fn(async () => [])
+    _renderSuggestedLabels([{name: 'Obscure Label'}])
+    const btn = document.querySelector('button')
+    btn.click()
+    await new Promise(r => setTimeout(r, 0))
+    expect(btn.disabled).toBe(false)
+    expect(btn.textContent).toBe('Follow')
+    expect(DiscoverV2.followLabel).not.toHaveBeenCalled()
+  })
+
+  it('Follow button re-enables when followLabel throws', async () => {
     DiscoverV2.followLabel = vi.fn(async () => { throw new Error('network') })
-    _renderSuggestedLabels([{id: 42, name: 'Test Label'}])
+    _renderSuggestedLabels([{name: 'Test Label'}])
     const btn = document.querySelector('button')
     btn.click()
     await new Promise(r => setTimeout(r, 0))
@@ -176,7 +205,7 @@ describe('_renderSuggestedLabels', () => {
   })
 
   it('escapes XSS in label names', () => {
-    _renderSuggestedLabels([{id: 1, name: '<img src=x onerror=alert(1)>'}])
+    _renderSuggestedLabels([{name: '<img src=x onerror=alert(1)>'}])
     expect(document.body.innerHTML).not.toContain('<img src=x')
     expect(document.body.textContent).toContain('<img src=x onerror=alert(1)>')
   })
