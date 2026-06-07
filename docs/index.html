@@ -315,10 +315,10 @@
       border-radius: 16px 16px 0 0;
       box-shadow: 0 -2px 24px rgba(0,0,0,.07), 0 0 0 1px var(--border);
     }
-    .tracks-header { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; flex-wrap: wrap; }
-    .tracks-title { font-size: 20px; font-weight: 700; margin: 0; }
+    .tracks-header { display: flex; align-items: baseline; gap: 12px; margin-bottom: 14px; flex-wrap: wrap; }
+    .tracks-title { font-size: 28px; font-weight: 600; margin: 0; letter-spacing: -.01em; line-height: 1.1; }
     .sort-bar {
-      display: flex; align-items: center; gap: 6px; margin-bottom: 16px;
+      display: flex; align-items: center; gap: 6px; margin-bottom: 10px;
       font-size: 12px; color: var(--muted);
     }
     .sort-bar span { flex-shrink: 0; }
@@ -329,8 +329,13 @@
       cursor: pointer; transition: all .15s;
       font-family: var(--font);
     }
-    .sort-btn:hover { border-color: var(--border-hover); color: var(--text); }
-    .sort-btn.active { border-color: var(--green); color: var(--green); font-weight: 600; }
+    .sort-btn:hover { border-color: var(--border-hover); color: var(--text); background: var(--surface-card); }
+    /* Neutral active state — reserve --green for primary CTAs only. */
+    .sort-btn.active {
+      background: var(--surface2);
+      border-color: var(--border-hover);
+      color: var(--text); font-weight: 600;
+    }
     /* Backup checklist */
     .backup-row {
       display: flex; align-items: center; gap: 8px;
@@ -343,14 +348,112 @@
     .backup-row input[type=checkbox] { accent-color: var(--green); flex-shrink: 0; }
     .backup-row .backup-name { color: var(--muted); font-family: var(--mono); }
     .backup-row .backup-size { color: var(--muted); margin-left: auto; white-space: nowrap; }
-    /* BPM color legend */
+    /* Filter bar rows */
+    #filter-bar { display: none; flex-direction: column; gap: 10px; margin-bottom: 10px; }
+    .filter-row {
+      display: flex; align-items: center;
+      gap: 10px; flex-wrap: wrap;
+    }
+    .filter-row-primary { gap: 12px; }
+    .filter-row-primary #search-input {
+      flex: 1; min-width: 200px;
+      background: var(--surface); color: var(--text);
+      border: 1px solid var(--border); border-radius: 8px;
+      padding: 8px 14px; font-size: 13px;
+      transition: border-color .15s, background .15s;
+    }
+    .filter-row-primary #search-input:focus { outline: none; border-color: var(--border-hover); background: var(--surface-card); }
+    .filter-row-actions {
+      display: inline-flex; align-items: center; gap: 8px; flex-wrap: wrap;
+    }
+    .filter-row-actions .secondary-btn { font-size: 12px; padding: 5px 12px; }
+    .phrase-only-pill {
+      display: inline-flex; align-items: center; gap: 6px;
+      font-size: 13px; cursor: pointer; white-space: nowrap;
+      padding: 5px 10px;
+      border: 1px solid var(--border); border-radius: 8px;
+      background: var(--surface);
+      transition: border-color .15s, background .15s;
+    }
+    .phrase-only-pill:hover { border-color: var(--border-hover); }
+    #selection-count {
+      font-size: 12px; color: var(--text); font-weight: 600;
+      white-space: nowrap;
+    }
+    #transition-score-btn {
+      font-size: 12px; padding: 5px 12px;
+      background: none; border: 1px solid var(--border);
+      color: var(--text); border-radius: 8px; cursor: pointer;
+      transition: border-color .15s, color .15s;
+    }
+    #transition-score-btn:hover { border-color: var(--green); color: var(--green); }
+    /* Library / Music filter groups */
+    .filter-row-facets { gap: 12px; row-gap: 8px; }
+    .filter-group {
+      display: inline-flex; align-items: center;
+      gap: 6px; flex-wrap: wrap;
+    }
+    .filter-group-label {
+      font-size: 11px; font-weight: 600;
+      color: var(--muted); text-transform: uppercase;
+      letter-spacing: .06em;
+      margin-right: 2px;
+    }
+    .filter-group-sep {
+      width: 1px; height: 18px;
+      background: var(--border);
+      flex-shrink: 0; align-self: center;
+    }
+    .filter-group select,
+    .facet-btn {
+      background: var(--surface); color: var(--text);
+      border: 1px solid var(--border); border-radius: 8px;
+      padding: 5px 10px; font-size: 12px;
+      font-family: var(--font);
+      cursor: pointer; white-space: nowrap;
+      transition: border-color .15s, background .15s;
+    }
+    .filter-group select:hover,
+    .facet-btn:hover { border-color: var(--border-hover); }
+    .filter-group select:focus { outline: none; border-color: var(--border-hover); }
+    @media (max-width: 720px) {
+      .filter-row-primary { gap: 8px; }
+      .filter-row-actions { gap: 6px; }
+      .filter-group-sep { display: none; }
+      .filter-group { width: 100%; }
+    }
+
+    /* BPM color legend — collapsible disclosure */
     #bpm-legend {
-      display: none; flex-wrap: wrap; gap: 10px 18px;
-      align-items: center; margin-bottom: 10px;
+      display: none;
+      margin-bottom: 8px;
       font-size: 12px; color: var(--muted);
     }
-    #bpm-legend.visible { display: flex; }
-    .legend-item { display: flex; align-items: center; gap: 5px; white-space: nowrap; }
+    #bpm-legend.visible { display: block; }
+    #bpm-legend > summary {
+      list-style: none; cursor: pointer; user-select: none;
+      display: inline-flex; align-items: center; gap: 8px;
+      padding: 4px 10px;
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 9999px;
+      transition: border-color .15s, background .15s;
+    }
+    #bpm-legend > summary::-webkit-details-marker { display: none; }
+    #bpm-legend > summary:hover { border-color: var(--border-hover); background: var(--surface-card); }
+    #bpm-legend .legend-summary-dots { display: inline-flex; gap: 2px; }
+    #bpm-legend .legend-summary-label { color: var(--text); font-weight: 500; }
+    #bpm-legend .legend-summary-chevron {
+      font-size: 10px; color: var(--muted);
+      transition: transform .18s ease;
+    }
+    #bpm-legend[open] > summary .legend-summary-chevron { transform: rotate(180deg); }
+    #bpm-legend .legend-grid {
+      display: flex; flex-wrap: wrap; gap: 8px 16px;
+      margin-top: 10px; padding: 10px 12px;
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 10px;
+    }
+    .legend-item { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
     .legend-dot {
       width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0;
     }
@@ -394,25 +497,32 @@
     .album-tracks .track-card { margin-bottom: 6px; }
     .album-tracks .track-card:last-child { margin-bottom: 0; }
     .tracks-count {
-      font-size: 13px; color: var(--muted);
+      font-size: 12px; color: var(--muted);
       background: var(--surface); border: 1px solid var(--border);
-      border-radius: 20px; padding: 2px 10px;
+      border-radius: 9999px; padding: 2px 10px;
+      font-variant-numeric: tabular-nums;
     }
 
-    /* ── Track card ── */
+    /* ── Track card — unified list surface, soft hover ── */
     .track-card {
       position: relative;
-      background: var(--surface);
-      border: 1px solid var(--border);
-      border-left-width: 3px;
-      border-radius: 10px;
+      background: transparent;
+      border: 1px solid transparent;
+      border-left: 3px solid transparent;
+      border-bottom: 1px solid var(--border);
+      border-radius: 0;
       padding: 12px 16px;
-      margin-bottom: 6px;
-      box-shadow: var(--shadow-sm);
-      transition: box-shadow .18s, border-color .18s, transform .18s;
+      margin: 0;
+      box-shadow: none;
+      transition: background .15s, border-color .18s;
       cursor: pointer;
     }
-    .track-card:hover { border-color: var(--border-hover); background: var(--surface); box-shadow: var(--shadow-md); transform: translateY(-1px); }
+    .track-card:hover {
+      background: var(--surface);
+      border-bottom-color: var(--border-hover);
+    }
+    .track-card:first-child { border-top-left-radius: 8px; border-top-right-radius: 8px; }
+    .track-card:last-child { border-bottom-color: transparent; }
     /* D2: Left-border radar ping on now-playing */
     @keyframes _nowPlayingPulse {
       0%   { box-shadow: 0 0 0 0 color-mix(in srgb, var(--green) 40%, transparent), var(--shadow-sm); }
@@ -424,7 +534,8 @@
       animation: _nowPlayingPulse 2.6s ease-out infinite;
     }
     .track-card.now-playing:hover { animation-play-state: paused; }
-    .track-card.selected { border-color: var(--green); background: rgba(40,226,20,.04); }
+    /* Selected: subtle tint + accent-left preserved by data-color rules below. */
+    .track-card.selected { background: color-mix(in srgb, var(--green) 6%, transparent); border-bottom-color: color-mix(in srgb, var(--green) 30%, var(--border)); }
     /* Rekordbox BPM color accents — left border + dot */
     .track-card[data-color="Pink"]   { border-left-color: #e4849b; }
     .track-card[data-color="Red"]    { border-left-color: #e4384e; }
@@ -707,19 +818,24 @@
       background: var(--surface-card);
       /* bleed beyond main's 24px side padding so background is seamless edge-to-edge */
       margin-left: -24px; margin-right: -24px;
-      padding: 16px 24px 0;
+      padding: 16px 24px 12px;
       border-radius: 16px 16px 0 0;
+      border-bottom: 1px solid var(--border);
       transition: background 300ms ease, box-shadow 300ms ease, border-color 300ms ease, border-radius 300ms ease, backdrop-filter 300ms ease;
     }
     #tracks-sticky.shadowed {
-      border-bottom: 1px solid var(--border);
       padding-bottom: 14px;
-      background: color-mix(in srgb, var(--surface-card) 90%, transparent);
+      /* Keep mostly opaque so tracks underneath are properly occluded; the
+         small color-mix gives a subtle glass tint without bleeding content. */
+      background: color-mix(in srgb, var(--surface-card) 98%, transparent);
       backdrop-filter: blur(14px);
       -webkit-backdrop-filter: blur(14px);
       box-shadow: 0 4px 20px rgba(0,0,0,.10);
       border-radius: 0;
     }
+    /* Track list sits cleanly below the sticky bar — give it a positioning
+       context and a small inset so it never visually clips into the bar. */
+    #track-list { position: relative; padding-top: 12px; }
 
     /* Camelot key filter */
     #key-filter-btn {
@@ -768,6 +884,52 @@
       transition: opacity 200ms, transform 200ms cubic-bezier(.4,0,.2,1);
     }
     #scroll-top-btn.visible { opacity: 1; pointer-events: auto; transform: translateY(0); }
+    /* Scroll-top sits above the bottom action bar when both are visible. */
+    body.has-action-bar #scroll-top-btn { bottom: 96px; }
+    /* ── Sticky bottom action bar ─────────────────────────────────── */
+    #action-bar {
+      position: fixed; left: 0; right: 0; bottom: 0;
+      z-index: 350; pointer-events: none;
+      padding: 12px 20px calc(12px + env(safe-area-inset-bottom, 0px));
+      transform: translateY(110%);
+      transition: transform 240ms cubic-bezier(.2,.7,.2,1), bottom 200ms ease;
+    }
+    /* Stack above the existing #download-bar when both are present so neither
+       is hidden. The download-bar is ~58–66px tall depending on content. */
+    body:has(#download-bar.visible) #action-bar { bottom: 66px; }
+    #action-bar.visible { transform: translateY(0); pointer-events: auto; }
+    .action-bar-inner {
+      max-width: 1100px; margin: 0 auto;
+      display: flex; align-items: center; gap: 16px;
+      padding: 10px 14px 10px 18px;
+      background: var(--surface-card);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      box-shadow: 0 10px 32px rgba(0,0,0,.18), 0 2px 8px rgba(0,0,0,.08);
+      backdrop-filter: blur(14px);
+      -webkit-backdrop-filter: blur(14px);
+    }
+    .action-bar-left { display: inline-flex; align-items: center; gap: 12px; min-width: 0; }
+    .action-bar-count {
+      font-size: 14px; font-weight: 600; color: var(--text);
+      font-variant-numeric: tabular-nums; white-space: nowrap;
+    }
+    .action-bar-clear {
+      background: none; border: none; padding: 4px 8px;
+      font-size: 12px; color: var(--muted); cursor: pointer;
+      font-family: var(--font); border-radius: 6px;
+      transition: color .15s, background .15s;
+    }
+    .action-bar-clear:hover { color: var(--text); background: var(--surface); }
+    .action-bar-right { display: inline-flex; align-items: center; gap: 8px; margin-left: auto; }
+    .action-bar-right .secondary-btn { font-size: 13px; padding: 7px 14px; }
+    .action-bar-right .primary { font-size: 13px; padding: 8px 18px; }
+    @media (max-width: 540px) {
+      #action-bar { padding: 8px; }
+      .action-bar-inner { padding: 8px 10px; gap: 8px; flex-wrap: wrap; }
+      .action-bar-right { width: 100%; }
+      .action-bar-right .primary { flex: 1; }
+    }
     /* phrase section strip */
     .phrase-strip {
       position: relative; height: 16px; border-radius: 3px;
@@ -1340,6 +1502,38 @@
     padding: 8px 32px;
     display: flex;
     align-items: center;
+    gap: 24px;
+  }
+  /* ── App status row ──────────────────────────────────────────────── */
+  #app-status {
+    display: none;
+    align-items: center;
+    gap: 8px;
+    margin-left: auto;
+    font-size: 12px;
+    color: var(--muted);
+    font-variant-numeric: tabular-nums;
+    flex-wrap: wrap;
+  }
+  #app-status.visible { display: inline-flex; }
+  #app-status .status-item {
+    display: inline-flex; align-items: center; gap: 6px;
+    white-space: nowrap;
+  }
+  #app-status .status-sep { color: var(--border); user-select: none; }
+  #app-status .status-dot {
+    width: 7px; height: 7px; border-radius: 50%;
+    background: var(--muted); flex-shrink: 0;
+    box-shadow: 0 0 0 2px transparent;
+  }
+  #app-status .status-dot.status-ok { background: var(--green); box-shadow: 0 0 0 3px color-mix(in srgb, var(--green) 18%, transparent); }
+  #app-status .status-dot.status-warn { background: #f0801a; box-shadow: 0 0 0 3px rgba(240,128,26,.18); }
+  #app-status .status-dot.status-bad { background: #e4384e; box-shadow: 0 0 0 3px rgba(228,56,78,.18); }
+  #app-status .status-text strong { color: var(--text); font-weight: 600; }
+  @media (max-width: 720px) {
+    #app-status .status-sep { display: none; }
+    #app-status { gap: 10px; }
+    #app-status #status-scan, #app-status #status-sep-scan { display: none; }
   }
   #tab-group {
     display: inline-flex;
@@ -1450,6 +1644,15 @@
     <button id="tab-cues" class="tab-btn active">Cues</button>
     <button id="tab-library" class="tab-btn">Library</button>
     <button id="tab-discover" class="tab-btn">Discover</button>
+  </div>
+  <div id="app-status" aria-live="polite">
+    <span class="status-item" id="status-db" data-tip="Local server connection"><span class="status-dot status-ok"></span><span class="status-text">DB connected</span></span>
+    <span class="status-sep">·</span>
+    <span class="status-item" id="status-count"><span class="status-text">— tracks</span></span>
+    <span class="status-sep" id="status-sep-scan">·</span>
+    <span class="status-item" id="status-scan" data-tip="Last library scan"><span class="status-text">No scans yet</span></span>
+    <span class="status-sep">·</span>
+    <span class="status-item" id="status-rb" data-tip="Rekordbox process state — must be closed before applying"><span class="status-text">Rekordbox ?</span></span>
   </div>
 </div>
 </div><!-- /#top-bar -->
@@ -1646,40 +1849,48 @@
       <span class="tracks-count" id="tracks-count">0 tracks</span>
     </div>
     <!-- F4: Search + F6: Phrase-only filter -->
-    <div id="filter-bar" style="display:none; margin-bottom:12px; flex-direction:column; gap:10px;">
+    <div id="filter-bar" style="display:none;">
       <!-- Row 1: Search + phrase toggle + selection actions -->
-      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;background:var(--surface-card);border-radius:12px;padding:8px 12px;transition:background 220ms ease;">
-        <input id="search-input" type="search" placeholder="Search title or artist…" style="flex:1;min-width:160px;background:transparent;color:var(--text);border:1px solid var(--border,#333);border-radius:8px;padding:8px 14px;font-size:13px;transition:border-color .15s;" />
-        <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;white-space:nowrap;padding:5px 10px;border:1px solid var(--border);border-radius:8px;background:var(--bg);transition:border-color .15s,background .15s;" title="Show only tracks that have Rekordbox phrase data (ANLZ .EXT file).">
-          <input type="checkbox" id="phrase-only-cb" />
-          ✨ Phrase only
-        </label>
-        <button class="secondary-btn" id="select-all-btn" style="font-size:12px;padding:5px 12px;">Select all</button>
-        <button class="secondary-btn" id="deselect-all-btn" style="font-size:12px;padding:5px 12px;display:none">Deselect all</button>
-        <span id="selection-count" style="font-size:12px;color:var(--green);white-space:nowrap;font-weight:600;"></span>
-        <button id="transition-score-btn" style="display:none;font-size:12px;padding:5px 12px;background:none;border:1px solid var(--green);color:var(--green);border-radius:8px;cursor:pointer;" onclick="showTransitionScore()">⇌ Score transition</button>
-        <span id="active-filters-chip" title="Clear all filters" onclick="clearAllFilters()">✕ Filters active</span>
+      <div class="filter-row filter-row-primary">
+        <input id="search-input" type="search" placeholder="Search title or artist…" />
+        <div class="filter-row-actions">
+          <label class="phrase-only-pill" title="Show only tracks that have Rekordbox phrase data (ANLZ .EXT file).">
+            <input type="checkbox" id="phrase-only-cb" />
+            ✨ Phrase only
+          </label>
+          <button class="secondary-btn" id="select-all-btn">Select all</button>
+          <button class="secondary-btn" id="deselect-all-btn" style="display:none">Deselect all</button>
+          <span id="selection-count"></span>
+          <button id="transition-score-btn" style="display:none" onclick="showTransitionScore()">⇌ Score transition</button>
+          <span id="active-filters-chip" title="Clear all filters" onclick="clearAllFilters()">✕ Filters active</span>
+        </div>
       </div>
-      <!-- Row 2: Facet filters -->
-      <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
-        <select id="rating-filter" title="Min rating" style="background:var(--surface-card);color:var(--text);border:1px solid var(--border,#333);border-radius:8px;padding:5px 10px;font-size:12px;">
-          <option value="0">Any rating</option>
-          <option value="1">★+</option><option value="2">★★+</option>
-          <option value="3">★★★+</option><option value="4">★★★★+</option><option value="5">★★★★★</option>
-        </select>
-        <select id="plays-filter" style="background:var(--surface-card);color:var(--text);border:1px solid var(--border,#333);border-radius:8px;padding:5px 10px;font-size:12px;">
-          <option value="all">All plays</option>
-          <option value="played">Played</option>
-          <option value="unplayed">Never played</option>
-        </select>
-        <select id="lastplayed-filter" style="background:var(--surface-card);color:var(--text);border:1px solid var(--border,#333);border-radius:8px;padding:5px 10px;font-size:12px;">
-          <option value="all">Any time</option>
-          <option value="7d">Last 7 days</option>
-          <option value="30d">Last 30 days</option>
-          <option value="never">Never played</option>
-        </select>
+      <!-- Row 2: Library filters + Music filters -->
+      <div class="filter-row filter-row-facets">
+        <div class="filter-group" data-group="library">
+          <span class="filter-group-label">Library</span>
+          <select id="rating-filter" title="Min rating">
+            <option value="0">Any rating</option>
+            <option value="1">★+</option><option value="2">★★+</option>
+            <option value="3">★★★+</option><option value="4">★★★★+</option><option value="5">★★★★★</option>
+          </select>
+          <select id="plays-filter">
+            <option value="all">All plays</option>
+            <option value="played">Played</option>
+            <option value="unplayed">Never played</option>
+          </select>
+          <select id="lastplayed-filter">
+            <option value="all">Any time</option>
+            <option value="7d">Last 7 days</option>
+            <option value="30d">Last 30 days</option>
+            <option value="never">Never played</option>
+          </select>
+        </div>
+        <span class="filter-group-sep" aria-hidden="true"></span>
+        <div class="filter-group" data-group="music">
+          <span class="filter-group-label">Music</span>
         <div style="position:relative">
-          <button id="tag-filter-btn" style="background:var(--surface-card);color:var(--text);border:1px solid var(--border,#333);border-radius:6px;padding:4px 8px;font-size:12px;cursor:pointer;white-space:nowrap;transition:border-color .15s;">Tags: Any ▾</button>
+          <button id="tag-filter-btn" class="facet-btn">Tags: Any ▾</button>
           <div id="tag-filter-popup" style="display:none;position:fixed;z-index:9999;background:var(--surface-card);border:1px solid var(--border,#333);border-radius:10px;padding:10px;box-shadow:0 8px 32px rgba(0,0,0,.32);width:320px;max-height:300px;display:none;flex-direction:column;">
             <input id="tag-search" type="search" placeholder="Search tags…" autocomplete="off"
               style="width:100%;padding:5px 8px;margin-bottom:8px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;font-size:12px;color:var(--text);box-sizing:border-box;flex-shrink:0;">
@@ -1700,7 +1911,7 @@
           </div>
         </div>
         <div style="position:relative">
-          <button id="genre-filter-btn" style="background:var(--surface-card);color:var(--text);border:1px solid var(--border,#333);border-radius:6px;padding:4px 8px;font-size:12px;cursor:pointer;white-space:nowrap;transition:border-color .15s;display:none;">Genre: Any ▾</button>
+          <button id="genre-filter-btn" class="facet-btn" style="display:none;">Genre: Any ▾</button>
           <div id="genre-filter-popup" style="display:none;position:fixed;z-index:9999;background:var(--surface-card);border:1px solid var(--border,#333);border-radius:10px;padding:10px;box-shadow:0 8px 32px rgba(0,0,0,.32);width:320px;max-height:300px;flex-direction:column;">
             <input id="genre-search" type="search" placeholder="Search genres…" autocomplete="off"
               style="width:100%;box-sizing:border-box;padding:5px 8px;font-size:12px;border:1px solid var(--border);border-radius:6px;background:var(--surface2);color:var(--text);margin-bottom:8px;font-family:var(--font);">
@@ -1722,15 +1933,28 @@
       <button class="sort-btn" data-sort="rating">Rating</button>
       <button class="sort-btn" data-sort="plays">Plays</button>
     </div>
-    <div id="bpm-legend">
-      <span style="font-weight:600;color:var(--text)">Track color:</span>
-      <span class="legend-item"><span class="legend-dot" style="background:#00b4ba"></span>Aqua — &lt;90 BPM</span>
-      <span class="legend-item"><span class="legend-dot" style="background:#35c26e"></span>Green — 90–114 BPM</span>
-      <span class="legend-item"><span class="legend-dot" style="background:#2e7de4"></span>Blue — 115–124 BPM</span>
-      <span class="legend-item"><span class="legend-dot" style="background:#f0801a"></span>Orange — 125–134 BPM</span>
-      <span class="legend-item"><span class="legend-dot" style="background:#e4384e"></span>Red — 135–149 BPM</span>
-      <span class="legend-item"><span class="legend-dot" style="background:#e4849b"></span>Pink — ≥150 BPM</span>
-    </div>
+    <details id="bpm-legend">
+      <summary>
+        <span class="legend-summary-dots" aria-hidden="true">
+          <span class="legend-dot" style="background:#00b4ba"></span>
+          <span class="legend-dot" style="background:#35c26e"></span>
+          <span class="legend-dot" style="background:#2e7de4"></span>
+          <span class="legend-dot" style="background:#f0801a"></span>
+          <span class="legend-dot" style="background:#e4384e"></span>
+          <span class="legend-dot" style="background:#e4849b"></span>
+        </span>
+        <span class="legend-summary-label">Color key</span>
+        <span class="legend-summary-chevron" aria-hidden="true">▾</span>
+      </summary>
+      <div class="legend-grid">
+        <span class="legend-item"><span class="legend-dot" style="background:#00b4ba"></span>Aqua — &lt;90 BPM</span>
+        <span class="legend-item"><span class="legend-dot" style="background:#35c26e"></span>Green — 90–114 BPM</span>
+        <span class="legend-item"><span class="legend-dot" style="background:#2e7de4"></span>Blue — 115–124 BPM</span>
+        <span class="legend-item"><span class="legend-dot" style="background:#f0801a"></span>Orange — 125–134 BPM</span>
+        <span class="legend-item"><span class="legend-dot" style="background:#e4384e"></span>Red — 135–149 BPM</span>
+        <span class="legend-item"><span class="legend-dot" style="background:#e4849b"></span>Pink — ≥150 BPM</span>
+      </div>
+    </details>
     </div><!-- /#tracks-sticky -->
     <div id="track-list"></div>
   </section>
@@ -2435,6 +2659,20 @@ autocue --library --mode bar --bars-interval 8 --start-bar 1</pre>
 
 <div id="toast-stack"></div>
 
+<!-- Sticky bottom action bar — appears when ≥1 track is selected -->
+<div id="action-bar" aria-hidden="true">
+  <div class="action-bar-inner">
+    <div class="action-bar-left">
+      <span class="action-bar-count" id="action-bar-count">0 selected</span>
+      <button class="action-bar-clear" id="action-bar-clear" type="button" title="Clear selection">Clear</button>
+    </div>
+    <div class="action-bar-right">
+      <button class="secondary-btn" id="action-bar-preview" type="button">Preview cues</button>
+      <button class="primary" id="action-bar-apply" type="button">Apply to Rekordbox</button>
+    </div>
+  </div>
+</div>
+
 <!-- Keyboard shortcut overlay (press ?) -->
 <div id="kbd-overlay" role="dialog" aria-modal="true" aria-label="Keyboard shortcuts">
   <div id="kbd-modal">
@@ -2636,8 +2874,10 @@ async function loadTracksFromServer(playlistId = null) {
   if (playlistId != null) {
     const playlistName = document.getElementById('playlist-select').selectedOptions[0]?.text.replace(/\s*\(\d+\)$/, '') || 'Playlist';
     document.getElementById('local-track-count').textContent = ` · ${tracksData.length} tracks (${playlistName})`;
+    updateAppStatus({ connected: true, trackCount: tracksData.length, didScan: true });
   } else {
     document.getElementById('local-track-count').textContent = ` · ${statusData.track_count} tracks`;
+    updateAppStatus({ connected: true, trackCount: statusData.track_count, didScan: true });
   }
   _energyCache = {};           // D4 fix: invalidate on reload so stale curves don't persist
   _cardMap.clear();            // C: force full rebuild on library reload
@@ -4012,6 +4252,47 @@ document.getElementById('tab-cues').addEventListener('click', () => switchTab('c
 document.getElementById('tab-library').addEventListener('click', () => switchTab('library'));
 document.getElementById('tab-discover').addEventListener('click', () => switchTab('discover'));
 
+// ── App status row ─────────────────────────────────────────────────────────
+let _lastScanAt = null;
+function _formatScanAge(at) {
+  if (!at) return 'No scans yet';
+  const ms = Date.now() - at;
+  if (ms < 60_000) return 'Last scan just now';
+  const m = Math.round(ms / 60_000);
+  if (m < 60) return `Last scan ${m}m ago`;
+  const h = Math.round(m / 60);
+  if (h < 24) return `Last scan ${h}h ago`;
+  return `Last scan ${Math.round(h / 24)}d ago`;
+}
+function updateAppStatus({ connected, trackCount, rekordboxRunning, didScan } = {}) {
+  const bar = document.getElementById('app-status');
+  if (!bar) return;
+  bar.classList.toggle('visible', !!connected);
+  if (!connected) return;
+  if (typeof trackCount === 'number') {
+    document.getElementById('status-count').innerHTML =
+      `<span class="status-text"><strong>${trackCount.toLocaleString()}</strong> tracks</span>`;
+  }
+  if (didScan) _lastScanAt = Date.now();
+  document.getElementById('status-scan').innerHTML =
+    `<span class="status-text">${_formatScanAge(_lastScanAt)}</span>`;
+  const rb = document.getElementById('status-rb');
+  if (rekordboxRunning === true) {
+    rb.innerHTML = '<span class="status-dot status-warn"></span><span class="status-text">Rekordbox open</span>';
+  } else if (rekordboxRunning === false) {
+    rb.innerHTML = '<span class="status-dot status-ok"></span><span class="status-text">Rekordbox closed ✓</span>';
+  } else {
+    rb.innerHTML = '<span class="status-dot"></span><span class="status-text">Rekordbox ?</span>';
+  }
+}
+// Refresh scan-age label every minute so the relative time stays accurate.
+setInterval(() => {
+  if (document.getElementById('app-status')?.classList.contains('visible')) {
+    document.getElementById('status-scan').innerHTML =
+      `<span class="status-text">${_formatScanAge(_lastScanAt)}</span>`;
+  }
+}, 60_000);
+
 detectLocalMode().then(async connected => {
   localMode = connected;
   if (localMode) {
@@ -4020,6 +4301,7 @@ detectLocalMode().then(async connected => {
     document.querySelector('.mode-callout')?.setAttribute('style', 'display:none');
     document.getElementById('drop-zone').style.display = 'none';
     document.getElementById('local-mode-banner').style.display = '';
+    updateAppStatus({ connected: true });
     document.getElementById('download-btn').textContent = 'Apply to Rekordbox';
     document.getElementById('delete-cues-btn').style.display = '';
     document.getElementById('skip-colored-label').style.display = 'flex';
@@ -5126,7 +5408,35 @@ function updateSelectionBar() {
   if (deselBtn) deselBtn.style.display = count > 0 ? '' : 'none';
   const transBtn = document.getElementById('transition-score-btn');
   if (transBtn) transBtn.style.display = (localMode && count === 2) ? '' : 'none';
+  // Bottom action bar — show on any selection
+  const bar = document.getElementById('action-bar');
+  if (bar) {
+    const visible = count > 0;
+    bar.classList.toggle('visible', visible);
+    bar.setAttribute('aria-hidden', visible ? 'false' : 'true');
+    document.body.classList.toggle('has-action-bar', visible);
+    const c = document.getElementById('action-bar-count');
+    if (c) c.textContent = `${count} selected`;
+  }
 }
+
+// Wire the bottom action bar to existing Preview / Apply handlers.
+(function _wireActionBar() {
+  const bar = document.getElementById('action-bar');
+  if (!bar) return;
+  document.getElementById('action-bar-preview')?.addEventListener('click', () => {
+    document.getElementById('preview-cues-btn')?.click();
+  });
+  document.getElementById('action-bar-apply')?.addEventListener('click', () => {
+    // #download-btn is renamed to "Apply to Rekordbox" in local mode and
+    // routes through applyToRekordbox() — re-use that path so the same
+    // backup + Rekordbox-running checks fire.
+    document.getElementById('download-btn')?.click();
+  });
+  document.getElementById('action-bar-clear')?.addEventListener('click', () => {
+    document.getElementById('deselect-all-btn')?.click();
+  });
+})();
 
 async function showTransitionScore() {
   const ids = [...selectedTrackIds];
