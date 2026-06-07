@@ -596,3 +596,54 @@ class DownloadEvent(BaseModel):
     done: bool = False
     downloaded: int = 0
     failed: int = 0
+
+
+# ---------------------------------------------------------------------------
+# Discover v2 — feed + state + release details (T-015 / T-018 / T-023)
+# ---------------------------------------------------------------------------
+
+class DiscoverScanStatusResponse(BaseModel):
+    """Currently-running scan info — used by /api/discover/feed/status."""
+    running: bool
+    scan_id: int | None = None
+    started_at: str | None = None
+    feeders: str | None = None
+    novelty_strategy: str | None = None
+
+
+class DiscoverTokenValidResponse(BaseModel):
+    """Returned by /api/discover/token-status."""
+    valid: bool
+    checked_at: str
+    cached: bool = False  # True when the result came from the 1h positive cache
+
+
+class DiscoverReleaseDetailResponse(BaseModel):
+    """The merged result of get_release_details cache + fresh fetch.
+
+    Fields mirror autocue.analysis.discogs.get_release_details output;
+    additional ``cached`` flag tells the UI whether the response came from
+    the 30-day TTL cache vs. a fresh Discogs call.
+    """
+    id: int
+    master_id: int | None = None
+    title: str = ""
+    artist: str = ""
+    label: str = ""
+    year: int | None = None
+    country: str = ""
+    formats: list[str] = []
+    genres: list[str] = []
+    styles: list[str] = []
+    tracklist: list[dict] = []
+    videos: list[str] = []
+    notes: str = ""
+    thumb: str = ""
+    cover: str = ""
+    cached: bool = False
+
+
+class DiscoverCancelScanResponse(BaseModel):
+    """Returned by POST /api/discover/feed/cancel."""
+    cancelled_scan_id: int | None = None
+    was_running: bool = False

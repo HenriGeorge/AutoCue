@@ -2293,3 +2293,230 @@ def download_album(req: DownloadAlbumRequest):
             raise
 
     return StreamingResponse(event_stream(), media_type="text/event-stream")
+
+
+# =============================================================================
+# Discover v2 endpoints (T-015 SSE feed + T-018 release detail/cancel + T-023 token)
+# =============================================================================
+
+from .deps import (
+    get_discover_store,
+    get_cached_token_valid,
+    invalidate_token_cache,
+    set_cached_token_valid,
+)
+from .schemas import (
+    DiscoverCancelScanResponse,
+    DiscoverReleaseDetailResponse,
+    DiscoverScanStatusResponse,
+    DiscoverTokenValidResponse,
+)
+
+
+def _discogs_token_from_env() -> str:
+    """Return the DISCOGS_TOKEN from the environment / .env, or empty string.
+
+    Mirrors the existing AutoCue Discogs-token resolution used by /api/config.
+    Kept inline here so this block can land without touching that code path.
+    """
+    import os
+    return os.environ.get("DISCOGS_TOKEN", "").strip()
+
+
+@router.get("/discover/token-status", response_model=DiscoverTokenValidResponse)
+def discover_token_status(request: Request):
+    """Check whether the configured Discogs personal-access token is valid.
+
+    PRD §8: 1h positive cache, instant-invalidate on any 401 from any
+    Discogs call. The cache lives in deps.py module state; this endpoint
+    is read-only against it (no side-effects beyond writing the cache
+    when we DO call /oauth/identity).
+    """
+    from datetime import datetime, timezone
+    cached = get_cached_token_valid()
+    if cached is True:
+        return DiscoverTokenValidResponse(
+            valid=True, checked_at=datetime.now(timezone.utc).isoformat(), cached=True,
+        )
+    token = _discogs_token_from_env()
+    if not token:
+        return DiscoverTokenValidResponse(
+            valid=False, checked_at=datetime.now(timezone.utc).isoformat(), cached=False,
+        )
+    from autocue.analysis import discogs as _discogs
+    try:
+        valid = _discogs.validate_token(token)
+    except Exception:
+        # Network / Discogs down — treat as "unknown/invalid" but do NOT cache.
+        valid = False
+    set_cached_token_valid(bool(valid))
+    return DiscoverTokenValidResponse(
+        valid=bool(valid), checked_at=datetime.now(timezone.utc).isoformat(), cached=False,
+    )
+
+
+@router.get("/discover/feed/status", response_model=DiscoverScanStatusResponse)
+def discover_feed_status(store=Depends(get_discover_store)):
+    """Return the currently-running scan's metadata, if any.
+
+    Used by the SSE feed endpoint's concurrent-scan guard AND by the UI's
+    progress indicator on Discover-tab open (so the user sees an in-flight
+    scan rather than starting a duplicate).
+    """
+    row = store.conn.execute(
+        "SELECT scan_id, started_at, feeders, novelty_strategy "
+        "FROM scans WHERE finished_at IS NULL LIMIT 1"
+    ).fetchone()
+    if row is None:
+        return DiscoverScanStatusResponse(running=False)
+    return DiscoverScanStatusResponse(
+        running=True,
+        scan_id=row["scan_id"],
+        started_at=row["started_at"],
+        feeders=row["feeders"],
+        novelty_strategy=row["novelty_strategy"],
+    )
+
+
+@router.post("/discover/feed/cancel", response_model=DiscoverCancelScanResponse)
+def discover_feed_cancel(store=Depends(get_discover_store)):
+    """Force-cancel the currently-running scan.
+
+    Marks the row as status='cancelled' and clears it from the lock. The
+    orchestrator's pending column writes are deliberately LEFT in place so
+    boot recovery (or the next scan) handles them — cancellation isn't the
+    same as a clean finish, so we don't promote pending values.
+    """
+    row = store.conn.execute(
+        "SELECT scan_id FROM scans WHERE finished_at IS NULL LIMIT 1"
+    ).fetchone()
+    if row is None:
+        return DiscoverCancelScanResponse(was_running=False)
+    store.finish_scan(int(row["scan_id"]), status="cancelled")
+    return DiscoverCancelScanResponse(
+        was_running=True, cancelled_scan_id=int(row["scan_id"]),
+    )
+
+
+@router.get("/discover/releases/{release_id}", response_model=DiscoverReleaseDetailResponse)
+def discover_release_detail(release_id: int, store=Depends(get_discover_store)):
+    """Fetch a Discogs release detail, cached in ``release_details`` (TTL 30 days).
+
+    On cache miss: calls :func:`discogs.get_release_details`, persists the
+    result, returns ``cached=False``. On hit: returns from cache with
+    ``cached=True``. On rate-limit conditions, the 1h-positive token cache
+    is invalidated if Discogs returned 401.
+    """
+    cached = store.get_release_detail(release_id)
+    if cached is not None:
+        return DiscoverReleaseDetailResponse(**cached, cached=True)
+    token = _discogs_token_from_env()
+    if not token:
+        raise HTTPException(400, "DISCOGS_TOKEN not configured")
+    from autocue.analysis import discogs as _discogs
+    try:
+        detail = _discogs.get_release_details(release_id, token=token)
+    except _discogs.RateLimitNearExhausted as exc:
+        detail = exc.data  # the response is valid; we just need to back off
+    except _discogs.Discogs429 as exc:
+        raise HTTPException(
+            503, f"Discogs rate-limited; retry after {exc.retry_after}s",
+        )
+    except Exception as exc:
+        import urllib.error as _urlerr
+        if isinstance(exc, _urlerr.HTTPError) and exc.code == 401:
+            invalidate_token_cache()
+            raise HTTPException(401, "Discogs token rejected")
+        raise HTTPException(502, f"Discogs upstream error: {exc}")
+    if not detail:
+        raise HTTPException(404, f"release {release_id} not found")
+    store.record_release_detail(release_id, detail)
+    return DiscoverReleaseDetailResponse(**detail, cached=False)
+
+
+@router.get("/discover/feed")
+def discover_feed_sse(
+    request: Request,
+    sources: str = Query("artist,label,novelty", description="comma-list of feeder names"),
+    top_n: int = Query(50, ge=1, le=200),
+    year_from: int | None = Query(None),
+    db=Depends(get_db),
+    store=Depends(get_discover_store),
+):
+    """Stream a Discover scan as Server-Sent Events.
+
+    Returns ``HTTPException(409)`` if a scan is already running (concurrent-
+    scan lock). The UI's status indicator can poll
+    :func:`discover_feed_status` to learn the running scan's ID and decide
+    whether to wait or cancel.
+
+    Event format mirrors the orchestrator's yields:
+    - ``event: progress`` for per-feeder progress
+    - ``event: release`` for ranked releases
+    - ``event: warning`` / ``event: error`` / ``event: sparse_adjacency``
+    - ``event: done`` carries the final feed + telemetry
+
+    Wraps the orchestrator's generator into the SSE wire format; the
+    orchestrator itself stays free of FastAPI/SSE coupling for testability.
+    """
+    import json as _json
+    from fastapi.responses import StreamingResponse
+
+    # Concurrent-scan lock check up front — return 409 before doing any work.
+    if store.is_scan_running():
+        raise HTTPException(409, "A scan is already running for this database")
+
+    token = _discogs_token_from_env()
+    if not token:
+        raise HTTPException(400, "DISCOGS_TOKEN not configured")
+
+    feeders_list = [f.strip() for f in sources.split(",") if f.strip()]
+    if not feeders_list:
+        feeders_list = ["artist", "label", "novelty"]
+
+    # Build taste vector + adjacency upfront so the generator's first yield is fast.
+    from autocue.analysis.discover.scan_orchestrator import ScanConfig, run_scan
+    from autocue.analysis.discover.style_graph import load_style_adjacency
+    from autocue.analysis.discover.taste import build_taste_vector
+    from .deps import discover_data_dir
+
+    taste_vector = build_taste_vector(db)
+    adjacency = load_style_adjacency(discover_data_dir()).adjacency
+
+    # Resolve the prior scan's novelty_strategy so this scan picks up the rotation.
+    prev_row = store.conn.execute(
+        "SELECT novelty_strategy FROM scans "
+        "WHERE status = 'ok' AND novelty_strategy IS NOT NULL "
+        "ORDER BY scan_id DESC LIMIT 1"
+    ).fetchone()
+    previous_novelty_strategy = prev_row["novelty_strategy"] if prev_row else None
+
+    # Pull the followed-labels list for the novelty label-strategy.
+    followed = store.list_followed_labels()
+    followed_ids = [int(r["label_id"]) for r in followed]
+    followed_names = [str(r["name"]) for r in followed]
+
+    cfg = ScanConfig(
+        feeders=feeders_list,
+        top_n=top_n,
+        year_from=year_from,
+    )
+
+    def event_stream():
+        try:
+            for kind, payload in run_scan(
+                store, taste_vector, adjacency, token,
+                config=cfg,
+                followed_label_ids_for_novelty=followed_ids,
+                followed_label_names_for_novelty=followed_names,
+                previous_novelty_strategy=previous_novelty_strategy,
+            ):
+                yield f"event: {kind}\ndata: {_json.dumps(payload)}\n\n"
+        except Exception as exc:
+            logger.exception("discover_feed_sse: orchestrator crashed")
+            yield f"event: error\ndata: {_json.dumps({'feeder': 'orchestrator', 'exc': str(exc)})}\n\n"
+
+    return StreamingResponse(event_stream(), media_type="text/event-stream", headers={
+        "Cache-Control": "no-cache",
+        "X-Accel-Buffering": "no",  # SSE pass-through (matches existing GZip middleware skip)
+    })

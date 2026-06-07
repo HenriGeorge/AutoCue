@@ -77,6 +77,73 @@ def _prewarm_index(db) -> None:
         logger.warning("Similarity index pre-warm failed: %s", e)
 
 
+def get_discover_store(request: Request):
+    """Lazy-construct a DiscoverStore singleton on first call.
+
+    Lives on app.state so multiple requests share the same connection
+    + boot-recovery only runs once per server lifetime. Construction is
+    cheap (just opens SQLite + runs migrations if needed) but we still
+    avoid doing it eagerly in `lifespan` because some endpoints (e.g.
+    `/api/status`) don't need it and we want server-startup to be fast
+    even when the data dir is unavailable.
+    """
+    store = getattr(request.app.state, "discover_store", None)
+    if store is None:
+        from autocue.analysis.discover.store import DiscoverStore
+        try:
+            store = DiscoverStore()
+        except Exception as exc:
+            raise HTTPException(503, f"Discover store unavailable: {exc}")
+        request.app.state.discover_store = store
+    return store
+
+
+# ── Discogs token validation cache (T-023) ──────────────────────────────────
+# 1-hour positive cache; instant invalidation on any 401 from any Discogs call.
+# Keeps the silent-failure window bounded to one request, not 1 hour.
+
+import time as _time
+from threading import Lock as _Lock
+
+_TOKEN_VALID_TTL_SECONDS = 3600
+_token_state_lock = _Lock()
+_token_cached_valid: bool | None = None  # None = unchecked
+_token_cached_at: float = 0.0
+
+
+def get_cached_token_valid() -> bool | None:
+    """Return the cached validation result, or None if no valid cache entry.
+
+    True / False are valid cached results. None means "no positive cache OR
+    cache has expired". The TTL is bound on TRUE only — a False result is
+    NOT cached (we don't want a transient 5xx to lock the user out for 1h).
+    """
+    with _token_state_lock:
+        global _token_cached_valid, _token_cached_at
+        if _token_cached_valid is True and (_time.time() - _token_cached_at) < _TOKEN_VALID_TTL_SECONDS:
+            return True
+        return None
+
+
+def set_cached_token_valid(value: bool) -> None:
+    """Record a fresh validation result. Only ``True`` is cached with TTL —
+    ``False`` clears the cache so the next request retries."""
+    with _token_state_lock:
+        global _token_cached_valid, _token_cached_at
+        if value:
+            _token_cached_valid = True
+            _token_cached_at = _time.time()
+        else:
+            _token_cached_valid = None
+            _token_cached_at = 0.0
+
+
+def invalidate_token_cache() -> None:
+    """Forget the cached validation. Called by any code path that hits a 401
+    from a Discogs API call so the next request re-validates."""
+    set_cached_token_valid(False)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     db_path = getattr(app.state, "db_path", None)
@@ -110,3 +177,11 @@ async def lifespan(app: FastAPI):
     yield
     app.state.db = None
     app.state.ro_db = None
+    # Close the discover store if it was lazily opened during the lifespan.
+    discover_store = getattr(app.state, "discover_store", None)
+    if discover_store is not None:
+        try:
+            discover_store.close()
+        except Exception as exc:  # pragma: no cover — best-effort shutdown
+            logger.warning("Could not close discover store cleanly: %s", exc)
+    app.state.discover_store = None
