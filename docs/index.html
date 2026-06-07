@@ -1790,9 +1790,12 @@
     @keyframes disc-v2-spin { to { transform: rotate(360deg); } }
 
     .disc-v2-detail-backdrop {
-      position: fixed; inset: 0; background: rgba(0, 0, 0, 0.4);
+      position: fixed; inset: 0; background: rgba(0, 0, 0, 0.55);
       opacity: 0; pointer-events: none; transition: opacity 0.2s ease;
       z-index: 999;
+    }
+    @supports (backdrop-filter: blur(2px)) {
+      .disc-v2-detail-backdrop[aria-hidden="false"] { backdrop-filter: blur(2px); }
     }
     .disc-v2-detail-backdrop[aria-hidden="false"] {
       opacity: 1; pointer-events: auto;
@@ -4875,13 +4878,23 @@ function _renderDiscoverV2Card(release) {
   card.setAttribute('role', 'button');
   card.setAttribute('tabindex', '0');
   const art = r.thumb || r.cover_image || '';
-  const sourceLabel = (release.source || '').split(':')[0];
+  // Map the feeder source to a human-readable origin label. The raw values
+  // ("artist", "label", "novelty:style", "novelty:label", "novelty:artist")
+  // came straight from the backend; "via artist" was jargon (UX audit M-5).
+  const rawSource = (release.source || '');
+  const SOURCE_LABEL = {
+    artist:           'Artist match',
+    label:            'Label match',
+    'novelty':        'Novelty pick',
+  };
+  const sourceFamily = rawSource.split(':')[0];
+  const sourceLabel = SOURCE_LABEL[sourceFamily] || sourceFamily;
   card.innerHTML = `
     <div class="disc-v2-card-art" style="${art ? `background-image:url('${_esc(art)}')` : ''}"></div>
     <div class="disc-v2-card-body">
       <p class="disc-v2-card-title">${_esc(r.title || 'Untitled')}</p>
       <p class="disc-v2-card-artist">${_esc(r.artist || 'Unknown Artist')}</p>
-      <p class="disc-v2-card-source">via ${_esc(sourceLabel)}${r.label ? ' · ' + _esc(r.label) : ''}${r.year ? ' · ' + r.year : ''}${_resurfacedBadge(release)}</p>
+      <p class="disc-v2-card-source">${_esc(sourceLabel)}${r.label ? ' · ' + _esc(r.label) : ''}${r.year ? ' · ' + r.year : ''}${_resurfacedBadge(release)}</p>
     </div>
     <div class="disc-v2-card-actions" data-actions>
       <button class="disc-v2-card-action ${isSaved ? 'saved' : ''}" data-act="save" title="Save">${isSaved ? '✓' : '💚'}</button>
@@ -5333,7 +5346,11 @@ function _formatStatsRatio(n) {
 
 function _formatStatsPercent(n) {
   if (n == null || !Number.isFinite(n)) return '–';
-  return `${Math.round(n * 100)}%`;
+  // Clamp into [0, 1] so a backend returning raw counts can't render
+  // 1000% (UX audit Issue 4). Belt-and-braces: the backend has been
+  // changed to return ratios but this clamp catches future regressions.
+  const ratio = Math.max(0, Math.min(1, n));
+  return `${Math.round(ratio * 100)}%`;
 }
 
 // Render the stats block surfaced under Settings → Stats. Skips empty
@@ -5752,9 +5769,18 @@ let _dlConfirmKeydownHandler = null;
 function _buildDownloadQuery(release) {
   const r = release?.release || {};
   const artist = (r.artist || '').trim();
-  const title = (r.title || '').trim();
-  // Use just "artist title" — appending " album" hurts yt-dlp results.
-  return [artist, title].filter(Boolean).join(' ');
+  let albumOrTitle = (r.album || '').trim();
+  if (!albumOrTitle) {
+    // Discogs raw `title` is usually "Artist - Album". Strip the redundant
+    // artist prefix so the query doesn't duplicate the artist name — UX
+    // audit M-2 saw "soFa elsewhere Sandy B (3) & soFa elsewhere - Forward
+    // In Reverse Pt.1" because both fields were concatenated raw.
+    const title = (r.title || '').trim();
+    albumOrTitle = title.includes(' - ')
+      ? title.split(' - ').slice(1).join(' - ').trim()
+      : title;
+  }
+  return [artist, albumOrTitle].filter(Boolean).join(' ');
 }
 
 function _openDownloadConfirm(release) {
@@ -5771,11 +5797,18 @@ function _openDownloadConfirm(release) {
   const r = release?.release || {};
   const query = _buildDownloadQuery(release);
   if (body) {
+    // Strip redundant "Artist - " prefix from the displayed title so the
+    // first line reads naturally even when Discogs returns the full
+    // "Artist - Album" string in `title`.
+    const rawTitle = (r.title || '').trim();
+    const cleanTitle = rawTitle.includes(' - ')
+      ? rawTitle.split(' - ').slice(1).join(' - ').trim()
+      : rawTitle;
     body.innerHTML =
-      `Download <strong>${_esc(r.title || 'Untitled')}</strong> by ` +
+      `Download <strong>${_esc(cleanTitle || 'Untitled')}</strong> by ` +
       `<strong>${_esc(r.artist || 'Unknown Artist')}</strong>?` +
-      `<br><span style="color:var(--muted);font-size:12px;">Query: ` +
-      `<code>${_esc(query)}</code></span>`;
+      `<br><span style="color:var(--muted);font-size:12px;">` +
+      `We'll search YouTube for: <code>${_esc(query)}</code></span>`;
   }
   // Reset the Go button label (in case a prior run left it in progress).
   if (goBtn) {
@@ -6046,9 +6079,14 @@ function _handleDiscoverKeydown(ev) {
   const visible = section.offsetParent !== null;
   if (!visible) return;
 
-  // `?` opens / closes the help overlay regardless of any other dialog.
+  // `?` opens / closes the help overlay regardless of any other dialog. We
+  // both preventDefault AND stopPropagation so the app-wide `?` handler
+  // doesn't ALSO fire — without stopPropagation the user saw the Discover
+  // help AND the global help open simultaneously (UX audit Issue 1).
   if (ev.key === '?') {
     ev.preventDefault();
+    ev.stopPropagation();
+    if (typeof ev.stopImmediatePropagation === 'function') ev.stopImmediatePropagation();
     _toggleKbdHelp();
     return;
   }
@@ -6100,6 +6138,28 @@ function _handleDiscoverKeydown(ev) {
 // ── Wiring (DOMContentLoaded) ────────────────────────────────────────────
 function initDiscoverV2() {
   if (!document.getElementById('disc-v2-section')) return;
+
+  // Move all overlay elements out of #discover-tab-content so that the tab-
+  // switch animation's `transform` doesn't form a new containing block for
+  // their `position: fixed` rules. With the overlays underneath that ancestor,
+  // the detail panel was resolving top:0 / bottom:0 against the full-content-
+  // tall tab body (40,000px+) instead of the viewport, and would scroll OFF
+  // the screen the moment the user moused the page. See UX audit Issue 2.
+  // Moving to <body> as direct children fixes all overlays at once.
+  for (const id of [
+    'disc-v2-detail-backdrop',
+    'disc-v2-detail-panel',
+    'disc-v2-snooze-pop',
+    'disc-v2-kbd-backdrop',
+    'disc-v2-kbd-help',
+    'disc-v2-dl-confirm-backdrop',
+    'disc-v2-dl-confirm',
+  ]) {
+    const el = document.getElementById(id);
+    if (el && el.parentElement !== document.body) {
+      document.body.appendChild(el);
+    }
+  }
 
   // Subscribe each renderer once.
   DiscoverV2.subscribe(_renderDiscoverV2Feed);
@@ -6195,7 +6255,11 @@ function initDiscoverV2() {
 
   // Keyboard shortcuts: j/k navigate, Enter opens panel, s/x/z mutate,
   // D triggers download confirm modal, ? toggles help overlay.
-  document.addEventListener('keydown', _handleDiscoverKeydown);
+  // Use capture:true so this fires BEFORE the app-wide ? handler — without
+  // it the Discover ? overlay opens AND the app-wide overlay opens (UX
+  // audit Issue 1). The stopPropagation inside the handler then suppresses
+  // the app-wide listener.
+  document.addEventListener('keydown', _handleDiscoverKeydown, true);
 
   // Whenever the feed re-renders we may need to reset the cursor. The card
   // grid is rebuilt by _renderDiscoverV2Feed — re-subscribe so we drop the

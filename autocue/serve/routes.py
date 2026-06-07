@@ -3073,19 +3073,29 @@ def discover_stats(store=Depends(get_discover_store)):
         per_scan = [store.saves_correlated_to_scan(int(r["scan_id"])) for r in recent_scans]
         saves_per_scan = sum(per_scan) / len(per_scan)
 
-    # Novelty status breakdown — used by the UI to show 'how often did we
-    # have to fall back to sparse adjacency?'.
-    breakdown = {"ok": 0, "partial": 0, "sparse_adjacency": 0}
+    # Novelty status breakdown — return RATIOS (0..1) keyed by status so the
+    # frontend can render percentages directly without needing to know the
+    # total. Previously this returned raw counts which the frontend then
+    # multiplied by 100, producing "ok 1100%". UX audit Issue 4.
+    counts = {"ok": 0, "partial": 0, "sparse_adjacency": 0}
     for row in store.conn.execute(
         "SELECT novelty_status, COUNT(*) AS n FROM scans "
         "WHERE status = 'ok' GROUP BY novelty_status"
     ).fetchall():
         ns = row["novelty_status"]
-        if ns in breakdown:
-            breakdown[ns] = int(row["n"])
+        if ns in counts:
+            counts[ns] = int(row["n"])
+    total_novelty = sum(counts.values())
+    breakdown = (
+        {k: v / total_novelty for k, v in counts.items()}
+        if total_novelty > 0 else
+        {k: 0.0 for k in counts}
+    )
 
     # Top labels / artists by save frequency — surfaces what the user is
-    # ACTUALLY saving rather than what the library merely contains.
+    # ACTUALLY saving rather than what the library merely contains. Returns
+    # `count` (not `plays`) so the frontend's a.count renders the right
+    # number — UX audit Issue 4 had this rendering "(undefined)".
     top_labels_rows = store.conn.execute(
         "SELECT label AS name, COUNT(*) AS n FROM saved "
         "WHERE label IS NOT NULL AND label != '' "
@@ -3102,8 +3112,8 @@ def discover_stats(store=Depends(get_discover_store)):
         avg_duration_ms=avg_duration,
         saves_per_scan=saves_per_scan,
         novelty_share=breakdown,
-        top_labels=[{"name": r["name"], "plays": int(r["n"])} for r in top_labels_rows],
-        top_artists=[{"name": r["name"], "plays": int(r["n"])} for r in top_artists_rows],
+        top_labels=[{"name": r["name"], "count": int(r["n"])} for r in top_labels_rows],
+        top_artists=[{"name": r["name"], "count": int(r["n"])} for r in top_artists_rows],
         followed_count=len(store.list_followed_labels()),
         saved_count=len(store.list_saved()),
         dismissed_count=len(store.list_dismissed()),

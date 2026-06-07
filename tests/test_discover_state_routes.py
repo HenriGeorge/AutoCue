@@ -239,7 +239,11 @@ class TestStats:
         assert body["total_scans"] == 1
         assert body["avg_duration_ms"] == 5000
         assert body["saves_per_scan"] == 1
-        assert body["novelty_share"]["ok"] == 1
-        assert body["top_labels"] == [{"name": "L", "plays": 1}]
-        assert body["top_artists"] == [{"name": "A", "plays": 1}]
+        # novelty_share is now a ratio (0..1), not a raw count — UX audit
+        # Issue 4 fix. With 1 scan of status="ok", ratio is 1.0.
+        assert body["novelty_share"]["ok"] == 1.0
+        # top_labels / top_artists now expose `count` (not `plays`) — the
+        # frontend reads `.count` and was rendering "(undefined)" before.
+        assert body["top_labels"] == [{"name": "L", "count": 1}]
+        assert body["top_artists"] == [{"name": "A", "count": 1}]
         assert body["saved_count"] == 1
