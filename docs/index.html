@@ -1934,6 +1934,40 @@
       border: none; background: var(--surface2); color: var(--text);
       cursor: pointer;
     }
+    .disc-v2-snooze-pop {
+      position: absolute; z-index: 1200;
+      background: var(--surface); color: var(--text);
+      border: 1px solid var(--border); border-radius: 8px;
+      padding: 8px 10px; min-width: 220px;
+      box-shadow: 0 6px 18px rgba(0,0,0,0.35);
+      display: none;
+    }
+    .disc-v2-snooze-pop[aria-hidden="false"] { display: block; }
+    .disc-v2-snooze-pop h4 {
+      margin: 0 0 6px; font-size: 12px; color: var(--muted);
+      text-transform: uppercase; letter-spacing: 0.04em;
+    }
+    .disc-v2-snooze-pop-buttons {
+      display: flex; gap: 4px;
+    }
+    .disc-v2-snooze-pop-buttons button {
+      flex: 1; padding: 6px 8px; font-size: 12px;
+      border: 1px solid var(--border); background: var(--surface2);
+      color: var(--text); border-radius: 4px; cursor: pointer;
+    }
+    .disc-v2-snooze-pop-buttons button.default {
+      background: var(--green); color: #fff; border-color: var(--green);
+    }
+    .disc-v2-snooze-pop-buttons button:focus {
+      outline: 2px solid var(--green); outline-offset: 1px;
+    }
+    .disc-v2-resurfaced-badge {
+      display: inline-block;
+      background: rgba(180, 90, 180, 0.16);
+      color: var(--text); font-size: 10px;
+      border-radius: 999px; padding: 1px 6px; margin-left: 4px;
+      vertical-align: middle;
+    }
   </style>
 <script src="https://cdn.tailwindcss.com"></script>
 <script>tailwind.config = { corePlugins: { preflight: false }, darkMode: 'class' }</script>
@@ -3011,6 +3045,18 @@ autocue --library --mode bar --bars-interval 8 --start-bar 1</pre>
     </div>
   </div>
 
+  <!-- Snooze popover — anchored at the clicked button via JS. PRD §6.11
+       offers 1w / 1m / 3m; 1m is the default (Enter / default-focus). -->
+  <div id="disc-v2-snooze-pop" class="disc-v2-snooze-pop" role="dialog"
+       aria-label="Snooze duration" aria-hidden="true">
+    <h4>Snooze for</h4>
+    <div class="disc-v2-snooze-pop-buttons">
+      <button data-snooze-dur="1w">1 week</button>
+      <button data-snooze-dur="1m" class="default">1 month</button>
+      <button data-snooze-dur="3m">3 months</button>
+    </div>
+  </div>
+
   <!-- Keyboard shortcut help overlay (toggled by `?`). -->
   <div id="disc-v2-kbd-backdrop" class="disc-v2-detail-backdrop" aria-hidden="true"></div>
   <div id="disc-v2-kbd-help" class="disc-v2-kbd-help" role="dialog" aria-modal="true"
@@ -3023,7 +3069,7 @@ autocue --library --mode bar --bars-interval 8 --start-bar 1</pre>
       <dt>Enter</dt><dd>Open detail panel</dd>
       <dt>s</dt><dd>Save</dd>
       <dt>x</dt><dd>Dismiss</dd>
-      <dt>z</dt><dd>Snooze (30 days)</dd>
+      <dt>z</dt><dd>Snooze (popover: 1w / 1m / 3m)</dd>
       <dt>D</dt><dd>Download (with confirmation)</dd>
       <dt>?</dt><dd>Show / hide this help</dd>
       <dt>Esc</dt><dd>Close any open panel</dd>
@@ -4335,6 +4381,8 @@ const DiscoverV2 = (() => {
     savedKeys: new Set(),
     dismissedKeys: new Set(),
     snoozedKeys: new Set(),
+    resurfacedKeys: new Set(),       // release_keys whose snooze has expired
+    snoozedMeta: new Map(),          // release_key → {until_date}
     followedLabels: [],         // [{label_id, name, last_scanned_at}]
     blockedArtists: [],
     blockedLabels: [],
@@ -4372,7 +4420,9 @@ const DiscoverV2 = (() => {
       const [saved, dismissed, snoozed, followed, blkA, blkL, tokenStatus] = await Promise.all([
         _get('/api/discover/saved'),
         _get('/api/discover/dismissed'),
-        _get('/api/discover/snoozed'),
+        // include_resurfaced=true so we can tag cards that the user previously
+        // snoozed and that have since reappeared in the feed.
+        _get('/api/discover/snoozed?include_resurfaced=true'),
         _get('/api/discover/labels'),
         _get('/api/discover/blocked-artists'),
         _get('/api/discover/blocked-labels'),
@@ -4380,7 +4430,19 @@ const DiscoverV2 = (() => {
       ]);
       state.savedKeys = new Set(saved.items.map(r => r.release_key));
       state.dismissedKeys = new Set(dismissed.items.map(r => r.release_key));
-      state.snoozedKeys = new Set(snoozed.items.map(r => r.release_key));
+      // Split snoozed into still-active vs resurfaced (until_date in the past).
+      const nowIso = new Date().toISOString();
+      state.snoozedKeys = new Set();
+      state.resurfacedKeys = new Set();
+      state.snoozedMeta = new Map();
+      for (const row of snoozed.items) {
+        state.snoozedMeta.set(row.release_key, {until_date: row.until_date});
+        if (row.until_date && row.until_date > nowIso) {
+          state.snoozedKeys.add(row.release_key);
+        } else {
+          state.resurfacedKeys.add(row.release_key);
+        }
+      }
       state.followedLabels = followed.items;
       state.blockedArtists = blkA.items;
       state.blockedLabels = blkL.items;
@@ -4623,6 +4685,17 @@ const DiscoverV2 = (() => {
 
 // Card renderer + DOM event wiring -------------------------------------------
 
+// Render the "🔁 Resurfaced" badge for releases the user previously snoozed
+// and whose snooze has since expired. The until_date the snooze was set to
+// (i.e., the resurface date) is shown as a hover tooltip.
+function _resurfacedBadge(release) {
+  if (!release || !DiscoverV2.state.resurfacedKeys.has(release.release_key)) return '';
+  const meta = DiscoverV2.state.snoozedMeta && DiscoverV2.state.snoozedMeta.get(release.release_key);
+  const dateStr = meta && meta.until_date ? meta.until_date.slice(0, 10) : '';
+  const titleAttr = dateStr ? ` title="Snooze expired on ${_esc(dateStr)}"` : '';
+  return ` <span class="disc-v2-resurfaced-badge"${titleAttr}>🔁 Resurfaced</span>`;
+}
+
 function _renderDiscoverV2Card(release) {
   const r = release.release || {};
   const isSaved = DiscoverV2.state.savedKeys.has(release.release_key);
@@ -4638,7 +4711,7 @@ function _renderDiscoverV2Card(release) {
     <div class="disc-v2-card-body">
       <p class="disc-v2-card-title">${_esc(r.title || 'Untitled')}</p>
       <p class="disc-v2-card-artist">${_esc(r.artist || 'Unknown Artist')}</p>
-      <p class="disc-v2-card-source">via ${_esc(sourceLabel)}${r.label ? ' · ' + _esc(r.label) : ''}${r.year ? ' · ' + r.year : ''}</p>
+      <p class="disc-v2-card-source">via ${_esc(sourceLabel)}${r.label ? ' · ' + _esc(r.label) : ''}${r.year ? ' · ' + r.year : ''}${_resurfacedBadge(release)}</p>
     </div>
     <div class="disc-v2-card-actions" data-actions>
       <button class="disc-v2-card-action ${isSaved ? 'saved' : ''}" data-act="save" title="Save">${isSaved ? '✓' : '💚'}</button>
@@ -5187,7 +5260,7 @@ function _renderDetailBody(release, detail, status, errorMsg) {
         ${isSaved ? '✓ Saved' : '💚 Save'}
       </button>
       <button class="disc-v2-detail-action" data-detail-act="download">⬇ Download album</button>
-      <button class="disc-v2-detail-action" data-detail-act="snooze">💤 Snooze 30d</button>
+      <button class="disc-v2-detail-action" data-detail-act="snooze">💤 Snooze…</button>
       <button class="disc-v2-detail-action" data-detail-act="dismiss" ${isDismissed ? 'disabled' : ''}>
         ✕ ${isDismissed ? 'Dismissed' : 'Dismiss'}
       </button>
@@ -5216,8 +5289,8 @@ function _renderDetailBody(release, detail, status, errorMsg) {
         if (act === 'save') {
           await DiscoverV2.save(release);
         } else if (act === 'snooze') {
-          await DiscoverV2.snooze(release, '30d');
-          _closeDetailPanel();
+          // Don't close the panel — the popover anchors against the button.
+          _openSnoozePopover(release, btn);
           return;
         } else if (act === 'dismiss') {
           await DiscoverV2.dismiss(release);
@@ -5488,6 +5561,81 @@ function _toggleKbdHelp() {
   }
 }
 
+// ── Snooze popover (T-033) ───────────────────────────────────────────────
+// PRD §6.11: 1w / 1m / 3m. 1m is the default (the "default" CSS class +
+// initial focus); Enter on the default button fires the snooze.
+let _snoozePopRelease = null;
+let _snoozePopReturnFocusEl = null;
+let _snoozePopKeydownHandler = null;
+
+function _openSnoozePopover(release, anchorEl) {
+  const pop = document.getElementById('disc-v2-snooze-pop');
+  if (!pop) return;
+  _snoozePopRelease = release;
+  _snoozePopReturnFocusEl = document.activeElement;
+
+  // Anchor the popover near the clicked button. If no anchor was passed
+  // (e.g., keyboard z shortcut), center over the current active card.
+  const anchor = anchorEl || document.querySelector('.disc-v2-card.active') || document.body;
+  const rect = anchor.getBoundingClientRect();
+  const top = window.scrollY + rect.bottom + 6;
+  // Right-align if the anchor's right edge is past 70% of viewport.
+  let left = window.scrollX + rect.left;
+  if (rect.left > window.innerWidth * 0.7) {
+    left = window.scrollX + rect.right - 220;
+  }
+  pop.style.top = `${top}px`;
+  pop.style.left = `${left}px`;
+  pop.setAttribute('aria-hidden', 'false');
+
+  _snoozePopKeydownHandler = (ev) => {
+    if (ev.key === 'Escape') {
+      ev.preventDefault();
+      _closeSnoozePopover();
+    }
+  };
+  document.addEventListener('keydown', _snoozePopKeydownHandler);
+  // Click-outside-to-close.
+  setTimeout(() => document.addEventListener('mousedown', _snoozePopOutsideHandler), 0);
+
+  // Default focus on the 1-month button.
+  setTimeout(() => {
+    const def = pop.querySelector('button.default') || pop.querySelector('button');
+    def?.focus();
+  }, 30);
+}
+
+function _snoozePopOutsideHandler(ev) {
+  const pop = document.getElementById('disc-v2-snooze-pop');
+  if (pop && !pop.contains(ev.target)) _closeSnoozePopover();
+}
+
+function _closeSnoozePopover() {
+  const pop = document.getElementById('disc-v2-snooze-pop');
+  if (pop) pop.setAttribute('aria-hidden', 'true');
+  if (_snoozePopKeydownHandler) {
+    document.removeEventListener('keydown', _snoozePopKeydownHandler);
+    _snoozePopKeydownHandler = null;
+  }
+  document.removeEventListener('mousedown', _snoozePopOutsideHandler);
+  if (_snoozePopReturnFocusEl && typeof _snoozePopReturnFocusEl.focus === 'function') {
+    try { _snoozePopReturnFocusEl.focus(); } catch (_) {}
+  }
+  _snoozePopReturnFocusEl = null;
+  _snoozePopRelease = null;
+}
+
+async function _runSnoozeWithDuration(duration) {
+  const release = _snoozePopRelease;
+  _closeSnoozePopover();
+  if (!release) return;
+  try {
+    await DiscoverV2.snooze(release, duration);
+  } catch (_) {
+    if (typeof showToast === 'function') showToast('Snooze failed');
+  }
+}
+
 function _handleDiscoverKeydown(ev) {
   // Don't intercept while the user is typing in a search box.
   if (_kbdIsTextInputActive()) return;
@@ -5538,7 +5686,7 @@ function _handleDiscoverKeydown(ev) {
       const rel = _activeRelease();
       if (!rel) return;
       ev.preventDefault();
-      DiscoverV2.snooze(rel, '30d');
+      _openSnoozePopover(rel, null);
       return;
     }
     case 'D': {  // intentionally uppercase: requires Shift
@@ -5611,7 +5759,7 @@ function initDiscoverV2() {
       const act = actBtn.getAttribute('data-act');
       if (act === 'save') DiscoverV2.save(release);
       else if (act === 'dismiss') DiscoverV2.dismiss(release);
-      else if (act === 'snooze') DiscoverV2.snooze(release, '1m');
+      else if (act === 'snooze') _openSnoozePopover(release, actBtn);
       return;
     }
     if (ev.shiftKey) {
@@ -5635,6 +5783,14 @@ function initDiscoverV2() {
   // Keyboard help overlay close (X button + backdrop click).
   document.getElementById('disc-v2-kbd-help-close')?.addEventListener('click', _toggleKbdHelp);
   document.getElementById('disc-v2-kbd-backdrop')?.addEventListener('click', _toggleKbdHelp);
+
+  // Snooze popover buttons. Each button carries its duration in data-snooze-dur.
+  document.querySelectorAll('#disc-v2-snooze-pop [data-snooze-dur]').forEach(btn =>
+    btn.addEventListener('click', (ev) => {
+      ev.preventDefault();
+      _runSnoozeWithDuration(btn.getAttribute('data-snooze-dur'));
+    })
+  );
 
   // Keyboard shortcuts: j/k navigate, Enter opens panel, s/x/z mutate,
   // D triggers download confirm modal, ? toggles help overlay.
