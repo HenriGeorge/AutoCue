@@ -679,3 +679,78 @@ Downloads are saved to `~/Music/AutoCue` by default. Override this with the `AUT
 ### Legal note
 
 Downloading copyrighted audio from YouTube may violate YouTube's Terms of Service and copyright law. Only download content you are authorised to download — your own uploads, Creative-Commons material, or tracks you are otherwise licensed to use. Lawful use is your responsibility; AutoCue surfaces this disclaimer in the Download panel.
+
+---
+
+## Feature 16: Performance & Caching
+
+AutoCue is built to stay responsive on libraries of 10,000+ tracks. Several systems work together to keep first-load fast, repeat-load near-instant, and multi-track endpoints (generate-apply, health, classify, auto-tag, comment enrichment, similarity index) parallel where it's safe to do so. Most of this is automatic — the controls below let you tune, inspect, or reset it.
+
+### Sidecar analysis cache
+
+The first time `autocue serve` runs against a library it populates a sidecar SQLite file at `<rekordbox_dir>/autocue_cache.sqlite`, alongside `master.db`. The cache memoizes work that's expensive to recompute every session: energy curves, classifications, similarity vectors, mixability scores, and the `/api/tracks` snapshot that powers the library list. On the next launch, anything still valid is loaded from the cache instead of re-derived from ANLZ files, taking cold-start similarity-index build from ~30 s down to a couple of seconds.
+
+The cache is plain SQLite. It contains **no audio, no credentials, and no Discogs tokens** — only numeric features, labels, and basic track metadata (titles, artists, BPM, key, file paths). Per-track entries are invalidated automatically when the underlying ANLZ file's modification time changes; the whole cache is invalidated when `master.db` itself changes. You don't need to manage it.
+
+### Resetting the cache
+
+If you ever want to rebuild from scratch — after a Rekordbox library overhaul, when debugging, or when migrating between machines — start the server with the `--reset-cache` flag:
+
+```bash
+autocue serve --reset-cache
+```
+
+This deletes `autocue_cache.sqlite` before booting. The server starts immediately and re-warms in the background; the first scan or library list may take a few seconds longer than usual while the cache rebuilds.
+
+### Warm-up progress badge
+
+After `autocue serve` boots, AutoCue runs a background warm-up pipeline that populates the `/api/tracks` snapshot and the sidecar cache. The UI is usable during this time — you can browse, filter, and generate cues — but classification, similarity, and other intelligence features become snappier as the warm-up progresses. The status bar at the top of the app (`#app-status`) shows a live **"Indexing N / M tracks"** badge while warm-up runs, and disappears when it finishes. On a 10k library this typically completes in well under a minute.
+
+### Fast library load (`/api/tracks`)
+
+The library list is served from an in-memory snapshot keyed by `master.db`'s modification time. On a 10k library a warm load comes back in under 200 ms. Two behaviours make this efficient in practice:
+
+- **ETag revalidation** — `/api/tracks` returns an `ETag` header. The web UI sends it back as `If-None-Match` on subsequent loads, and the server returns `304 Not Modified` (no body) when nothing has changed. Tab switches and refreshes cost almost nothing.
+- **Optional NDJSON streaming** — Clients that send `Accept: application/x-ndjson` receive the response as newline-delimited JSON, one track per line, so they can start rendering before the whole library has arrived. The default JSON-array response is unchanged.
+
+You don't need to opt in to either; the web UI uses them automatically.
+
+### Thread-pool size (`AUTOCUE_POOL_SIZE`)
+
+Multi-track endpoints share a single bounded thread pool. The default size is `min(8, cpu_count())`, which is the sweet spot for the I/O-bound ANLZ reads that dominate runtime. If you want to override it — for example to limit CPU on a laptop running on battery, or to push higher on a fast desktop — set `AUTOCUE_POOL_SIZE` before starting the server:
+
+```bash
+AUTOCUE_POOL_SIZE=4 autocue serve
+```
+
+Larger values give diminishing returns once disk I/O saturates. The single-writer rule for `master.db` is always preserved: parallel work happens in compute stages, but writes go through one thread.
+
+### Optional parallel paths
+
+Six analysis paths have a flagged parallel implementation alongside the proven serial path. Each is gated by an environment variable so you can opt in selectively:
+
+| Env var | What it parallelises |
+|---|---|
+| `AUTOCUE_PARALLEL_GENERATE_APPLY` | `/api/generate-apply-stream` (cue generation + write) |
+| `AUTOCUE_PARALLEL_HEALTH` | `/api/health` library scan |
+| `AUTOCUE_PARALLEL_CLASSIFY` | `/api/classify` SSE stream |
+| `AUTOCUE_PARALLEL_AUTO_TAG` | `/api/auto-tag` |
+| `AUTOCUE_PARALLEL_ENRICH_COMMENTS` | `/api/enrich-comments` |
+| `AUTOCUE_PARALLEL_SIMILAR` | Similarity index build |
+
+Set any flag to `1` to enable the parallel path for that endpoint:
+
+```bash
+AUTOCUE_PARALLEL_HEALTH=1 AUTOCUE_PARALLEL_CLASSIFY=1 autocue serve
+```
+
+These are off by default to keep the shipping behaviour conservative. If you're scanning thousands of tracks regularly, enabling them yields large wall-clock wins (Library Health on 10k drops from ~16 min to ~2 min, for example).
+
+### Performance instrumentation (developer)
+
+For diagnosing slow operations there are two opt-in helpers:
+
+- **Server-side ring buffer** — Set `AUTOCUE_PERF=1` before starting the server to enable the perf ring buffer and a `GET /api/perf/recent` endpoint. It returns the last 100 instrumented spans with handler name and p50/p95/p99 latency. Off by default; intended for development and bug reports.
+- **Client-side console marks** — In the browser DevTools console, run `localStorage.autocue_perf = '1'` and reload. The web app then logs `[AutoCue Perf] …` measurements for key UI operations (initial load, filter, scroll, tab switch). Set the value to `'0'` (or clear it) to disable.
+
+Neither is needed for normal use — they exist so you can attach concrete numbers to a perf issue when reporting one.
