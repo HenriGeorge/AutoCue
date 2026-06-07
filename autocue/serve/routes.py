@@ -2437,30 +2437,91 @@ async def enrich_comments_stream(req: EnrichCommentsRequest, db=Depends(get_db))
             except Exception:
                 pass
 
-        for i, tid in enumerate(track_ids):
-            try:
-                content = db.get_content(ID=tid)
-                if content is None:
+        # TASK-006 — flagged parallel comment-string build (AUTOCUE_PARALLEL_ENRICH_COMMENTS=1).
+        # Read-only string building runs in pool workers; writes (content.Commnt =
+        # new_comment + db.commit()) stay sequential in the generator (single-writer
+        # rule). Default = existing serial behaviour until TASK-008 verification.
+        import os as _os
+        if _os.environ.get("AUTOCUE_PARALLEL_ENRICH_COMMENTS") == "1" and track_ids:
+            from concurrent.futures import as_completed as _as_completed
+            from ..analysis.concurrency import get_pool as _get_pool
+
+            def _build_one(tid):
+                try:
+                    content = db.get_content(ID=tid)
+                    if content is None:
+                        return (tid, None, None, "missing", None)
+                    previous = str(getattr(content, "Commnt", "") or "")
+                    # dry_run=True so the worker never mutates content.Commnt —
+                    # the writer below performs the assignment + commit serially.
+                    new_comment = enrich_comment(
+                        content, db, overwrite=req.overwrite, dry_run=True
+                    )
+                    if new_comment is None:
+                        return (tid, content, previous, "no_change", None)
+                    return (tid, content, previous, None, new_comment)
+                except Exception as exc:
+                    return (tid, None, None, None, exc)
+
+            pool = _get_pool()
+            futures = [pool.submit(_build_one, tid) for tid in track_ids]
+            processed = 0
+            for fut in _as_completed(futures):
+                processed += 1
+                try:
+                    tid, content, previous, skip_reason, payload = fut.result()
+                except Exception:
+                    errors += 1
+                    yield f"data: {_json.dumps({'processed': processed, 'total': total, 'enriched': enriched})}\n\n"
+                    continue
+
+                if isinstance(payload, Exception):
+                    errors += 1
+                elif skip_reason is not None:
                     skipped += 1
                 else:
-                    previous = str(getattr(content, "Commnt", "") or "")
-                    result = enrich_comment(content, db, overwrite=req.overwrite, dry_run=req.dry_run)
-                    if result is None:
+                    new_comment = payload
+                    if req.dry_run:
+                        enriched += 1
+                    else:
+                        try:
+                            content.Commnt = new_comment
+                            db.session.commit()
+                            enriched += 1
+                            undo_rows.append({"content_id": str(tid), "previous": previous})
+                        except Exception as commit_exc:
+                            db.session.rollback()
+                            errors += 1
+                            logger.warning(
+                                "Enrichment commit failed for track %s: %s",
+                                tid, commit_exc,
+                            )
+                yield f"data: {_json.dumps({'processed': processed, 'total': total, 'enriched': enriched})}\n\n"
+        else:
+            for i, tid in enumerate(track_ids):
+                try:
+                    content = db.get_content(ID=tid)
+                    if content is None:
                         skipped += 1
                     else:
-                        enriched += 1
-                        if not req.dry_run:
-                            try:
-                                db.session.commit()
-                                undo_rows.append({"content_id": str(tid), "previous": previous})
-                            except Exception as commit_exc:
-                                db.session.rollback()
-                                errors += 1
-                                enriched -= 1
-                                logger.warning("Enrichment commit failed for track %s: %s", tid, commit_exc)
-            except Exception:
-                errors += 1
-            yield f"data: {_json.dumps({'processed': i + 1, 'total': total, 'enriched': enriched})}\n\n"
+                        previous = str(getattr(content, "Commnt", "") or "")
+                        result = enrich_comment(content, db, overwrite=req.overwrite, dry_run=req.dry_run)
+                        if result is None:
+                            skipped += 1
+                        else:
+                            enriched += 1
+                            if not req.dry_run:
+                                try:
+                                    db.session.commit()
+                                    undo_rows.append({"content_id": str(tid), "previous": previous})
+                                except Exception as commit_exc:
+                                    db.session.rollback()
+                                    errors += 1
+                                    enriched -= 1
+                                    logger.warning("Enrichment commit failed for track %s: %s", tid, commit_exc)
+                except Exception:
+                    errors += 1
+                yield f"data: {_json.dumps({'processed': i + 1, 'total': total, 'enriched': enriched})}\n\n"
 
         yield f"data: {_json.dumps({'done': True, 'enriched': enriched, 'skipped': skipped, 'errors': errors, 'backup_path': backup_path, 'dry_run': req.dry_run, 'undo_data': {'modified': undo_rows}})}\n\n"
 
