@@ -1,0 +1,54 @@
+{
+  "id": "TASK-001",
+  "title": "Introduce shared ThreadPoolExecutor primitive (autocue.analysis.concurrency)",
+  "category": "functional",
+  "description": "Create a single shared thread-pool primitive used by every analysis fanout (generate-apply, health, classify, auto-tag, enrich, similar index build). Centralizes pool size config so the operator has one knob.",
+  "acceptanceCriteria": [
+    "Module autocue/analysis/concurrency.py exists and exports get_pool() and pool_size().",
+    "Default pool size resolves to min(8, os.cpu_count() or 1).",
+    "Environment variable AUTOCUE_POOL_SIZE overrides default; values <1 are clamped to 1; non-int raises ValueError at import-not at use.",
+    "get_pool() returns a process-singleton concurrent.futures.ThreadPoolExecutor (lazy-initialized).",
+    "Module exposes shutdown_pool() for clean test teardown.",
+    "Unit test in tests/test_concurrency.py covers default, override, clamp, singleton, and shutdown.",
+    "No new runtime dependency is introduced (stdlib only)."
+  ],
+  "steps": [
+    {
+      "step": 1,
+      "description": "Create autocue/analysis/concurrency.py",
+      "details": "New file. Imports: os, threading, concurrent.futures. Module-level _pool = None, _pool_lock = threading.Lock(). Functions: pool_size() reads AUTOCUE_POOL_SIZE env, falls back to min(8, os.cpu_count() or 1), clamps to max(1, n). get_pool() acquires _pool_lock; if _pool is None, sets _pool = ThreadPoolExecutor(max_workers=pool_size(), thread_name_prefix='autocue-pool'); returns _pool. shutdown_pool() acquires lock; if _pool not None, calls _pool.shutdown(wait=True, cancel_futures=False); sets _pool=None.",
+      "pass": false
+    },
+    {
+      "step": 2,
+      "description": "Add tests/test_concurrency.py",
+      "details": "Test cases: (a) default size equals min(8, cpu_count or 1) when env unset; (b) AUTOCUE_POOL_SIZE='4' yields 4 (use monkeypatch.setenv + shutdown_pool between cases); (c) AUTOCUE_POOL_SIZE='0' clamps to 1; (d) AUTOCUE_POOL_SIZE='abc' raises ValueError on pool_size() call; (e) get_pool() returns the same instance on repeated calls; (f) shutdown_pool() clears the singleton so the next get_pool() returns a fresh executor. Use pytest fixture autouse=True calling shutdown_pool() after each test.",
+      "pass": false
+    },
+    {
+      "step": 3,
+      "description": "Wire into serve lifespan",
+      "details": "In serve/deps.py lifespan() (or app shutdown hook in serve/app.py), call shutdown_pool() during the existing app shutdown path so the pool is closed on uvicorn stop. Do NOT pre-create the pool at startup-let lazy init handle first use.",
+      "pass": false
+    },
+    {
+      "step": 4,
+      "description": "Document the env var in CLAUDE.md",
+      "details": "Add a single line under the 'Development commands' section: 'export AUTOCUE_POOL_SIZE=8  # override default pool size for parallel analysis loops'. Also note in the 'Must-know constraints' table that the pool serves I/O-bound work; the writer side of any DB mutation must stay single-threaded.",
+      "pass": false
+    },
+    {
+      "step": 5,
+      "description": "Run the full Python test suite",
+      "details": "pytest -q. Verify all 819+ existing tests still green and the 6 new concurrency tests green. No flakiness over 5 consecutive runs.",
+      "pass": false
+    }
+  ],
+  "dependencies": [],
+  "estimatedComplexity": "low",
+  "technicalNotes": [
+    "ThreadPoolExecutor is lazy-init: don't fork a pool at module import-tests that touch env vars need a fresh pool per case.",
+    "thread_name_prefix='autocue-pool' makes traces and py-spy output legible.",
+    "shutdown(wait=True) blocks until in-flight work finishes; use cancel_futures=False to preserve in-flight SSE writes."
+  ]
+}

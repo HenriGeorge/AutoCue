@@ -1,0 +1,37 @@
+{
+  "id": "TASK-045",
+  "title": "GET /api/perf/recent returns recent perf stats",
+  "category": "api-endpoint",
+  "description": "Dev-only endpoint exposing the perf ring buffer. Returns last 100 spans + computed p50/p95/p99 per named span. Gated by AUTOCUE_PERF env var.",
+  "acceptanceCriteria": [
+    "GET /api/perf/recent returns 404 when AUTOCUE_PERF is unset.",
+    "When enabled: returns 200 with {spans: [{name, duration_ms, start_ts}, ...], stats: {name: {count, p50, p95, p99}, ...}}.",
+    "Endpoint is read-only and has constant-time response (no DB, just the in-memory buffer).",
+    "Listed in routes.py but not in the OpenAPI spec when disabled.",
+    "tests/test_serve_routes.py covers disabled (404) + enabled (200) paths."
+  ],
+  "steps": [
+    {
+      "step": 1,
+      "description": "Pydantic schemas",
+      "details": "class PerfSpan(BaseModel): name: str; duration_ms: float; start_ts: float. class PerfStat(BaseModel): count: int; p50: float; p95: float; p99: float. class PerfResponse(BaseModel): spans: list[PerfSpan]; stats: dict[str, PerfStat].",
+      "pass": false
+    },
+    {
+      "step": 2,
+      "description": "Handler",
+      "details": "@app.get('/api/perf/recent', response_model=PerfResponse): if not perf._enabled: raise HTTPException(404). Collect last 100 from perf._buffer; group by name for stats.",
+      "pass": false
+    },
+    {
+      "step": 3,
+      "description": "Tests",
+      "details": "tests/test_serve_routes.py: with AUTOCUE_PERF unset, 404. With AUTOCUE_PERF=1, 200 + valid schema."
+    }
+  ],
+  "dependencies": ["TASK-044"],
+  "estimatedComplexity": "low",
+  "technicalNotes": [
+    "Don't include this in the default OpenAPI schema when disabled - users shouldn't see a phantom dev endpoint. Use include_in_schema=False conditional."
+  ]
+}

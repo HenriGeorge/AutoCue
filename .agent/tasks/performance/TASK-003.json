@@ -1,0 +1,55 @@
+{
+  "id": "TASK-003",
+  "title": "Refactor /api/health SSE to parallel per-track checks",
+  "category": "api-endpoint",
+  "description": "Fan out the per-track health checks in analysis/quality.py through the shared ThreadPool. The generator still yields one event per track, but order is completion-order. Preserves per-track exception isolation.",
+  "acceptanceCriteria": [
+    "GET /api/health (and /api/health?playlist_id=N&limit=N) streams the same event shape as today.",
+    "Sustained throughput >= 80 tracks/sec on a 10k sandbox library.",
+    "Per-track exceptions yield the existing {score:0, fix_tier:'none', issues:[{code:'INTERNAL_ERROR',...}]} event and the scan continues.",
+    "?limit=N still bounds the per-track loop regardless of completion order.",
+    "Existing tests/test_quality.py and tests/test_serve_routes.py health cases still pass; new test verifies parallel ordering invariant."
+  ],
+  "steps": [
+    {
+      "step": 1,
+      "description": "Open analysis/quality.py and identify the SSE generator",
+      "details": "Find check_library_health(db, playlist_id=None, limit=None). It currently yields {processed, total, ...} per track in a serial for-loop. Pull the per-track body into _check_one(content, db) returning a dict (the TrackHealthReport payload).",
+      "pass": false
+    },
+    {
+      "step": 2,
+      "description": "Submit work through the pool",
+      "details": "Replace the for-loop with a pool.submit(_check_one, content, db) submission per content, capped by limit if set. Collect futures into a list. Iterate concurrent.futures.as_completed(futures) and yield each result as the per-track event. Bound the number of in-flight futures to 2*pool_size() using a queue.Queue or a manual semaphore to avoid loading 10k futures into memory.",
+      "pass": false
+    },
+    {
+      "step": 3,
+      "description": "Preserve per-track error isolation",
+      "details": "Inside _check_one, wrap the existing per-track exception handler verbatim. From the outer loop, if a future.result() raises, yield the INTERNAL_ERROR-shape event with the content_id from the future's stored content reference (use a dict {future: content_id} for lookup).",
+      "pass": false
+    },
+    {
+      "step": 4,
+      "description": "Final summary event",
+      "details": "After all futures complete, yield {done:true, summary:{total, processed, errors, ...}} using the existing summary aggregator. Make sure the summary counts reflect completion totals, not submission totals.",
+      "pass": false
+    },
+    {
+      "step": 5,
+      "description": "Update tests",
+      "details": "tests/test_quality.py and tests/test_serve_routes.py: assertions that expected events in DB-row order must switch to set-comparison on content_ids. Add a new test injecting 50 mocked checks with one raising, verifies 49 normal events + 1 INTERNAL_ERROR event.",
+      "pass": false
+    },
+    {
+      "step": 6,
+      "description": "Benchmark",
+      "details": "RUN_PERF=1 pytest tests/perf/test_health_endpoint.py (added in TASK-047). Confirm >=80 tracks/sec on the 10k sandbox. If below, the bottleneck is usually ANLZ read I/O - check that the pool size matches disk parallelism (often 4-8 is the sweet spot)."
+    }
+  ],
+  "dependencies": ["TASK-001", "TASK-008"],
+  "estimatedComplexity": "medium",
+  "technicalNotes": [
+    "check_library_health currently uses pure DB reads (DjmdCue + DjmdContent) - no ANLZ parsing - so the pool should saturate quickly. The win is mostly in concurrent SQL reads."
+  ]
+}

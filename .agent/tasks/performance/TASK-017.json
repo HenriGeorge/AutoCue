@@ -1,0 +1,38 @@
+{
+  "id": "TASK-017",
+  "title": "Extend /api/restore to invalidate CacheStore (master.db swap)",
+  "category": "api-endpoint",
+  "description": "Restoring a Rekordbox backup replaces master.db. All cached analysis is stale (different content rows + possibly different ANLZ paths). /api/restore currently clears in-memory analysis caches and similar._INDEX; extend it to also call CacheStore.invalidate_all() and reopen against the new master.db.",
+  "acceptanceCriteria": [
+    "POST /api/restore {filename} clears CacheStore atomically before returning success.",
+    "After restore, the next request triggers a full rebuild: tracks_snapshot, energy_curve, classification, etc.",
+    "tests/test_serve_routes.py restore case asserts the cache file is empty (via dump_schema + COUNT(*) checks) post-restore.",
+    "Backup file path validation (within BACKUP_DIR) is unchanged - no new security surface.",
+    "The /api/restore handler still: disposes db._engine, copies the backup file, reopens via Rekordbox6Database, updates app.state.db (existing behavior)."
+  ],
+  "steps": [
+    {
+      "step": 1,
+      "description": "Locate /api/restore handler",
+      "details": "serve/routes.py. Find the existing handler that disposes db._engine, copies file, reopens. After reopen, find the existing call to similar.clear_index() + analysis-cache clears.",
+      "pass": false
+    },
+    {
+      "step": 2,
+      "description": "Add CacheStore.invalidate_all + reopen",
+      "details": "After the existing in-memory clears, app.state.cache_store.invalidate_all(). The cache file path is keyed to <rekordbox_dir> which is unchanged by restore (master.db is replaced in-place) - so no reopen of CacheStore is needed; just invalidate. If restore relocates the rekordbox dir (it shouldn't), reopen CacheStore via CacheStore.open_for(new_dir).",
+      "pass": false
+    },
+    {
+      "step": 3,
+      "description": "Tests",
+      "details": "tests/test_serve_routes.py: extend the restore test. Pre-populate CacheStore with mock energy_curve rows. POST /api/restore. Assert COUNT(*) FROM energy_curve == 0 after restore. Assert that get_energy_curve immediately after returns None (recomputes on next call)."
+    }
+  ],
+  "dependencies": ["TASK-010", "TASK-013", "TASK-014", "TASK-015", "TASK-016"],
+  "estimatedComplexity": "low",
+  "technicalNotes": [
+    "Per CLAUDE.md, /api/restore already calls similar.clear_index() to prevent stale feature vectors matching the new DB. This task extends that contract to the sidecar.",
+    "WAL/SHM sidecar files for master.db are handled by the existing restore path - cache is independent."
+  ]
+}

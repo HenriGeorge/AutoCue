@@ -1,0 +1,51 @@
+{
+  "id": "TASK-008",
+  "title": "Verify pyrekordbox read_anlz_file() thread-safety; fallback to thread-local DB if needed",
+  "category": "functional",
+  "description": "Empirically verify whether pyrekordbox.db6.Rekordbox6Database.read_anlz_file() (and get_tag()) is safe under concurrent calls from multiple threads sharing one Rekordbox6Database instance. If not safe, introduce a thread-local DB connection helper. Hard prerequisite for TASK-002..007 to ship safely.",
+  "acceptanceCriteria": [
+    "tests/test_concurrency.py contains a stress test calling read_anlz_file() and get_tag() concurrently from 16 threads against a sandbox DB; runs 10 times consecutively with no crash, exception, or data corruption.",
+    "If the stress test fails: a helper autocue.analysis.concurrency.thread_local_db(db_dir) is added that returns a per-thread Rekordbox6Database opened against the same dir; documented in CLAUDE.md.",
+    "All downstream pool-using endpoints (TASK-002..007) use the thread-safe path (either the shared db or the thread-local helper).",
+    "An experiment-result note is added to .agent/prd/PERFORMANCE_NOTES.md documenting what was verified, the test commit hash, and the chosen path."
+  ],
+  "steps": [
+    {
+      "step": 1,
+      "description": "Author the stress test",
+      "details": "tests/test_concurrency.py::test_anlz_read_concurrent. Build a small fixture DB or use the existing sandbox in tests/e2e. Spin up 16 threads, each calls db.read_anlz_file(content) + .get_tag('PSSI') + .get_tag('PQTZ') 50 times on randomly chosen content rows. Use a shared barrier to maximize concurrency. Assert no thread raised; collect tag entry counts and assert they match a serial reference run.",
+      "pass": false
+    },
+    {
+      "step": 2,
+      "description": "Run and observe",
+      "details": "pytest tests/test_concurrency.py::test_anlz_read_concurrent -q. Watch for: segfaults, sqlite OperationalError (sqlite default does not allow shared connection across threads), pyrekordbox internal exceptions. Run 10 times.",
+      "pass": false
+    },
+    {
+      "step": 3,
+      "description": "If safe: document and move on",
+      "details": "Write the finding to .agent/prd/PERFORMANCE_NOTES.md: 'Rekordbox6Database is safe for concurrent read_anlz_file/get_tag with N threads against the same instance. Verified on pyrekordbox X.Y.Z, commit <hash>.' Mark the test as the canonical safety check.",
+      "pass": false
+    },
+    {
+      "step": 4,
+      "description": "If NOT safe: build thread-local helper",
+      "details": "In autocue/analysis/concurrency.py add thread_local_db(db_dir) using threading.local(). First call per thread opens a new Rekordbox6Database(db_dir, key=...). Subsequent calls return the same instance. Register a cleanup in shutdown_pool() that walks _local._dbs (via WeakSet) and closes each. Update TASK-002..007 callsites to use this helper inside _compute_cues_for_track etc.",
+      "pass": false
+    },
+    {
+      "step": 5,
+      "description": "Document the chosen path in CLAUDE.md",
+      "details": "Add one line under 'Must-know constraints': 'pyrekordbox read_anlz_file is verified thread-safe (TASK-008); pool workers may share the lifespan-bound db instance.' OR if fallback: 'pool workers must call thread_local_db(db._db_dir) to get a per-thread Rekordbox6Database; the lifespan-bound db is for the request thread only.'",
+      "pass": false
+    }
+  ],
+  "dependencies": [],
+  "estimatedComplexity": "medium",
+  "technicalNotes": [
+    "sqlite3's default check_same_thread=True will raise if a Connection is used from a different thread; pyrekordbox may already disable this or use thread-local pools internally. The test will reveal which.",
+    "If thread-local DBs are required, the SQLCipher key must be cached and reused per thread - don't re-derive it from the master.db header each time.",
+    "Run this verification on the user's actual pyrekordbox version (pip show pyrekordbox) - results may vary across releases."
+  ]
+}

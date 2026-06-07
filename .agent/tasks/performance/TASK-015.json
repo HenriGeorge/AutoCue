@@ -1,0 +1,50 @@
+{
+  "id": "TASK-015",
+  "title": "Wire similar.py 6-dim feature vectors through CacheStore (L2)",
+  "category": "functional",
+  "description": "The similarity index build computes one 6-dim feature vector per track (key, energy mean, energy variance, vocal proxy, BPM, plus the 6th dim from the existing module). Store/retrieve via CacheStore.similarity_vector. Cold-build drops from ~30s to ~2s on warm cache.",
+  "acceptanceCriteria": [
+    "similar._extract_features(content, db) returns identical vector to v0 on miss; same vector on warm hit.",
+    "Index build on a 10k library completes in <= 5s when cache is fully warm (validated in TASK-007).",
+    "find_similar results are byte-identical between cold and warm builds (deterministic vectors).",
+    "tests/test_similar.py adds L2 hit / sentinel cases.",
+    "On track edit that does NOT change ANLZ, the cached vector is preserved (no recompute)."
+  ],
+  "steps": [
+    {
+      "step": 1,
+      "description": "Add similar.set_cache_store hook",
+      "details": "Mirror the pattern. Module-level _cache_store: CacheStore | None = None.",
+      "pass": false
+    },
+    {
+      "step": 2,
+      "description": "_extract_features cache-aware",
+      "details": "Before doing the feature math, get expected_anlz_mtime; query L2; on hit return vector. On miss, compute, write to L2 with anlz_mtime, return.",
+      "pass": false
+    },
+    {
+      "step": 3,
+      "description": "BLOB layout",
+      "details": "6 floats packed as struct.pack('6f', *vec). On read, struct.unpack('6f', blob) -> tuple; convert to numpy array if downstream cosine math needs it (cheap).",
+      "pass": false
+    },
+    {
+      "step": 4,
+      "description": "Data-quality cap preserved",
+      "details": "Per CLAUDE.md, similar.find_similar caps score <= 0.65 when neither track has ANLZ energy data. That logic stays in find_similar; the cache just stores raw vectors. Verify this cap still fires when both tracks have CacheStore.similarity_vector hits but the underlying energy data was missing - flag this in the cached vector with a sentinel value (e.g., NaN in energy dims) so find_similar can detect it without re-reading ANLZ.",
+      "pass": false
+    },
+    {
+      "step": 5,
+      "description": "Tests",
+      "details": "tests/test_similar.py: cold build vs warm build produce identical _INDEX dicts (test_index_deterministic). Add miss-and-populate test."
+    }
+  ],
+  "dependencies": ["TASK-010", "TASK-012", "TASK-013", "TASK-014"],
+  "estimatedComplexity": "medium",
+  "technicalNotes": [
+    "The 6-dim vector is the canonical similarity feature; the cosine math happens in similar.find_similar over the in-memory index.",
+    "Use NaN as the 'no ANLZ data' sentinel for energy dims so the existing data-quality cap (<= 0.65) still fires correctly on warm cache."
+  ]
+}

@@ -1,0 +1,42 @@
+{
+  "id": "TASK-016",
+  "title": "Wire score.get_mixability through CacheStore (L2)",
+  "category": "functional",
+  "description": "Layer the mixability cache the same way. L1 = score._mixability_cache (per CLAUDE.md: keyed by content.ID, now cached). L2 = CacheStore.mixability.",
+  "acceptanceCriteria": [
+    "score.get_mixability(content, db) returns identical {overall, components} dict to v0 on miss; same on warm hit.",
+    "Warm-path latency < 1 ms.",
+    "When /api/apply edits cues for a content_id, that content's mixability row is invalidated (cues affect intro/outro bars - per PRD §5 Flow E).",
+    "tests/test_score.py adds L2 hit / miss-and-populate cases plus a test that invalidate_track(content_id) clears the mixability row but preserves energy_curve / classification / similarity_vector."
+  ],
+  "steps": [
+    {
+      "step": 1,
+      "description": "Add score.set_cache_store hook",
+      "details": "Mirror the pattern.",
+      "pass": false
+    },
+    {
+      "step": 2,
+      "description": "Rewrite get_mixability",
+      "details": "L1 -> L2 -> compute. Score is a single float; components is a dict.",
+      "pass": false
+    },
+    {
+      "step": 3,
+      "description": "Selective invalidation on cue edits",
+      "details": "Per PRD §5 Flow E, /api/apply must invalidate ONLY mixability for the affected content_id - NOT energy/classification/similarity. Add CacheStore.invalidate_mixability(content_id) (in addition to invalidate_track(content_id) which clears everything). Call it from the /api/apply writer hook (TASK-026 adds the snapshot invalidation; this task adds the mixability-only call).",
+      "pass": false
+    },
+    {
+      "step": 4,
+      "description": "Tests",
+      "details": "tests/test_score.py: warm hit short-circuit; after apply, mixability cleared but other tables intact (assert energy_curve still has the row)."
+    }
+  ],
+  "dependencies": ["TASK-010", "TASK-012"],
+  "estimatedComplexity": "low",
+  "technicalNotes": [
+    "Why mixability is the only one cue-dependent: intro/outro bar counts come from cue positions; energy/classification/similarity are purely ANLZ-derived."
+  ]
+}

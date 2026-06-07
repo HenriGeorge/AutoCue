@@ -1,0 +1,43 @@
+{
+  "id": "TASK-019",
+  "title": "Document sidecar cache invariants in CLAUDE.md",
+  "category": "documentation",
+  "description": "Add a Must-know constraints subsection covering: cache path, file format, version bump semantics, invalidation rules, security posture, fallback when rekordbox_dir is not writable.",
+  "acceptanceCriteria": [
+    "CLAUDE.md (or .claude/project/db-constraints.md per the existing CLAUDE.md depth pattern) documents: file path, schema version, when to invalidate, what is NOT stored.",
+    "Doc references the relevant tasks (TASK-010..018) by ID.",
+    "Doc explicitly states the cache contains no audio, no Discogs token, no SQLCipher key.",
+    "Doc states the AUTOCUE_POOL_SIZE env var and AUTOCUE_DOWNLOAD_DIR convention (existing pattern).",
+    "Reviewers can read just this section to understand the cache contract."
+  ],
+  "steps": [
+    {
+      "step": 1,
+      "description": "Decide depth file vs CLAUDE.md",
+      "details": "Per CLAUDE.md's 'Depth - read on demand' pattern, large details go to .claude/project/. The cache invariants are high-frequency reads for future Claude sessions, so put them in CLAUDE.md (under Must-know constraints) AND a longer reference in .claude/project/cache-design.md.",
+      "pass": false
+    },
+    {
+      "step": 2,
+      "description": "Author the Must-know constraints bullet",
+      "details": "Add a bullet under §3 Must-know constraints. One short paragraph: 'Sidecar analysis cache lives at <rekordbox_dir>/autocue_cache.sqlite. Plain SQLite (no credentials). Invalidate on /api/restore (TASK-017). Cue edits invalidate only mixability (TASK-016). ANLZ-missing tracks store anlz_mtime=-1 sentinel (TASK-012). Schema version bumps drop+recreate all tables.'",
+      "pass": false
+    },
+    {
+      "step": 3,
+      "description": "Long-form .claude/project/cache-design.md",
+      "details": "Full DDL, BLOB layout, L1/L2 hierarchy, warm-up sequence, cancellation semantics, test fixtures.",
+      "pass": false
+    },
+    {
+      "step": 4,
+      "description": "Cross-link from PRD",
+      "details": "Update .agent/prd/PERFORMANCE_PRD.md §7 to reference cache-design.md for the canonical version of the schema (PRD remains for design rationale; cache-design.md is the implementation reference)."
+    }
+  ],
+  "dependencies": ["TASK-010", "TASK-011", "TASK-012", "TASK-017"],
+  "estimatedComplexity": "low",
+  "technicalNotes": [
+    "CLAUDE.md should stay under 500 lines per the context-engineering rules - keep the Must-know entry to ~3 lines and offload the rest to the depth file."
+  ]
+}

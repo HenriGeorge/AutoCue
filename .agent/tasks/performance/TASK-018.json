@@ -1,0 +1,44 @@
+{
+  "id": "TASK-018",
+  "title": "CacheStore.warm_up(db, content_ids, pool) for parallel cache hydration",
+  "category": "functional",
+  "description": "Add a warm-up method that walks a content_id list, identifies rows missing or stale in CacheStore, and populates them in parallel via the shared pool. Used by the startup pre-warm pipeline (TASK-027).",
+  "acceptanceCriteria": [
+    "CacheStore.warm_up(db, content_ids: list[int], pool: ThreadPoolExecutor, progress_cb: Callable[[int,int],None] | None) populates missing energy_curve, classification, similarity_vector, mixability rows.",
+    "warm_up is interruptible via a threading.Event passed in cancel_event kwarg.",
+    "Progress callback fires after every K (=50) tracks with (done, total).",
+    "warm_up does not re-attempt rows with anlz_mtime = -1 sentinel.",
+    "warm_up does not block readers: WAL mode + per-row commits keep readers unblocked throughout."
+  ],
+  "steps": [
+    {
+      "step": 1,
+      "description": "Identify-missing query",
+      "details": "Pre-compute which content_ids need work by querying CacheStore for the union of (energy_curve, classification, similarity_vector, mixability) rows matching expected_anlz_mtime. Anything not in the union is a 'needs work' candidate. Skip rows with anlz_mtime = -1.",
+      "pass": false
+    },
+    {
+      "step": 2,
+      "description": "Per-track compute + write",
+      "details": "Define _warm_one(content_id, db) -> tuple of (curve_or_None, classification_or_None, similarity_or_None, mixability_or_None, anlz_mtime). Computes each missing entry via the existing analysis modules (with set_cache_store already wired so the result also populates L1 + L2). Writer thread drains results and commits CacheStore rows in batches of 100 inside a single transaction (BEGIN; INSERT OR REPLACE x100; COMMIT).",
+      "pass": false
+    },
+    {
+      "step": 3,
+      "description": "Progress callback + cancellation",
+      "details": "Wrap the as_completed loop with a counter; call progress_cb(done, total) every 50 completions. Check cancel_event at every iteration; on set, drain in-flight futures (don't cancel them - let them write what they have) and exit.",
+      "pass": false
+    },
+    {
+      "step": 4,
+      "description": "Tests",
+      "details": "tests/test_cache.py: (a) warm_up on a 100-track mocked db populates all 4 tables; (b) cancel_event mid-run leaves a partial cache (no exception); (c) warm_up is idempotent - second call is a no-op."
+    }
+  ],
+  "dependencies": ["TASK-010", "TASK-013", "TASK-014", "TASK-015", "TASK-016"],
+  "estimatedComplexity": "medium",
+  "technicalNotes": [
+    "Batched per-100 commits are a perf compromise - per-row commits would create excessive WAL churn during warm-up.",
+    "Avoid calling warm_up on the request thread - it runs only from serve/deps.py:_prewarm_index (TASK-027) on a daemon thread."
+  ]
+}

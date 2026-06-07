@@ -1,0 +1,50 @@
+{
+  "id": "TASK-004",
+  "title": "Refactor /api/classify SSE to parallel classification",
+  "category": "api-endpoint",
+  "description": "Fan out per-track classification through the shared ThreadPool. Cold tracks (no cache hit) compute in parallel; warm tracks (cache hit) return immediately. Cache integration depends on TASK-014.",
+  "acceptanceCriteria": [
+    "GET /api/classify (and ?playlist_id=N) streams the existing event shape.",
+    "Cold-path throughput >= 30 tracks/sec; warm-path throughput >= 500 tracks/sec.",
+    "Per-track exceptions emit an error event for that content_id and the scan continues.",
+    "Existing classify tests in tests/test_classify.py and tests/test_serve_routes.py still pass.",
+    "Memory growth during a 10k-track classify run stays bounded (no future-list bloat)."
+  ],
+  "steps": [
+    {
+      "step": 1,
+      "description": "Identify the per-track classification call site",
+      "details": "In serve/routes.py find the /api/classify SSE handler. It iterates DjmdContent rows and calls classify.get_classification(content, db) for each. Factor that body into _classify_one(content, db).",
+      "pass": false
+    },
+    {
+      "step": 2,
+      "description": "Wire pool submission",
+      "details": "Submit _classify_one through the pool with a 2*pool_size() in-flight cap. Yield events in completion order using concurrent.futures.as_completed().",
+      "pass": false
+    },
+    {
+      "step": 3,
+      "description": "Cache integration touchpoint",
+      "details": "Leave the call to classify.get_classification() as-is; once TASK-014 lands, that function reads CacheStore first, so warm tracks return in microseconds and the pool naturally absorbs only the cold work.",
+      "pass": false
+    },
+    {
+      "step": 4,
+      "description": "Tests",
+      "details": "Update tests/test_serve_routes.py classify cases to assert set-equality on content_ids rather than order. Add a single test mocking 100 tracks where 80 return from cache (instant) and 20 require compute - verify the wall-clock is dominated by the 20 cold tracks, not 100x cold.",
+      "pass": false
+    },
+    {
+      "step": 5,
+      "description": "Benchmark cold and warm",
+      "details": "RUN_PERF=1 pytest tests/perf/test_classify.py. Run once with empty cache (cold), once with warm cache (after TASK-014). Confirm both budgets.",
+      "pass": false
+    }
+  ],
+  "dependencies": ["TASK-001", "TASK-008", "TASK-014"],
+  "estimatedComplexity": "medium",
+  "technicalNotes": [
+    "The classify module's _class_cache is per-process; it stays warm within a single autocue serve run. Sidecar cache (TASK-014) gives cross-run warmth."
+  ]
+}

@@ -1,0 +1,49 @@
+{
+  "id": "TASK-009",
+  "title": "Concurrency test coverage: pool, exception isolation, ordering, no leaks, single-writer invariant",
+  "category": "functional",
+  "description": "Add a focused test module that pins concurrency invariants we depend on across TASK-002..007. These tests guard against regressions where someone unwittingly introduces a parallel write path or a leak.",
+  "acceptanceCriteria": [
+    "tests/test_concurrency.py exists and contains tests for: pool-size override, exception isolation per submitted task, monotonic processed counter across endpoints, no thread leaks after 100 SSE runs, no parallel writers to master.db.",
+    "All tests run in < 30 seconds total.",
+    "No flakiness across 10 consecutive runs (use pytest-randomly to randomize order)."
+  ],
+  "steps": [
+    {
+      "step": 1,
+      "description": "Pool-size override + clamp tests",
+      "details": "Move the AUTOCUE_POOL_SIZE tests from TASK-001 into this file if not already there. Cover: default, override, clamp to 1, invalid string raises.",
+      "pass": false
+    },
+    {
+      "step": 2,
+      "description": "Exception isolation test",
+      "details": "Submit 50 mock _compute_one callables to the pool; one raises ValueError. Drain results via as_completed. Assert: 49 successful results collected; 1 exception captured; pool remains usable for further submissions.",
+      "pass": false
+    },
+    {
+      "step": 3,
+      "description": "Monotonic processed counter (per endpoint)",
+      "details": "Drive /api/generate-apply-stream, /api/health, /api/classify, /api/auto-tag, /api/enrich-comments/stream with a mocked db. For each, capture the 'processed' field of every event; assert strict monotonic increase from 0 to total.",
+      "pass": false
+    },
+    {
+      "step": 4,
+      "description": "No thread-leak test",
+      "details": "Snapshot threading.enumerate() before. Run /api/generate-apply-stream 100 times against a 10-track mocked db. Snapshot after. Assert that the set of thread names matches (modulo daemon threads). The pool persists (singleton) - threads inside it are expected; transient writer/cancel-poll threads must terminate.",
+      "pass": false
+    },
+    {
+      "step": 5,
+      "description": "Single-writer invariant",
+      "details": "Wrap pyrekordbox's db.session.commit() with a test-only monkeypatch that captures the calling thread and asserts only one distinct thread per SSE run ever calls commit. Run all 5 multi-track endpoints under this monkeypatch.",
+      "pass": false
+    }
+  ],
+  "dependencies": ["TASK-001", "TASK-002", "TASK-003", "TASK-004", "TASK-005", "TASK-006", "TASK-007"],
+  "estimatedComplexity": "medium",
+  "technicalNotes": [
+    "pytest-randomly is already a dev-time tool; install if missing and add to [dev] extras. If not desired, run with `pytest -p no:randomly` for stable order, then a separate CI step shuffles.",
+    "The single-writer monkeypatch is the canonical guard - if any future PR adds a second writer thread, this test fires."
+  ]
+}

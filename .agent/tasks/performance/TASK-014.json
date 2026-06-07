@@ -1,0 +1,44 @@
+{
+  "id": "TASK-014",
+  "title": "Wire classify.get_classification through CacheStore (L2)",
+  "category": "functional",
+  "description": "Mirror TASK-013 for classify. _class_cache is L1; CacheStore.classification is L2. Warm-path is microseconds; cold-path computes and populates both.",
+  "acceptanceCriteria": [
+    "classify.get_classification(content, db) returns identical dict to v0 on miss; same dict on warm hit.",
+    "Warm classify rate >= 500 tracks/sec (validated in TASK-004 benchmark).",
+    "ANLZ-missing tracks return None on warm path without re-reading.",
+    "tests/test_classify.py adds L2 hit / miss-and-populate / sentinel cases.",
+    "conftest fixture clears CacheStore.classification between tests."
+  ],
+  "steps": [
+    {
+      "step": 1,
+      "description": "Add classify.set_cache_store hook",
+      "details": "Module-level _cache_store: CacheStore | None = None. Setter called from serve/deps.py.",
+      "pass": false
+    },
+    {
+      "step": 2,
+      "description": "Rewrite get_classification",
+      "details": "Order: L1 (_class_cache by content.ID) -> L2 (CacheStore.get_classification(content.ID, expected_anlz_mtime)) -> compute. On compute, write to L1 and L2 with anlz_mtime.",
+      "pass": false
+    },
+    {
+      "step": 3,
+      "description": "Encode/decode scores dict",
+      "details": "Classification result is {primary, scores: dict[str,float], bpm, energy_mean}. CacheStore.put_classification serializes scores via json.dumps; get_classification deserializes via json.loads. Other fields are primitives.",
+      "pass": false
+    },
+    {
+      "step": 4,
+      "description": "Tests",
+      "details": "tests/test_classify.py: cover the L1/L2/miss matrix as in TASK-013."
+    }
+  ],
+  "dependencies": ["TASK-010", "TASK-012", "TASK-013"],
+  "estimatedComplexity": "low",
+  "technicalNotes": [
+    "Classification depends on get_energy_curve (TASK-013) - the L2 hits compound: classify cache hit avoids both compute paths.",
+    "MIN_SCORE = 0.70 for auto-tag application is unchanged - the cache stores raw scores; the threshold lives in auto_tag.py."
+  ]
+}

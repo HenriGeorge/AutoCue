@@ -1,0 +1,37 @@
+{
+  "id": "TASK-042",
+  "title": "Completion-order SSE events + monotonic processed counter",
+  "category": "functional",
+  "description": "SSE events emit in compute-completion order (not input order). UI already accepts arbitrary content_id order. The 'processed' counter is monotonic across the stream.",
+  "acceptanceCriteria": [
+    "SSE events {processed, total, content_id, ...} arrive in writer-completion order.",
+    "'processed' field strictly increases from 1 to N (no duplicates, no gaps).",
+    "Final {done: true} event sent only after all in-flight work completes (or on cancel).",
+    "tests/test_concurrency.py asserts monotonic 'processed' across 100 mocked tracks.",
+    "UI confirmed unaffected by order change (existing per-track update finds the card by content_id, not by index)."
+  ],
+  "steps": [
+    {
+      "step": 1,
+      "description": "Writer thread owns the counter",
+      "details": "Initialize processed = 0 in writer scope. Increment after each successful commit. Include in every emitted event.",
+      "pass": false
+    },
+    {
+      "step": 2,
+      "description": "Errors increment separately",
+      "details": "Don't increment processed on error; track errors counter separately. Final event reports {processed, errors, total}.",
+      "pass": false
+    },
+    {
+      "step": 3,
+      "description": "Tests",
+      "details": "tests/test_concurrency.py: drive 100 tracks; collect all events; assert [e.processed for e in events] == sorted([e.processed for e in events]) (monotonic); assert max == 100."
+    }
+  ],
+  "dependencies": ["TASK-039", "TASK-040", "TASK-041"],
+  "estimatedComplexity": "low",
+  "technicalNotes": [
+    "UI side: per CLAUDE.md, the per-track update finds the row by content_id - no assumption of input order. Existing renderProgress() can stay."
+  ]
+}

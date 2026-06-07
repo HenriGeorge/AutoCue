@@ -1,0 +1,57 @@
+{
+  "id": "TASK-012",
+  "title": "Implement anlz_mtime invalidation + ANLZ-missing sentinel",
+  "category": "data-model",
+  "description": "Each per-track cache row carries the ANLZ file's mtime at compute time. Readers must compare against the current mtime; mismatch -> recompute + replace row. Tracks with no ANLZ are stored with anlz_mtime = -1 to skip re-attempting until the file appears.",
+  "acceptanceCriteria": [
+    "CacheStore.get_* readers accept an expected_anlz_mtime param and return None on mismatch.",
+    "CacheStore.put_* writers store the current anlz_mtime of the corresponding ANLZ file.",
+    "When ANLZ is missing, the writer stores anlz_mtime = -1.0 (sentinel) and an appropriate placeholder (None or default).",
+    "Reader treats anlz_mtime = -1 as 'no data, do not retry until next refresh sweep'.",
+    "Helper autocue/analysis/anlz_path.py:get_anlz_mtime(content, db) -> float | None centralizes the mtime lookup so all call sites use the same logic.",
+    "tests/test_cache.py covers: mtime match returns data; mtime mismatch returns None; -1 sentinel is preserved and treated as 'missing'."
+  ],
+  "steps": [
+    {
+      "step": 1,
+      "description": "Add anlz_mtime resolver",
+      "details": "Create autocue/analysis/anlz_path.py with get_anlz_mtime(content, db) -> float | None. Reads content.AnalysisDataPath (per CLAUDE.md: truthy when .EXT exists) and stat()s the file. Returns os.path.getmtime(path) or None if path is empty / file missing. Wraps os.stat in try/except OSError -> None.",
+      "pass": false
+    },
+    {
+      "step": 2,
+      "description": "Update get_energy_curve signature",
+      "details": "Change CacheStore.get_energy_curve(content_id) to get_energy_curve(content_id, expected_anlz_mtime). Inside: SELECT row; if no row -> None; if row.anlz_mtime == -1 and expected_anlz_mtime is None -> return 'missing-marker' (so callers don't recompute every call); if row.anlz_mtime == expected_anlz_mtime -> return data; otherwise -> None (caller will recompute and call put_*).",
+      "pass": false
+    },
+    {
+      "step": 3,
+      "description": "Mirror for classification, similarity_vector, mixability",
+      "details": "Each getter now requires expected_anlz_mtime. Implement identical mismatch -> None logic. The 'missing-marker' return is a constant CacheStore.MISSING sentinel.",
+      "pass": false
+    },
+    {
+      "step": 4,
+      "description": "Writer side: put_* takes anlz_mtime",
+      "details": "All put_* signatures accept anlz_mtime: float. Callers pass get_anlz_mtime(content, db) or -1.0 if known missing.",
+      "pass": false
+    },
+    {
+      "step": 5,
+      "description": "Refresh sweep documentation",
+      "details": "Note in CLAUDE.md and module docstring that -1 sentinel rows are only re-evaluated by the explicit warmup_refresh_missing(db) method (added in TASK-018) - not by ad-hoc reader calls.",
+      "pass": false
+    },
+    {
+      "step": 6,
+      "description": "Tests",
+      "details": "tests/test_cache.py: (a) put_energy_curve(1, [0.5]*10, anlz_mtime=100.0); get_energy_curve(1, 100.0) returns data; get_energy_curve(1, 101.0) returns None. (b) put_energy_curve(2, [], anlz_mtime=-1.0); get_energy_curve(2, None) returns MISSING sentinel; get_energy_curve(2, 100.0) returns None."
+    }
+  ],
+  "dependencies": ["TASK-010", "TASK-011"],
+  "estimatedComplexity": "low",
+  "technicalNotes": [
+    "Using os.path.getmtime gives second-precision on some FS - which is enough since Rekordbox rewrites the ANLZ as a whole file when re-analyzing.",
+    "The -1 sentinel avoids hot-path recomputes on tracks that genuinely lack ANLZ (streaming-only, broken paths). Without the sentinel, every call from every endpoint would re-stat + recompute."
+  ]
+}

@@ -1,0 +1,56 @@
+{
+  "id": "TASK-005",
+  "title": "Refactor /api/auto-tag to parallel detector evaluation + single tag writer",
+  "category": "api-endpoint",
+  "description": "Parallelize the read/compute side of auto-tag (the detector loop in analysis/auto_tag.py) while keeping DjmdMyTag / DjmdSongMyTag writes serialized on a single writer thread.",
+  "acceptanceCriteria": [
+    "POST /api/auto-tag (multi-type) and /api/auto-tag/discogs (SSE) still produce identical tag rows compared to the v0 path on the same library.",
+    "Throughput >= 100 tracks/sec on a 10k-track library when classification is cache-warm.",
+    "Per-track exceptions emit an error event; the run continues; undo_data remains correct.",
+    "/api/auto-tag/undo still reverses a run completely.",
+    "Existing tests in tests/test_auto_tag.py and tests/test_serve_routes.py auto-tag cases stay green."
+  ],
+  "steps": [
+    {
+      "step": 1,
+      "description": "Factor the per-track detector evaluation",
+      "details": "In analysis/auto_tag.py find apply_tags(). Pull the per-track detector evaluation into _eval_one(content, db, requested_types) returning {content_id, tag_names_to_apply, existing_tag_ids}. _eval_one does no writes.",
+      "pass": false
+    },
+    {
+      "step": 2,
+      "description": "Pool-fan-out the evaluators",
+      "details": "Submit _eval_one through the pool. Push results into a queue.Queue read by a writer thread.",
+      "pass": false
+    },
+    {
+      "step": 3,
+      "description": "Single writer thread for DjmdMyTag / DjmdSongMyTag",
+      "details": "Writer drains the queue: for each result, ensure_tag_by_name() for any new tag, then insert DjmdSongMyTag rows for the (content, tag) pairs, commit per track, push to undo_data. SSE event emitted after commit.",
+      "pass": false
+    },
+    {
+      "step": 4,
+      "description": "Discogs variant",
+      "details": "/api/auto-tag/discogs uses discogs.search_styles which is rate-limited (60 req/min, token-bucket). The pool will burst-call - that's fine, the token bucket throttles. But ensure the pool size is independent of the Discogs rate: the bucket caps effective throughput. Wire identical pattern.",
+      "pass": false
+    },
+    {
+      "step": 5,
+      "description": "Tests + undo verification",
+      "details": "Update tests/test_auto_tag.py: assertions on undo_data should still hold even with parallel evaluation (undo entries written in writer order, not eval order). Add a test running auto-tag then auto-tag/undo and verify zero rows added/remain.",
+      "pass": false
+    },
+    {
+      "step": 6,
+      "description": "Benchmark",
+      "details": "RUN_PERF=1 pytest tests/perf/test_auto_tag.py - confirm >=100 tracks/sec warm. Also confirm undo throughput >=200 tracks/sec (writes only)."
+    }
+  ],
+  "dependencies": ["TASK-001", "TASK-002", "TASK-004", "TASK-014"],
+  "estimatedComplexity": "medium",
+  "technicalNotes": [
+    "ensure_category_tags / ensure_tag_by_name create-or-reuse tags by name idempotently - safe to call from the writer thread; the writer is the only thread touching DjmdMyTag rows.",
+    "apply_classification_tags() (single-category path) follows the same pattern; refactor in the same task if straightforward."
+  ]
+}

@@ -1,0 +1,37 @@
+{
+  "id": "TASK-028",
+  "title": "GET /api/warmup endpoint returns pre-warm progress",
+  "category": "api-endpoint",
+  "description": "Expose the app.state.warmup_progress dict as a JSON endpoint so the UI can poll progress.",
+  "acceptanceCriteria": [
+    "GET /api/warmup returns 200 with {step, done, total, finished_at}.",
+    "Response is constant-time (no DB or cache reads in the handler).",
+    "When step == 'done', UI polling can stop (covered by TASK-029).",
+    "Pydantic response schema added to serve/schemas.py.",
+    "tests/test_serve_routes.py covers happy path + while-running path."
+  ],
+  "steps": [
+    {
+      "step": 1,
+      "description": "Pydantic schema",
+      "details": "class WarmupProgress(BaseModel): step: Literal['init','snapshot','cache','index','done']; done: int; total: int; finished_at: Optional[str].",
+      "pass": false
+    },
+    {
+      "step": 2,
+      "description": "Route handler",
+      "details": "@app.get('/api/warmup', response_model=WarmupProgress): with request.app.state.warmup_lock: return WarmupProgress(**request.app.state.warmup_progress).",
+      "pass": false
+    },
+    {
+      "step": 3,
+      "description": "Tests",
+      "details": "tests/test_serve_routes.py: stub warmup_progress; assert response shape + lock acquisition; assert no DB reads occur in the handler (via spy)."
+    }
+  ],
+  "dependencies": ["TASK-027"],
+  "estimatedComplexity": "low",
+  "technicalNotes": [
+    "The lock is held for microseconds (dict copy) - no perceptible blocking."
+  ]
+}

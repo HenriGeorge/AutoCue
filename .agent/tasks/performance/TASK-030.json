@@ -1,0 +1,38 @@
+{
+  "id": "TASK-030",
+  "title": "Pre-warm cancellation: clean shutdown via threading.Event",
+  "category": "functional",
+  "description": "Ensure the pre-warm pipeline (TASK-027) can be interrupted cleanly on uvicorn shutdown: no partial rows committed, no dangling threads, no exceptions logged.",
+  "acceptanceCriteria": [
+    "On uvicorn SIGTERM/SIGINT: app.state.warmup_cancel_event is set; the daemon thread exits within 5 seconds.",
+    "Partial cache rows already written are valid (per-row commits are atomic).",
+    "No traceback printed during shutdown.",
+    "tests/test_warmup.py covers: start warm-up, set cancel event mid-cache-step, assert thread join within 1s.",
+    "If pyrekordbox DB calls in flight at cancellation, they finish gracefully (no force-kill)."
+  ],
+  "steps": [
+    {
+      "step": 1,
+      "description": "Shutdown hook in lifespan",
+      "details": "serve/deps.py:lifespan after 'yield', set app.state.warmup_cancel_event.set(); call shutdown_pool() (from TASK-001); join the warm-up thread with timeout=5.",
+      "pass": false
+    },
+    {
+      "step": 2,
+      "description": "CacheStore.warm_up respects cancel",
+      "details": "Per TASK-018, warm_up already checks cancel_event between iterations. Verify at the writer-thread boundary that the cancel check happens after each batch commit, not mid-batch (so partial commits don't lose data).",
+      "pass": false
+    },
+    {
+      "step": 3,
+      "description": "Tests",
+      "details": "tests/test_warmup.py: spawn warm-up against a 100-track mock; set cancel after 20 processed; assert thread.join(timeout=1) returns; assert CacheStore has rows for the 20 processed and 0 for the rest. No exceptions raised."
+    }
+  ],
+  "dependencies": ["TASK-001", "TASK-018", "TASK-027"],
+  "estimatedComplexity": "low",
+  "technicalNotes": [
+    "Daemon threads die with the process anyway, but graceful shutdown matters for: (a) signal-handler cleanliness in tests, (b) leaving CacheStore in a consistent state (committed transactions only).",
+    "If the 5s join timeout expires, log a warning (don't raise) - the process is exiting anyway."
+  ]
+}

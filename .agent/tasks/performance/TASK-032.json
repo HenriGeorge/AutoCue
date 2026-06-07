@@ -1,0 +1,57 @@
+{
+  "id": "TASK-032",
+  "title": "DOM node recycling pool (~40 nodes) replaces full-render _cardMap",
+  "category": "ui-ux",
+  "description": "Currently _cardMap (Map<trackId, HTMLElement>) keeps every track's card in the DOM. Replace with a pool of ~40 recycled DOM nodes managed by the Virtualizer (TASK-031). Cards are reassigned to different content_ids as the user scrolls.",
+  "acceptanceCriteria": [
+    "Total DOM card nodes <= ~40 at any time on a 10k library.",
+    "Scrolling reuses existing nodes (assigned new content_id + re-rendered fields).",
+    "_cardMap is replaced by _cardPool (free-list) + _visibleIndex (Map<index, node>).",
+    "renderItem(index, node) updates only changed fields - never replaces the whole node.",
+    "Existing FLIP reorder animations only fire for true position changes inside the visible window (not for cards that scrolled out).",
+    "tests/web/virtualization.test.js asserts pool size cap + correct content_id on recycled nodes.",
+    "Verified in browser using playwright: memory snapshot shows ~stable heap during 10k scroll."
+  ],
+  "steps": [
+    {
+      "step": 1,
+      "description": "Replace _cardMap with _cardPool",
+      "details": "Module-level: _cardPool = [] (array of DOM nodes); _visibleIndex = new Map(). On first render, create N nodes upfront (clone from a template fragment).",
+      "pass": false
+    },
+    {
+      "step": 2,
+      "description": "renderItem(index, node) function",
+      "details": "Per-call: get track = filteredTracks()[index]; update node.querySelector('.title').textContent = track.title; same for artist, bpm, key, color, etc. Update data-content-id attr. Update node.style.transform. Skip update if data-content-id matches (re-render not needed)."
+    },
+    {
+      "step": 3,
+      "description": "Free-list management",
+      "details": "When a node scrolls out of visible+buffer window: remove from _visibleIndex; push back to _cardPool free-list (don't remove from DOM - just untag and let next renderItem reassign).",
+      "pass": false
+    },
+    {
+      "step": 4,
+      "description": "Selection state preservation",
+      "details": "Selected-track state lives in module-level selectedTrackIds Set (existing). renderItem reads from this set and applies .selected class - so recycled nodes correctly show selection.",
+      "pass": false
+    },
+    {
+      "step": 5,
+      "description": "FLIP scope",
+      "details": "Reorder animations (Element.animate batched reads-then-writes) only fire for nodes in _visibleIndex. Off-screen 'movements' (filter reorders affecting hidden cards) skip animation entirely.",
+      "pass": false
+    },
+    {
+      "step": 6,
+      "description": "Tests",
+      "details": "tests/web/virtualization.test.js: pool size never exceeds capacity; recycled node has updated content_id; selection state survives scroll."
+    }
+  ],
+  "dependencies": ["TASK-031"],
+  "estimatedComplexity": "high",
+  "technicalNotes": [
+    "Existing _cardMap.smart-diffing fingerprint (TASK-035 covers this) determines when to do a full repool reset vs incremental update.",
+    "Memory: 40 * ~2KB/node = ~80KB DOM. The savings vs 10k * ~2KB = ~20MB DOM are significant - scroll perf gains follow."
+  ]
+}

@@ -1,0 +1,57 @@
+{
+  "id": "TASK-029",
+  "title": "UI: Pre-warm progress badge in #app-status",
+  "category": "ui-ux",
+  "description": "Show 'Indexing... N/M tracks' badge in the existing #app-status row while pre-warm runs. Hide on done.",
+  "acceptanceCriteria": [
+    "Badge appears in #app-status when /api/warmup step != 'done'.",
+    "Badge text: 'Indexing... 3,240 / 10,000' (locale-formatted numbers).",
+    "Polls /api/warmup every 2 seconds while step != 'done'; stops polling once done.",
+    "Badge hides on done with a 500ms fade-out (existing app-status CSS pattern).",
+    "Verified in browser using playwright (per skill rule: include 'Verify in browser using playwright' for any UI change).",
+    "Vitest test for the polling helper covers start/stop/error-tolerance."
+  ],
+  "steps": [
+    {
+      "step": 1,
+      "description": "DOM placement",
+      "details": "docs/index.html: inside #app-status, add <span id='warmup-badge' class='hidden'>Indexing... <span id='warmup-progress-text'>0 / 0</span></span>. CSS: .hidden { display: none; } - already exists.",
+      "pass": false
+    },
+    {
+      "step": 2,
+      "description": "Polling helper",
+      "details": "Add _pollWarmup() function: setInterval every 2000ms, fetch /api/warmup, if step === 'done' clearInterval + hide badge with .classList.remove('visible'); else update text + ensure visible.",
+      "pass": false
+    },
+    {
+      "step": 3,
+      "description": "Start condition",
+      "details": "On loadTracksFromServer() success in local mode, call _pollWarmup() once. The interval handle stored on a module-level var so it can be cleared.",
+      "pass": false
+    },
+    {
+      "step": 4,
+      "description": "Error tolerance",
+      "details": "Fetch errors during polling: silently ignore (network blip); next tick retries. Don't toast.",
+      "pass": false
+    },
+    {
+      "step": 5,
+      "description": "Vitest coverage",
+      "details": "tests/web/ui-logic.test.js: extract _pollWarmup to module scope; stub fetch + setInterval; assert badge text updates, hides on done, retries on fetch error.",
+      "pass": false
+    },
+    {
+      "step": 6,
+      "description": "Verify in browser using playwright",
+      "details": "tests/e2e/qa-smoke.spec.ts: launch the app against a mocked /api/warmup endpoint that returns step='cache', done=1000, total=10000 for 2s then step='done'. Assert the badge appears, updates, and disappears."
+    }
+  ],
+  "dependencies": ["TASK-028"],
+  "estimatedComplexity": "low",
+  "technicalNotes": [
+    "Polling cadence: 2s is the sweet spot - the user wants to see progress but not wake the network up too much.",
+    "Don't compete with the existing 60s setInterval that updates last-scan age in #app-status - separate setInterval handles."
+  ]
+}

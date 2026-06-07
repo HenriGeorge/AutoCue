@@ -1,0 +1,44 @@
+{
+  "id": "TASK-039",
+  "title": "Split generate-apply into compute and writer stages",
+  "category": "functional",
+  "description": "Concrete refactor of _generate_apply_stream into a producer/consumer split: a compute stage (parallel via pool, reads ANLZ + generates cues) and a writer stage (single thread, commits to DjmdCue). Implements the architecture promised by TASK-002.",
+  "acceptanceCriteria": [
+    "_generate_apply_stream factored into _compute_stage(content_ids, db, prefs, queue, cancel_event) and _writer_stage(queue, db, send_event, cancel_event).",
+    "Compute stage submits one pool.future per content_id; pushes results into the queue as as_completed.",
+    "Writer stage drains the queue, commits per-track, emits SSE.",
+    "Existing per-track commit semantics preserved (one failed track does not abort the batch).",
+    "Module structure makes it possible to reuse the same producer/consumer scaffolding in TASK-005, TASK-006."
+  ],
+  "steps": [
+    {
+      "step": 1,
+      "description": "Extract _compute_stage",
+      "details": "Pure-read function: takes (content_ids, db_reader, prefs, queue, cancel_event). Submits pool.submit(_compute_cues_for_track, ...) for each id. Iterates as_completed, pushes result into queue. On cancel_event.is_set(): drain in-flight, push sentinel None, return.",
+      "pass": false
+    },
+    {
+      "step": 2,
+      "description": "Extract _writer_stage",
+      "details": "Threading.Thread target. Loops queue.get(); on None sentinel, break. For each result: open transaction, write cues, commit, emit SSE event with monotonic 'processed' counter. On per-track exception: rollback that single track, increment 'errors', emit error event.",
+      "pass": false
+    },
+    {
+      "step": 3,
+      "description": "Wire into the SSE generator",
+      "details": "The async SSE handler spawns the writer thread, calls _compute_stage in the request thread (or another worker), and yields events from a thread-safe send_event queue.",
+      "pass": false
+    },
+    {
+      "step": 4,
+      "description": "Tests",
+      "details": "tests/test_serve_routes.py: existing tests work end-to-end; add focused unit tests for _compute_stage and _writer_stage in isolation (mock queue + cancel_event)."
+    }
+  ],
+  "dependencies": ["TASK-001", "TASK-002", "TASK-008"],
+  "estimatedComplexity": "medium",
+  "technicalNotes": [
+    "If both stages share the same Rekordbox6Database instance, that instance must be thread-safe (TASK-008). Otherwise compute uses thread-local DB via thread_local_db().",
+    "The writer thread is the single owner of db.session for writes. The request thread must not call db.commit during the stream."
+  ]
+}

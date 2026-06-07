@@ -1,0 +1,38 @@
+{
+  "id": "TASK-020",
+  "title": "Add autocue serve --reset-cache CLI flag",
+  "category": "functional",
+  "description": "Operator-facing escape hatch: --reset-cache deletes <rekordbox_dir>/autocue_cache.sqlite (and WAL/SHM sidecars) before starting the server. Useful when debugging or after a schema bump.",
+  "acceptanceCriteria": [
+    "autocue serve --reset-cache deletes the cache file (if any) before initializing CacheStore.",
+    "Missing cache file is not an error - flag is a no-op in that case.",
+    "WAL (.sqlite-wal) and SHM (.sqlite-shm) sidecar files are also removed.",
+    "tests/test_cli.py or similar covers the flag.",
+    "Help text describes the flag clearly.",
+    "Flag is documented in CLAUDE.md Development commands."
+  ],
+  "steps": [
+    {
+      "step": 1,
+      "description": "Add the argparse flag",
+      "details": "autocue/cli.py: parser.add_argument('--reset-cache', action='store_true', help='Delete the sidecar analysis cache before starting (no effect if absent).'). Wire into the serve subcommand only - not the CLI cue generation path.",
+      "pass": false
+    },
+    {
+      "step": 2,
+      "description": "Resolve cache path before CacheStore opens",
+      "details": "Before serve/deps.py:lifespan calls CacheStore.open_for(rekordbox_dir), if args.reset_cache: for suffix in ('', '-wal', '-shm'): path = os.path.join(rekordbox_dir, f'autocue_cache.sqlite{suffix}'); if os.path.exists(path): os.remove(path).",
+      "pass": false
+    },
+    {
+      "step": 3,
+      "description": "Smoke test",
+      "details": "tests/test_cli.py: invoke autocue serve --reset-cache via a subprocess with a sandbox rekordbox_dir + pre-existing cache file. Assert file is gone before the server starts accepting connections."
+    }
+  ],
+  "dependencies": ["TASK-010"],
+  "estimatedComplexity": "low",
+  "technicalNotes": [
+    "Don't rm -rf the whole rekordbox_dir - only the three cache files. Path traversal is impossible because the suffix is constant."
+  ]
+}

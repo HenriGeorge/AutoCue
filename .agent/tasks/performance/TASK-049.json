@@ -1,0 +1,33 @@
+{
+  "id": "TASK-049",
+  "title": "Frontend _perf helper with mark / measure",
+  "category": "ui-ux",
+  "description": "Lightweight in-page perf helper using the browser's performance API. _perf.mark(name) wraps performance.mark; _perf.measure(name, startMark) wraps performance.measure. Logs to console under [AutoCue Perf] when localStorage.getItem('autocue_perf') === '1'.",
+  "acceptanceCriteria": [
+    "docs/index.html exposes _perf = {mark, measure, getEntries, clear} as a module-level IIFE.",
+    "_perf.mark and _perf.measure are no-ops when autocue_perf localStorage flag is unset.",
+    "When enabled: each measure logs [AutoCue Perf] <name>: <duration>ms to console.",
+    "getEntries() returns the performance.getEntriesByType('measure') array filtered to AutoCue marks.",
+    "clear() removes all AutoCue marks/measures.",
+    "Vitest test in tests/web/ui-logic.test.js covers the helper with stubbed performance API."
+  ],
+  "steps": [
+    {
+      "step": 1,
+      "description": "Helper IIFE",
+      "details": "const _perf = (() => { const enabled = () => localStorage.getItem('autocue_perf') === '1'; return { mark(name) { if (enabled()) performance.mark(`autocue:${name}`); }, measure(name, startMark) { if (!enabled()) return; performance.measure(`autocue:${name}`, `autocue:${startMark}`); const entries = performance.getEntriesByName(`autocue:${name}`, 'measure'); console.log(`[AutoCue Perf] ${name}: ${entries[entries.length-1].duration.toFixed(2)}ms`); }, getEntries() { return performance.getEntriesByType('measure').filter(e => e.name.startsWith('autocue:')); }, clear() { performance.clearMarks(); performance.clearMeasures(); } }; })();",
+      "pass": false
+    },
+    {
+      "step": 2,
+      "description": "Vitest test",
+      "details": "tests/web/ui-logic.test.js: stub global.performance.mark/measure/getEntriesByName; set localStorage; call _perf.mark + _perf.measure; assert console.log called with expected substring."
+    }
+  ],
+  "dependencies": [],
+  "estimatedComplexity": "low",
+  "technicalNotes": [
+    "Browser's performance API is available everywhere; localStorage check avoids spam in production.",
+    "Naming convention: 'autocue:' prefix ensures we don't clash with other measures the page might have."
+  ]
+}

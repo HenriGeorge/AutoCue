@@ -1,0 +1,45 @@
+{
+  "id": "TASK-036",
+  "title": "Search/filter debounce: 80ms requestIdleCallback",
+  "category": "ui-ux",
+  "description": "Filter recompute is O(library) (predicate over 10k); without debounce, each keystroke triggers a recompute. Add 80ms requestIdleCallback debounce; cancel pending recompute on each keystroke.",
+  "acceptanceCriteria": [
+    "Typing in #search-input does not trigger filteredTracks() on every keystroke.",
+    "After 80ms of keyboard inactivity, recompute fires + Virtualizer.update() renders.",
+    "Subsequent keystrokes within 80ms cancel the pending callback (cancelIdleCallback).",
+    "Filter keystroke -> repaint < 50ms on 10k tracks (per PRD budget).",
+    "Vitest test asserts cancel-on-keystroke and final-render behavior.",
+    "Verified in browser using playwright: type 10 chars rapidly into search; only one filter recompute observed."
+  ],
+  "steps": [
+    {
+      "step": 1,
+      "description": "Module-level handle",
+      "details": "_pendingFilterRecompute = null. Existing search input listener replaced with debounced version.",
+      "pass": false
+    },
+    {
+      "step": 2,
+      "description": "Debounce logic",
+      "details": "On input event: if (_pendingFilterRecompute) cancelIdleCallback(_pendingFilterRecompute); _pendingFilterRecompute = requestIdleCallback(() => { const indices = filteredTracks(); Virtualizer.update({totalCount: indices.length}); _pendingFilterRecompute = null; }, {timeout: 80}).",
+      "pass": false
+    },
+    {
+      "step": 3,
+      "description": "Apply to filter toggles too",
+      "details": "Rating filter, plays filter, last-played, My-Tag, phrase-only, beat-grid-only, audio-available - each one triggers the same debounced recompute. AppState.signal('filters') (existing) becomes the single entry point that the debouncer subscribes to.",
+      "pass": false
+    },
+    {
+      "step": 4,
+      "description": "Tests",
+      "details": "tests/web/ui-logic.test.js: simulate 10 input events within 50ms; assert filteredTracks called only once after 80ms idle."
+    }
+  ],
+  "dependencies": ["TASK-031", "TASK-034"],
+  "estimatedComplexity": "low",
+  "technicalNotes": [
+    "requestIdleCallback gives the browser a hint to wait for idle time; timeout: 80 forces execution after 80ms regardless. Both bounds are important.",
+    "Don't use setTimeout - it competes with rendering; rIC defers to after paint."
+  ]
+}
