@@ -1722,6 +1722,88 @@
     transition: opacity 0.13s ease, transform 0.13s ease;
   }
   #tooltip.tip-visible { opacity: 1; transform: translateY(0); }
+
+    /* ── Discover v2 (T-024) ────────────────────────────────────────────── */
+    .disc-v2-chip {
+      display: inline-flex; align-items: center; gap: 4px;
+      padding: 3px 8px; font-size: 12px;
+      border: 1px solid var(--border); border-radius: 999px;
+      background: var(--bg); cursor: pointer; user-select: none;
+    }
+    .disc-v2-chip input { accent-color: var(--green); }
+    .disc-v2-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+      gap: 12px;
+    }
+    .disc-v2-card {
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: var(--surface);
+      overflow: hidden;
+      cursor: pointer;
+      transition: transform 0.1s ease, box-shadow 0.1s ease;
+      position: relative;
+    }
+    .disc-v2-card:hover { transform: translateY(-2px); box-shadow: 0 4px 12px rgba(0,0,0,0.08); }
+    .disc-v2-card-art {
+      width: 100%; aspect-ratio: 1; background: var(--surface2);
+      background-size: cover; background-position: center;
+    }
+    .disc-v2-card-body { padding: 8px 10px; }
+    .disc-v2-card-title {
+      font-weight: 600; font-size: 13px; margin: 0;
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+    .disc-v2-card-artist {
+      font-size: 12px; color: var(--muted); margin: 2px 0 0;
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+    .disc-v2-card-source {
+      font-size: 10px; color: var(--muted); margin-top: 4px;
+      text-transform: uppercase; letter-spacing: 0.04em;
+    }
+    .disc-v2-card-actions {
+      position: absolute; top: 6px; right: 6px;
+      display: flex; gap: 4px; opacity: 0; transition: opacity 0.15s ease;
+    }
+    .disc-v2-card:hover .disc-v2-card-actions { opacity: 1; }
+    .disc-v2-card-action {
+      width: 24px; height: 24px; border-radius: 50%;
+      border: none; background: rgba(0,0,0,0.55); color: #fff;
+      font-size: 12px; cursor: pointer; display: flex;
+      align-items: center; justify-content: center;
+    }
+    .disc-v2-card-action:hover { background: rgba(0,0,0,0.78); }
+    .disc-v2-card-action.saved { background: var(--green); }
+
+    .disc-v2-spinner {
+      display: inline-block; width: 12px; height: 12px;
+      border: 2px solid var(--border); border-top-color: var(--green);
+      border-radius: 50%; animation: disc-v2-spin 0.8s linear infinite;
+    }
+    @keyframes disc-v2-spin { to { transform: rotate(360deg); } }
+
+    .disc-v2-detail-panel {
+      position: fixed; top: 0; right: 0; bottom: 0; width: 480px;
+      background: var(--surface); border-left: 1px solid var(--border);
+      transform: translateX(100%); transition: transform 0.2s ease;
+      z-index: 1000; overflow-y: auto;
+    }
+    .disc-v2-detail-panel[aria-hidden="false"] { transform: translateX(0); }
+    @media (max-width: 900px) {
+      .disc-v2-detail-panel { width: 100vw; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .disc-v2-detail-panel { transition: none; }
+    }
+    .disc-v2-detail-panel-inner { padding: 16px; }
+    .disc-v2-detail-close {
+      position: absolute; top: 8px; right: 8px;
+      width: 32px; height: 32px; border-radius: 50%;
+      border: none; background: var(--surface2); color: var(--text);
+      font-size: 18px; cursor: pointer;
+    }
   </style>
 <script src="https://cdn.tailwindcss.com"></script>
 <script>tailwind.config = { corePlugins: { preflight: false }, darkMode: 'class' }</script>
@@ -2683,35 +2765,117 @@ autocue --library --mode bar --bars-interval 8 --start-bar 1</pre>
 
   <div id="discover-tab-content" style="display:none;min-height:60vh">
 
-  <!-- New-release discovery (local mode only) -->
-  <section id="discover-section" class="panel-card">
+  <!-- Discover & Watchlist v2 (T-024+). Personalized feed from labels + artists +
+       novelty, served by /api/discover/feed SSE. The old v1 'scan library' panel
+       is replaced by this surface. -->
+  <section id="discover-v2-section" class="panel-card">
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;flex-wrap:wrap;gap:8px;">
       <div>
-        <h2 style="margin:0;font-size:15px;font-weight:700;">New Releases</h2>
-        <p style="margin:4px 0 0;font-size:12px;color:var(--muted);">Finds recent albums from the artists you already play, using Discogs. Skips anything already in your library.</p>
+        <h2 style="margin:0;font-size:15px;font-weight:700;">Discover &amp; Watchlist</h2>
+        <p style="margin:4px 0 0;font-size:12px;color:var(--muted);">Personalized new releases from your library&apos;s artists + labels you follow, with novelty picks mixed in. Filtered against what you already own / saved / dismissed.</p>
+      </div>
+      <div style="display:flex;gap:6px;align-items:center;">
+        <button id="disc-v2-settings-btn" class="secondary-btn" style="font-size:12px;">⚙ Settings</button>
+        <button id="disc-v2-refresh-btn" class="primary" style="font-size:13px;">↻ Refresh</button>
       </div>
     </div>
-    <div id="discover-no-token" style="display:none;font-size:12px;color:var(--muted);background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:8px 10px;margin-bottom:12px;">
-      Add your Discogs token in the <strong>Library → Discogs Genre Tags</strong> panel first — discovery uses the same token.
+
+    <!-- Token banner — shown when DISCOGS_TOKEN is missing or rejected. -->
+    <div id="disc-v2-token-banner" style="display:none;font-size:12px;color:var(--muted);background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:8px 10px;margin-bottom:12px;"></div>
+
+    <!-- Onboarding banner — shown on first run when no labels followed. -->
+    <div id="disc-v2-onboarding-banner" style="display:none;font-size:13px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:12px;margin-bottom:12px;">
+      <strong>Pick labels from your library to watch</strong>
+      <p style="margin:4px 0 8px;font-size:12px;color:var(--muted);">Discover scans the labels you follow for new releases. Here are the top labels you actually play, ranked by your library&apos;s history.</p>
+      <div id="disc-v2-onboarding-suggestions" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px;"></div>
+      <button id="disc-v2-onboarding-add-all" class="primary" style="font-size:12px;">Add all to watch list</button>
+      <button id="disc-v2-onboarding-skip" class="secondary-btn" style="font-size:12px;margin-left:6px;">Skip for now</button>
     </div>
-    <div style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap;margin-bottom:12px;">
-      <div class="cue-tools-param-group" style="min-width:100px;">
-        <label>Released since</label>
-        <input type="number" id="disc-since-year" min="1990" max="2100" step="1">
+
+    <!-- Filter bar -->
+    <div id="disc-v2-filter-bar" style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:12px;">
+      <span style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.04em;">Source:</span>
+      <label class="disc-v2-chip"><input type="checkbox" data-source="artist" checked> Artist</label>
+      <label class="disc-v2-chip"><input type="checkbox" data-source="label" checked> Label</label>
+      <label class="disc-v2-chip"><input type="checkbox" data-source="novelty" checked> Novelty</label>
+      <span style="margin-left:10px;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.04em;">Sort:</span>
+      <select id="disc-v2-sort" style="font-size:12px;padding:4px 6px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--text);">
+        <option value="taste">Taste match</option>
+        <option value="newest">Newest</option>
+        <option value="title">Title</option>
+        <option value="artist">Artist</option>
+        <option value="explore">Explore mode (50/50)</option>
+      </select>
+      <span style="margin-left:10px;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.04em;">Year:</span>
+      <select id="disc-v2-year" style="font-size:12px;padding:4px 6px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--text);">
+        <option value="">All</option>
+        <option value="this">This year</option>
+        <option value="last2">Last 2 years</option>
+      </select>
+    </div>
+
+    <!-- Scan progress indicator -->
+    <div id="disc-v2-scan-progress" style="display:none;font-size:12px;color:var(--muted);background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:8px 10px;margin-bottom:12px;">
+      <div style="display:flex;align-items:center;gap:8px;">
+        <span class="disc-v2-spinner" aria-hidden="true"></span>
+        <span id="disc-v2-scan-progress-label">Scanning…</span>
+        <button id="disc-v2-scan-cancel-btn" class="secondary-btn" style="font-size:11px;margin-left:auto;">Cancel</button>
       </div>
-      <div class="cue-tools-param-group" style="min-width:90px;">
-        <label>Top artists</label>
-        <input type="number" id="disc-max-artists" value="25" min="1" max="100" step="1">
+      <div class="cue-tools-progress" style="margin-top:6px;">
+        <div class="cue-tools-progress-fill" id="disc-v2-scan-progress-fill" style="width:0%"></div>
       </div>
-      <button id="disc-scan-btn" class="primary" style="font-size:13px;">Scan library for new releases</button>
-      <span id="disc-status" style="font-size:12px;color:var(--muted);"></span>
     </div>
-    <div class="cue-tools-progress" id="disc-progress" style="margin-top:4px;margin-bottom:12px;display:none;">
-      <div class="cue-tools-progress-fill" id="disc-progress-fill" style="width:0%"></div>
+
+    <!-- Empty / error states -->
+    <div id="disc-v2-empty-state" style="display:none;text-align:center;padding:32px 12px;color:var(--muted);">
+      <p id="disc-v2-empty-state-msg" style="margin:0 0 12px;font-size:13px;"></p>
+      <button id="disc-v2-empty-action" class="primary" style="font-size:12px;display:none;"></button>
     </div>
-    <div id="disc-style-filter" style="display:none;margin-bottom:10px;flex-wrap:wrap;gap:4px;align-items:center;"></div>
-    <div id="disc-results"></div>
+
+    <!-- Card grid (populated by the SSE consumer) -->
+    <div id="disc-v2-grid" class="disc-v2-grid"></div>
+
+    <!-- Settings sub-panel (toggled by the ⚙ button) -->
+    <div id="disc-v2-settings" style="display:none;margin-top:18px;border-top:1px solid var(--border);padding-top:18px;">
+      <h3 style="margin:0 0 10px;font-size:14px;font-weight:700;">Discover settings</h3>
+      <div id="disc-v2-settings-followed" style="margin-bottom:18px;">
+        <strong style="font-size:12px;">Labels you watch</strong>
+        <div id="disc-v2-followed-list" style="margin:6px 0;font-size:12px;"></div>
+        <div style="display:flex;gap:6px;align-items:center;">
+          <input id="disc-v2-label-search" type="text" placeholder="Search Discogs to add a label…"
+                 style="flex:1;font-size:12px;padding:6px 8px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--text);">
+          <button id="disc-v2-label-search-btn" class="secondary-btn" style="font-size:12px;">Search</button>
+        </div>
+        <div id="disc-v2-label-search-results" style="margin-top:6px;font-size:12px;"></div>
+      </div>
+      <div id="disc-v2-settings-blocked" style="margin-bottom:18px;">
+        <strong style="font-size:12px;">Blocked artists / labels</strong>
+        <div id="disc-v2-blocked-list" style="margin:6px 0;font-size:12px;color:var(--muted);">Nothing blocked. You can 🚫 block from a card&apos;s More menu.</div>
+      </div>
+      <div id="disc-v2-settings-export" style="margin-bottom:18px;">
+        <strong style="font-size:12px;">Sync between machines</strong>
+        <p style="margin:4px 0 8px;font-size:11px;color:var(--muted);">Export the local Discover state as a .gz; import on another machine to share your saves / dismisses / follows / blocks.</p>
+        <button id="disc-v2-export-btn" class="secondary-btn" style="font-size:12px;">Export discover.db</button>
+        <label class="secondary-btn" style="font-size:12px;cursor:pointer;display:inline-block;">
+          Import…
+          <input id="disc-v2-import-input" type="file" accept=".gz" style="display:none;">
+        </label>
+      </div>
+      <div id="disc-v2-settings-stats">
+        <strong style="font-size:12px;">Stats</strong>
+        <div id="disc-v2-stats-block" style="margin:6px 0;font-size:12px;color:var(--muted);"></div>
+      </div>
+    </div>
   </section>
+
+  <!-- Detail panel — rendered as a side overlay when a card is clicked.
+       T-025 expands this with the full tracklist + YouTube preview carousel. -->
+  <div id="disc-v2-detail-panel" class="disc-v2-detail-panel" role="dialog" aria-modal="true" aria-hidden="true">
+    <div class="disc-v2-detail-panel-inner">
+      <button id="disc-v2-detail-close-btn" class="disc-v2-detail-close" aria-label="Close detail panel">×</button>
+      <div id="disc-v2-detail-body"></div>
+    </div>
+  </div>
 
   <!-- Download (local mode only, requires yt-dlp + ffmpeg) -->
   <section id="download-section" class="panel-card" style="margin-top:18px;">
@@ -3908,12 +4072,17 @@ async function _consumeSSE(response, onEvent, signal) {
 }
 
 function initDiscover() {
-  // Default "released since" to last year.
+  // Default "released since" to last year (v1 control, retained for the
+  // Download panel below — Discover v2 has its own filter bar).
   const yearInput = document.getElementById('disc-since-year');
   if (yearInput && !yearInput.value) yearInput.value = String(new Date().getFullYear() - 1);
 
-  document.getElementById('disc-scan-btn').addEventListener('click', scanDiscover);
-  document.getElementById('dl-go-btn').addEventListener('click', downloadManual);
+  // T-024: the v1 "Scan library" button (#disc-scan-btn) was removed from the
+  // DOM when the Discover tab was rewritten. Its click handler is now wired
+  // up in initDiscoverV2(). The download button below still belongs to the
+  // shared YouTube download panel.
+  const dlBtn = document.getElementById('dl-go-btn');
+  if (dlBtn) dlBtn.addEventListener('click', downloadManual);
 
   // Probe download tool availability and reveal the matching UI.
   fetch('/api/download/config').then(r => r.ok ? r.json() : null).then(cfg => {
@@ -3978,8 +4147,643 @@ document.addEventListener('click', e => {
   });
 });
 
+// ===========================================================================
+// Discover v2 (T-024) — DiscoverState + SSE consumer + card renderer
+// ===========================================================================
+//
+// Replaces the v1 'scan library' panel above with a personalised feed driven
+// by /api/discover/feed (SSE). State (saved / dismissed / followed / blocked)
+// lives in the backend's discover.db; the JS just caches it for the session
+// and refreshes on user actions. The CardRenderer + DetailPanel stubs live
+// inline here; T-025+ (YouTube carousel, full keyboard shortcuts, settings
+// panels) extend them.
+
+const DiscoverV2 = (() => {
+  const state = {
+    cards: [],                  // in-render-order list of release dicts
+    cardsByKey: new Map(),      // release_key → release dict
+    savedKeys: new Set(),
+    dismissedKeys: new Set(),
+    snoozedKeys: new Set(),
+    followedLabels: [],         // [{label_id, name, last_scanned_at}]
+    blockedArtists: [],
+    blockedLabels: [],
+    scanRunning: false,
+    scanFeeder: null,
+    scanReleasesSeen: 0,
+    tokenValid: null,           // null = unknown
+    settingsOpen: false,
+  };
+
+  const subs = new Set();
+  function subscribe(fn) { subs.add(fn); return () => subs.delete(fn); }
+  function notify() { for (const fn of subs) { try { fn(state); } catch (e) { console.error(e); } } }
+
+  // ── HTTP helpers ────────────────────────────────────────────────────────
+  async function _post(path, body) {
+    const r = await fetch(path, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: body ? JSON.stringify(body) : null,
+    });
+    if (!r.ok) throw new Error(`${path}: HTTP ${r.status}`);
+    return r.json();
+  }
+  async function _get(path) {
+    const r = await fetch(path);
+    if (!r.ok) throw new Error(`${path}: HTTP ${r.status}`);
+    return r.json();
+  }
+
+  // ── Initial state load ──────────────────────────────────────────────────
+  async function loadInitialState() {
+    try {
+      const [saved, dismissed, snoozed, followed, blkA, blkL, tokenStatus] = await Promise.all([
+        _get('/api/discover/saved'),
+        _get('/api/discover/dismissed'),
+        _get('/api/discover/snoozed'),
+        _get('/api/discover/labels'),
+        _get('/api/discover/blocked-artists'),
+        _get('/api/discover/blocked-labels'),
+        _get('/api/discover/token-status'),
+      ]);
+      state.savedKeys = new Set(saved.items.map(r => r.release_key));
+      state.dismissedKeys = new Set(dismissed.items.map(r => r.release_key));
+      state.snoozedKeys = new Set(snoozed.items.map(r => r.release_key));
+      state.followedLabels = followed.items;
+      state.blockedArtists = blkA.items;
+      state.blockedLabels = blkL.items;
+      state.tokenValid = tokenStatus.valid;
+    } catch (e) {
+      console.warn('DiscoverV2: initial-state load failed', e);
+    }
+    notify();
+  }
+
+  // ── SSE feed consumer ───────────────────────────────────────────────────
+  async function runScan() {
+    if (state.scanRunning) return;
+    state.scanRunning = true;
+    state.scanFeeder = null;
+    state.scanReleasesSeen = 0;
+    state.cards = [];
+    state.cardsByKey.clear();
+    notify();
+
+    // Build query from filter chips.
+    const sources = Array.from(
+      document.querySelectorAll('#disc-v2-filter-bar input[data-source]:checked'),
+    ).map(el => el.dataset.source);
+    const yearVal = document.getElementById('disc-v2-year')?.value || '';
+    const params = new URLSearchParams();
+    if (sources.length) params.set('sources', sources.join(','));
+    if (yearVal === 'this') params.set('year_from', String(new Date().getFullYear()));
+    else if (yearVal === 'last2') params.set('year_from', String(new Date().getFullYear() - 1));
+
+    let res;
+    try {
+      res = await fetch('/api/discover/feed?' + params.toString());
+    } catch (e) {
+      state.scanRunning = false;
+      notify();
+      return;
+    }
+    if (res.status === 409) {
+      // Another scan is running — surface the status and bail out.
+      state.scanRunning = false;
+      notify();
+      alert('A Discover scan is already running. Wait for it to finish or cancel via the progress bar.');
+      return;
+    }
+    if (!res.ok) {
+      state.scanRunning = false;
+      notify();
+      return;
+    }
+
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buf = '';
+    while (true) {
+      const {done, value} = await reader.read();
+      if (done) break;
+      buf += decoder.decode(value, {stream: true});
+      const chunks = buf.split('\n\n');
+      buf = chunks.pop();  // last partial chunk
+      for (const chunk of chunks) _handleSSEChunk(chunk);
+    }
+    state.scanRunning = false;
+    notify();
+  }
+
+  function _handleSSEChunk(chunk) {
+    let event = 'message';
+    let data = null;
+    for (const line of chunk.split('\n')) {
+      if (line.startsWith('event: ')) event = line.slice(7).trim();
+      else if (line.startsWith('data: ')) {
+        try { data = JSON.parse(line.slice(6)); }
+        catch (_) { /* ignore */ }
+      }
+    }
+    if (!data) return;
+    if (event === 'progress') {
+      state.scanFeeder = data.feeder;
+      notify();
+    } else if (event === 'release') {
+      state.cards.push(data);
+      state.cardsByKey.set(data.release_key, data);
+      state.scanReleasesSeen++;
+      notify();
+    } else if (event === 'done' || event === 'error') {
+      state.scanFeeder = null;
+      notify();
+    }
+  }
+
+  async function cancelScan() {
+    try { await _post('/api/discover/feed/cancel', {}); } catch (_) {}
+  }
+
+  // ── State mutations ─────────────────────────────────────────────────────
+  async function save(release) {
+    await _post('/api/discover/save', {
+      release_key: release.release_key,
+      release_id: release.release?.id || 0,
+      artist: release.release?.artist || '',
+      title: release.release?.title || '',
+      label: release.release?.label || '',
+    });
+    state.savedKeys.add(release.release_key);
+    notify();
+  }
+
+  async function dismiss(release) {
+    await _post('/api/discover/dismiss', {
+      release_key: release.release_key,
+      release_id: release.release?.id || 0,
+      artist: release.release?.artist || '',
+      title: release.release?.title || '',
+    });
+    state.dismissedKeys.add(release.release_key);
+    notify();
+  }
+
+  async function snooze(release, duration) {
+    await _post('/api/discover/snooze', {
+      release_key: release.release_key,
+      duration: duration || '1m',
+      release_id: release.release?.id || 0,
+      artist: release.release?.artist || '',
+      title: release.release?.title || '',
+    });
+    state.snoozedKeys.add(release.release_key);
+    notify();
+  }
+
+  async function loadDetail(releaseId) {
+    return _get('/api/discover/releases/' + encodeURIComponent(releaseId));
+  }
+
+  async function followLabel(labelId, name) {
+    await _post('/api/discover/labels/follow', {label_id: labelId, name: name});
+    await refreshFollowed();
+  }
+  async function unfollowLabel(labelId) {
+    await _post('/api/discover/labels/unfollow', {label_id: labelId});
+    await refreshFollowed();
+  }
+  async function refreshFollowed() {
+    const r = await _get('/api/discover/labels');
+    state.followedLabels = r.items;
+    notify();
+  }
+  async function fetchSuggestedLabels(limit = 10) {
+    const r = await _get('/api/discover/labels/suggested?limit=' + limit);
+    return r.items;
+  }
+  async function searchLabels(query) {
+    const r = await _get('/api/discover/labels/search?q=' + encodeURIComponent(query));
+    return r.items;
+  }
+  async function refreshStats() {
+    return _get('/api/discover/stats');
+  }
+  async function exportState() {
+    const r = await fetch('/api/discover/state/export');
+    if (!r.ok) throw new Error('export failed');
+    return r.blob();
+  }
+  async function importState(file) {
+    const r = await fetch('/api/discover/state/import', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/gzip'},
+      body: file,
+    });
+    if (!r.ok) throw new Error('import failed: HTTP ' + r.status);
+    await loadInitialState();
+    return r.json();
+  }
+
+  return {
+    state, subscribe,
+    loadInitialState, runScan, cancelScan,
+    save, dismiss, snooze, loadDetail,
+    followLabel, unfollowLabel, refreshFollowed, fetchSuggestedLabels, searchLabels,
+    refreshStats, exportState, importState,
+  };
+})();
+
+
+// Card renderer + DOM event wiring -------------------------------------------
+
+function _renderDiscoverV2Card(release) {
+  const r = release.release || {};
+  const isSaved = DiscoverV2.state.savedKeys.has(release.release_key);
+  const card = document.createElement('div');
+  card.className = 'disc-v2-card';
+  card.setAttribute('data-release-key', release.release_key);
+  card.setAttribute('role', 'button');
+  card.setAttribute('tabindex', '0');
+  const art = r.thumb || r.cover_image || '';
+  const sourceLabel = (release.source || '').split(':')[0];
+  card.innerHTML = `
+    <div class="disc-v2-card-art" style="${art ? `background-image:url('${_esc(art)}')` : ''}"></div>
+    <div class="disc-v2-card-body">
+      <p class="disc-v2-card-title">${_esc(r.title || 'Untitled')}</p>
+      <p class="disc-v2-card-artist">${_esc(r.artist || 'Unknown Artist')}</p>
+      <p class="disc-v2-card-source">via ${_esc(sourceLabel)}${r.label ? ' · ' + _esc(r.label) : ''}${r.year ? ' · ' + r.year : ''}</p>
+    </div>
+    <div class="disc-v2-card-actions" data-actions>
+      <button class="disc-v2-card-action ${isSaved ? 'saved' : ''}" data-act="save" title="Save">${isSaved ? '✓' : '💚'}</button>
+      <button class="disc-v2-card-action" data-act="snooze" title="Snooze 30 days">💤</button>
+      <button class="disc-v2-card-action" data-act="dismiss" title="Dismiss">✕</button>
+    </div>
+  `;
+  return card;
+}
+
+function _renderDiscoverV2Feed() {
+  const grid = document.getElementById('disc-v2-grid');
+  if (!grid) return;
+  grid.innerHTML = '';
+
+  const s = DiscoverV2.state;
+  // Filter out dismissed / snoozed cards client-side so the user sees the
+  // action take effect immediately (the next scan will exclude them server-side).
+  const visible = s.cards.filter(c =>
+    !s.dismissedKeys.has(c.release_key) && !s.snoozedKeys.has(c.release_key));
+
+  const emptyEl = document.getElementById('disc-v2-empty-state');
+  const emptyMsg = document.getElementById('disc-v2-empty-state-msg');
+  const emptyAction = document.getElementById('disc-v2-empty-action');
+
+  if (s.scanRunning) {
+    if (emptyEl) emptyEl.style.display = 'none';
+  } else if (!visible.length) {
+    if (emptyEl) {
+      emptyEl.style.display = '';
+      if (s.tokenValid === false) {
+        emptyMsg.textContent = 'Your Discogs token is invalid or missing. Configure DISCOGS_TOKEN in .env and restart the server.';
+        emptyAction.style.display = 'none';
+      } else if (!s.followedLabels.length) {
+        emptyMsg.textContent = 'Follow some labels to start seeing releases.';
+        emptyAction.style.display = '';
+        emptyAction.textContent = 'Pick from your library';
+        emptyAction.onclick = () => _openOnboarding();
+      } else {
+        emptyMsg.textContent = 'No new releases right now. Try Refresh, or follow more labels.';
+        emptyAction.style.display = 'none';
+      }
+    }
+    return;
+  } else if (emptyEl) {
+    emptyEl.style.display = 'none';
+  }
+
+  for (const release of visible) {
+    grid.appendChild(_renderDiscoverV2Card(release));
+  }
+}
+
+function _renderDiscoverV2ScanProgress() {
+  const el = document.getElementById('disc-v2-scan-progress');
+  const label = document.getElementById('disc-v2-scan-progress-label');
+  if (!el || !label) return;
+  if (DiscoverV2.state.scanRunning) {
+    el.style.display = '';
+    const feeder = DiscoverV2.state.scanFeeder || 'starting';
+    const count = DiscoverV2.state.scanReleasesSeen;
+    label.textContent = `Scanning ${feeder}… ${count} releases found`;
+  } else {
+    el.style.display = 'none';
+  }
+}
+
+function _renderDiscoverV2Onboarding() {
+  const banner = document.getElementById('disc-v2-onboarding-banner');
+  if (!banner) return;
+  // Show only when no labels are followed AND we haven't been told to skip.
+  if (DiscoverV2.state.followedLabels.length === 0 && !localStorage.getItem('disc-v2-onboarding-skipped')) {
+    banner.style.display = '';
+  } else {
+    banner.style.display = 'none';
+  }
+}
+
+async function _openOnboarding() {
+  const banner = document.getElementById('disc-v2-onboarding-banner');
+  const container = document.getElementById('disc-v2-onboarding-suggestions');
+  if (!banner || !container) return;
+  banner.style.display = '';
+  container.innerHTML = '<em style="color:var(--muted);">Loading suggestions…</em>';
+  try {
+    const suggestions = await DiscoverV2.fetchSuggestedLabels(10);
+    container.innerHTML = '';
+    if (!suggestions.length) {
+      container.innerHTML = '<em style="color:var(--muted);">No suggested labels (library too thin).</em>';
+      return;
+    }
+    suggestions.forEach(sug => {
+      const chip = document.createElement('button');
+      chip.className = 'secondary-btn';
+      chip.style.fontSize = '11px';
+      chip.textContent = sug.name;
+      chip.addEventListener('click', async () => {
+        // Resolve a label_id via search; pick the first hit.
+        try {
+          const found = await DiscoverV2.searchLabels(sug.name);
+          if (found.length) {
+            await DiscoverV2.followLabel(found[0].id, found[0].name || sug.name);
+            chip.disabled = true;
+            chip.textContent = '✓ ' + sug.name;
+          }
+        } catch (_) {}
+      });
+      container.appendChild(chip);
+    });
+  } catch (_) {
+    container.innerHTML = '<em style="color:var(--muted);">Could not load suggestions.</em>';
+  }
+}
+
+function _renderDiscoverV2TokenBanner() {
+  const banner = document.getElementById('disc-v2-token-banner');
+  if (!banner) return;
+  if (DiscoverV2.state.tokenValid === false) {
+    banner.style.display = '';
+    banner.innerHTML = '<strong>Discogs token invalid.</strong> Configure <code>DISCOGS_TOKEN</code> in <code>.env</code> and restart the server.';
+  } else {
+    banner.style.display = 'none';
+  }
+}
+
+function _renderDiscoverV2Followed() {
+  const list = document.getElementById('disc-v2-followed-list');
+  if (!list) return;
+  if (!DiscoverV2.state.followedLabels.length) {
+    list.innerHTML = '<em style="color:var(--muted);">No labels followed yet.</em>';
+    return;
+  }
+  list.innerHTML = '';
+  DiscoverV2.state.followedLabels.forEach(label => {
+    const row = document.createElement('div');
+    row.style.display = 'flex';
+    row.style.justifyContent = 'space-between';
+    row.style.alignItems = 'center';
+    row.style.padding = '4px 0';
+    row.innerHTML = `<span>${_esc(label.name)}</span>`;
+    const unfollow = document.createElement('button');
+    unfollow.className = 'secondary-btn';
+    unfollow.style.fontSize = '11px';
+    unfollow.textContent = 'Unfollow';
+    unfollow.addEventListener('click', () => DiscoverV2.unfollowLabel(label.label_id));
+    row.appendChild(unfollow);
+    list.appendChild(row);
+  });
+}
+
+function _renderDiscoverV2Blocked() {
+  const list = document.getElementById('disc-v2-blocked-list');
+  if (!list) return;
+  const sa = DiscoverV2.state.blockedArtists || [];
+  const sl = DiscoverV2.state.blockedLabels || [];
+  if (!sa.length && !sl.length) {
+    list.innerHTML = 'Nothing blocked. You can 🚫 block from a card&apos;s More menu.';
+    list.style.color = 'var(--muted)';
+    return;
+  }
+  list.style.color = 'var(--text)';
+  const rows = [];
+  sa.forEach(a => rows.push(`<div>🎤 ${_esc(a.name || 'unknown')}</div>`));
+  sl.forEach(l => rows.push(`<div>🏷 ${_esc(l.name || 'unknown')}</div>`));
+  list.innerHTML = rows.join('');
+}
+
+// Detail panel stub (T-025 expands this with the full tracklist + YouTube carousel).
+async function _openDetailPanel(releaseKey) {
+  const panel = document.getElementById('disc-v2-detail-panel');
+  const body = document.getElementById('disc-v2-detail-body');
+  if (!panel || !body) return;
+  const release = DiscoverV2.state.cardsByKey.get(releaseKey);
+  const r = release?.release || {};
+  panel.setAttribute('aria-hidden', 'false');
+  body.innerHTML = `
+    <h2 style="margin:0 0 4px;font-size:18px;">${_esc(r.title || 'Untitled')}</h2>
+    <p style="margin:0 0 12px;color:var(--muted);">${_esc(r.artist || 'Unknown Artist')}${r.year ? ' · ' + r.year : ''}${r.label ? ' · ' + _esc(r.label) : ''}</p>
+    <p style="font-size:12px;color:var(--muted);">Loading tracklist…</p>
+  `;
+  try {
+    const detail = await DiscoverV2.loadDetail(r.id);
+    const tracks = detail.tracklist || [];
+    body.innerHTML = `
+      ${detail.cover ? `<img src="${_esc(detail.cover)}" style="width:100%;max-width:320px;border-radius:8px;margin-bottom:12px;" alt="">` : ''}
+      <h2 style="margin:0 0 4px;font-size:18px;">${_esc(detail.title || 'Untitled')}</h2>
+      <p style="margin:0 0 6px;color:var(--muted);">${_esc(detail.artist || 'Unknown Artist')}${detail.year ? ' · ' + detail.year : ''}${detail.label ? ' · ' + _esc(detail.label) : ''}</p>
+      <p style="margin:0 0 12px;font-size:12px;color:var(--muted);">${(detail.styles || []).map(_esc).join(' · ')}</p>
+      <ol style="font-size:13px;padding-left:20px;margin:0 0 12px;">
+        ${tracks.map(t => `<li>${_esc(t.position || '')} ${_esc(t.title || '')} ${t.duration ? '<span style="color:var(--muted);">— ' + _esc(t.duration) + '</span>' : ''}</li>`).join('')}
+      </ol>
+      <a href="https://www.discogs.com/release/${detail.id}" target="_blank" rel="noopener noreferrer" style="font-size:12px;">View on Discogs ↗</a>
+    `;
+  } catch (e) {
+    body.innerHTML += `<p style="color:var(--muted);">Could not load details: ${_esc(String(e))}</p>`;
+  }
+}
+
+function _closeDetailPanel() {
+  const panel = document.getElementById('disc-v2-detail-panel');
+  if (panel) panel.setAttribute('aria-hidden', 'true');
+}
+
+function _esc(s) {
+  return String(s ?? '').replace(/[&<>"']/g, c => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+  }[c]));
+}
+
+// ── Wiring (DOMContentLoaded) ────────────────────────────────────────────
+function initDiscoverV2() {
+  if (!document.getElementById('disc-v2-section')) return;
+
+  // Subscribe each renderer once.
+  DiscoverV2.subscribe(_renderDiscoverV2Feed);
+  DiscoverV2.subscribe(_renderDiscoverV2ScanProgress);
+  DiscoverV2.subscribe(_renderDiscoverV2Onboarding);
+  DiscoverV2.subscribe(_renderDiscoverV2TokenBanner);
+  DiscoverV2.subscribe(_renderDiscoverV2Followed);
+  DiscoverV2.subscribe(_renderDiscoverV2Blocked);
+
+  // Refresh button.
+  const refreshBtn = document.getElementById('disc-v2-refresh-btn');
+  if (refreshBtn) refreshBtn.addEventListener('click', () => DiscoverV2.runScan());
+
+  // Settings toggle.
+  const settingsBtn = document.getElementById('disc-v2-settings-btn');
+  const settings = document.getElementById('disc-v2-settings');
+  if (settingsBtn && settings) {
+    settingsBtn.addEventListener('click', async () => {
+      const wasHidden = settings.style.display === 'none';
+      settings.style.display = wasHidden ? '' : 'none';
+      if (wasHidden) {
+        // Lazy-load stats when settings is opened.
+        try {
+          const stats = await DiscoverV2.refreshStats();
+          document.getElementById('disc-v2-stats-block').innerHTML = `
+            ${stats.total_scans} scans · ${stats.saved_count} saved · ${stats.followed_count} followed labels
+          `;
+        } catch (_) {}
+      }
+    });
+  }
+
+  // Filter chips re-trigger scan on change.
+  document.querySelectorAll('#disc-v2-filter-bar input[data-source]').forEach(el =>
+    el.addEventListener('change', () => DiscoverV2.runScan()));
+  document.getElementById('disc-v2-year')?.addEventListener('change', () => DiscoverV2.runScan());
+
+  // Scan-cancel button.
+  document.getElementById('disc-v2-scan-cancel-btn')?.addEventListener('click', () => DiscoverV2.cancelScan());
+
+  // Card grid click delegate — action buttons OR card-body → open panel.
+  document.getElementById('disc-v2-grid')?.addEventListener('click', (ev) => {
+    const card = ev.target.closest('.disc-v2-card');
+    if (!card) return;
+    const releaseKey = card.getAttribute('data-release-key');
+    const release = DiscoverV2.state.cardsByKey.get(releaseKey);
+    if (!release) return;
+    const actBtn = ev.target.closest('[data-act]');
+    if (actBtn) {
+      ev.stopPropagation();
+      const act = actBtn.getAttribute('data-act');
+      if (act === 'save') DiscoverV2.save(release);
+      else if (act === 'dismiss') DiscoverV2.dismiss(release);
+      else if (act === 'snooze') DiscoverV2.snooze(release, '1m');
+      return;
+    }
+    _openDetailPanel(releaseKey);
+  });
+
+  // Detail panel close.
+  document.getElementById('disc-v2-detail-close-btn')?.addEventListener('click', _closeDetailPanel);
+  document.addEventListener('keydown', (ev) => {
+    if (ev.key === 'Escape') _closeDetailPanel();
+  });
+
+  // Onboarding interactions.
+  document.getElementById('disc-v2-onboarding-skip')?.addEventListener('click', () => {
+    localStorage.setItem('disc-v2-onboarding-skipped', '1');
+    _renderDiscoverV2Onboarding();
+  });
+  document.getElementById('disc-v2-onboarding-add-all')?.addEventListener('click', async () => {
+    const container = document.getElementById('disc-v2-onboarding-suggestions');
+    if (!container) return;
+    const chips = container.querySelectorAll('button:not([disabled])');
+    for (const chip of chips) chip.click();
+  });
+
+  // Label search.
+  document.getElementById('disc-v2-label-search-btn')?.addEventListener('click', async () => {
+    const q = document.getElementById('disc-v2-label-search')?.value || '';
+    const results = document.getElementById('disc-v2-label-search-results');
+    if (!q.trim() || !results) return;
+    results.innerHTML = '<em style="color:var(--muted);">Searching…</em>';
+    try {
+      const hits = await DiscoverV2.searchLabels(q);
+      results.innerHTML = '';
+      if (!hits.length) { results.innerHTML = '<em style="color:var(--muted);">No matches.</em>'; return; }
+      hits.slice(0, 8).forEach(h => {
+        const row = document.createElement('div');
+        row.style.display = 'flex';
+        row.style.justifyContent = 'space-between';
+        row.style.alignItems = 'center';
+        row.style.padding = '4px 0';
+        row.innerHTML = `<span>${_esc(h.name)}</span>`;
+        const btn = document.createElement('button');
+        btn.className = 'secondary-btn';
+        btn.style.fontSize = '11px';
+        btn.textContent = 'Follow';
+        btn.addEventListener('click', async () => {
+          await DiscoverV2.followLabel(h.id, h.name);
+          btn.disabled = true;
+          btn.textContent = '✓ Following';
+        });
+        row.appendChild(btn);
+        results.appendChild(row);
+      });
+    } catch (e) {
+      results.innerHTML = '<em style="color:var(--muted);">Search failed.</em>';
+    }
+  });
+
+  // Export / Import.
+  document.getElementById('disc-v2-export-btn')?.addEventListener('click', async () => {
+    try {
+      const blob = await DiscoverV2.exportState();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'discover.db.gz';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      alert('Export failed: ' + e);
+    }
+  });
+  document.getElementById('disc-v2-import-input')?.addEventListener('change', async (ev) => {
+    const file = ev.target.files?.[0];
+    if (!file) return;
+    if (!confirm('Importing will replace your current Discover state. Continue?')) return;
+    try {
+      const result = await DiscoverV2.importState(file);
+      alert('Imported. ' + JSON.stringify(result.after));
+    } catch (e) {
+      alert('Import failed: ' + e);
+    }
+  });
+
+  // Initial state + initial scan on tab activation.
+  DiscoverV2.loadInitialState().then(() => {
+    // Auto-scan on first open if labels are followed and the token is valid.
+    if (DiscoverV2.state.tokenValid && DiscoverV2.state.followedLabels.length > 0) {
+      DiscoverV2.runScan();
+    }
+  });
+}
+
+// Expose for tests.
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = { DiscoverV2, _renderDiscoverV2Card, _esc };
+}
+
 async function scanDiscover() {
+  // T-024: v1 'scan library' DOM was removed. This function is retained
+  // only because legacy code paths reference it; immediately returns when
+  // its DOM is gone.
   const btn      = document.getElementById('disc-scan-btn');
+  if (!btn) return;
   const statusEl = document.getElementById('disc-status');
   const resultsEl = document.getElementById('disc-results');
   const progress = document.getElementById('disc-progress');
@@ -4562,6 +5366,7 @@ detectLocalMode().then(async connected => {
     });
     document.getElementById('sb-save-playlist-btn').addEventListener('click', sbSavePlaylist);
     initDiscover();
+    initDiscoverV2();  // T-024 — wires up the new Discover tab surface
 
     // Copy track list buttons
     function makeCopyHandler(listId, btnId, tracksRef) {
