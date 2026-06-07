@@ -145,7 +145,15 @@ def check_library_health(
     Designed for SSE streaming — caller yields each report as a JSON event.
     Per-track exceptions are caught and emitted as score=0 / NO_AUDIO_FILE stand-ins
     so one bad row never aborts a 10K-track scan.
+
+    TASK-003 — when ``AUTOCUE_PARALLEL_HEALTH=1``, fans out per-track checks
+    via the shared analysis pool (TASK-001) so SSE events stream in
+    completion order instead of input order. Behavior gated by the env var
+    until TASK-008 pyrekordbox thread-safety verification is signed off by
+    the maintainer; default path is unchanged.
     """
+    import os
+
     from pyrekordbox.db6 import DjmdContent, DjmdSongPlaylist
 
     if playlist_id is not None:
@@ -159,12 +167,56 @@ def check_library_health(
     else:
         contents = db.query(DjmdContent).all()
 
+    if os.environ.get("AUTOCUE_PARALLEL_HEALTH") == "1":
+        yield from _check_library_health_parallel(contents, db)
+        return
+
     for content in contents:
         try:
             yield check_track_health(content, db)
         except Exception as exc:
             yield TrackHealthReport(
                 track_id=getattr(content, "ID", -1),
+                score=0,
+                issues=[CueIssue("INTERNAL_ERROR", "error", str(exc))],
+                fix_tier="none",
+            )
+
+
+def _check_library_health_parallel(contents, db) -> Generator[TrackHealthReport, None, None]:
+    """ThreadPool-driven implementation of check_library_health (TASK-003).
+
+    Submits every per-track check through the shared pool. Yields results
+    in completion order via ``concurrent.futures.as_completed``. Per-track
+    exceptions are still isolated into INTERNAL_ERROR reports.
+    """
+    from concurrent.futures import as_completed
+
+    from ..analysis.concurrency import get_pool
+
+    pool = get_pool()
+
+    def _one(content):
+        try:
+            return check_track_health(content, db)
+        except Exception as exc:
+            return TrackHealthReport(
+                track_id=getattr(content, "ID", -1),
+                score=0,
+                issues=[CueIssue("INTERNAL_ERROR", "error", str(exc))],
+                fix_tier="none",
+            )
+
+    futures = [pool.submit(_one, c) for c in contents]
+    for fut in as_completed(futures):
+        try:
+            yield fut.result()
+        except Exception as exc:
+            # Should not happen — _one swallows its own exceptions — but
+            # if a future itself errors, emit a stand-in so the stream
+            # keeps flowing.
+            yield TrackHealthReport(
+                track_id=-1,
                 score=0,
                 issues=[CueIssue("INTERNAL_ERROR", "error", str(exc))],
                 fix_tier="none",
