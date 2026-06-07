@@ -30,17 +30,17 @@ const SHELL_SCHEMA = {
   additionalProperties: false,
 };
 
-async function sh(cmd: string, label: string): Promise<{ stdout: string; exitCode: number }> {
+async function sh(cmd, label) {
   return await agent(
     `Run exactly this shell command and return its stdout and exit code: \n\n${cmd}\n\nDo not modify the command. Return JSON only.`,
     { label, schema: SHELL_SCHEMA, phase: "Fetch" },
-  ) as { stdout: string; exitCode: number };
+  );
 }
 
-function dedupeAndValidateIssues(input: unknown): number[] {
+function dedupeAndValidateIssues(input) {
   if (!Array.isArray(input)) return [];
-  const seen = new Set<number>();
-  const out: number[] = [];
+  const seen = new Set();
+  const out = [];
   for (const v of input) {
     const n = Number(v);
     if (!Number.isInteger(n) || n < 1 || n > 99999) continue;
@@ -56,9 +56,9 @@ function dedupeAndValidateIssues(input: unknown): number[] {
 const FILE_RX =
   /[a-zA-Z0-9_/.-]+\.(py|ts|js|tsx|jsx|html|css|md|yaml|yml|toml|json)\b/g;
 
-function extractFiles(body: string): string[] {
-  const out = new Set<string>();
-  let m: RegExpExecArray | null;
+function extractFiles(body) {
+  const out = new Set();
+  let m;
   while ((m = FILE_RX.exec(body)) !== null) out.add(m[0]);
   // docs/index.html is excluded from the overlap key — every UI bug names
   // it, and grouping on it would serialize every UI fix. True conflicts
@@ -69,12 +69,12 @@ function extractFiles(body: string): string[] {
 
 // Group issues by file overlap. Issues sharing any file go in the same
 // group (sequential within); groups run in parallel.
-function groupByOverlap(items: { num: number; files: string[] }[]): number[][] {
-  const groups: number[][] = [];
-  const fileMap = new Map<number, Set<string>>(
-    items.map((it) => [it.num, new Set(it.files)] as const),
+function groupByOverlap(items) {
+  const groups = [];
+  const fileMap = new Map(
+    items.map((it) => [it.num, new Set(it.files)]),
   );
-  const assigned = new Set<number>();
+  const assigned = new Set();
 
   for (const item of items) {
     if (assigned.has(item.num)) continue;
@@ -82,8 +82,8 @@ function groupByOverlap(items: { num: number; files: string[] }[]): number[][] {
     assigned.add(item.num);
     for (const other of items) {
       if (assigned.has(other.num)) continue;
-      const a = fileMap.get(item.num)!;
-      const b = fileMap.get(other.num)!;
+      const a = fileMap.get(item.num);
+      const b = fileMap.get(other.num);
       const overlap = [...a].some((f) => b.has(f));
       if (overlap) {
         group.push(other.num);
@@ -99,13 +99,13 @@ function groupByOverlap(items: { num: number; files: string[] }[]): number[][] {
 // Workflow entry
 // ───────────────────────────────────────────────────────────────────────────
 
-const inputIssues = dedupeAndValidateIssues((args as { issues?: unknown[] })?.issues ?? []);
-const dryRun = !!(args as { dryRun?: boolean })?.dryRun;
+const inputIssues = dedupeAndValidateIssues((args && args.issues) || []);
+const dryRun = !!(args && args.dryRun);
 
 phase("Fetch");
 
 // ── Step 1: Fetch ─────────────────────────────────────────────────────────
-let candidates: number[];
+let candidates;
 if (inputIssues.length === 0) {
   log("No explicit issue list — fetching all open `bug`-labelled issues.");
   const res = await sh(
@@ -123,7 +123,7 @@ if (inputIssues.length === 0) {
 log(`Candidates: ${candidates.length} (${candidates.join(", ")})`);
 
 // ── Step 2: Dedup ─────────────────────────────────────────────────────────
-const deduped: number[] = [];
+const deduped = [];
 for (const num of candidates) {
   const state = await sh(`gh issue view ${num} --json state --jq '.state'`, `dedup:state-${num}`);
   if (state.stdout.trim() === "CLOSED") {
@@ -197,10 +197,10 @@ if (dryRun) {
 phase("Fix");
 
 // Sequential within group, parallel across groups.
-const allFixed: { num: number; result: unknown }[] = [];
+const allFixed = [];
 const groupResults = await parallel(
   groups.map((group) => async () => {
-    const out: { num: number; result: unknown }[] = [];
+    const out = [];
     for (const num of group) {
       const result = await agent(
         `You are the autocue-fixer agent. Read .claude/agents/autocue-fixer.md and run the full Phase 0 → 4 flow for GitHub issue #${num}. dry_run=false.`,
@@ -223,7 +223,7 @@ for (const g of groupResults) {
 // ── Step 5: Merge planning ────────────────────────────────────────────────
 phase("MergePlan");
 
-const prFiles = new Map<number, string[]>();
+const prFiles = new Map();
 for (const { num } of allFixed) {
   const prNum = await sh(
     `gh pr list --state open --head "fix/${num}" --json number --jq '.[0].number // empty' || gh pr list --state open --head "fix/${num}-" --json number --jq '.[0].number // empty'`,
@@ -244,8 +244,8 @@ for (const { num } of allFixed) {
 const prNums = [...prFiles.keys()];
 for (let i = 0; i < prNums.length; i++) {
   for (let j = i + 1; j < prNums.length; j++) {
-    const a = prFiles.get(prNums[i])!;
-    const b = prFiles.get(prNums[j])!;
+    const a = prFiles.get(prNums[i]);
+    const b = prFiles.get(prNums[j]);
     const overlap = a.filter((f) => b.includes(f));
     if (overlap.length) {
       const msg = `PR #${prNums[i]} and PR #${prNums[j]} both touch: ${overlap.join(", ")}. Merge whichever is smaller first, then \`/autocue-fixer <other>\` to re-run Phase 2 on top of fresh main.`;
