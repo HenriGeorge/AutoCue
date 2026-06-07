@@ -165,14 +165,14 @@
     "title": "Re-evaluate /api/tracks SQL pattern at 10k tracks",
     "category": "api-endpoint",
     "specFilePath": ".agent/tasks/performance/TASK-024.json",
-    "passes": false
+    "passes": true
   },
   {
     "id": "TASK-025",
     "title": "Optional NDJSON streaming response for /api/tracks",
     "category": "api-endpoint",
     "specFilePath": ".agent/tasks/performance/TASK-025.json",
-    "passes": false
+    "passes": true
   },
   {
     "id": "TASK-026",
