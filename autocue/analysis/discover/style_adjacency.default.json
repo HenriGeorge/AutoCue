@@ -1,0 +1,162 @@
+{
+  "schema_version": 1,
+  "styles": {
+    "deep_house": {
+      "edges": ["lo_fi_house", "soulful_house", "boogie", "tech_house", "minimal_house"],
+      "terminal": false
+    },
+    "tech_house": {
+      "edges": ["techno", "deep_house", "minimal_house", "microhouse"],
+      "terminal": false
+    },
+    "techno": {
+      "edges": ["tech_house", "minimal_techno", "dub_techno", "acid_techno", "electro"],
+      "terminal": false
+    },
+    "minimal_techno": {
+      "edges": ["techno", "microhouse", "dub_techno", "idm"],
+      "terminal": false
+    },
+    "dub_techno": {
+      "edges": ["techno", "minimal_techno", "ambient", "dub_uk"],
+      "terminal": false
+    },
+    "acid_techno": {
+      "edges": ["techno", "acid_house", "electro", "hardcore"],
+      "terminal": false
+    },
+    "house_chicago": {
+      "edges": ["acid_house", "garage_us", "soulful_house", "deep_house"],
+      "terminal": false
+    },
+    "garage_uk": {
+      "edges": ["garage_us", "dubstep", "future_garage", "grime", "bassline"],
+      "terminal": false
+    },
+    "dubstep": {
+      "edges": ["garage_uk", "grime", "drum_and_bass", "future_garage", "dub_uk"],
+      "terminal": false
+    },
+    "drum_and_bass": {
+      "edges": ["jungle", "footwork", "breakbeat", "neurofunk", "liquid_dnb", "dubstep"],
+      "terminal": false
+    },
+    "jungle": {
+      "edges": ["drum_and_bass", "breakbeat", "hardcore", "ragga_jungle"],
+      "terminal": false
+    },
+    "footwork": {
+      "edges": ["juke", "drum_and_bass", "jungle", "breakbeat"],
+      "terminal": false
+    },
+    "breakbeat": {
+      "edges": ["drum_and_bass", "jungle", "big_beat", "footwork"],
+      "terminal": false
+    },
+    "hip_hop": {
+      "edges": ["trap_hh", "boom_bap", "dirty_south", "abstract_hh"],
+      "terminal": false
+    },
+    "boom_bap": {
+      "edges": ["hip_hop", "abstract_hh", "soul"],
+      "terminal": false
+    },
+    "dancehall": {
+      "edges": ["reggae", "dub_jamaican", "ragga_jungle", "afrobeats_modern"],
+      "terminal": false
+    },
+    "reggae": {
+      "edges": ["dancehall", "dub_jamaican", "dub_uk"],
+      "terminal": false
+    },
+    "afrobeat": {
+      "edges": ["afrobeats_modern", "highlife", "ethio_jazz"],
+      "terminal": false
+    },
+    "afrobeats_modern": {
+      "edges": ["afrobeat", "amapiano", "dancehall"],
+      "terminal": false
+    },
+    "ambient": {
+      "edges": ["drone", "idm", "dub_techno", "leftfield", "modular"],
+      "terminal": false
+    },
+    "idm": {
+      "edges": ["techno", "ambient", "electronica", "glitch", "modular"],
+      "terminal": false
+    },
+    "leftfield": {
+      "edges": ["ambient", "idm", "electronica", "krautrock", "post_punk"],
+      "terminal": false
+    },
+    "electro": {
+      "edges": ["techno", "electro_funk", "acid_techno", "freestyle"],
+      "terminal": false
+    },
+    "jazz_modern": {
+      "edges": ["spiritual_jazz", "free_jazz", "soul", "broken_beat"],
+      "terminal": false
+    },
+    "soul": {
+      "edges": ["funk", "jazz_modern", "soulful_house", "boom_bap"],
+      "terminal": false
+    },
+    "funk": {
+      "edges": ["disco", "soul", "boogie"],
+      "terminal": false
+    },
+    "disco": {
+      "edges": ["boogie", "funk", "italo_disco", "house_chicago"],
+      "terminal": false
+    },
+    "boogie": {
+      "edges": ["disco", "funk", "deep_house", "soulful_house"],
+      "terminal": false
+    },
+    "spiritual_jazz": {
+      "edges": ["jazz_modern", "free_jazz", "soul"],
+      "terminal": false
+    },
+    "dub_jamaican": {
+      "edges": ["reggae", "dancehall", "dub_techno"],
+      "terminal": false
+    },
+
+    "lo_fi_house": {"edges": ["deep_house"], "terminal": true},
+    "soulful_house": {"edges": ["deep_house", "house_chicago"], "terminal": true},
+    "minimal_house": {"edges": ["deep_house", "tech_house"], "terminal": true},
+    "microhouse": {"edges": ["tech_house", "minimal_techno"], "terminal": true},
+    "acid_house": {"edges": ["house_chicago", "acid_techno"], "terminal": true},
+    "garage_us": {"edges": ["house_chicago", "garage_uk"], "terminal": true},
+    "future_garage": {"edges": ["garage_uk", "dubstep"], "terminal": true},
+    "bassline": {"edges": ["garage_uk", "grime"], "terminal": true},
+    "grime": {"edges": ["garage_uk", "dubstep"], "terminal": true},
+    "drill_uk": {"edges": ["grime"], "terminal": true},
+    "drill_us": {"edges": ["trap_hh"], "terminal": true},
+    "ragga_jungle": {"edges": ["jungle", "dancehall"], "terminal": true},
+    "neurofunk": {"edges": ["drum_and_bass"], "terminal": true},
+    "liquid_dnb": {"edges": ["drum_and_bass", "soul"], "terminal": true},
+    "juke": {"edges": ["footwork", "ghetto_house"], "terminal": true},
+    "ghetto_house": {"edges": ["juke"], "terminal": true},
+    "broken_beat": {"edges": ["liquid_dnb", "jazz_modern"], "terminal": true},
+    "abstract_hh": {"edges": ["hip_hop", "boom_bap"], "terminal": true},
+    "trap_hh": {"edges": ["hip_hop", "dirty_south"], "terminal": true},
+    "dirty_south": {"edges": ["hip_hop", "trap_hh"], "terminal": true},
+    "amapiano": {"edges": ["afrobeats_modern"], "terminal": true},
+    "highlife": {"edges": ["afrobeat"], "terminal": true},
+    "ethio_jazz": {"edges": ["afrobeat", "spiritual_jazz"], "terminal": true},
+    "big_beat": {"edges": ["breakbeat"], "terminal": true},
+    "dub_uk": {"edges": ["dubstep", "reggae"], "terminal": true},
+    "drone": {"edges": ["ambient"], "terminal": true},
+    "electronica": {"edges": ["idm", "leftfield"], "terminal": true},
+    "glitch": {"edges": ["idm"], "terminal": true},
+    "modular": {"edges": ["ambient", "idm"], "terminal": true},
+    "krautrock": {"edges": ["leftfield", "post_punk"], "terminal": true},
+    "post_punk": {"edges": ["leftfield", "krautrock"], "terminal": true},
+    "electro_funk": {"edges": ["electro", "funk"], "terminal": true},
+    "freestyle": {"edges": ["electro"], "terminal": true},
+    "italo_disco": {"edges": ["disco"], "terminal": true},
+    "free_jazz": {"edges": ["jazz_modern", "spiritual_jazz"], "terminal": true},
+    "hardcore": {"edges": ["acid_techno", "jungle"], "terminal": true}
+  }
+}

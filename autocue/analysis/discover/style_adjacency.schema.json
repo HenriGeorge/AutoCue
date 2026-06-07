@@ -1,0 +1,39 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Discover Style Adjacency Graph",
+  "type": "object",
+  "required": ["schema_version", "styles"],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Version of this schema. Bumped when style entry shape changes; loader runs upgrade_v{N}_to_v{N+1}() chain to migrate user customizations."
+    },
+    "styles": {
+      "type": "object",
+      "minProperties": 1,
+      "description": "Map of canonical style key (snake_case ASCII) → style entry.",
+      "patternProperties": {
+        "^[a-z0-9_]+$": {
+          "type": "object",
+          "required": ["edges", "terminal"],
+          "additionalProperties": false,
+          "properties": {
+            "edges": {
+              "type": "array",
+              "items": {"type": "string", "pattern": "^[a-z0-9_]+$"},
+              "uniqueItems": true,
+              "description": "Adjacent style keys (must reference keys present in the same styles map; loader rejects dangling edges)."
+            },
+            "terminal": {
+              "type": "boolean",
+              "description": "True when this style has 0-2 edges and is considered a leaf for novelty purposes. Loader uses this to detect sparse-adjacency scenarios."
+            }
+          }
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}
