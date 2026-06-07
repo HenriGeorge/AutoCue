@@ -220,10 +220,23 @@ def run_scan(
                 if not title and not artist:
                     continue
                 key = normalize_release_key(artist, title, release_id)
-                lib_key = f"{artist.lower()}|||{title.lower()}"
+                # library_album_set() (autocue.analysis.discovery) returns the
+                # set of LOWERCASED + WHITESPACE-COLLAPSED album names — no
+                # artist prefix, no `|||` separator. The old f"{artist}|||{title}"
+                # key never matched ANY library entry, so every owned album
+                # showed up in Discover. Match on the album token instead:
+                # Discogs releases carry both `album` (already split from the
+                # "Artist - Album" title) and `title` (the full string), so
+                # prefer album when set and fall back to title with the leading
+                # "Artist - " stripped.
+                album = (release.get("album") or "").strip().lower()
+                if not album:
+                    # title looks like "Artist - Album"; strip the prefix once.
+                    album = title.lower().split(" - ", 1)[-1].strip()
+                lib_key = " ".join(album.split())
                 if key in seen_keys:
                     continue
-                if lib_key in library_album_set:
+                if lib_key and lib_key in library_album_set:
                     seen_keys.add(key)
                     continue
                 if store.is_saved(key) or store.is_downloaded(key):
@@ -259,31 +272,54 @@ def run_scan(
         final_status = "rate_limited"
         yield ("error", {"feeder": "scan", "key": None,
                          "exc": f"rate-limited (retry after {exc.retry_after}s)"})
+    except Exception as exc:  # noqa: BLE001 — concurrent-scan lock leak is worse than swallowing
+        # Any unexpected crash inside the feeder loop (e.g. a TypeError from
+        # an unsanitised Discogs response, a SQL hiccup) used to skip the
+        # finish_scan call below and leave the scan row's finished_at = NULL,
+        # wedging the concurrent-scan lock so every subsequent /feed POST
+        # returned 409 until the server restarted. We now log + surface as
+        # a structured error event, then fall through so the row is closed.
+        logger.exception("scan_orchestrator: feeder loop crashed")
+        final_status = "error"
+        yield ("error", {"feeder": "orchestrator", "key": None, "exc": str(exc)})
 
-    # Stage 2 — assemble final feed with novelty reservation.
-    novelty_pool_hint = 0 if novelty_sparse_status else None
-    result: FeedAssemblyResult = assemble_feed(
-        scored, top_n=config.top_n, novelty_pool_size_hint=novelty_pool_hint,
-    )
+    # Stage 2 — assemble final feed with novelty reservation. Even on a
+    # crash we still attempt this so the partial `scored` list isn't wasted.
+    try:
+        novelty_pool_hint = 0 if novelty_sparse_status else None
+        result: FeedAssemblyResult = assemble_feed(
+            scored, top_n=config.top_n, novelty_pool_size_hint=novelty_pool_hint,
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("scan_orchestrator: assemble_feed crashed; using empty feed")
+        if final_status == "ok":
+            final_status = "error"
+        from types import SimpleNamespace
+        result = SimpleNamespace(feed=[], novelty_status="error", novelty_partial=None)
 
     duration_ms = int((time.monotonic() - started) * 1000)
     requests_used = discogs_client.get_last_remaining()
-    # Convert remaining to "used" estimate — full bucket size unknown without
-    # a separate header. The orchestrator stores the value as-is; downstream
-    # telemetry queries can derive deltas across scans.
 
-    if final_status == "ok":
-        store.commit_pending_scan(scan_id)
-    store.finish_scan(
-        scan_id,
-        status=final_status,
-        novelty_status=result.novelty_status,
-        duration_ms=duration_ms,
-        requests_used=requests_used,
-        releases_seen=releases_seen,
-        releases_after_dedup=releases_after_dedup,
-        releases_surfaced=len(result.feed),
-    )
+    # finish_scan MUST run on every code path or the scan row stays open and
+    # the concurrent-scan lock leaks. Wrap commit in try/finally so even a
+    # commit_pending_scan crash still releases the lock.
+    try:
+        if final_status == "ok":
+            store.commit_pending_scan(scan_id)
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("scan_orchestrator: commit_pending_scan crashed")
+        final_status = "error"
+    finally:
+        store.finish_scan(
+            scan_id,
+            status=final_status,
+            novelty_status=result.novelty_status,
+            duration_ms=duration_ms,
+            requests_used=requests_used,
+            releases_seen=releases_seen,
+            releases_after_dedup=releases_after_dedup,
+            releases_surfaced=len(result.feed),
+        )
 
     yield ("done", {
         "scan_id": scan_id,
