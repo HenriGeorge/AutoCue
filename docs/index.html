@@ -2975,8 +2975,10 @@ autocue --library --mode bar --bars-interval 8 --start-bar 1</pre>
           <input id="disc-v2-label-search" type="text" placeholder="Search Discogs to add a label…"
                  style="flex:1;font-size:12px;padding:6px 8px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--text);">
           <button id="disc-v2-label-search-btn" class="secondary-btn" style="font-size:12px;">Search</button>
+          <button id="disc-v2-label-suggest-btn" class="secondary-btn" style="font-size:12px;" title="Suggest labels from your Rekordbox library">Suggest</button>
         </div>
         <div id="disc-v2-label-search-results" style="margin-top:6px;font-size:12px;"></div>
+        <div id="disc-v2-label-suggest-results" style="margin-top:6px;font-size:12px;"></div>
       </div>
       <div id="disc-v2-settings-blocked" style="margin-bottom:18px;">
         <strong style="font-size:12px;">Blocked artists / labels</strong>
@@ -4787,21 +4789,46 @@ function _renderDiscoverV2TokenBanner() {
   }
 }
 
+// Best-effort relative-time formatter for the followed-labels freshness column.
+// Returns 'never' when no scan has happened yet so the empty state reads honestly.
+function _relativeTime(iso, nowMs) {
+  if (!iso) return 'never';
+  const then = Date.parse(iso);
+  if (!Number.isFinite(then)) return 'never';
+  const now = nowMs || Date.now();
+  const diffSec = Math.max(0, Math.floor((now - then) / 1000));
+  if (diffSec < 60) return 'just now';
+  const m = Math.floor(diffSec / 60);
+  if (m < 60) return `${m}m ago`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h}h ago`;
+  const d = Math.floor(h / 24);
+  if (d < 30) return `${d}d ago`;
+  const months = Math.floor(d / 30);
+  if (months < 12) return `${months}mo ago`;
+  const years = Math.floor(d / 365);
+  return `${years}y ago`;
+}
+
 function _renderDiscoverV2Followed() {
   const list = document.getElementById('disc-v2-followed-list');
   if (!list) return;
-  if (!DiscoverV2.state.followedLabels.length) {
-    list.innerHTML = '<em style="color:var(--muted);">No labels followed yet.</em>';
+  const labels = DiscoverV2.state.followedLabels || [];
+  if (!labels.length) {
+    list.innerHTML = '<em style="color:var(--muted);">No labels followed yet. Click <strong>Suggest</strong> to seed from your library, or search for one above.</em>';
     return;
   }
   list.innerHTML = '';
-  DiscoverV2.state.followedLabels.forEach(label => {
+  labels.forEach(label => {
     const row = document.createElement('div');
     row.style.display = 'flex';
     row.style.justifyContent = 'space-between';
     row.style.alignItems = 'center';
     row.style.padding = '4px 0';
-    row.innerHTML = `<span>${_esc(label.name)}</span>`;
+    const freshness = _relativeTime(label.last_scanned_at);
+    row.innerHTML =
+      `<span><strong>${_esc(label.name)}</strong>` +
+      `<span style="color:var(--muted);margin-left:6px;font-size:11px;">last scanned ${_esc(freshness)}</span></span>`;
     const unfollow = document.createElement('button');
     unfollow.className = 'secondary-btn';
     unfollow.style.fontSize = '11px';
@@ -4809,6 +4836,52 @@ function _renderDiscoverV2Followed() {
     unfollow.addEventListener('click', () => DiscoverV2.unfollowLabel(label.label_id));
     row.appendChild(unfollow);
     list.appendChild(row);
+  });
+}
+
+// Render the "Suggested from your library" inline list. Each row has a
+// Follow button that disables itself on success — so the user can fan-add
+// without having to re-render the whole list between clicks.
+function _renderSuggestedLabels(suggestions) {
+  const results = document.getElementById('disc-v2-label-suggest-results');
+  if (!results) return;
+  if (!suggestions || !suggestions.length) {
+    results.innerHTML = '<em style="color:var(--muted);">No suggestions — your library has no Discogs label metadata yet.</em>';
+    return;
+  }
+  results.innerHTML = '';
+  const followed = new Set((DiscoverV2.state.followedLabels || []).map(l => l.label_id));
+  suggestions.forEach(s => {
+    const row = document.createElement('div');
+    row.style.display = 'flex';
+    row.style.justifyContent = 'space-between';
+    row.style.alignItems = 'center';
+    row.style.padding = '4px 0';
+    const trackInfo = s.track_count != null ? ` <span style="color:var(--muted);font-size:11px;">(${s.track_count} tracks)</span>` : '';
+    row.innerHTML = `<span>${_esc(s.name)}${trackInfo}</span>`;
+    const btn = document.createElement('button');
+    btn.className = 'secondary-btn';
+    btn.style.fontSize = '11px';
+    btn.setAttribute('data-suggest-label-id', String(s.id));
+    if (followed.has(s.id)) {
+      btn.disabled = true;
+      btn.textContent = '✓ Following';
+    } else {
+      btn.textContent = 'Follow';
+      btn.addEventListener('click', async () => {
+        btn.disabled = true;
+        btn.textContent = '…';
+        try {
+          await DiscoverV2.followLabel(s.id, s.name);
+          btn.textContent = '✓ Following';
+        } catch (e) {
+          btn.disabled = false;
+          btn.textContent = 'Follow';
+        }
+      });
+    }
+    row.appendChild(btn);
+    results.appendChild(row);
   });
 }
 
@@ -5456,6 +5529,19 @@ function initDiscoverV2() {
   });
 
   // Label search.
+  // Suggest from library — calls /api/discover/labels/suggested.
+  document.getElementById('disc-v2-label-suggest-btn')?.addEventListener('click', async () => {
+    const results = document.getElementById('disc-v2-label-suggest-results');
+    if (!results) return;
+    results.innerHTML = '<em style="color:var(--muted);">Suggesting…</em>';
+    try {
+      const items = await DiscoverV2.fetchSuggestedLabels(10);
+      _renderSuggestedLabels(items);
+    } catch (e) {
+      results.innerHTML = '<em style="color:var(--muted);">Suggest failed.</em>';
+    }
+  });
+
   document.getElementById('disc-v2-label-search-btn')?.addEventListener('click', async () => {
     const q = document.getElementById('disc-v2-label-search')?.value || '';
     const results = document.getElementById('disc-v2-label-search-results');
