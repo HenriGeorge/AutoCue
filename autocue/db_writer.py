@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import shutil
+import sys
 from datetime import datetime
 from pathlib import Path
 
@@ -25,13 +26,82 @@ def backup_database(db_path: Path) -> Path:
     return dest
 
 
-def rekordbox_is_running() -> bool:
-    """Return True if a Rekordbox process is running."""
+def _process_name_check() -> bool:
+    """Process-name probe — fast but defeatable by renamed Rekordbox builds."""
     try:
         import psutil
         return any("rekordbox" in p.name().lower() for p in psutil.process_iter(["name"]))
     except ImportError:
         return False
+    except Exception:
+        # psutil itself raised — treat as unknown (fail open)
+        return False
+
+
+def _db_file_is_locked(db_path: Path | str) -> bool:
+    """Try to acquire an exclusive non-blocking lock on master.db.
+
+    Returns True when another process is holding the file open with an
+    exclusive lock — strong evidence that Rekordbox (or a Rekordbox-like
+    application) currently owns the DB even if its process name is unusual.
+
+    Returns False when the lock attempt succeeds (which means nobody else
+    is holding it). The lock is released immediately.
+
+    Cross-platform: uses ``fcntl`` on Unix-likes and ``msvcrt`` on Windows.
+    Any error opening the file (missing, permission denied) returns False
+    so the legacy process-name check remains the safety net.
+    """
+    p = Path(db_path)
+    if not p.exists():
+        return False
+    try:
+        if sys.platform == "win32":
+            import msvcrt  # type: ignore[import-not-found]
+            with open(p, "r+b") as fh:
+                try:
+                    msvcrt.locking(fh.fileno(), msvcrt.LK_NBLCK, 1)  # type: ignore[attr-defined]
+                except OSError:
+                    return True
+                else:
+                    msvcrt.locking(fh.fileno(), msvcrt.LK_UNLCK, 1)  # type: ignore[attr-defined]
+                    return False
+        else:
+            import fcntl
+            with open(p, "r+b") as fh:
+                try:
+                    fcntl.flock(fh.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                except (OSError, BlockingIOError):
+                    return True
+                else:
+                    fcntl.flock(fh.fileno(), fcntl.LOCK_UN)
+                    return False
+    except Exception:
+        # Permission denied / unknown OS / etc. — leave the verdict to the
+        # process-name check rather than blocking writes on a spurious error.
+        return False
+
+
+def rekordbox_is_running(db_path: Path | str | None = None) -> bool:
+    """Return True if Rekordbox appears to be running.
+
+    Two signals are combined:
+
+    1. A ``psutil`` process-name probe (fast, but a renamed Rekordbox
+       build can slip through).
+    2. An exclusive file-lock attempt on ``master.db`` when ``db_path`` is
+       supplied (catches renamed builds and races where the process started
+       after the name check fired).
+
+    ``db_path`` is optional for backwards compatibility — callers that
+    can provide it (e.g. SSE write endpoints with ``app.state.db`` in
+    scope) should pass it to enable the lock check.
+    """
+    if _process_name_check():
+        return True
+    if db_path is not None and _db_file_is_locked(db_path):
+        return True
+    return False
 
 
 def has_existing_hot_cues(content, db) -> int:

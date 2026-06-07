@@ -157,7 +157,8 @@ POST /api/playlists (create)              POST /api/auto-tag
 POST /api/auto-tag/undo                   GET  /api/config
 POST /api/auto-tag/discogs/test           POST /api/auto-tag/discogs (SSE)
 POST /api/enrich-comments                 POST /api/enrich-comments/preview
-POST /api/enrich-comments/stream (SSE)    GET  /api/discover (SSE)
+POST /api/enrich-comments/stream (SSE)    POST /api/enrich-comments/undo
+GET  /api/discover (SSE)
 GET  /api/download/config                 POST /api/download (SSE)
 POST /api/download/album (SSE)
 ```
@@ -180,7 +181,7 @@ autocue --library --playlist "NAME"  # restrict --library to a named playlist
 
 ## Key constraints
 
-- **Rekordbox must be closed** before running the CLI or clicking Apply in local mode (DB is SQLCipher-locked while open). `db_writer.rekordbox_is_running()` enforces this via psutil.
+- **Rekordbox must be closed** before running the CLI or clicking Apply in local mode (DB is SQLCipher-locked while open). `db_writer.rekordbox_is_running(db_path=None)` enforces this via two signals: a `psutil` process-name probe (fast) **plus** an `fcntl`/`msvcrt` exclusive-lock attempt on `master.db` when `db_path` is supplied. The lock check catches renamed Rekordbox builds that slip past the process name and the race window where Rekordbox starts after the process probe fired. `serve/routes.py:_rb_running(db)` wraps the call and forwards `db._db_dir / "master.db"` to enable the lock probe at every write endpoint.
 - **pyrekordbox API**: use `Rekordbox6Database` from `pyrekordbox.db6`. The `add_track()` method takes the file path as a positional argument, not a keyword argument.
 - **ANLZ parsing**: wrap `db.read_anlz_file()` and `get_tag()` calls in `try/except Exception` — pyrekordbox raises `ConstError` / `IndexError` for unsupported ANLZ format versions and missing tags. Affected tracks are silently skipped.
 - **Slot numbering**: `CuePoint.slot` is 0-indexed (0 = A … 7 = H), matching the Rekordbox XML `Num` attribute directly. In `DjmdCue`, the slot is encoded as `Kind = slot + 1` (Kind=0 is a memory cue). No `Num` column exists in the DB table.
@@ -192,7 +193,7 @@ autocue --library --playlist "NAME"  # restrict --library to a named playlist
 - **Memory cue (slot = -1)**: `CuePoint.slot = -1` → `Kind = 0` in DjmdCue (CDJ Auto Cue position). Memory cues do not consume hot cue slots. The `add_memory_cue` pref in `GenerationPrefs` prepends one before the hot cues; in phrase mode it anchors to the first phrase, otherwise to `max(0, inizio_ms)`.
 - **DjmdContent.ColorID**: VARCHAR(255) FK to `djmdColor.ID` — NOT an integer. Always query `DjmdColor` at runtime and resolve `{SortKey: ID}` mapping. SortKey 1–8 corresponds to Pink/Red/Orange/Yellow/Green/Aqua/Blue/Purple.
 - **DjmdContent.Commnt**: The track comment column is spelled `Commnt` (not `Comment`). Use `getattr(content, "Commnt", "")`. Genre is an association proxy: `content.GenreName` (not `content.Genre` which is the ORM relationship object). `DjmdCue.Comment` is correctly spelled — only `DjmdContent` uses the abbreviated name.
-- **Comment enrichment format**: `enrich_comment()` in `analysis/comment.py` writes `"8A - Energy 7 | Peak | 4 bar intro"` (MIK-compatible prefix). Appends `/* AutoCue: ... */` sentinel to existing comments; sentinel block is replaced on re-run (idempotent). `enrich_comments_batch()` makes a DB backup before writing.
+- **Comment enrichment format**: `enrich_comment()` in `analysis/comment.py` writes `"8A - Energy 7 | Peak | 4 bar intro"` (MIK-compatible prefix). Appends `/* AutoCue: ... */` sentinel to existing comments; sentinel block is replaced on re-run (idempotent). `enrich_comments_batch()` makes a DB backup before writing and now returns `undo_data = {"modified": [{content_id, previous}, ...]}` — pass it to `restore_comments(db, undo_data)` (or `POST /api/enrich-comments/undo`) to reverse a run without a full DB restore. Final string is capped at `MAX_COMMENT_LEN = 256` chars (CDJ UI render limit); AutoCue drops its own parts in order `intro → category → energy` to fit. User-authored text is never trimmed — when the user's existing comment alone is over the cap, the track is skipped instead of corrupting it.
 - **DjmdKey.Seq**: use `Seq` (Integer) for server-side key sort, not `ScaleName` (lexicographic "10A" < "1A" is wrong). Client-side uses `camelotSortKey()` which converts "8A" → numeric order.
 - **Fetch error handling in JS**: always check `r.ok` before reading typed properties from `r.json()`. A 409 response returns `{detail: "..."}` — reading `resp.applied` or `resp.colored` on an error body yields `undefined` and produces misleading toast messages.
 - **DjmdCue ID generation**: `DjmdCue.ID` is VARCHAR(255) with no auto-generate default — must call `db.generate_unused_id(DjmdCue)` explicitly when inserting. Also set `UUID=str(uuid4())`, `ContentUUID` from the content row, `InFrame=round(position_ms * 150 / 1000)`, `OutMsec=-1`, and 0 for all other integer fields.

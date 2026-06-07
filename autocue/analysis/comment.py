@@ -19,6 +19,7 @@ from .energy import get_energy_curve
 logger = logging.getLogger(__name__)
 
 _SENTINEL = "/* AutoCue:"
+_SENTINEL_END = "*/"
 _CATEGORY_LABELS = {
     "warmup":     "Warm Up",
     "build":      "Build",
@@ -26,6 +27,15 @@ _CATEGORY_LABELS = {
     "after_hours": "After Hours",
     "closing":    "Closing",
 }
+
+# Rekordbox CDJ comment field renders cleanly up to ~256 characters. Beyond
+# that, the on-screen text gets truncated mid-word. Postgres/MySQL replicas
+# of master.db can have stricter caps. The store itself is SQL Text (no
+# fixed cap), so this is a soft UX guard rather than a database constraint.
+# When the final string exceeds this, AutoCue progressively drops the less
+# essential parts of its own contribution (intro_info → category → energy)
+# so the user-authored text is never trimmed.
+MAX_COMMENT_LEN = 256
 
 
 def _camelot_key(content) -> str:
@@ -79,12 +89,11 @@ def _intro_bars(content, db) -> int | None:
         return None
 
 
-def build_comment_string(content, db) -> str:
-    """
-    Build the enrichment comment string for a track.
+def _build_parts(content, db) -> list[str]:
+    """Return the enrichment parts in display order (key+energy, category, intro).
 
-    Returns a string like '8A - Energy 7 | Peak | 4 bar intro', omitting
-    components for which no data is available.
+    Returned in priority order: index 0 is essential (key+energy), trailing
+    parts can be dropped first when truncating to fit MAX_COMMENT_LEN.
     """
     cls = get_classification(content, db)
     key = _camelot_key(content)
@@ -95,7 +104,7 @@ def build_comment_string(content, db) -> str:
 
     parts: list[str] = []
 
-    # Key + energy block (MIK-compatible prefix)
+    # Key + energy block (MIK-compatible prefix) — most essential
     if key and level is not None:
         parts.append(f"{key} - Energy {level}")
     elif key:
@@ -110,38 +119,92 @@ def build_comment_string(content, db) -> str:
     if intro:
         parts.append(f"{intro} bar intro")
 
-    return " | ".join(parts)
+    return parts
+
+
+def build_comment_string(content, db) -> str:
+    """Build the enrichment comment string for a track.
+
+    Returns a string like '8A - Energy 7 | Peak | 4 bar intro', omitting
+    components for which no data is available.
+    """
+    return " | ".join(_build_parts(content, db))
+
+
+def _fit_within(user_text: str, parts: list[str], overwrite: bool, max_len: int) -> str | None:
+    """Build the final comment string within ``max_len``, preserving user text.
+
+    Drops AutoCue parts from the end (intro → category) until the result
+    fits. Returns None when even the minimal sentinel can't fit (user text
+    alone is already over the cap and overwrite is False).
+    """
+    if overwrite or not user_text:
+        # Pure AutoCue write — truncate AutoCue parts to fit.
+        for cutoff in range(len(parts), 0, -1):
+            candidate = " | ".join(parts[:cutoff])
+            if len(candidate) <= max_len:
+                if cutoff < len(parts):
+                    logger.warning(
+                        "comment enrichment: truncated to %d/%d parts to fit %d chars",
+                        cutoff, len(parts), max_len,
+                    )
+                return candidate
+        # Last resort: a hard slice of the most essential part
+        return parts[0][:max_len] if parts else None
+
+    # Append mode — never trim user_text. Drop AutoCue parts as needed.
+    overhead = len(user_text) + 1 + len(_SENTINEL) + 1 + 1 + len(_SENTINEL_END)
+    budget = max_len - overhead
+    if budget <= 0:
+        logger.warning(
+            "comment enrichment: user text length %d already over cap %d — skipping enrichment",
+            len(user_text), max_len,
+        )
+        return None
+    for cutoff in range(len(parts), 0, -1):
+        body = " | ".join(parts[:cutoff])
+        if len(body) <= budget:
+            if cutoff < len(parts):
+                logger.warning(
+                    "comment enrichment: truncated to %d/%d parts to fit %d chars (user text uses %d)",
+                    cutoff, len(parts), max_len, len(user_text),
+                )
+            return f"{user_text} {_SENTINEL} {body} {_SENTINEL_END}"
+    return None
 
 
 def enrich_comment(content, db, *, overwrite: bool = False, dry_run: bool = False) -> str | None:
-    """
-    Write enrichment data to DjmdContent.Comment.
+    """Write enrichment data to DjmdContent.Comment.
 
     - If comment is empty: writes the full string directly.
     - If comment already contains our sentinel: replaces only the sentinel block.
     - Otherwise: appends '/* AutoCue: ... */' to the existing comment.
     - overwrite=True: always replaces the entire comment field.
 
+    The result is constrained to MAX_COMMENT_LEN characters so the CDJ UI
+    can render it cleanly. AutoCue parts (intro → category) drop in that
+    order to fit; user-authored text is never trimmed.
+
     Returns the new comment string, or None if nothing changed.
     Does NOT commit — caller must commit the session.
     """
     existing = str(getattr(content, "Commnt", "") or "").strip()
-    enrichment = build_comment_string(content, db)
+    parts = _build_parts(content, db)
 
-    if not enrichment:
+    if not parts:
         return None
 
-    if overwrite or not existing:
-        new_comment = enrichment
-    elif _SENTINEL in existing:
-        # Replace the existing AutoCue sentinel block
-        sentinel_start = existing.index(_SENTINEL)
-        base = existing[:sentinel_start].rstrip()
-        new_comment = f"{base} {_SENTINEL} {enrichment} */" if base else f"{_SENTINEL} {enrichment} */"
+    # When the existing comment already carries our sentinel, treat the
+    # text BEFORE the sentinel as the user-authored portion to preserve.
+    if not overwrite and _SENTINEL in existing:
+        user_text = existing[:existing.index(_SENTINEL)].rstrip()
+    elif overwrite:
+        user_text = ""
     else:
-        new_comment = f"{existing} {_SENTINEL} {enrichment} */"
+        user_text = existing
 
-    if new_comment == existing:
+    new_comment = _fit_within(user_text, parts, overwrite, MAX_COMMENT_LEN)
+    if new_comment is None or new_comment == existing:
         return None
 
     if not dry_run:
@@ -157,16 +220,19 @@ def enrich_comments_batch(
     overwrite: bool = False,
     dry_run: bool = False,
 ) -> dict:
-    """
-    Enrich comments for multiple tracks.
+    """Enrich comments for multiple tracks.
 
-    Returns {'enriched': int, 'skipped': int, 'errors': int, 'backup_path': str|None}.
-    Makes a backup before writing (unless dry_run).
+    Returns ``{'enriched', 'skipped', 'errors', 'backup_path', 'undo_data'}``.
+    ``undo_data`` is a list of ``{'content_id', 'previous': str}`` rows, one
+    per track AutoCue actually modified — pass it back to ``restore_comments``
+    to roll the change back without touching other DB state. Makes a backup
+    before writing (unless ``dry_run``).
     """
     enriched = 0
     skipped = 0
     errors = 0
     backup_path = None
+    undo_rows: list[dict] = []
 
     if not dry_run and track_ids:
         from pathlib import Path as _Path
@@ -184,11 +250,14 @@ def enrich_comments_batch(
             if content is None:
                 skipped += 1
                 continue
+            previous = str(getattr(content, "Commnt", "") or "")
             result = enrich_comment(content, db, overwrite=overwrite, dry_run=dry_run)
             if result is None:
                 skipped += 1
             else:
                 enriched += 1
+                if not dry_run:
+                    undo_rows.append({"content_id": str(tid), "previous": previous})
         except Exception as e:
             logger.warning("Comment enrichment failed for track %s: %s", tid, e)
             errors += 1
@@ -205,4 +274,51 @@ def enrich_comments_batch(
         "skipped": skipped,
         "errors": errors,
         "backup_path": backup_path,
+        "undo_data": {"modified": undo_rows},
     }
+
+
+def restore_comments(db, undo_data: dict) -> dict:
+    """Reverse a previous ``enrich_comments_batch`` run.
+
+    Writes ``previous`` back onto every modified track's ``DjmdContent.Commnt``.
+    Tracks that were deleted since the original run are silently skipped.
+    Commits the session on success.
+
+    Mirrors ``auto_tag.undo_tag_run`` so the UI can offer symmetric "undo
+    last enrichment" / "undo last tagging" controls without a full DB restore.
+    """
+    if not undo_data:
+        return {"restored": 0, "skipped": 0, "errors": 0}
+    rows = undo_data.get("modified") if isinstance(undo_data, dict) else None
+    if not rows:
+        return {"restored": 0, "skipped": 0, "errors": 0}
+
+    restored = 0
+    skipped = 0
+    errors = 0
+    for row in rows:
+        try:
+            cid = row.get("content_id")
+            previous = row.get("previous", "")
+            if cid is None:
+                skipped += 1
+                continue
+            content = db.get_content(ID=int(cid) if str(cid).isdigit() else cid)
+            if content is None:
+                skipped += 1
+                continue
+            content.Commnt = previous
+            restored += 1
+        except Exception as exc:
+            logger.warning("restore_comments: failed for %r: %s", row, exc)
+            errors += 1
+
+    if restored > 0:
+        try:
+            db.session.commit()
+        except Exception as exc:
+            db.session.rollback()
+            raise RuntimeError(f"restore_comments: commit failed: {exc}") from exc
+
+    return {"restored": restored, "skipped": skipped, "errors": errors}

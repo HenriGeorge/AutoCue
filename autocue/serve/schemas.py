@@ -465,12 +465,32 @@ class EnrichCommentsRequest(BaseModel):
     dry_run: bool = False
 
 
+class EnrichCommentUndoRow(BaseModel):
+    content_id: str
+    previous: str  # previous Commnt value (empty string if it was None)
+
+
+class EnrichCommentsUndoData(BaseModel):
+    modified: list[EnrichCommentUndoRow] = []
+
+
 class EnrichCommentsResponse(BaseModel):
     enriched: int
     skipped: int
     errors: int
     dry_run: bool
     backup_path: str | None = None
+    undo_data: EnrichCommentsUndoData | None = None
+
+
+class EnrichCommentsUndoRequest(BaseModel):
+    undo_data: EnrichCommentsUndoData
+
+
+class EnrichCommentsUndoResponse(BaseModel):
+    restored: int
+    skipped: int
+    errors: int
 
 
 class CommentPreviewRequest(BaseModel):
