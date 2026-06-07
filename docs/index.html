@@ -2985,10 +2985,15 @@ autocue --library --mode bar --bars-interval 8 --start-bar 1</pre>
         <span id="disc-v2-scan-progress-label">Scanning…</span>
         <button id="disc-v2-scan-cancel-btn" class="secondary-btn" style="font-size:11px;margin-left:auto;">Cancel</button>
       </div>
+      <div id="disc-v2-scan-progress-breakdown" style="margin-top:6px;display:flex;gap:10px;flex-wrap:wrap;font-size:11px;"></div>
+      <div id="disc-v2-scan-progress-warning" style="margin-top:6px;font-size:11px;color:var(--amber, #c98a00);display:none;"></div>
       <div class="cue-tools-progress" style="margin-top:6px;">
         <div class="cue-tools-progress-fill" id="disc-v2-scan-progress-fill" style="width:0%"></div>
       </div>
     </div>
+
+    <!-- Post-scan delta strip — appears for a few seconds after a scan finishes -->
+    <div id="disc-v2-scan-delta" style="display:none;font-size:11px;color:var(--muted);background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:6px 10px;margin-bottom:12px;"></div>
 
     <!-- Empty / error states -->
     <div id="disc-v2-empty-state" style="display:none;text-align:center;padding:32px 12px;color:var(--muted);">
@@ -4389,6 +4394,10 @@ const DiscoverV2 = (() => {
     scanRunning: false,
     scanFeeder: null,
     scanReleasesSeen: 0,
+    scanFeedersDone: [],                                  // ordered list of feeders that have completed
+    scanReleasesByFeeder: {artist: 0, label: 0, novelty: 0},
+    scanSparseAdjacency: false,
+    scanLastSummary: null,                                  // {releases_surfaced, requests_used, duration_ms}
     tokenValid: null,           // null = unknown
     settingsOpen: false,
     youtubeByKey: new Map(),    // release_key → {status, candidates, error}
@@ -4459,6 +4468,10 @@ const DiscoverV2 = (() => {
     state.scanRunning = true;
     state.scanFeeder = null;
     state.scanReleasesSeen = 0;
+    state.scanFeedersDone = [];
+    state.scanReleasesByFeeder = {artist: 0, label: 0, novelty: 0};
+    state.scanSparseAdjacency = false;
+    state.scanLastSummary = null;
     state.cards = [];
     state.cardsByKey.clear();
     notify();
@@ -4521,14 +4534,36 @@ const DiscoverV2 = (() => {
     }
     if (!data) return;
     if (event === 'progress') {
+      // Track transitions: when scanFeeder changes, the prior feeder is "done".
+      if (state.scanFeeder && state.scanFeeder !== data.feeder &&
+          !state.scanFeedersDone.includes(state.scanFeeder)) {
+        state.scanFeedersDone.push(state.scanFeeder);
+      }
       state.scanFeeder = data.feeder;
       notify();
     } else if (event === 'release') {
       state.cards.push(data);
       state.cardsByKey.set(data.release_key, data);
       state.scanReleasesSeen++;
+      // Bucket release counts by feeder (release.source is "artist" / "label"
+      // / "novelty:*" — collapse novelty:* to a single bucket).
+      const src = (data.source || '').split(':')[0];
+      if (Object.prototype.hasOwnProperty.call(state.scanReleasesByFeeder, src)) {
+        state.scanReleasesByFeeder[src]++;
+      }
       notify();
-    } else if (event === 'done' || event === 'error') {
+    } else if (event === 'sparse_adjacency') {
+      state.scanSparseAdjacency = true;
+      notify();
+    } else if (event === 'done') {
+      state.scanFeeder = null;
+      state.scanLastSummary = {
+        releases_surfaced: data.releases_surfaced,
+        releases_seen: data.releases_seen,
+        duration_ms: data.duration_ms,
+      };
+      notify();
+    } else if (event === 'error') {
       state.scanFeeder = null;
       notify();
     }
@@ -4820,17 +4855,83 @@ function _renderDiscoverV2Feed() {
   }
 }
 
+// PRD §4: per-feeder hard budgets. Used to compute the overall progress bar
+// (sum of completed-feeder budgets / 60 total). Keep in sync with PRD.
+const _DISC_V2_FEEDER_BUDGETS = {artist: 20, label: 15, novelty: 10};
+
+function _feederProgressPercent(scanFeeder, feedersDone) {
+  // Estimate "scan progress" as the budget consumed by completed feeders +
+  // half of the current feeder's budget. Coarse but correct-direction.
+  let consumed = 0;
+  let total = 0;
+  for (const f of ['artist', 'label', 'novelty']) {
+    const budget = _DISC_V2_FEEDER_BUDGETS[f] || 0;
+    total += budget;
+    if (feedersDone.includes(f)) consumed += budget;
+    else if (scanFeeder === f) consumed += Math.round(budget * 0.5);
+  }
+  return total ? Math.round((consumed / total) * 100) : 0;
+}
+
 function _renderDiscoverV2ScanProgress() {
   const el = document.getElementById('disc-v2-scan-progress');
   const label = document.getElementById('disc-v2-scan-progress-label');
+  const breakdown = document.getElementById('disc-v2-scan-progress-breakdown');
+  const warning = document.getElementById('disc-v2-scan-progress-warning');
+  const fill = document.getElementById('disc-v2-scan-progress-fill');
+  const delta = document.getElementById('disc-v2-scan-delta');
   if (!el || !label) return;
-  if (DiscoverV2.state.scanRunning) {
+  const s = DiscoverV2.state;
+
+  if (s.scanRunning) {
     el.style.display = '';
-    const feeder = DiscoverV2.state.scanFeeder || 'starting';
-    const count = DiscoverV2.state.scanReleasesSeen;
-    label.textContent = `Scanning ${feeder}… ${count} releases found`;
-  } else {
-    el.style.display = 'none';
+    if (delta) delta.style.display = 'none';
+
+    const feeder = s.scanFeeder || 'starting';
+    const count = s.scanReleasesSeen;
+    label.textContent = `Scanning ${feeder}… ${count} releases found so far`;
+
+    if (breakdown) {
+      const parts = ['artist', 'label', 'novelty'].map(f => {
+        const n = s.scanReleasesByFeeder[f] || 0;
+        const budget = _DISC_V2_FEEDER_BUDGETS[f];
+        const status =
+          f === s.scanFeeder ? '🔄' :
+          s.scanFeedersDone.includes(f) ? '✓' :
+          '·';
+        return `<span data-feeder="${f}">${status} ${f} ${n} <span style="color:var(--muted);">(budget ${budget})</span></span>`;
+      });
+      breakdown.innerHTML = parts.join('');
+    }
+
+    if (warning) {
+      if (s.scanSparseAdjacency) {
+        warning.style.display = '';
+        warning.textContent = '⚠ Sparse adjacency — novelty feeder may surface fewer adjacent finds than usual.';
+      } else {
+        warning.style.display = 'none';
+      }
+    }
+
+    if (fill) {
+      fill.style.width = _feederProgressPercent(s.scanFeeder, s.scanFeedersDone) + '%';
+    }
+    return;
+  }
+
+  // Scan not running.
+  el.style.display = 'none';
+
+  // If a scan just completed and we have a summary, surface the delta strip.
+  if (delta && s.scanLastSummary) {
+    const sum = s.scanLastSummary;
+    const seconds = sum.duration_ms != null ? (sum.duration_ms / 1000).toFixed(1) : '?';
+    delta.style.display = '';
+    delta.textContent =
+      `✓ Found ${sum.releases_surfaced} new releases in ${seconds}s ` +
+      `(${sum.releases_seen} scanned, ${sum.releases_seen - sum.releases_surfaced} deduped).`;
+  } else if (delta) {
+    delta.style.display = 'none';
   }
 }
 
