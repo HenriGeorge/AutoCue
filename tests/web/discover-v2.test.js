@@ -76,7 +76,7 @@ function renderCard(release, state) {
     </div>
     <div class="disc-v2-card-actions" data-actions>
       <button class="disc-v2-card-action ${isSaved ? 'saved' : ''}" data-act="save" title="Save">${isSaved ? '✓' : '💚'}</button>
-      <button class="disc-v2-card-action" data-act="snooze" title="Snooze 30 days">💤</button>
+      <button class="disc-v2-card-action" data-act="snooze" title="Snooze (1w / 1m / 3m)">💤</button>
       <button class="disc-v2-card-action" data-act="dismiss" title="Dismiss">✕</button>
     </div>
   `
@@ -211,5 +211,22 @@ describe('renderCard', () => {
     const state = makeState()
     const card = renderCard({release_key: 'k1', source: 'artist', release: {}}, state)
     expect(card.getAttribute('data-release-key')).toBe('k1')
+  })
+
+  // Regression for issue #68 — the snooze button's tooltip must reflect the
+  // durations the backend actually accepts (1w / 1m / 3m). The string
+  // 'Snooze 30 days' is forbidden because '30d' would 400 against the backend.
+  it('snooze button tooltip reflects accepted backend durations', () => {
+    const state = makeState()
+    const card = renderCard({release_key: 'k1', source: 'artist', release: {}}, state)
+    const snoozeBtn = card.querySelector('[data-act="snooze"]')
+    expect(snoozeBtn).not.toBeNull()
+    const title = snoozeBtn.getAttribute('title') || ''
+    // Must NOT contain the stale '30 days' string.
+    expect(title).not.toMatch(/30\s*days?/i)
+    // Must surface every duration the backend allows.
+    expect(title).toMatch(/1w/i)
+    expect(title).toMatch(/1m/i)
+    expect(title).toMatch(/3m/i)
   })
 })
