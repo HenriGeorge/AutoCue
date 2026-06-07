@@ -326,7 +326,8 @@
       background: var(--surface); border: 1px solid var(--border);
       border-radius: 9999px; padding: 4px 12px;
       font-size: 12px; color: var(--muted); font-weight: 500;
-      cursor: pointer; transition: all .15s;
+      cursor: pointer;
+      transition: border-color .15s, color .15s, background .15s;
       font-family: var(--font);
     }
     .sort-btn:hover { border-color: var(--border-hover); color: var(--text); background: var(--surface-card); }
@@ -362,7 +363,10 @@
       padding: 8px 14px; font-size: 13px;
       transition: border-color .15s, background .15s;
     }
-    .filter-row-primary #search-input:focus { outline: none; border-color: var(--border-hover); background: var(--surface-card); }
+    /* Drop the default browser outline only for non-keyboard focus; the
+       global :focus-visible rule still gives keyboard users the green ring. */
+    .filter-row-primary #search-input:focus { border-color: var(--border-hover); background: var(--surface-card); }
+    .filter-row-primary #search-input:focus:not(:focus-visible) { outline: none; }
     .filter-row-actions {
       display: inline-flex; align-items: center; gap: 8px; flex-wrap: wrap;
     }
@@ -415,7 +419,8 @@
     }
     .filter-group select:hover,
     .facet-btn:hover { border-color: var(--border-hover); }
-    .filter-group select:focus { outline: none; border-color: var(--border-hover); }
+    .filter-group select:focus { border-color: var(--border-hover); }
+    .filter-group select:focus:not(:focus-visible) { outline: none; }
     @media (max-width: 720px) {
       .filter-row-primary { gap: 8px; }
       .filter-row-actions { gap: 6px; }
@@ -891,13 +896,18 @@
       position: fixed; left: 0; right: 0; bottom: 0;
       z-index: 350; pointer-events: none;
       padding: 12px 20px calc(12px + env(safe-area-inset-bottom, 0px));
+      /* Resting Y offset — folded into a transform so the slide-in stays on
+         the compositor (no animating `bottom`). 0 by default, -66px when the
+         legacy #download-bar is also visible so the two stack cleanly. */
+      --ab-rest-y: 0px;
       transform: translateY(110%);
-      transition: transform 240ms cubic-bezier(.2,.7,.2,1), bottom 200ms ease;
+      transition: transform 240ms cubic-bezier(.2,.7,.2,1);
     }
-    /* Stack above the existing #download-bar when both are present so neither
-       is hidden. The download-bar is ~58–66px tall depending on content. */
-    body:has(#download-bar.visible) #action-bar { bottom: 66px; }
-    #action-bar.visible { transform: translateY(0); pointer-events: auto; }
+    body:has(#download-bar.visible) #action-bar { --ab-rest-y: -66px; }
+    #action-bar.visible { transform: translateY(var(--ab-rest-y)); pointer-events: auto; }
+    @media (prefers-reduced-motion: reduce) {
+      #action-bar { transition: none; }
+    }
     .action-bar-inner {
       max-width: 1100px; margin: 0 auto;
       display: flex; align-items: center; gap: 16px;
@@ -911,9 +921,10 @@
     }
     .action-bar-left { display: inline-flex; align-items: center; gap: 12px; min-width: 0; }
     .action-bar-count {
-      font-size: 14px; font-weight: 600; color: var(--text);
+      font-size: 14px; font-weight: 500; color: var(--muted);
       font-variant-numeric: tabular-nums; white-space: nowrap;
     }
+    .action-bar-count strong { color: var(--text); font-weight: 700; }
     .action-bar-clear {
       background: none; border: none; padding: 4px 8px;
       font-size: 12px; color: var(--muted); cursor: pointer;
@@ -1852,7 +1863,7 @@
     <div id="filter-bar" style="display:none;">
       <!-- Row 1: Search + phrase toggle + selection actions -->
       <div class="filter-row filter-row-primary">
-        <input id="search-input" type="search" placeholder="Search title or artist…" />
+        <input id="search-input" type="search" placeholder="Search title or artist…" aria-label="Search tracks by title or artist" autocomplete="off" spellcheck="false" />
         <div class="filter-row-actions">
           <label class="phrase-only-pill" title="Show only tracks that have Rekordbox phrase data (ANLZ .EXT file).">
             <input type="checkbox" id="phrase-only-cb" />
@@ -1869,17 +1880,17 @@
       <div class="filter-row filter-row-facets">
         <div class="filter-group" data-group="library">
           <span class="filter-group-label">Library</span>
-          <select id="rating-filter" title="Min rating">
+          <select id="rating-filter" aria-label="Minimum rating" title="Min rating">
             <option value="0">Any rating</option>
             <option value="1">★+</option><option value="2">★★+</option>
             <option value="3">★★★+</option><option value="4">★★★★+</option><option value="5">★★★★★</option>
           </select>
-          <select id="plays-filter">
+          <select id="plays-filter" aria-label="Filter by play count">
             <option value="all">All plays</option>
             <option value="played">Played</option>
             <option value="unplayed">Never played</option>
           </select>
-          <select id="lastplayed-filter">
+          <select id="lastplayed-filter" aria-label="Filter by last played">
             <option value="all">Any time</option>
             <option value="7d">Last 7 days</option>
             <option value="30d">Last 30 days</option>
@@ -1943,7 +1954,7 @@
           <span class="legend-dot" style="background:#e4384e"></span>
           <span class="legend-dot" style="background:#e4849b"></span>
         </span>
-        <span class="legend-summary-label">Color key</span>
+        <span class="legend-summary-label">Color Key</span>
         <span class="legend-summary-chevron" aria-hidden="true">▾</span>
       </summary>
       <div class="legend-grid">
@@ -2663,11 +2674,11 @@ autocue --library --mode bar --bars-interval 8 --start-bar 1</pre>
 <div id="action-bar" aria-hidden="true">
   <div class="action-bar-inner">
     <div class="action-bar-left">
-      <span class="action-bar-count" id="action-bar-count">0 selected</span>
+      <span class="action-bar-count" id="action-bar-count"><strong>0</strong> selected</span>
       <button class="action-bar-clear" id="action-bar-clear" type="button" title="Clear selection">Clear</button>
     </div>
     <div class="action-bar-right">
-      <button class="secondary-btn" id="action-bar-preview" type="button">Preview cues</button>
+      <button class="secondary-btn" id="action-bar-preview" type="button">Preview Cues</button>
       <button class="primary" id="action-bar-apply" type="button">Apply to Rekordbox</button>
     </div>
   </div>
@@ -5416,7 +5427,7 @@ function updateSelectionBar() {
     bar.setAttribute('aria-hidden', visible ? 'false' : 'true');
     document.body.classList.toggle('has-action-bar', visible);
     const c = document.getElementById('action-bar-count');
-    if (c) c.textContent = `${count} selected`;
+    if (c) c.innerHTML = `<strong>${count.toLocaleString()}</strong> selected`;
   }
 }
 
