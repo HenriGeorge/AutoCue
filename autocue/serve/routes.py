@@ -2379,11 +2379,33 @@ from .schemas import (
 def _discogs_token_from_env() -> str:
     """Return the DISCOGS_TOKEN from the environment / .env, or empty string.
 
-    Mirrors the existing AutoCue Discogs-token resolution used by /api/config.
-    Kept inline here so this block can land without touching that code path.
+    Mirrors the resolution used by /api/config. ``autocue serve`` does NOT
+    auto-load .env into the process environment, so reading ``os.environ``
+    alone misses tokens that the user only ever wrote to the project .env.
+    We duplicate the /api/config inline parse here (rather than importing
+    the handler) so the two paths can't drift apart silently — every
+    Discogs-token consumer now goes through this resolver.
+
+    Resolution order (last non-empty wins):
+      1. .env at the repo root (key=value lines)
+      2. os.environ (explicit shell export takes precedence over .env)
     """
     import os
-    return os.environ.get("DISCOGS_TOKEN", "").strip()
+    token = ""
+    env_path = os.path.join(
+        os.path.dirname(os.path.dirname(os.path.dirname(__file__))), ".env",
+    )
+    try:
+        if os.path.exists(env_path):
+            with open(env_path) as f:
+                for line in f:
+                    line = line.strip()
+                    if line.startswith("DISCOGS_TOKEN="):
+                        token = line.split("=", 1)[1].strip()
+                        break
+    except Exception:
+        pass
+    return os.environ.get("DISCOGS_TOKEN", token).strip()
 
 
 @router.get("/discover/token-status", response_model=DiscoverTokenValidResponse)
