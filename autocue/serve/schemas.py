@@ -647,3 +647,99 @@ class DiscoverCancelScanResponse(BaseModel):
     """Returned by POST /api/discover/feed/cancel."""
     cancelled_scan_id: int | None = None
     was_running: bool = False
+
+
+# T-016 — state CRUD ----------------------------------------------------------
+
+class DiscoverSaveRequest(BaseModel):
+    release_key: str
+    release_id: int
+    artist: str | None = None
+    title: str | None = None
+    label: str | None = None
+
+
+class DiscoverDismissRequest(BaseModel):
+    release_key: str
+    release_id: int | None = None
+    artist: str | None = None
+    title: str | None = None
+    reason: str | None = None
+
+
+class DiscoverSnoozeRequest(BaseModel):
+    release_key: str
+    duration: str  # '1w' / '1m' / '3m' — server converts to until_date
+    release_id: int | None = None
+    artist: str | None = None
+    title: str | None = None
+
+
+class DiscoverKeyOnlyRequest(BaseModel):
+    """Body for /unsave, /undismiss, /unsnooze — just the release_key."""
+    release_key: str
+
+
+class DiscoverBlockArtistRequest(BaseModel):
+    discogs_artist_id: int
+    name: str
+
+
+class DiscoverBlockLabelRequest(BaseModel):
+    discogs_label_id: int
+    name: str
+
+
+class DiscoverUnblockArtistRequest(BaseModel):
+    discogs_artist_id: int
+
+
+class DiscoverUnblockLabelRequest(BaseModel):
+    discogs_label_id: int
+
+
+class DiscoverStateRowsResponse(BaseModel):
+    """Generic list-response wrapper used by the GET endpoints (saved /
+    dismissed / snoozed / downloaded / blocked-artists / blocked-labels)."""
+    items: list[dict]
+
+
+# T-017 — follow labels -------------------------------------------------------
+
+class DiscoverFollowLabelRequest(BaseModel):
+    label_id: int
+    name: str
+
+
+class DiscoverUnfollowLabelRequest(BaseModel):
+    label_id: int
+
+
+class DiscoverLabelSearchResponse(BaseModel):
+    items: list[dict]
+
+
+# T-019 — state export/import ------------------------------------------------
+
+class DiscoverImportResponse(BaseModel):
+    before: dict
+    after: dict
+    restored: bool
+
+
+# T-020 — stats ---------------------------------------------------------------
+
+class DiscoverStatsResponse(BaseModel):
+    total_scans: int
+    avg_duration_ms: float | None
+    saves_per_scan: float | None
+    novelty_share: dict
+    top_labels: list[dict]
+    top_artists: list[dict]
+    followed_count: int
+    saved_count: int
+    dismissed_count: int
+    snoozed_count: int
+    downloaded_count: int
+    blocked_artist_count: int
+    blocked_label_count: int
