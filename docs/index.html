@@ -4617,16 +4617,71 @@ function _renderDiscoverV2Card(release) {
   return card;
 }
 
+// Client-side resort + Explore-mode interleave.
+//
+// Backend returns cards already taste-ranked (the default). Switching to
+// newest / title / artist re-sorts the existing fetch without re-running
+// the scan. Explore mode interleaves novelty:non-novelty 50/50 so the user
+// sees adjacent finds at the same rate as taste matches.
+//
+// Sort modes:
+//   taste    no-op (preserve backend order, which is taste-ranked)
+//   newest   sort by release.year DESC (releases without year come last)
+//   title    sort by release.title (alpha, case-insensitive)
+//   artist   sort by release.artist (alpha, case-insensitive)
+//   explore  zip novelty + non-novelty round-robin (preserves intra-group order)
+function _applyDiscoverV2Sort(cards, sortMode) {
+  if (!cards || !cards.length) return cards || [];
+  if (!sortMode || sortMode === 'taste') return cards.slice();
+  if (sortMode === 'newest') {
+    return cards.slice().sort((a, b) => {
+      const ay = parseInt((a.release && a.release.year) || 0, 10) || 0;
+      const by = parseInt((b.release && b.release.year) || 0, 10) || 0;
+      return by - ay;
+    });
+  }
+  const norm = (s) => String((s || '')).toLocaleLowerCase();
+  if (sortMode === 'title') {
+    return cards.slice().sort((a, b) =>
+      norm(a.release && a.release.title).localeCompare(norm(b.release && b.release.title)));
+  }
+  if (sortMode === 'artist') {
+    return cards.slice().sort((a, b) =>
+      norm(a.release && a.release.artist).localeCompare(norm(b.release && b.release.artist)));
+  }
+  if (sortMode === 'explore') {
+    const novelty = [];
+    const other = [];
+    for (const c of cards) {
+      if ((c.source || '').startsWith('novelty')) novelty.push(c);
+      else other.push(c);
+    }
+    const out = [];
+    const max = Math.max(novelty.length, other.length);
+    for (let i = 0; i < max; i++) {
+      // Other first so the very first card is still a taste match — this
+      // mirrors the PRD-locked "Explore mode (50/50)" expectation.
+      if (i < other.length) out.push(other[i]);
+      if (i < novelty.length) out.push(novelty[i]);
+    }
+    return out;
+  }
+  return cards.slice();
+}
+
 function _renderDiscoverV2Feed() {
   const grid = document.getElementById('disc-v2-grid');
   if (!grid) return;
   grid.innerHTML = '';
 
   const s = DiscoverV2.state;
+  const sortMode = document.getElementById('disc-v2-sort')?.value || 'taste';
   // Filter out dismissed / snoozed cards client-side so the user sees the
   // action take effect immediately (the next scan will exclude them server-side).
-  const visible = s.cards.filter(c =>
+  // Then resort by the active sort mode (defaults to taste-ranked backend order).
+  const filtered = s.cards.filter(c =>
     !s.dismissedKeys.has(c.release_key) && !s.snoozedKeys.has(c.release_key));
+  const visible = _applyDiscoverV2Sort(filtered, sortMode);
 
   const emptyEl = document.getElementById('disc-v2-empty-state');
   const emptyMsg = document.getElementById('disc-v2-empty-state-msg');
@@ -5320,10 +5375,13 @@ function initDiscoverV2() {
     });
   }
 
-  // Filter chips re-trigger scan on change.
+  // Filter chips re-trigger scan on change (server-side feeder selection).
   document.querySelectorAll('#disc-v2-filter-bar input[data-source]').forEach(el =>
     el.addEventListener('change', () => DiscoverV2.runScan()));
+  // Year filter changes the backend window — re-scan.
   document.getElementById('disc-v2-year')?.addEventListener('change', () => DiscoverV2.runScan());
+  // Sort is purely client-side — just re-render the existing fetch.
+  document.getElementById('disc-v2-sort')?.addEventListener('change', _renderDiscoverV2Feed);
 
   // Scan-cancel button.
   document.getElementById('disc-v2-scan-cancel-btn')?.addEventListener('click', () => DiscoverV2.cancelScan());
