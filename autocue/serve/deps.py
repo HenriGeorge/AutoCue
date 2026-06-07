@@ -91,6 +91,9 @@ def _get_discover_db_path_safe() -> Path | None:
     return path if path.exists() else None
 
 
+_discover_store_lock = threading.Lock()
+
+
 def get_discover_store(request: Request):
     """Lazy-construct a DiscoverStore singleton on first call.
 
@@ -100,15 +103,26 @@ def get_discover_store(request: Request):
     avoid doing it eagerly in `lifespan` because some endpoints (e.g.
     `/api/status`) don't need it and we want server-startup to be fast
     even when the data dir is unavailable.
+
+    Concurrent first-load races: FastAPI dispatches sync ``Depends`` calls
+    onto a thread-pool, so the first page-load (which fires 7 parallel
+    ``/api/discover/*`` fetches via loadInitialState) can have N threads
+    all see ``store is None`` and all race to construct. The losers then
+    fail at ``CREATE TABLE schema_version`` because the winner has
+    already created it. Double-checked locking serializes the construct
+    while keeping the hot path lock-free after first init.
     """
     store = getattr(request.app.state, "discover_store", None)
     if store is None:
-        from autocue.analysis.discover.store import DiscoverStore
-        try:
-            store = DiscoverStore()
-        except Exception as exc:
-            raise HTTPException(503, f"Discover store unavailable: {exc}")
-        request.app.state.discover_store = store
+        with _discover_store_lock:
+            store = getattr(request.app.state, "discover_store", None)
+            if store is None:
+                from autocue.analysis.discover.store import DiscoverStore
+                try:
+                    store = DiscoverStore()
+                except Exception as exc:
+                    raise HTTPException(503, f"Discover store unavailable: {exc}")
+                request.app.state.discover_store = store
     return store
 
 
