@@ -195,6 +195,24 @@ async def lifespan(app: FastAPI):
             logger.warning("Could not open read-only DB handle: %s — falling back to shared handle", e)
             app.state.ro_db = None
 
+        # Open the sidecar analysis cache (TASK-010) and wire the L2 hook into
+        # analysis modules (TASK-013..016). Failure here is non-fatal — server
+        # still starts; analysis falls back to L1 + compute on every call.
+        try:
+            from ..cache import CacheStore
+            from ..analysis import energy as _energy
+            db_dir = getattr(app.state.db, "_db_dir", None)
+            if db_dir is not None:
+                app.state.cache_store = CacheStore.open_for(str(db_dir))
+                _energy.set_cache_store(app.state.cache_store)
+                logger.info("Sidecar analysis cache opened at %s", db_dir)
+            else:
+                app.state.cache_store = None
+                logger.info("No db_dir resolvable; sidecar cache disabled")
+        except Exception as exc:
+            logger.warning("Could not open sidecar cache: %s", exc)
+            app.state.cache_store = None
+
         threading.Thread(
             target=_prewarm_index, args=(app.state.ro_db or app.state.db,), daemon=True, name="index-prewarm"
         ).start()
@@ -202,6 +220,7 @@ async def lifespan(app: FastAPI):
         logger.warning("Could not open Rekordbox DB: %s — server will still start", e)
         app.state.db = None
         app.state.ro_db = None
+        app.state.cache_store = None
     yield
     app.state.db = None
     app.state.ro_db = None
@@ -219,3 +238,13 @@ async def lifespan(app: FastAPI):
         shutdown_pool()
     except Exception as exc:  # pragma: no cover — best-effort shutdown
         logger.warning("Could not shut down analysis pool cleanly: %s", exc)
+    # Close the sidecar analysis cache (TASK-010).
+    cache_store = getattr(app.state, "cache_store", None)
+    if cache_store is not None:
+        try:
+            from ..analysis import energy as _energy
+            _energy.set_cache_store(None)
+            cache_store.close()
+        except Exception as exc:  # pragma: no cover — best-effort shutdown
+            logger.warning("Could not close sidecar cache cleanly: %s", exc)
+    app.state.cache_store = None

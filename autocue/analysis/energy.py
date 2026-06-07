@@ -6,7 +6,7 @@ Each PWAV entry is a single byte: amplitude = byte & 0x1F (0–31), color = (byt
 """
 from __future__ import annotations
 
-from typing import Literal
+from typing import Any, Literal
 
 # Session-level in-memory cache: (track_id, n_points) → list[float] | None
 _cache: dict[tuple, list[float] | None] = {}
@@ -91,15 +91,55 @@ def classify_energy_profile(
     return "drop-then-flat"
 
 
+# L2 cache: optional sidecar CacheStore. set via set_cache_store() from the
+# server lifespan; left None in CLI / test contexts so the existing L1 + compute
+# path is unchanged. See TASK-013 in .agent/prd/PERFORMANCE_PRD.md.
+_cache_store = None  # type: Any | None
+
+
+def set_cache_store(store) -> None:
+    """Wire the sidecar CacheStore so L2 hits short-circuit compute.
+
+    Call once from serve/deps.py lifespan after :func:`CacheStore.open_for`.
+    Pass ``None`` to detach (used by tests).
+    """
+    global _cache_store
+    _cache_store = store
+
+
 def get_energy_curve(content, db, n_points: int = 50) -> list[float] | None:
     """
     Return a normalized energy curve of length n_points (values 0.0–1.0).
     Returns None if PWAV data is unavailable for this track.
-    Results are cached in memory keyed by (track_id, n_points).
+
+    Cache layers (in order):
+      L1 (in-process dict)  → L2 (CacheStore sidecar, if wired) → compute.
+    Results are populated into L1 always; into L2 only when wired.
+    L2 lookups are keyed by ``(content.ID, anlz_mtime)``.
     """
     cache_key = (content.ID, n_points)
     if cache_key in _cache:
         return _cache[cache_key]
+
+    # L2 lookup (sidecar).
+    if _cache_store is not None and n_points == 50:
+        # Sidecar stores at default n_points only; non-default callers
+        # fall through to compute + L1 cache (rare path).
+        from .anlz_path import get_anlz_mtime, MISSING_MTIME
+        from ..cache import MISSING
+        try:
+            mtime = get_anlz_mtime(content, db)
+            l2 = _cache_store.get_energy_curve(
+                content.ID, expected_anlz_mtime=mtime
+            )
+        except Exception:
+            l2 = None
+        if l2 is MISSING:
+            _cache[cache_key] = None
+            return None
+        if l2 is not None:
+            _cache[cache_key] = l2
+            return l2
 
     curve: list[float] | None = None
     try:
@@ -114,6 +154,21 @@ def get_energy_curve(content, db, n_points: int = 50) -> list[float] | None:
         pass
 
     _cache[cache_key] = curve
+
+    # Write-through to L2.
+    if _cache_store is not None and n_points == 50:
+        try:
+            from .anlz_path import get_anlz_mtime, MISSING_MTIME
+            mtime = get_anlz_mtime(content, db)
+            if mtime is None:
+                _cache_store.put_energy_curve(
+                    content.ID, [], anlz_mtime=MISSING_MTIME
+                )
+            elif curve is not None:
+                _cache_store.put_energy_curve(content.ID, curve, anlz_mtime=mtime)
+        except Exception:
+            pass
+
     return curve
 
 
