@@ -18,7 +18,7 @@
     "title": "Refactor /api/health SSE to parallel per-track checks",
     "category": "api-endpoint",
     "specFilePath": ".agent/tasks/performance/TASK-003.json",
-    "passes": false
+    "passes": true
   },
   {
     "id": "TASK-004",
