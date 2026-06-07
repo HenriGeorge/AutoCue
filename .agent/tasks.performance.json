@@ -151,7 +151,7 @@
     "title": "Persist /api/tracks snapshot to CacheStore.tracks_snapshot",
     "category": "data-model",
     "specFilePath": ".agent/tasks/performance/TASK-022.json",
-    "passes": false
+    "passes": true
   },
   {
     "id": "TASK-023",
@@ -179,7 +179,7 @@
     "title": "Invalidate tracks_snapshot on every DB-mutating endpoint",
     "category": "api-endpoint",
     "specFilePath": ".agent/tasks/performance/TASK-026.json",
-    "passes": false
+    "passes": true
   },
   {
     "id": "TASK-027",
@@ -333,7 +333,7 @@
     "title": "pytest -m perf marker + local 'make perf' target",
     "category": "documentation",
     "specFilePath": ".agent/tasks/performance/TASK-048.json",
-    "passes": false
+    "passes": true
   },
   {
     "id": "TASK-049",

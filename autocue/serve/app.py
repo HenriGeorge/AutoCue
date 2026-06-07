@@ -55,6 +55,30 @@ def create_app(db_path: str | None = None, port: int = DEFAULT_PORT) -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
+
+    # TASK-026 — invalidate the /api/tracks snapshot after any successful
+    # POST / DELETE / PUT to /api/*. The handler's mtime check already
+    # catches master.db changes, but this is defense-in-depth: snapshot
+    # clears immediately after the mutating call returns 2xx, even before
+    # the OS flushes the new mtime.
+    @app.middleware("http")
+    async def _invalidate_snapshot_on_mutation(request, call_next):
+        from .routes import _invalidate_tracks_snapshot
+        response = await call_next(request)
+        try:
+            method = request.method.upper()
+            path = request.url.path
+            if (
+                method in ("POST", "PUT", "DELETE")
+                and path.startswith("/api/")
+                and 200 <= response.status_code < 300
+            ):
+                _invalidate_tracks_snapshot(request.app)
+        except Exception:
+            # Never let invalidation bookkeeping break the response.
+            pass
+        return response
+
     app.include_router(router)
     if DOCS_DIR.exists():
         app.mount("/", StaticFiles(directory=str(DOCS_DIR), html=True), name="ui")

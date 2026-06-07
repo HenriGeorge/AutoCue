@@ -299,6 +299,33 @@ async def lifespan(app: FastAPI):
         app.state.tracks_snapshot = None
         app.state.tracks_snapshot_lock = threading.Lock()
 
+        # TASK-022 — hydrate the snapshot from CacheStore on startup so the
+        # first /api/tracks call after `autocue serve` lands sub-second.
+        try:
+            from ..cache import CacheStore as _CS  # noqa
+            cache_store = getattr(app.state, "cache_store", None)
+            db_dir = getattr(app.state.db, "_db_dir", None)
+            if cache_store is not None and db_dir is not None:
+                import os
+                master_path = os.path.join(str(db_dir), "master.db")
+                if os.path.exists(master_path):
+                    mtime = os.path.getmtime(master_path)
+                    blob = cache_store.get_tracks_snapshot(mtime)
+                    if blob is not None:
+                        try:
+                            raw = cache_store.ungzip_json(blob)
+                            from .schemas import TrackItem as _TI
+                            payload = [_TI(**row) for row in raw]
+                            with app.state.tracks_snapshot_lock:
+                                app.state.tracks_snapshot = {
+                                    "mtime": mtime, "payload": payload,
+                                }
+                            logger.info("tracks snapshot hydrated from CacheStore (%d items)", len(payload))
+                        except Exception as exc:
+                            logger.warning("tracks snapshot hydrate failed: %s", exc)
+        except Exception as exc:
+            logger.warning("tracks snapshot hydration skipped: %s", exc)
+
         app.state.warmup_lock = threading.Lock()
         app.state.warmup_cancel_event = threading.Event()
         app.state.warmup_progress = {
