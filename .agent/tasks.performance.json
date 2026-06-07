@@ -102,7 +102,7 @@
     "title": "Wire similar.py 6-dim feature vectors through CacheStore (L2)",
     "category": "functional",
     "specFilePath": ".agent/tasks/performance/TASK-015.json",
-    "passes": false
+    "passes": true
   },
   {
     "id": "TASK-016",
@@ -123,7 +123,7 @@
     "title": "CacheStore.warm_up(db, content_ids, pool) for parallel cache hydration",
     "category": "functional",
     "specFilePath": ".agent/tasks/performance/TASK-018.json",
-    "passes": false
+    "passes": true
   },
   {
     "id": "TASK-019",

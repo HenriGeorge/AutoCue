@@ -400,6 +400,100 @@ class CacheStore:
                 "DELETE FROM mixability WHERE content_id=?", (content_id,)
             )
 
+    # -- warm-up -------------------------------------------------------------
+
+    def find_missing(self, content_ids: list[int]) -> list[int]:
+        """Return the subset of content_ids that are missing from energy_curve.
+
+        Used by warm_up() — energy is the canonical seed; once energy is
+        present the other per-track tables fill on first read through the
+        wired analysis modules.
+        """
+        if not content_ids:
+            return []
+        with self._lock:
+            assert self._conn is not None
+            placeholders = ",".join("?" * len(content_ids))
+            cur = self._conn.execute(
+                f"SELECT content_id FROM energy_curve WHERE content_id IN ({placeholders})",
+                content_ids,
+            )
+            present = {row[0] for row in cur.fetchall()}
+        return [cid for cid in content_ids if cid not in present]
+
+    def warm_up(
+        self,
+        db: Any,
+        content_ids: list[int],
+        pool: Any,
+        progress_cb: Any | None = None,
+        cancel_event: Any | None = None,
+        batch_size: int = 50,
+    ) -> int:
+        """Hydrate missing per-track rows in parallel via the shared pool.
+
+        Each missing content_id has its full analysis pipeline triggered
+        via the wired set_cache_store hooks (energy → classification →
+        similarity vector → mixability) — the L2 writes are side-effects.
+
+        ``progress_cb(done, total)`` is invoked every ``batch_size`` tracks.
+        ``cancel_event.is_set()`` is checked between batches; cancellation
+        leaves the partially-warmed cache intact (per-row commits are
+        atomic).
+
+        Returns the count of tracks actually processed (less than total
+        when cancelled or when content rows could not be resolved).
+        """
+        from .analysis import energy as _energy
+        from .analysis import classify as _classify
+        from .analysis import similar as _similar
+
+        missing = self.find_missing(content_ids)
+        total = len(missing)
+        if total == 0:
+            if progress_cb:
+                progress_cb(0, 0)
+            return 0
+
+        def _warm_one(content_id: int) -> bool:
+            if cancel_event is not None and cancel_event.is_set():
+                return False
+            try:
+                content = db.get_content(ID=content_id)
+            except Exception:
+                return False
+            if content is None:
+                return False
+            try:
+                _energy.get_energy_curve(content, db)
+                _classify.get_classification(content, db)
+                _similar._index_track(content, db)
+            except Exception:
+                return False
+            return True
+
+        done = 0
+        # Batch through the pool so cancellation lands quickly. We iterate
+        # futures in submission order — `.result()` blocks until done so
+        # the batch's wall-clock is bounded by the slowest worker. Avoids
+        # ``concurrent.futures.as_completed`` which doesn't work with
+        # stubbed pools in tests and gains us only marginal parallelism
+        # at our batch sizes.
+        for offset in range(0, total, batch_size):
+            if cancel_event is not None and cancel_event.is_set():
+                break
+            batch = missing[offset:offset + batch_size]
+            futures = [pool.submit(_warm_one, cid) for cid in batch]
+            for fut in futures:
+                try:
+                    fut.result()
+                except Exception:
+                    pass
+                done += 1
+            if progress_cb:
+                progress_cb(done, total)
+        return done
+
     # -- helpers -------------------------------------------------------------
 
     @staticmethod

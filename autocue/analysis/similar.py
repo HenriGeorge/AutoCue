@@ -22,7 +22,7 @@ import logging
 import math
 import re
 import threading
-from typing import Optional
+from typing import Any, Optional
 
 from .energy import get_energy_curve
 from .score import get_mixability
@@ -94,6 +94,13 @@ def _dot(a: list[float], b: list[float]) -> float:
 _INDEX: dict[int, tuple[float, list[float], bool]] = {}
 _INDEX_BUILT = False
 _INDEX_LOCK = threading.Lock()
+_cache_store = None  # type: Any | None — L2 sidecar for feature vectors (TASK-015)
+
+
+def set_cache_store(store) -> None:
+    """Wire the L2 sidecar (CacheStore) — see TASK-015."""
+    global _cache_store
+    _cache_store = store
 
 
 def _build_index(db) -> None:
@@ -132,6 +139,26 @@ def _index_track(content, db) -> None:
     raw_bpm = getattr(content, "BPM", 0) or 0
     bpm = float(raw_bpm) / 100.0
 
+    # L2 lookup — sidecar stores the 6-dim vector. has_energy is encoded
+    # by storing NaN in the energy_mean slot when the curve was absent.
+    if _cache_store is not None:
+        from .anlz_path import get_anlz_mtime
+        from ..cache import MISSING
+        try:
+            mtime = get_anlz_mtime(content, db)
+            l2 = _cache_store.get_similarity_vector(int(content.ID), expected_anlz_mtime=mtime)
+        except Exception:
+            l2 = None
+        if l2 is not None and l2 is not MISSING:
+            vec_list = list(l2)
+            # Energy slot is NaN when the source curve was missing.
+            has_energy = not math.isnan(vec_list[2])
+            if not has_energy:
+                vec_list[2] = 0.0
+                vec_list[3] = 0.0
+            _INDEX[int(content.ID)] = (bpm, vec_list, has_energy)
+            return
+
     key_str = ""
     try:
         key_obj = getattr(content, "Key", None)
@@ -158,6 +185,31 @@ def _index_track(content, db) -> None:
 
     vector = _build_vector(key_str, energy_mean, energy_variance, vocal_proxy, bpm)
     _INDEX[int(content.ID)] = (bpm, vector, bool(curve))
+
+    # Write-through to L2. Encode missing-energy by storing NaN in the
+    # energy_mean slot so warm reads can recover the data-quality flag.
+    if _cache_store is not None:
+        from .anlz_path import get_anlz_mtime, MISSING_MTIME
+        try:
+            mtime = get_anlz_mtime(content, db)
+            if mtime is None:
+                _cache_store.put_similarity_vector(
+                    int(content.ID),
+                    tuple([float("nan")] * 6),
+                    anlz_mtime=MISSING_MTIME,
+                )
+            else:
+                vec_packed = list(vector)
+                if not curve:
+                    # Mark missing-energy with NaN in energy_mean slot.
+                    vec_packed[2] = float("nan")
+                _cache_store.put_similarity_vector(
+                    int(content.ID),
+                    tuple(vec_packed),
+                    anlz_mtime=mtime,
+                )
+        except Exception:
+            pass
 
     # Pre-populate the classification cache so setbuilder beam search is O(1)
     try:
