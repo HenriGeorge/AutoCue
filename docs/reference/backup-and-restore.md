@@ -241,27 +241,57 @@ Every write endpoint checks `rekordbox_is_running()` first and refuses with
 `routes.py:708-709`, `routes.py:942-943`). The guard also applies to restore
 (`routes.py:557-558`).
 
-**Implementation** (`autocue/db_writer.py:28-34`):
+**Implementation** (`autocue/db_writer.py`): two-signal check combining a
+process-name probe with a real file-lock attempt on `master.db`.
 
 ```python
-def rekordbox_is_running() -> bool:
-    """Return True if a Rekordbox process is running."""
-    try:
-        import psutil
-        return any("rekordbox" in p.name().lower() for p in psutil.process_iter(["name"]))
-    except ImportError:
-        return False
+def rekordbox_is_running(db_path: Path | str | None = None) -> bool:
+    """Return True if Rekordbox appears to be running.
+
+    Two signals are combined:
+
+    1. A psutil process-name probe (fast, but a renamed Rekordbox
+       build can slip through).
+    2. An exclusive fcntl/msvcrt lock attempt on master.db when
+       ``db_path`` is supplied (catches renamed builds and races
+       where the process started after the name check fired).
+    """
+    if _process_name_check():
+        return True
+    if db_path is not None and _db_file_is_locked(db_path):
+        return True
+    return False
 ```
 
-- Uses `psutil.process_iter(["name"])` and matches `"rekordbox"` substring
-  case-insensitively. This catches `rekordbox`, `Rekordbox`, and
-  `rekordboxAgent`.
-- If `psutil` is not installed, the guard silently returns `False`. `psutil`
-  is in the runtime dependencies (`pyproject.toml`), so this fallback exists
-  only as defense for unusual install paths.
-- Tests stub the function via
-  `patch("autocue.db_writer.rekordbox_is_running", return_value=...)` —
-  see `test_serve_routes.py:797`.
+- **Process-name probe** (`_process_name_check`): `psutil.process_iter(["name"])`
+  matches `"rekordbox"` substring case-insensitively. Catches `rekordbox`,
+  `Rekordbox`, and `rekordboxAgent`. Returns `False` on `ImportError`
+  (psutil missing — defense for unusual installs) or any other exception
+  (fail open — defer to the file-lock check).
+- **File-lock probe** (`_db_file_is_locked`): opens `master.db` and tries
+  `fcntl.flock(fd, LOCK_EX | LOCK_NB)` on Unix-likes or
+  `msvcrt.locking(fd, LK_NBLCK, 1)` on Windows. If the lock attempt
+  fails with `BlockingIOError` / `OSError`, somebody else has the file —
+  Rekordbox is in. Lock is released immediately when the attempt
+  succeeds. Permission denied or a missing file falls back to `False`
+  so the process probe remains the safety net.
+- **Why two signals?** The process probe is defeated by renamed
+  Rekordbox builds (custom forks, dev builds, third-party shells) and by
+  the race where Rekordbox opens *between* the probe firing and the
+  write hitting SQLite. The file-lock probe closes both gaps.
+- **Routes plumbing**: `serve/routes.py:_rb_running(db)` wraps the call
+  with `db._db_dir / "master.db"`, so every write endpoint gets the
+  lock check automatically. The wrapper imports `db_writer` lazily so
+  tests that patch `autocue.db_writer.rekordbox_is_running` still take
+  effect.
+- **Backwards compatibility**: callers that pass no argument
+  (`rekordbox_is_running()`) keep the legacy process-only behaviour.
+- Tests stub via `patch("autocue.db_writer.rekordbox_is_running",
+  return_value=...)`; the new lock probe is covered separately in
+  `tests/test_db_writer.py::TestRekordboxIsRunning::
+  test_db_path_lock_check_catches_renamed_process` (locks `master.db`
+  with `fcntl`, asserts the helper returns `True` even with an empty
+  process iterator).
 
 When the guard fires, the client receives:
 

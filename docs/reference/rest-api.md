@@ -136,6 +136,7 @@ The guard fires on:
 | `POST /api/auto-tag/discogs`          | only when `dry_run=False` |
 | `POST /api/enrich-comments`           | only when `dry_run=False` |
 | `POST /api/enrich-comments/stream`    | only when `dry_run=False` |
+| `POST /api/enrich-comments/undo`      | always                 |
 | `POST /api/restore`                   | always                 |
 | `POST /api/playlists` (create)        | always                 |
 
@@ -1624,10 +1625,61 @@ Final:
 data: {"done": true, "enriched": 42, "skipped": 5, "errors": 3, "backup_path": "/.../master_20260607T142233.db", "dry_run": false}
 ```
 
-A single backup is taken once up front before any writes. **409** when
-Rekordbox is running and `dry_run=false`. Per-track commits already
-persisted survive client disconnect; see
+A single backup is taken once up front before any writes. The final
+event now also carries `undo_data: {"modified": [...]}` listing every
+track AutoCue actually changed and its pre-write `Commnt` — pass that
+shape to `POST /api/enrich-comments/undo` to reverse the run without a
+full DB restore. **409** when Rekordbox is running and `dry_run=false`.
+Per-track commits already persisted survive client disconnect; see
 [SSE disconnection and cancellation](#sse-disconnection-and-cancellation).
+
+</details>
+
+<details>
+<summary><code>POST /api/enrich-comments/undo</code> — reverse a prior enrichment run</summary>
+
+Mirrors `auto-tag`'s undo endpoint. Writes every `previous` value from
+the supplied `undo_data` back onto its track's `Commnt` column and
+commits (`routes.py`).
+
+**Request**
+
+```json
+{
+  "undo_data": {
+    "modified": [
+      {"content_id": "42",  "previous": "original user text"},
+      {"content_id": "108", "previous": ""}
+    ]
+  }
+}
+```
+
+`undo_data` is the same shape returned by `/api/enrich-comments`,
+`/api/enrich-comments/stream`, and `enrich_comments_batch()`.
+
+**Response**
+
+```json
+{ "restored": 17, "skipped": 0, "errors": 0 }
+```
+
+- `restored` — tracks whose `Commnt` was rewritten to its previous value.
+- `skipped` — tracks deleted between enrich and undo (silently dropped).
+- `errors` — per-track failures (logged via `logger.warning`).
+
+**Status codes**
+
+- `200` — undo applied (commits at the end).
+- `409` — Rekordbox is running.
+- `500` — commit-time failure (DB rolled back before raising).
+
+Surgical alternative to `POST /api/restore`: only the tracks listed in
+`undo_data` are touched, so unrelated changes made between the enrich
+and the undo (hot cues, tag edits, other AutoCue runs) survive. Pair
+with the `master.db` backup made by the original enrich endpoint when
+the run used `overwrite=True` and the user's original text predates the
+captured `previous` value.
 
 </details>
 

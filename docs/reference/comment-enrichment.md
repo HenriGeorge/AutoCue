@@ -743,11 +743,47 @@ Segments without data are dropped silently; the ` | ` separators are added by
 
 ## 16. Reversing AutoCue comments
 
-There is **no** `undo_comments_run()` helper today, in contrast with the
-auto-tag feature's [`undo_tag_run()`](./auto-tag.md#10-undo_data-and-undo_tag_run).
-The enrichment endpoints do not record an `undo_data` payload — they only
-make a `master.db` backup before writing. That gives you two practical
-ways to roll back a run:
+Comment enrichment has a first-class undo helper mirroring auto-tag's
+[`undo_tag_run()`](./auto-tag.md#10-undo_data-and-undo_tag_run). Every
+run that actually modifies tracks returns an `undo_data` payload:
+
+```python
+{
+  "modified": [
+    {"content_id": "42",  "previous": "original user text"},
+    {"content_id": "108", "previous": ""},
+    ...
+  ]
+}
+```
+
+`restore_comments(db, undo_data)` writes every `previous` value back onto
+the matching `Commnt` column and commits. Tracks deleted between the
+enrich run and the undo are silently skipped. The new
+`POST /api/enrich-comments/undo` endpoint exposes the same operation over
+the REST surface:
+
+```http
+POST /api/enrich-comments/undo
+Content-Type: application/json
+
+{ "undo_data": { "modified": [...] } }
+```
+
+Returns `{"restored": N, "skipped": N, "errors": N}` and the standard 409
+when Rekordbox is open. **Use this as the primary reversal path** — it is
+surgical (only the enriched rows are touched) and survives unrelated
+edits made between the enrichment and the undo.
+
+The full DB restore via [`POST /api/restore`](./backup-and-restore.md)
+remains available as a heavier fallback for runs that ran with
+`overwrite=True` and need the user's original text recovered (the undo
+payload only captures the pre-write `Commnt`, which under `overwrite=True`
+*is* the original — so this fallback is rarely needed).
+
+The earlier (sentinel-based) reversal pattern still works for runs that
+predate this feature and therefore have no `undo_data` payload to feed to
+`/api/enrich-comments/undo`:
 
 ### 16.1 Sentinel-based reversal (preserves user text)
 
@@ -901,59 +937,63 @@ the wrapped block — a worst case of ~52 ASCII characters on top of
 whatever was already there. That is well inside the practical comfort
 range for any track-comment column.
 
-### What happens with very long comments
+### The 256-character cap and progressive drop
 
-AutoCue performs **no truncation today**. The relevant write paths in
-`autocue/analysis/comment.py` always assign the full computed string to
-`content.Commnt`:
+AutoCue caps the final comment at `MAX_COMMENT_LEN = 256` characters
+(`autocue/analysis/comment.py`). The Rekordbox CDJ UI renders cleanly up
+to roughly that length; beyond it the on-screen text gets clipped
+mid-word and shows up as a wall of text. The store itself is SQL `Text`
+(no fixed cap) — the 256 limit is a **UX guard**, not a database
+constraint.
+
+`_fit_within(user_text, parts, overwrite, max_len)` enforces the cap.
+Drop order is **least essential first**, so the user's text is never
+trimmed:
+
+1. `intro_info` (`"4 bar intro"`) — dropped first.
+2. `category` (`"Peak"`, `"Build"`, etc.) — dropped second.
+3. `key + energy` (`"8A - Energy 7"`) — last to go.
+
+If even the bare `key + energy` line can't fit alongside the user's text,
+AutoCue **skips the track** rather than corrupting the user's text:
 
 ```python
-# autocue/analysis/comment.py:147-148
-if not dry_run:
-    content.Commnt = new_comment
+# autocue/analysis/comment.py — _fit_within (append path)
+overhead = len(user_text) + 1 + len(_SENTINEL) + 1 + 1 + len(_SENTINEL_END)
+budget = max_len - overhead
+if budget <= 0:
+    logger.warning(
+        "comment enrichment: user text length %d already over cap %d — skipping enrichment",
+        len(user_text), max_len,
+    )
+    return None
 ```
 
-There is no length check, no clip-to-N, and no warning when the resulting
-string is unusually long. Because the column is `Text`, the
-`db.session.commit()` call also does not raise — the bytes simply land in
-the database.
+A WARNING is logged on every truncation so a batch run leaves a trail.
 
-The implication for unusual inputs:
+The overwrite path (no user text to preserve) trims AutoCue's own parts
+the same way down to the most essential before giving up — at the
+extreme, a hard slice of `parts[0]` to `max_len`.
 
-| Scenario                                                    | What happens today                                                                                                                                                       |
-| ----------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| User comment ~50 chars, AutoCue appends ~52 chars           | Written as-is. Roughly 100 ASCII chars in the comment. Comfortable.                                                                                                       |
-| User comment 1 KB, AutoCue appends ~52 chars                | Written as-is. ~1 KB comment. Persists fine in SQLite; whether Rekordbox's track-list / CDJ UI renders all of it depends on the surface (CDJ-3000s clip to a few dozen chars). |
-| User comment 100 KB, AutoCue appends ~52 chars              | Written as-is. The DB accepts it. Rekordbox import/export, AppleScript bridges, and CDJ rendering have no contract for this; behaviour is undefined.                      |
-| Re-running enrichment on a 100 KB user comment              | Sentinel logic still finds `_SENTINEL` and rewrites only the sentinel block; the 100 KB stays put.                                                                        |
-| `overwrite=True` against a 100 KB user comment              | Replaced wholesale with the ~40-char AutoCue string. (Same caveat as [§16.3](#163-the-overwritetrue-trap) — the original is only recoverable from the backup.)             |
+| Scenario                                                    | What happens                                                                                                |
+| ----------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
+| User text ~50 chars, AutoCue appends ~52 chars              | All three parts written. Final string ~100 chars, comfortably under 256.                                    |
+| User text 220 chars                                         | `intro_info` dropped; "Peak" + key+energy retained. WARNING logged.                                         |
+| User text 230 chars                                         | `intro_info` and `category` dropped; bare `key+energy` retained.                                            |
+| User text 250 chars                                         | Even `key+energy` can't fit. Track **skipped** — `enrich_comment` returns `None`. WARNING logged.           |
+| Re-running enrichment on a 220-char user comment            | Sentinel logic locates the old block, builds a new one within budget. Idempotent.                           |
+| `overwrite=True` against any input                          | Discards user text; AutoCue parts trimmed to fit (no user text to preserve, so the cap is permissive).      |
 
-### Known limitation / recommended future behaviour
+Tests covering each tier live in `tests/test_comment.py::TestLengthGuard`
+(short text fits full, 220 drops intro, 225 drops category, 250 skips,
+overwrite trims).
 
-The lack of any length cap is a **known limitation** rather than a
-deliberate design choice. CDJ head units, Rekordbox's own track-list
-columns, and DJ-software bridges (Serato/Mixed In Key) typically render
-only the first few dozen characters of the comment, so a 1 KB user
-comment with an AutoCue block appended at the end will display the user
-text and clip the sentinel before it appears on-screen.
+### Tuning the cap
 
-If a future change introduces a comment-length cap, the recommended
-shape — and the one that preserves AutoCue's contract that the user's
-text is sacred — is:
-
-1. Define a soft cap (e.g. 255 chars, matching most legacy MIK / Serato
-   tooling). Make it a `GenerationPrefs`-style setting, not a hardcode.
-2. When `existing + sentinel block` would exceed the cap, **truncate
-   AutoCue's contribution first** (drop the `N bar intro` segment, then
-   the `Category` segment, then the energy block) until the whole row
-   fits. The user's text is never trimmed.
-3. If the user's text alone already exceeds the cap, log a warning and
-   skip enrichment for that track rather than silently lopping off user
-   data.
-
-Until that lands, callers writing into already-long comments should
-audit the result manually. AutoCue's behaviour today is "write whatever
-the format produces; trust the column."
+`MAX_COMMENT_LEN` is a module constant rather than a per-call parameter
+— if you need a different limit for testing or to match a specific CDJ
+firmware, monkey-patch `comment.MAX_COMMENT_LEN` before calling
+`enrich_comment`. The unit tests do exactly this.
 
 ---
 
