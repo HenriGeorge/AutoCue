@@ -39,7 +39,7 @@
     "title": "Refactor /api/enrich-comments/stream to parallel comment building",
     "category": "api-endpoint",
     "specFilePath": ".agent/tasks/performance/TASK-006.json",
-    "passes": false
+    "passes": true
   },
   {
     "id": "TASK-007",
