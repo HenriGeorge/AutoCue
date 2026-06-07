@@ -121,7 +121,15 @@ tests/
   test_properties.py         — 65 tests (Hypothesis property/invariant tests for classify + transitions math)
   test_discovery.py          — 17 tests (library artist ranking, owned-album filter, dedupe, SSE generator)
   test_download.py           — 15 tests (yt-dlp/ffmpeg probes, query building, search, download paths — yt-dlp mocked)
-  test_serve_routes.py       — 194 tests (FastAPI TestClient, mocked DB; covers all endpoints incl. discover/download)
+  test_serve_routes.py       — 197 tests (FastAPI TestClient, mocked DB; covers all endpoints incl. discover/download)
+  e2e/                       — Playwright smoke harness for the `autocue-qa` agent.
+                               globalSetup allocates free ports (port-0, never the production 7432)
+                               + sandbox copy of master.db; safety.spec.ts verifies the server is
+                               bound to the sandbox via GET /api/status + X-AutoCue-Diagnostic
+                               header before any other spec runs. Specs: safety, selectors-exist,
+                               qa-smoke (read-only APIs + bounded SSE + UI smoke), pages-smoke
+                               (static-served docs/index.html via `python -m http.server`),
+                               qa-full (write endpoints, gated by RUN_FULL=1). See tests/e2e/README.md.
   web/
     xml-processing.test.js  — 65 Vitest tests for parseRekordboxXml, generateCues, pickCueColor
     ui-logic.test.js        — 126 Vitest tests: filteredTracks (search/phrase/rating/plays/last-played/My-Tag),
@@ -147,7 +155,7 @@ POST /api/generate-apply                  POST /api/generate-apply-stream (SSE)
 POST /api/delete-cues                     POST /api/color-tracks
 POST /api/color-tracks-stream (SSE)       GET  /api/backups
 POST /api/restore                         DELETE /api/backups/{filename}
-GET  /api/tracks/{id}/health              GET  /api/health (SSE, ?playlist_id=N)
+GET  /api/tracks/{id}/health              GET  /api/health (SSE, ?playlist_id=N&limit=N)
 POST /api/cue-tools-stream (SSE)          GET  /api/tracks/{id}/energy
 GET  /api/tracks/{id}/mixability          GET  /api/tracks/{id}/classification
 GET  /api/classify (SSE, ?playlist_id=N)  GET  /api/tracks/{id}/similar
@@ -200,6 +208,7 @@ autocue --library --playlist "NAME"  # restrict --library to a named playlist
 - **Apply performance**: The UI uses `/api/generate-apply-stream` (SSE) which streams progress events `{"processed":N,"total":M,...}` as each track is processed, then a final `{"done":true,...}`. The JS reads via `fetch` + `ReadableStream` (not `EventSource`, since the request is POST). No `AbortSignal.timeout` — the stream has no time limit.
 - **Playlist filter**: `/api/tracks` uses `?playlist_id=<int>` (integer FK). The old `?playlist=<name>` param was removed. The frontend dropdown passes the numeric ID.
 - **`/api/tracks` SQL pattern**: history (`DjmdSongHistory`) and my-tags (`DjmdSongMyTag`) are loaded with `db.query(...).all()` then filtered in Python against `row_ids` — **not** with a SQLAlchemy `IN(row_ids)` clause. This is intentional: for full-library page loads (~3k rows) the `IN` filter is slower than fetch-all-then-filter against pyrekordbox's SQLCipher. Do not "optimize" this back to `.filter(...ContentID.in_(row_ids))`.
+- **`/api/status` diagnostic field**: `StatusResponse.db_path` is `None` by default. Callers that opt in with the header `X-AutoCue-Diagnostic: 1` get back the resolved `master.db` path. The web UI never sets it; the `autocue-qa` Playwright harness uses it (in `tests/e2e/safety.spec.ts`) to verify the server is bound to a sandbox copy of the DB and not the user's real library before any other spec runs. Do not log the field outside that one diagnostic context.
 - **`/api/tags` returns only used tags**: the endpoint filters `DjmdMyTag` against `distinct(DjmdSongMyTag.MyTagID)` so unused tags (created and never applied) do not appear in the UI's tag filter list. Tests must mock both queries (see `_make_tags_db()` in `test_serve_routes.py`).
 - **GZip middleware**: `serve/app.py` installs `GZipMiddleware(minimum_size=1000)` ahead of the CORS middleware. SSE streams pass through unchanged (Starlette skips gzip when the response uses `text/event-stream` plus `X-Accel-Buffering: no`).
 - **`/api/playlists/suggest` seeds**: `PlaylistSuggestRequest.seed_track_ids` (list[int], default `[]`) are pre-included tracks placed at the front of the result in user-supplied order. Seeds **bypass `exclude_ids`** (so you can pre-pin a track the caller already excluded). The remaining `req.count − len(seeds)` slots are filled by weighted random draw from the top pool.
@@ -219,7 +228,7 @@ autocue --library --playlist "NAME"  # restrict --library to a named playlist
 - **Multi-select backup delete**: `DELETE /api/backups/{filename}` removes one backup; path traversal is blocked (only bare filenames accepted). The UI uses `_populateChecklist()`, `_updateSelectionCount()`, and `_checkedBackups()` helpers; `deleteCheckedBackups()` calls DELETE once per selected filename and shows a consolidated toast.
 - **Smart slot ordering**: `_apply_smart_slot_order()` in `generator.py` assigns slot A to the first non-Intro phrase chronologically (the DJ mix-in point). Slot B is reserved for the first OUTRO phrase (CDJ prep feature — DJs instinctively reach for B at mix-out). Slots C+ are ordered by `_SMART_PRIORITY` (CHORUS=0, UP=1, OUTRO=2, VERSE=3, DOWN=4, BRIDGE=5, INTRO=6). Only applied in phrase mode.
 - **Cue Quality Checker**: `autocue/analysis/quality.py`. Score: -30 NO_CUES, -10 NO_PHRASE, -10 NO_BEATGRID, -5 DUPLICATE_CUE, -5 UNNAMED_CUES. NO_AUDIO_FILE forces score=0 and skips all other checks. NO_MEMORY_CUE is info-only (zero score impact). Duplicate detection compares `InFrame` values directly (threshold < 2 frames ≈ <13ms). FolderPath on DjmdContent stores the complete audio file path (not just folder).
-- **`/api/health` SSE**: Streams one JSON event per track (TrackHealthReport), then `{"done":true,"summary":{...}}`. Accepts `?playlist_id=N` for incremental rescans. Per-track exceptions yield `{"score":0,"fix_tier":"none","issues":[{"code":"INTERNAL_ERROR",...}]}` — one bad row never aborts the scan.
+- **`/api/health` SSE**: Streams one JSON event per track (TrackHealthReport), then `{"done":true,"summary":{...}}`. Accepts `?playlist_id=N` for incremental rescans and `?limit=N` (1–10000) to cap the per-track loop — `?limit` is used by the `autocue-qa` Playwright smoke suite to bound runs regardless of library size. Per-track exceptions yield `{"score":0,"fix_tier":"none","issues":[{"code":"INTERNAL_ERROR",...}]}` — one bad row never aborts the scan.
 - **Analysis module caches** (all cleared by the `conftest.py` autouse fixture before every test):
   - `energy._cache` — keyed by `(content.ID, n_points)` (NOT just the track ID — the curve length is part of the key).
   - `classify._class_cache` — keyed by `content.ID`.
