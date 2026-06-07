@@ -4504,6 +4504,11 @@ const DiscoverV2 = (() => {
   function subscribe(fn) { subs.add(fn); return () => subs.delete(fn); }
   function notify() { for (const fn of subs) { try { fn(state); } catch (e) { console.error(e); } } }
 
+  // Issue #67: track the in-flight scan's AbortController so a new runScan()
+  // can immediately abort the prior fetch (closing the SSE reader), instead
+  // of racing the server lock.
+  let _scanAbort = null;
+
   // ── HTTP helpers ────────────────────────────────────────────────────────
   async function _post(path, body) {
     const r = await fetch(path, {
@@ -4561,7 +4566,28 @@ const DiscoverV2 = (() => {
 
   // ── SSE feed consumer ───────────────────────────────────────────────────
   async function runScan() {
-    if (state.scanRunning) return;
+    // Issue #67: rapid filter toggles (e.g. Year "All" → "This year" → "All")
+    // raced themselves into a 409. Two changes here:
+    //   1. If a scan is in flight when a new one is requested, abort the
+    //      prior fetch via its AbortController (closes the SSE reader
+    //      immediately and triggers the prior runScan's catch branch, which
+    //      flips scanRunning=false). Also fire the server-side cancel so the
+    //      lock releases promptly. This kills the user-vs-self race.
+    //   2. Do NOT pre-clear the existing cards. We only reset the card grid
+    //      once the new fetch is confirmed OK (200). Error branches preserve
+    //      the previously-rendered cards so a transient 409 / network blip
+    //      does not blow away the user's feed.
+    if (_scanAbort) {
+      // Mark this as a self-initiated supersede so the aborted scan's catch
+      // branch does NOT surface a misleading "network error" toast.
+      _scanAbort.autocueSuperseded = true;
+      try { _scanAbort.abort(); } catch (_) {}
+      _scanAbort = null;
+      try { await _post('/api/discover/feed/cancel', {}); } catch (_) {}
+      // Yield one microtask so the prior runScan's catch can run and reset
+      // scanRunning before we proceed.
+      await Promise.resolve();
+    }
     state.scanRunning = true;
     state.scanFeeder = null;
     state.scanReleasesSeen = 0;
@@ -4571,8 +4597,6 @@ const DiscoverV2 = (() => {
     state.scanLastSummary = null;
     state.scanError = null;
     state.scanWarnings = [];
-    state.cards = [];
-    state.cardsByKey.clear();
     notify();
 
     // Build query from filter chips.
@@ -4585,19 +4609,34 @@ const DiscoverV2 = (() => {
     if (yearVal === 'this') params.set('year_from', String(new Date().getFullYear()));
     else if (yearVal === 'last2') params.set('year_from', String(new Date().getFullYear() - 1));
 
+    const abort = new AbortController();
+    _scanAbort = abort;
     let res;
     try {
-      res = await fetch('/api/discover/feed?' + params.toString());
+      res = await fetch('/api/discover/feed?' + params.toString(), {signal: abort.signal});
     } catch (e) {
+      // Aborted by a newer runScan() call — exit silently. The newer call
+      // owns the state from here on.
+      if (abort.autocueSuperseded || (e && e.name === 'AbortError')) {
+        if (_scanAbort === abort) _scanAbort = null;
+        state.scanRunning = false;
+        notify();
+        return;
+      }
       // Network failure — surface as a structured error so the empty-state can
       // render a Retry button instead of going silent (PRD §9 — every empty
-      // state must say WHY it's empty).
+      // state must say WHY it's empty). Cards preserved (issue #67).
+      if (_scanAbort === abort) _scanAbort = null;
       state.scanRunning = false;
       state.scanError = {kind: 'network', message: String(e && e.message || e)};
       notify();
       return;
     }
     if (res.status === 409) {
+      // Issue #67: do NOT clear cards — keep the prior feed visible. The
+      // error surface (empty-state / banner) reads scanError to explain
+      // why the latest filter change did not refresh the grid.
+      if (_scanAbort === abort) _scanAbort = null;
       state.scanRunning = false;
       state.scanError = {kind: 'conflict', status: 409,
                          message: 'A Discover scan is already running.'};
@@ -4607,6 +4646,7 @@ const DiscoverV2 = (() => {
     if (res.status === 400) {
       let detail = '';
       try { const j = await res.json(); detail = j.detail || ''; } catch (_) {}
+      if (_scanAbort === abort) _scanAbort = null;
       state.scanRunning = false;
       state.scanError = {kind: 'bad-request', status: 400,
                          message: detail || 'Bad request — check the filter parameters.'};
@@ -4614,12 +4654,21 @@ const DiscoverV2 = (() => {
       return;
     }
     if (!res.ok) {
+      if (_scanAbort === abort) _scanAbort = null;
       state.scanRunning = false;
       state.scanError = {kind: 'http', status: res.status,
                          message: `Server returned HTTP ${res.status}.`};
       notify();
       return;
     }
+
+    // Fetch confirmed OK — NOW clear the prior cards so the new stream
+    // fills a fresh grid. Doing this here (rather than at the top of
+    // runScan) keeps the existing feed visible across error responses
+    // (issue #67).
+    state.cards = [];
+    state.cardsByKey.clear();
+    notify();
 
     const reader = res.body.getReader();
     const decoder = new TextDecoder();
@@ -4634,9 +4683,14 @@ const DiscoverV2 = (() => {
         for (const chunk of chunks) _handleSSEChunk(chunk);
       }
     } catch (e) {
-      // Reader broke mid-stream — partial results may still be visible.
-      state.scanError = {kind: 'stream', message: String(e && e.message || e)};
+      // Issue #67: a mid-stream abort means a newer runScan() took over;
+      // do NOT surface as an error.
+      if (!(abort.autocueSuperseded || (e && e.name === 'AbortError'))) {
+        // Reader broke mid-stream — partial results may still be visible.
+        state.scanError = {kind: 'stream', message: String(e && e.message || e)};
+      }
     }
+    if (_scanAbort === abort) _scanAbort = null;
     state.scanRunning = false;
     notify();
   }
