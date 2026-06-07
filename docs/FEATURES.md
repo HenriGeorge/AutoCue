@@ -489,7 +489,9 @@ Before any write (when `dry_run = false` and there are tracks to process), AutoC
 
 ### Running on visible/filtered tracks
 
-The web UI always sends the IDs of the currently visible tracks (after applying any search query, playlist filter, or phrase-only filter) to the API. There is no "apply to all" mode — you always see exactly which tracks will be affected before committing.
+The web UI always sends the IDs of the currently visible tracks (after applying any search query, playlist filter, phrase-only filter, or beat-grid-only filter) to the API. There is no "apply to all" mode — you always see exactly which tracks will be affected before committing.
+
+The **Beat grid only** (`♪`) toggle next to **Phrase only** narrows the list to tracks Rekordbox has actually analyzed (BPM > 0). Combine the two to surface fully-analyzed tracks; turn either off to find tracks that still need a pass through Rekordbox's analyzer. The two flags share the same client-side `filteredTracks()` plumbing as every other filter — selection, export, and bulk write endpoints all see the narrowed list.
 
 ---
 

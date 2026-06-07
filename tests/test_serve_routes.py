@@ -655,6 +655,52 @@ class TestTracksPlaylistFilter:
         assert r.status_code == 200
         assert r.json()[0]["has_phrase"] is False
 
+    def test_has_beats_true_when_bpm_positive(self):
+        db = _make_db()
+        track = SimpleNamespace(
+            ID=1, Title="T", ArtistName="A", AlbumName="", BPM=12800, Length=300, KeyID=None,
+            AnalysisDataPath="",
+        )
+        self._make_content_q(db, [track])
+        key_q = MagicMock()
+        key_q.all.return_value = []
+        db.query.return_value = key_q
+        client = _make_client(db)
+        r = client.get("/api/tracks")
+        assert r.status_code == 200
+        assert r.json()[0]["has_beats"] is True
+
+    def test_has_beats_false_when_bpm_zero(self):
+        """Track imported but never analyzed in Rekordbox — BPM stored as 0."""
+        db = _make_db()
+        track = SimpleNamespace(
+            ID=1, Title="T", ArtistName="A", AlbumName="", BPM=0, Length=300, KeyID=None,
+            AnalysisDataPath="",
+        )
+        self._make_content_q(db, [track])
+        key_q = MagicMock()
+        key_q.all.return_value = []
+        db.query.return_value = key_q
+        client = _make_client(db)
+        r = client.get("/api/tracks")
+        assert r.status_code == 200
+        assert r.json()[0]["has_beats"] is False
+
+    def test_has_beats_false_when_bpm_none(self):
+        db = _make_db()
+        track = SimpleNamespace(
+            ID=1, Title="T", ArtistName="A", AlbumName="", BPM=None, Length=300, KeyID=None,
+            AnalysisDataPath="",
+        )
+        self._make_content_q(db, [track])
+        key_q = MagicMock()
+        key_q.all.return_value = []
+        db.query.return_value = key_q
+        client = _make_client(db)
+        r = client.get("/api/tracks")
+        assert r.status_code == 200
+        assert r.json()[0]["has_beats"] is False
+
 
 # ---------------------------------------------------------------------------
 # /api/generate-apply-stream (SSE)
