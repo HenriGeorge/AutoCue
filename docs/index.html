@@ -5935,7 +5935,17 @@ function _formatImportDiff(before, after) {
 // ── Keyboard shortcuts (T-028) ──────────────────────────────────────────
 // Active-card index lives at module scope so j/k navigation survives feed
 // re-renders (after each Save / Dismiss / Snooze the grid is rebuilt).
+//
+// Issue #69 fix: the numeric index is NOT stable across mutations — when
+// a card is removed, the card that was at `index+1` slides into `index`
+// and silently inherits the active state. A stray Space/Enter then fires
+// dismiss/snooze on the wrong neighbor. We additionally track the
+// release_key of the active card and re-derive the numeric index from it
+// on every re-render. If the key is gone (because the user just
+// dismissed/snoozed it), we drop the active state entirely instead of
+// shifting it onto a neighbor.
 let _activeCardIndex = -1;
+let _activeReleaseKey = null;
 
 function _visibleDiscoverCards() {
   // Use DOM order so the cursor follows what the user actually sees.
@@ -5946,6 +5956,7 @@ function _setActiveCard(index, scroll = true) {
   const cards = _visibleDiscoverCards();
   if (!cards.length) {
     _activeCardIndex = -1;
+    _activeReleaseKey = null;
     return;
   }
   if (index < 0) index = 0;
@@ -5956,12 +5967,17 @@ function _setActiveCard(index, scroll = true) {
     cards[index].scrollIntoView({block: 'nearest', behavior: 'smooth'});
   }
   _activeCardIndex = index;
+  _activeReleaseKey = cards[index].getAttribute('data-release-key');
 }
 
 function _activeRelease() {
   const cards = _visibleDiscoverCards();
   if (_activeCardIndex < 0 || _activeCardIndex >= cards.length) return null;
   const key = cards[_activeCardIndex].getAttribute('data-release-key');
+  // Issue #69: defence-in-depth. If the numeric index now points at a card
+  // whose release_key differs from the one the user last selected, the
+  // grid mutated under us — refuse to act rather than mutating a neighbor.
+  if (_activeReleaseKey && key !== _activeReleaseKey) return null;
   return DiscoverV2.state.cardsByKey.get(key) || null;
 }
 
@@ -6057,13 +6073,29 @@ function _closeSnoozePopover() {
 }
 
 async function _runSnoozeWithDuration(duration) {
+  // ── Issue #69 fix ────────────────────────────────────────────────────
+  // Snooze BEFORE closing the popover. If we closed first, focus would be
+  // restored to the original 💤 button; the subsequent feed re-render then
+  // destroys that button, the browser hops focus to body, and a stray
+  // Space/Enter from the user lands on _activeRelease() — which by then
+  // points at an *adjacent* card (see the sticky `_activeReleaseKey`
+  // tracking added alongside this fix). Running the snooze first means
+  // the re-render happens while the popover is still the focus owner,
+  // so when we close the focus restore target is either still in the
+  // DOM or harmlessly absent. Either way, no synthetic activation can
+  // target an adjacent card.
+  // ─────────────────────────────────────────────────────────────────────
   const release = _snoozePopRelease;
-  _closeSnoozePopover();
-  if (!release) return;
+  if (!release) {
+    _closeSnoozePopover();
+    return;
+  }
   try {
     await DiscoverV2.snooze(release, duration);
   } catch (_) {
     if (typeof showToast === 'function') showToast('Snooze failed');
+  } finally {
+    _closeSnoozePopover();
   }
 }
 
@@ -6246,9 +6278,12 @@ function initDiscoverV2() {
   document.getElementById('disc-v2-kbd-backdrop')?.addEventListener('click', _toggleKbdHelp);
 
   // Snooze popover buttons. Each button carries its duration in data-snooze-dur.
+  // Issue #69: stopPropagation defends against any bubbled click being
+  // re-interpreted by ancestor handlers (e.g. the grid delegate).
   document.querySelectorAll('#disc-v2-snooze-pop [data-snooze-dur]').forEach(btn =>
     btn.addEventListener('click', (ev) => {
       ev.preventDefault();
+      ev.stopPropagation();
       _runSnoozeWithDuration(btn.getAttribute('data-snooze-dur'));
     })
   );
@@ -6264,14 +6299,35 @@ function initDiscoverV2() {
   // Whenever the feed re-renders we may need to reset the cursor. The card
   // grid is rebuilt by _renderDiscoverV2Feed — re-subscribe so we drop the
   // active class on cards that were removed.
+  //
+  // Issue #69: re-derive the active index from `_activeReleaseKey` instead
+  // of trusting the numeric index. If the previously-active card was
+  // removed (e.g. the user just snoozed/dismissed it) we drop the active
+  // state entirely rather than silently transferring it to the card that
+  // slid into that index — otherwise a stray Space/Enter would fire the
+  // next mutation on an adjacent card (Issue #69 stray-dismiss bug).
   DiscoverV2.subscribe(() => {
     const cards = _visibleDiscoverCards();
     if (!cards.length) {
       _activeCardIndex = -1;
+      _activeReleaseKey = null;
+      return;
+    }
+    if (_activeReleaseKey) {
+      const idx = cards.findIndex(c => c.getAttribute('data-release-key') === _activeReleaseKey);
+      if (idx >= 0) {
+        _activeCardIndex = idx;
+        cards[idx].classList.add('active');
+        return;
+      }
+      // Previously active card is gone — drop active state.
+      _activeCardIndex = -1;
+      _activeReleaseKey = null;
       return;
     }
     if (_activeCardIndex >= 0 && _activeCardIndex < cards.length) {
       cards[_activeCardIndex].classList.add('active');
+      _activeReleaseKey = cards[_activeCardIndex].getAttribute('data-release-key');
     }
   });
 
