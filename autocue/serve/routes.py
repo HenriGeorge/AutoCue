@@ -92,9 +92,18 @@ router = APIRouter(prefix="/api")
 
 
 @router.get("/status", response_model=StatusResponse)
-def status(db=Depends(get_ro_db)):
+def status(request: Request, db=Depends(get_ro_db)):
     count = db.get_content().count()
-    return StatusResponse(connected=True, track_count=count)
+    # Diagnostic field: only returned when the caller explicitly opts in via
+    # header. The web UI never sets it. The QA agent sets it to verify the
+    # server is bound to a sandbox copy of master.db, not the user's library.
+    db_path: str | None = None
+    if request.headers.get("x-autocue-diagnostic") == "1":
+        from pathlib import Path
+        db_dir = getattr(db, "_db_dir", None)
+        if db_dir is not None:
+            db_path = str(Path(db_dir) / "master.db")
+    return StatusResponse(connected=True, track_count=count, db_path=db_path)
 
 
 @router.get("/playlists", response_model=list[PlaylistItem])
@@ -867,12 +876,15 @@ def track_health(track_id: int, db=Depends(get_ro_db)):
 async def library_health(
     request: Request,
     playlist_id: int | None = Query(None),
+    limit: int | None = Query(None, ge=1, le=10000),
     db=Depends(get_ro_db),
 ):
     """Stream library health as SSE. One JSON event per track, then a summary event.
 
     Optional ?playlist_id=N limits scan to that playlist — use for incremental rescans
     after re-analyzing a subset of tracks in Rekordbox.
+
+    Optional ?limit=N caps the number of tracks scanned (bounded smoke testing).
     """
     import json
     from collections import defaultdict
@@ -907,10 +919,16 @@ async def library_health(
         except Exception:
             total_count = None
 
+        if limit is not None and total_count is not None:
+            total_count = min(total_count, limit)
         if total_count is not None:
             yield f"data: {json.dumps({'total': total_count})}\n\n"
 
+        emitted = 0
         for report in gen:
+            if limit is not None and emitted >= limit:
+                break
+            emitted += 1
             schema = _report_to_schema(report)
             if any(i.code == "NO_AUDIO_FILE" for i in schema.issues):
                 missing_audio.append(report.track_id)

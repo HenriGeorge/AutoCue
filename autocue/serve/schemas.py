@@ -9,6 +9,7 @@ class StatusResponse(BaseModel):
     connected: bool
     rekordbox_version: str | None = None
     track_count: int
+    db_path: str | None = None
 
 
 class PlaylistItem(BaseModel):
