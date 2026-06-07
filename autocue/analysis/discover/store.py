@@ -235,6 +235,222 @@ class DiscoverStore:
                 ),
             )
 
+    # ── Scan lifecycle (T-007 / T-014) ─────────────────────────────────────
+
+    def start_scan(
+        self,
+        feeders: Iterable[str],
+        *,
+        novelty_strategy: Optional[str] = None,
+        started_at: Optional[str] = None,
+    ) -> int:
+        """Insert a new ``scans`` row with ``finished_at = NULL`` and return its ID.
+
+        The orchestrator (T-014) calls this once per scan attempt. While
+        ``finished_at`` is NULL the row holds the concurrent-scan lock — the
+        SSE feed endpoint refuses to dispatch another scan until it flips.
+        Boot recovery (``_boot_recovery``) closes any row left open by a crash.
+
+        Args:
+            feeders: iterable of feeder names that this scan plans to run.
+                Stored as a comma-list for telemetry — order matters for
+                debugging "which feeder hung the scan?".
+            novelty_strategy: round-robin pointer for novelty feeder rotation
+                (``'style'`` / ``'label'`` / ``'artist'``). ``None`` when no
+                novelty strategy is scheduled for this scan.
+            started_at: override for tests. Production callers omit this so
+                ``_utc_now_iso()`` is used.
+
+        Returns:
+            The new scan_id (SQLite ``last_insert_rowid``).
+        """
+        feeders_list = ",".join(str(f) for f in feeders)
+        ts = started_at or _utc_now_iso()
+        with self.conn:
+            cur = self.conn.execute(
+                "INSERT INTO scans (started_at, status, feeders, novelty_strategy) "
+                "VALUES (?, 'running', ?, ?)",
+                (ts, feeders_list, novelty_strategy),
+            )
+        return int(cur.lastrowid)
+
+    def finish_scan(
+        self,
+        scan_id: int,
+        *,
+        status: str,
+        finished_at: Optional[str] = None,
+        novelty_status: Optional[str] = None,
+        unknown_styles: Optional[Iterable[str]] = None,
+        duration_ms: Optional[int] = None,
+        requests_used: Optional[int] = None,
+        releases_seen: Optional[int] = None,
+        releases_after_dedup: Optional[int] = None,
+        releases_surfaced: Optional[int] = None,
+    ) -> None:
+        """Close a scan row with terminal status.
+
+        ``status`` is one of ``'ok'`` / ``'cancelled'`` / ``'rate_limited'``.
+        (``'crashed'`` is reserved for boot recovery — callers must not pass it.)
+        On status='ok' the orchestrator typically calls
+        :meth:`commit_pending_scan` FIRST so any staging-column writes promote
+        atomically before the lock releases.
+
+        ``unknown_styles`` is stored as a JSON list — empty/None reads as
+        SQL NULL so queries can filter on ``IS NULL`` cleanly.
+        """
+        if status == "crashed":
+            raise ValueError("'crashed' is reserved for boot recovery, not direct finish_scan")
+        ts = finished_at or _utc_now_iso()
+        styles_json = (
+            json.dumps(list(unknown_styles)) if unknown_styles else None
+        )
+        with self.conn:
+            self.conn.execute(
+                """
+                UPDATE scans
+                   SET finished_at = ?,
+                       status = ?,
+                       novelty_status = ?,
+                       unknown_styles = ?,
+                       duration_ms = ?,
+                       requests_used = ?,
+                       releases_seen = ?,
+                       releases_after_dedup = ?,
+                       releases_surfaced = ?
+                 WHERE scan_id = ?
+                """,
+                (
+                    ts, status, novelty_status, styles_json,
+                    duration_ms, requests_used,
+                    releases_seen, releases_after_dedup, releases_surfaced,
+                    scan_id,
+                ),
+            )
+
+    def commit_pending_scan(self, scan_id: int) -> None:
+        """Atomically promote ``last_scanned_at_pending`` → ``last_scanned_at``
+        for every entity whose ``pending_scan_id`` matches.
+
+        Called by the orchestrator on successful scan finish, BEFORE
+        :meth:`finish_scan` so the TTL gate sees the new committed values
+        immediately. One transaction across both watch tables.
+        """
+        with self.conn:
+            self.conn.execute(
+                """
+                UPDATE followed_labels
+                   SET last_scanned_at = last_scanned_at_pending,
+                       last_scanned_at_pending = NULL,
+                       pending_scan_id = NULL
+                 WHERE pending_scan_id = ?
+                   AND last_scanned_at_pending IS NOT NULL
+                """,
+                (scan_id,),
+            )
+            self.conn.execute(
+                """
+                UPDATE followed_shops
+                   SET last_scanned_at = last_scanned_at_pending,
+                       last_scanned_at_pending = NULL,
+                       pending_scan_id = NULL
+                 WHERE pending_scan_id = ?
+                   AND last_scanned_at_pending IS NOT NULL
+                """,
+                (scan_id,),
+            )
+
+    def is_scan_running(self) -> bool:
+        """Cheap check used by the SSE feed endpoint to refuse a 2nd scan
+        (returns 409 in that case)."""
+        row = self.conn.execute(
+            "SELECT 1 FROM scans WHERE finished_at IS NULL LIMIT 1"
+        ).fetchone()
+        return row is not None
+
+    # ── Per-feeder staging-column writes (T-007) ───────────────────────────
+
+    def mark_label_scanned(
+        self,
+        label_id: int,
+        scan_id: int,
+        *,
+        scanned_at: Optional[str] = None,
+    ) -> None:
+        """Record that the label feeder fetched releases for this label
+        during the given scan.
+
+        Writes to the staging columns only — ``last_scanned_at`` doesn't move
+        until :meth:`commit_pending_scan` runs. That keeps the TTL gate honest
+        across a crashed mid-scan: the TTL still reflects the last successful
+        scan, so the next attempt re-scans the same label.
+        """
+        ts = scanned_at or _utc_now_iso()
+        with self.conn:
+            self.conn.execute(
+                """
+                UPDATE followed_labels
+                   SET last_scanned_at_pending = ?,
+                       pending_scan_id = ?
+                 WHERE label_id = ?
+                """,
+                (ts, scan_id, label_id),
+            )
+
+    # ── Follow / unfollow / list (T-007) ───────────────────────────────────
+
+    def follow_label(
+        self,
+        label_id: int,
+        name: str,
+        *,
+        added_at: Optional[str] = None,
+    ) -> None:
+        """Add a label to the user's watch list, or refresh its display name
+        if it's already followed.
+
+        Idempotent — INSERT OR REPLACE updates ``name`` without disturbing
+        ``last_scanned_at`` or the staging columns, so re-following a label
+        doesn't unnecessarily reset the TTL gate.
+        """
+        ts = added_at or _utc_now_iso()
+        with self.conn:
+            self.conn.execute(
+                """
+                INSERT INTO followed_labels (label_id, name, added_at)
+                VALUES (?, ?, ?)
+                ON CONFLICT(label_id) DO UPDATE SET name = excluded.name
+                """,
+                (label_id, name, ts),
+            )
+
+    def unfollow_label(self, label_id: int) -> None:
+        with self.conn:
+            self.conn.execute(
+                "DELETE FROM followed_labels WHERE label_id = ?",
+                (label_id,),
+            )
+
+    def list_followed_labels(self) -> list[dict]:
+        """Return every followed label with TTL + health metadata.
+
+        Ordered ``last_scanned_at ASC NULLS FIRST`` so the label feeder's
+        round-robin fairness logic (PRD §6.2 Feeder 2) gets the longest-
+        unscanned label first. Newly-followed labels (``last_scanned_at IS NULL``)
+        come ahead of any previously-scanned label — they need a first fetch
+        before the TTL clock can mean anything.
+        """
+        rows = self.conn.execute(
+            """
+            SELECT label_id, name, added_at, last_scanned_at,
+                   last_scanned_at_pending, pending_scan_id,
+                   health, consecutive_errors, current_name_check_at
+              FROM followed_labels
+             ORDER BY (last_scanned_at IS NULL) DESC, last_scanned_at ASC
+            """
+        ).fetchall()
+        return [dict(r) for r in rows]
+
     # ── Test / introspection helpers ───────────────────────────────────────
 
     def schema_version(self) -> int:
