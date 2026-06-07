@@ -1,13 +1,39 @@
 from __future__ import annotations
 
 import logging
+import os
+import sys
 import threading
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request
 from sqlalchemy import event, text
 
 logger = logging.getLogger(__name__)
+
+
+def discover_data_dir() -> Path:
+    """Platform-native data dir for Discover v2 state. See PRD §6.7.
+
+    Override via $AUTOCUE_DISCOVER_DATA_DIR (used by tests + multi-machine
+    install setups). Parent dirs are NOT created here — DiscoverStore does
+    that on first construction.
+    """
+    override = os.environ.get("AUTOCUE_DISCOVER_DATA_DIR")
+    if override:
+        return Path(override).expanduser()
+    if sys.platform == "darwin":
+        return Path.home() / "Library" / "Application Support" / "AutoCue"
+    if sys.platform == "win32":
+        appdata = os.environ.get("APPDATA")
+        if appdata:
+            return Path(appdata) / "AutoCue"
+        return Path.home() / "AppData" / "Roaming" / "AutoCue"
+    # Linux / other Unix
+    xdg = os.environ.get("XDG_DATA_HOME")
+    base = Path(xdg).expanduser() if xdg else Path.home() / ".local" / "share"
+    return base / "autocue"
 
 
 def get_db(request: Request):
