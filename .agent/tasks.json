@@ -1,0 +1,559 @@
+{
+  "project": "AutoCue — Discover & Watchlist v2",
+  "prd": ".agent/prd/PRD.md",
+  "summary": ".agent/prd/SUMMARY.md",
+  "generated_at": "2026-06-07",
+  "prd_version": "1.0",
+  "tiers": {
+    "tier_1": "MVP — artist+label feeds, novelty feeder, detail panel, persistence, all accessibility/error/empty handling",
+    "tier_1_5": "Shop watch — ships when ≥8 candidate shops validate to a working auto-feed source",
+    "tier_2": "Should-have next iteration (expanded adjacency, notes/rating, library-suggests-shops, weekly digest, label-rename watchdog, background pagination, compilation-master_id enrichment)",
+    "tier_3": "Stretch / future (friends lane, Bandcamp daily, generic HTML scrape, Beatport/Juno, auto-download)"
+  },
+  "critical_path_chain": ["T-002", "T-003", "T-007", "T-014", "T-015", "T-024", "T-025", "T-026", "T-027", "T-028", "T-029", "T-030", "T-031", "T-032", "T-033", "T-034", "T-035", "T-036", "T-037", "T-038", "T-039"],
+  "critical_path_hours": 50,
+  "critical_path_note": "UI tasks T-024 through T-037 all touch docs/index.html and depend on prior DOM/state foundations; they cannot truly parallelize for a single dev. Backend chain ~15h + UI chain ~36h ≈ 50h sequential.",
+  "honest_effort_estimate_weekends": {
+    "tier_1_full_time": "6-9 weekends (16-24 productive hours each) with 1.5x unknown-unknowns buffer",
+    "tier_1_part_time_evenings": "12-18 weeks (8-12 hours per week) — realistic 3-4 months",
+    "tier_1_5": "+1-2 weekends conditional on validation gate passing"
+  },
+  "notes": [
+    "Each task carries a realistic hours estimate. Tasks were pressure-tested through 7 grill iterations; see .agent/prd/iteration-log.md for design archaeology.",
+    "Critical path is documented in critical_path_chain — these tasks must execute in order. Other tasks parallelize.",
+    "Implementation order: start at T-001 and follow critical_path_chain; parallel-track tasks (T-005, T-006, T-011, T-012, T-013) can begin once their direct dependencies complete."
+  ],
+  "tasks": [
+    {
+      "id": "T-001", "tier": "tier_1", "category": "infra",
+      "title": "Create autocue/analysis/discover/ package skeleton",
+      "description": "Create package directory with empty __init__.py exporting public surface (TasteVector, build_taste_vector, score_release, assemble_feed, DiscoverStore). Add subdirs: feeders/, feeders/shops/, migrations/, shops/.",
+      "files": ["autocue/analysis/discover/__init__.py", "autocue/analysis/discover/feeders/__init__.py", "autocue/analysis/discover/feeders/shops/__init__.py", "autocue/analysis/discover/migrations/", "autocue/analysis/discover/shops/"],
+      "passes": false,
+      "hours_estimate": 0.25,
+      "pass_criteria": ["python -c 'from autocue.analysis.discover import TasteVector, build_taste_vector, DiscoverStore' succeeds (after later tasks define these)"]
+    },
+    {
+      "id": "T-002", "tier": "tier_1", "category": "data",
+      "title": "Style adjacency: JSON resource + strict validation + bundled default (v0.4 — S3-8 + S3-9)",
+      "description": "style_graph.py: STYLE_ALIAS_MAP (normalize 'Deep House' / 'deep-house' / 'deephouse' → 'deep_house') + load_style_adjacency() function that: (1) attempts to load autocue/analysis/discover/style_adjacency.json (user-editable, W-NEW-4); (2) validates against style_adjacency.schema.json with strict JSON Schema (S3-8); (3) on any failure (missing file, malformed JSON, schema violation), falls back to bundled-default style_adjacency.default.json and sets a server-level flag readable via /api/discover/stats so UI can surface 'using bundled defaults' warning; (4) provides STYLE_ADJACENCY.get(style, []) semantics on lookup (S3-9 — unknown style returns empty list, no KeyError). The user JSON has each entry with 'edges' list + 'terminal' bool. Anchor styles (≥3 edges) and terminal styles (0-2 edges) per S-NEW-1. Tier 1 ships ~60 styles in the default JSON (~30 anchor + ~30 terminal).",
+      "files": ["autocue/analysis/discover/style_graph.py", "autocue/analysis/discover/style_adjacency.json", "autocue/analysis/discover/style_adjacency.default.json", "autocue/analysis/discover/style_adjacency.schema.json"],
+      "passes": false,
+      "hours_estimate": 3.5,
+      "pass_criteria": ["STYLE_ALIAS_MAP has ≥60 keys", "style_adjacency.default.json validates against schema", "Every anchor style has ≥3 edges (validated by test)", "Drum & Bass, Footwork, Jungle, Garage UK, IDM are all anchor styles", "S3-8 fallback test: malformed user JSON → load returns default + warning flag set; server does not crash", "S3-9 unknown-style test: STYLE_ADJACENCY.get('nonexistent_style', []) returns []; no KeyError"]
+    },
+    {
+      "id": "T-003", "tier": "tier_1", "category": "functional",
+      "title": "Implement TasteVector + build_taste_vector",
+      "description": "TasteVector dataclass (artists Counter, labels Counter, styles Counter, bpm_hist list, key_hist Counter). build_taste_vector(db, include_streaming=False): plays-weighted artist Counter (log(1+plays)), labels (log(1+total_plays)*sqrt(track_count) with track-count fallback), normalized styles via STYLE_ALIAS_MAP, BPM histogram (buckets of 4, BPM=0 excluded), Camelot key histogram. Streaming-source tracks filtered unless include_streaming=True. AutoCue-namespaced My Tags only (use ALL_AUTOCUE_TAG_NAMES allowlist).",
+      "files": ["autocue/analysis/discover/taste.py"],
+      "passes": false,
+      "hours_estimate": 3,
+      "pass_criteria": ["TasteVector built from mocked Rekordbox DB has populated artists/labels/styles/bpm_hist/key_hist", "Streaming-source tracks excluded when include_streaming=False (verified by test)", "User-created My Tags are NOT in styles Counter (only AutoCue tags)"]
+    },
+    {
+      "id": "T-004", "tier": "tier_1", "category": "tests",
+      "title": "Unit tests for taste vector + style graph",
+      "description": "tests/test_discover_taste.py covers plays-weighted scoring math, log-damping, cold-start fallback to track count, streaming filter, style normalization, BPM=0 exclusion. tests/test_discover_style_graph.py covers normalize_style() idempotence, alias-map round-trip, adjacency-graph sanity (no self-loops, symmetric where intended).",
+      "files": ["tests/test_discover_taste.py", "tests/test_discover_style_graph.py"],
+      "passes": false,
+      "hours_estimate": 1.5,
+      "pass_criteria": ["pytest tests/test_discover_taste.py tests/test_discover_style_graph.py -v all green"]
+    },
+    {
+      "id": "T-005", "tier": "tier_1", "category": "api-client",
+      "title": "Add Discogs client functions for v2 (v0.8 — master_id retained for Tier 2 enrichment, no longer required at scan-time dedup)",
+      "description": "Extend autocue/analysis/discogs.py with: search_label_releases(label_id, token, year_from), search_seller_inventory(seller, token, since_date), get_release_details(release_id, token), search_labels(query, token), get_artist_relations(artist_id, token), validate_token(token). All respect existing token bucket. Wrapper reads x-discogs-ratelimit-remaining from every response; raises RateLimitNearExhausted when <5 remaining; raises Discogs429 with retry-after on 429. get_release_details() exposes master_id from the Discogs response — used by the detail panel and (Tier 2) background pagination for empty-artist enrichment.",
+      "files": ["autocue/analysis/discogs.py"],
+      "passes": false,
+      "hours_estimate": 3,
+      "pass_criteria": ["Each new function has a happy-path test with mocked HTTP", "Rate-limit awareness: client sleeps and continues when remaining<5; aborts cleanly on 429", "validate_token returns True for 200 on /oauth/identity, False for 401", "S6-2 acceptance: get_release_details mock returns master_id when present in Discogs response; returns None when absent (older entries)"]
+    },
+    {
+      "id": "T-006", "tier": "tier_1", "category": "tests",
+      "title": "Discogs client tests (extend test_discogs.py)",
+      "description": "Mock responses for each new function. Specific rate-limit behavior tests: header parsing, near-exhaustion sleep, 429 abort. Token validation tests for 200 / 401 / network error paths.",
+      "files": ["tests/test_discogs.py"],
+      "passes": false,
+      "hours_estimate": 1.5,
+      "pass_criteria": ["pytest tests/test_discogs.py passes including all new test cases"]
+    },
+    {
+      "id": "T-007", "tier": "tier_1", "category": "functional",
+      "title": "Implement artist_feeder + label_feeder (v0.6 — staging-column writes + explicit follow-priority, S3-3 + S5-5)",
+      "description": "feeders/artist.py: top-20 artists from taste_vector, 1 request each, page-1 only. feeders/label.py: explicit follow-priority (S3-3) — first fill slots from followed_labels ordered by last_scanned_at ASC NULLS FIRST (W4-1); if budget remains, fill from taste_vector implicit top-N, excluding any already in the explicit list. Total label budget 15 requests. TTL gating reads COMMITTED last_scanned_at (not pending). v0.6 S5-5: feeders call store.mark_label_scanned(label_id, scan_id, scanned_at) and store.mark_artist_scanned(artist_id, scan_id, scanned_at) — these write to last_scanned_at_pending + pending_scan_id columns, NEVER directly to last_scanned_at. The commit-to-last_scanned_at happens atomically at scan finish in scan_orchestrator (T-014). Errors in one feeder don't abort scan — yield ('error', exception_info) sentinel and continue.",
+      "files": ["autocue/analysis/discover/feeders/artist.py", "autocue/analysis/discover/feeders/label.py"],
+      "passes": false,
+      "hours_estimate": 3.5,
+      "pass_criteria": ["Mocked Discogs responses produce expected releases", "TTL respected: feeder skips artist with committed last_scanned_at <24h ago", "One feeder failure does not abort the scan (verified by test)", "S3-3 explicit follow-priority: with 20 explicit follows + budget=15, scan picks 15 longest-unscanned explicit; over 2 scans, all 20 are eventually scanned (round-robin verified by test)", "S5-5 staging-column write: after scan invocation, last_scanned_at_pending + pending_scan_id are SET on scanned entities; last_scanned_at remains unchanged until orchestrator commits (verified by test inspecting both columns mid-scan)"]
+    },
+    {
+      "id": "T-008", "tier": "tier_1", "category": "functional",
+      "title": "Implement novelty_feeder (v0.4 — sparse-adjacency + unknown-style aware)",
+      "description": "feeders/novelty.py. Runs ONE strategy per scan, rotated round-robin via discover.db.scans.novelty_strategy. Budget 10 req/scan. Strategies: (a) style-adjacent — for top-3 taste_vector.styles, use STYLE_ADJACENCY.get(style, []) (S3-9) and fetch from each adjacent style; (b) label-adjacent — top-5 followed labels' parent/sub-labels; (c) artist-adjacent — top-5 taste-vector artists' members/groups. Tags output as source='novelty:style'|'novelty:label'|'novelty:artist'. Sparse pool conditions (return empty + set novelty_status='sparse_adjacency'): (i) top-3 styles all terminal per JSON, OR (ii) top-3 styles all absent from JSON (unknown). Logs unknown_styles list on scan row for UI hint per S3-9.",
+      "files": ["autocue/analysis/discover/feeders/novelty.py"],
+      "passes": false,
+      "hours_estimate": 3.5,
+      "pass_criteria": ["Single strategy invoked per scan (verify across 3 sequential scans = 3 different strategies)", "Budget ≤10 requests per scan invocation", "Sparse case top-3 all terminal: returns empty + sets novelty_status correctly", "S3-9 sparse case top-3 all unknown: returns empty + sets novelty_status + scan row has unknown_styles list populated"]
+    },
+    {
+      "id": "T-009", "tier": "tier_1", "category": "functional",
+      "title": "Implement ranker — conditional Stage 2 reservation (v0.3 — S-NEW-1 fix)",
+      "description": "ranker.py. score_release(release, taste_vector) implements the 7-term formula from PRD §6.3 stage 1, applying hard_block from blocked_artists/blocked_labels. assemble_feed(scored_releases, novelty_fraction=0.25, top_n=50) implements stage 2 per PRD §6.3 conditional logic: full reservation when novelty pool ≥ quota, partial when pool is thin (no backfill of novelty slots from retrieval — surfaces what's available + sets scan_status['novelty_partial']), empty pool → pure retrieval with scan_status['novelty_status']='sparse_adjacency' (no garbage backfill).",
+      "files": ["autocue/analysis/discover/ranker.py"],
+      "passes": false,
+      "hours_estimate": 2.5,
+      "pass_criteria": ["score_release returns float in [0,100] always (Hypothesis property)", "Full novelty pool: feed has exactly 25% novelty", "Thin pool (5 novelty for 12 slots): feed has 5 novelty + 45 retrieval; novelty_partial=5 in status", "Empty pool: feed has 50 retrieval, no garbage; novelty_status='sparse_adjacency'", "Blocked artist/label never appears in feed"]
+    },
+    {
+      "id": "T-010", "tier": "tier_1", "category": "tests",
+      "title": "Ranker tests with Hypothesis properties",
+      "description": "tests/test_discover_ranker.py — properties: score ∈ [0,100], dismissed lowers score, novelty share guarantee, blocked never appears, snoozed-past-until_date reappears with resurfaced=True flag in card metadata. Plus concrete unit tests for each scoring term.",
+      "files": ["tests/test_discover_ranker.py"],
+      "passes": false,
+      "hours_estimate": 2,
+      "pass_criteria": ["Hypothesis suite passes with default ≥100 examples per property"]
+    },
+    {
+      "id": "T-011", "tier": "tier_1", "category": "storage",
+      "title": "Define discover.db schema + migrations runner + scan-lock crash recovery (v0.5 — staging columns, NULLABLE artist/title, unknown_styles, per-table merge)",
+      "description": "store.py with DiscoverStore class. discover_data_dir() helper resolves to platform-native location. No legacy ~/.autocue migration. migrations/001_initial.sql per PRD §6.7 v0.5 schema: saved/dismissed/snoozed/downloaded have release_key as PK + release_key_version INTEGER + NULLABLE artist/title (S4-3 — store coerces empty/null to 'Unknown Artist'/'Unknown Title' at insert); scans has status + unknown_styles columns (C4-2); followed_labels and followed_shops have last_scanned_at_pending + pending_scan_id staging columns (S4-2). Migration runner detects missing schema_version table → applies 001 unconditionally (W-NEW-2). DiscoverStore __init__ runs the v0.5 boot recovery: (1) for crashed scans, clear last_scanned_at_pending + pending_scan_id (per-scan_id, not timestamp-window — S4-2 prevents over-rollback), (2) UPDATE scans SET finished_at=now, status='crashed' WHERE finished_at IS NULL. In one transaction. Save/dismiss/snooze/download CRUD methods coerce empty artist/title to 'Unknown' strings before insert (S4-3).",
+      "files": ["autocue/analysis/discover/store.py", "autocue/analysis/discover/migrations/001_initial.sql"],
+      "passes": false,
+      "hours_estimate": 5,
+      "pass_criteria": ["First instantiation creates DB at canonical path; schema_version=1", "All v0.5 columns present (release_key_version + NULLABLE artist/title on state tables; status + unknown_styles on scans; last_scanned_at_pending + pending_scan_id on followed_labels/shops)", "Migration bootstrap: blank DB applies 001 cleanly", "Idempotent: running migrations twice doesn't fail", "v0.5 S4-2 acceptance: two crashed scans bracket one successful scan. Boot recovery clears pending values of the two crashed scans WITHOUT touching the successful scan's committed last_scanned_at on the same entities", "v0.5 S4-3 acceptance: save() with artist='' or artist=None results in stored row with artist='Unknown Artist'; no insert failure"]
+    },
+    {
+      "id": "T-012", "tier": "tier_1", "category": "storage",
+      "title": "DiscoverStore CRUD + state methods (v0.3: release_key-keyed)",
+      "description": "Methods: save(release_key, …)/unsave(release_key)/is_saved(release_key)/list_saved (all keyed by release_key — S-NEW-5), dismiss/undismiss/is_dismissed/list_dismissed (release_key), snooze/list_snoozed (with auto-clear of past until_date on read), record_download/list_downloaded, block_artist/unblock_artist/list_blocked_artists (Discogs artist ID), block_label/unblock_label/list_blocked_labels (Discogs label ID), follow_label/unfollow_label/list_followed_labels (with last_scanned_at update), follow_shop/unfollow_shop/list_followed_shops, start_scan/finish_scan/get_running_scan, record_release_detail/get_release_detail (TTL 30d), record_youtube_results(release_key, track_index, …)/get_youtube_results, increment_shop_health/reset_shop_health. Also: saves_correlated_to_scan(scan_id) implementing the timestamp-window query (S-NEW-8) — returns saves where saved_at BETWEEN scan.started_at AND scan.finished_at + 30min.",
+      "files": ["autocue/analysis/discover/store.py"],
+      "passes": false,
+      "hours_estimate": 3.5,
+      "pass_criteria": ["Each method covered by unit test; round-trip CRUD verified", "is_saved(release_key) returns True for a sibling-pressing release_id once the canonical key is saved (the S-NEW-5 acceptance test)", "saves_correlated_to_scan computes the timestamp window correctly across boundary cases"]
+    },
+    {
+      "id": "T-013", "tier": "tier_1", "category": "tests",
+      "title": "DiscoverStore tests",
+      "description": "tests/test_discover_store.py — in-memory SQLite. Cover every method, snooze auto-clear, release-detail TTL, scan-in-progress detection, migration replay from blank.",
+      "files": ["tests/test_discover_store.py"],
+      "passes": false,
+      "hours_estimate": 2,
+      "pass_criteria": ["pytest tests/test_discover_store.py passes"]
+    },
+    {
+      "id": "T-014", "tier": "tier_1", "category": "functional",
+      "title": "Concurrent-scan lock + dedup pipeline + staging-column commit (v0.7 — master_id-aware compilation dedup, S6-2)",
+      "description": "scan_orchestrator.py coordinates feeders. Acquires store.start_scan() lock (writes scan_id, finished_at NULL). Streams feeder yields through dedup using release_key normalized from RAW artist/title + master_id (S5-2 + v0.7 S6-2). Feeders pass through master_id from Discogs (search_label_releases / search_seller_inventory already return it). For empty-artist releases, release_key uses '\\u200B__compilation__\\u200B|||{title}|||mid_{master_id}' when master_id is present; falls back to '...|||rid_{release_id}' when master_id is null — preserves format-variant dedup for compilations with master_ids (1981 vs 2024 reissue of same comp → one card) while still blocking cross-compilation collisions. Excludes library_album_set() + dismissed/snoozed/downloaded/blocked. On clean finish: store.commit_pending_scan(scan_id) atomically promotes last_scanned_at_pending → last_scanned_at on every followed_label/followed_shop where pending_scan_id=this_scan_id (S5-5). Then store.finish_scan(scan_id, status='ok', stats). On cancel/error: store.finish_scan(scan_id, status='cancelled'|'rate_limited', ...); pending cols stay for boot recovery to clear. Releases lock in finally.",
+      "files": ["autocue/analysis/discover/scan_orchestrator.py"],
+      "passes": false,
+      "hours_estimate": 3.5,
+      "pass_criteria": ["Concurrent invocation blocks/returns 409 (verified by test using threading)", "Dedup key normalization folds 'Sam Gendel' / 'sam gendel ' / 'SAM GENDEL' to same key", "v0.7 S6-2 acceptance: two compilation releases with same title + same master_id (1981 vinyl + 2024 reissue) dedup to ONE card (format-variant invariant preserved); two compilation releases with same title + DIFFERENT master_ids stay as TWO cards (cross-comp collision still blocked); compilation with null master_id falls back to release_id discriminator", "Scan stats persist regardless of success/failure", "S5-5 acceptance: on scan finish ok, pending values atomically promote to last_scanned_at in one transaction (verified by SQL inspection)"]
+    },
+    {
+      "id": "T-015", "tier": "tier_1", "category": "api-endpoint",
+      "title": "GET /api/discover/feed (SSE) — main feed endpoint",
+      "description": "Streams scan progress + ranked releases as SSE. Query params: sources[], format, year, style[], sort, explore. Returns 409 immediately if a scan is already running (concurrent-scan lock). Events: {progress:{feeder,scanned,total}}, {release:{...full release card payload}}, {done:{scan_id,duration_ms,stats}}.",
+      "files": ["autocue/serve/routes.py", "autocue/serve/schemas.py"],
+      "passes": false,
+      "hours_estimate": 4,
+      "pass_criteria": ["FastAPI TestClient consumes SSE: receives ≥1 progress + ≥1 release + 1 done", "Second concurrent request returns 409 with scan_id payload"]
+    },
+    {
+      "id": "T-016", "tier": "tier_1", "category": "api-endpoint",
+      "title": "Discover state endpoints (CRUD)",
+      "description": "POST /api/discover/save, /dismiss, /snooze (with duration param), /unsave, /undismiss, /unsnooze, /block-artist, /unblock-artist, /block-label, /unblock-label. GET /api/discover/saved, /dismissed, /snoozed, /downloaded, /blocked-artists, /blocked-labels.",
+      "files": ["autocue/serve/routes.py", "autocue/serve/schemas.py"],
+      "passes": false,
+      "hours_estimate": 3,
+      "pass_criteria": ["Each endpoint covered by TestClient", "Snooze duration accepts '1w'|'1m'|'3m' → maps to days correctly"]
+    },
+    {
+      "id": "T-017", "tier": "tier_1", "category": "api-endpoint",
+      "title": "Discover follow-labels endpoints",
+      "description": "GET /api/discover/labels/suggested (top-20 unwatched library labels by plays-weighted score). POST /api/discover/labels/follow (label_id + name). POST /api/discover/labels/unfollow. Reuses existing search_labels for autocomplete via GET /api/discover/labels/search?q=.",
+      "files": ["autocue/serve/routes.py", "autocue/serve/schemas.py"],
+      "passes": false,
+      "hours_estimate": 2,
+      "pass_criteria": ["TestClient covers all four endpoints"]
+    },
+    {
+      "id": "T-018", "tier": "tier_1", "category": "api-endpoint",
+      "title": "Release detail + scan-control endpoints",
+      "description": "GET /api/discover/releases/{id} (cached via release_details table; on miss, fetches from Discogs). GET /api/discover/feed/status (current scan + per-feeder progress). POST /api/discover/feed/cancel (sets finished_at on running scan_id).",
+      "files": ["autocue/serve/routes.py", "autocue/serve/schemas.py"],
+      "passes": false,
+      "hours_estimate": 1.5,
+      "pass_criteria": ["Detail cache hit returns instantly; miss triggers Discogs fetch", "Cancel during scan completes within 2s and returns 200"]
+    },
+    {
+      "id": "T-019", "tier": "tier_1", "category": "api-endpoint",
+      "title": "State export / import endpoints",
+      "description": "POST /api/discover/state/export → returns gzip-tar of discover.db (Content-Disposition: attachment). POST /api/discover/state/import → accepts uploaded tar.gz, validates SQLite header magic on extraction, atomically swaps in (close existing connection, replace file, reopen). Refuses files >50MB.",
+      "files": ["autocue/serve/routes.py", "autocue/serve/schemas.py"],
+      "passes": false,
+      "hours_estimate": 2,
+      "pass_criteria": ["Export returns valid gzip", "Import rejects non-SQLite file with 400", "Round-trip: export → import → existing rows preserved"]
+    },
+    {
+      "id": "T-020", "tier": "tier_1", "category": "api-endpoint",
+      "title": "Discover stats endpoint (telemetry surface)",
+      "description": "GET /api/discover/stats. Returns: total scans, avg duration, saves-per-scan-90d, novelty-share-90d, top 10 saved labels, top 10 saved artists, current followed counts. All read-only over discover.db.",
+      "files": ["autocue/serve/routes.py", "autocue/serve/schemas.py"],
+      "passes": false,
+      "hours_estimate": 1.5,
+      "pass_criteria": ["TestClient returns expected shape on a seeded DB"]
+    },
+    {
+      "id": "T-021", "tier": "tier_1", "category": "tests",
+      "title": "Route tests for /api/discover/*",
+      "description": "Extend tests/test_serve_routes.py with TestClient cases for every new endpoint above. Specifically cover concurrent-scan 409, SSE event shapes, snooze duration parsing, blocked-artist enforcement in feed, import-rejects-non-sqlite.",
+      "files": ["tests/test_serve_routes.py"],
+      "passes": false,
+      "hours_estimate": 3,
+      "pass_criteria": ["pytest tests/test_serve_routes.py passes with all new cases"]
+    },
+    {
+      "id": "T-022", "tier": "tier_1", "category": "integration",
+      "title": "Backup integration: parallel sidecar with two-phase atomicity + SQLCipher-aware validator (v0.7 — S6-1)",
+      "description": "Extend backup machinery to write discover.db as parallel sidecar at BACKUP_DIR/discover_<timestamp>.db (matching master_<timestamp>.db). v0.4 two-phase atomicity (S3-6): CREATE writes both as .tmp files, fsync, then atomic rename; on second-rename failure, immediately delete the first. DELETE renames both to .deleting then unlinks; startup cleanup pass finishes orphan .deleting/.tmp removals. RESTORE: copy both to temp paths, verify with per-db validator, atomically rename in place. **v0.7 S6-1 per-db validator**: discover.db verified via SQLite magic header check (bytes[:16] == b'SQLite format 3\\x00'). master.db verified by passing the EXPLICIT SQLCipher key from app.state.db._key (path-agnostic — does not rely on pyrekordbox's path-based auto-detect) into either Rekordbox6Database(presnap_path, key=app.state.db._key) or a direct sqlcipher3.connect() + PRAGMA key + SELECT 1 FROM djmdContent LIMIT 1. Required because BACKUP_DIR is not under the Rekordbox install root, so path-fingerprint auto-detection would fail there. On second rename failure, restore original master from a pre-snapshot temp file. Pre-v2 backups (master only) restore cleanly. /api/backups list returns unified records {timestamp, master_path, discover_path|null}.",
+      "files": ["autocue/serve/routes.py", "autocue/serve/schemas.py", "autocue/serve/deps.py", "tests/test_serve_routes.py"],
+      "passes": false,
+      "hours_estimate": 4.5,
+      "pass_criteria": ["Backup writes two parallel files with matching timestamp", "Pre-v2 backup (master only) restores cleanly", "DELETE removes both atomically", "S3-6 atomicity tests: simulated rename failure on second file leaves no half-state; startup cleanup removes orphan .tmp/.deleting files; restore failure on second file rolls back master to original via pre-snapshot temp", "S6-1 acceptance: validator opens an encrypted snapshot from BACKUP_DIR (path NOT under Rekordbox install root) using explicit key kwarg from app.state.db._key; succeeds when key is correct, raises clearly when key is wrong"]
+    },
+    {
+      "id": "T-023", "tier": "tier_1", "category": "integration",
+      "title": "Token validation: 1h positive cache + instant-401-invalidate (v0.3 — S-NEW-6 fix)",
+      "description": "Extend /api/status (or add /api/discover/token-status) with Discogs token validation result. Cache structure: {valid: True, checked_at} for up to 1h. ANY 401 from ANY Discogs API call (across feeders, autocomplete, release-details, etc.) immediately invalidates the cache and triggers /api/status to return {valid: false} on next check. Frontend banner appears within one round-trip of token revocation, not 1h later.",
+      "files": ["autocue/serve/routes.py", "autocue/serve/deps.py", "autocue/analysis/discogs.py"],
+      "passes": false,
+      "hours_estimate": 1.5,
+      "pass_criteria": ["Endpoint returns {valid:true} on 200 from /oauth/identity", "Endpoint returns {valid:false} immediately after a 401 from any Discogs call", "Cache prevents repeated /oauth/identity calls within 1h on positive path"]
+    },
+    {
+      "id": "T-024", "tier": "tier_1", "category": "ui-ux",
+      "title": "Rewrite Discover tab structure (no more ↓ Album button)",
+      "description": "docs/index.html: TAB_CONTENTS.discover replaced. Layout: filter bar / settings sub-panel toggle / feed grid / detail panel slide-out. Card structure: artwork, title, artist, label chip, source badge(s), hover-reveal action row (💚 save / 💤 snooze / ✕ dismiss / more menu). NO download button on the card.",
+      "files": ["docs/index.html"],
+      "passes": false,
+      "hours_estimate": 3,
+      "pass_criteria": ["Manual: no download button visible on cards", "Hover-reveal actions present", "Source badges render correctly for multi-source releases"]
+    },
+    {
+      "id": "T-025", "tier": "tier_1", "category": "ui-ux",
+      "title": "Detail panel with tracklist + dialog semantics",
+      "description": "_openReleaseDetailPanel(release_id). Slide-out right panel (full-screen on <900px). role='dialog', aria-modal='true', focus trap on open, focus return to triggering card on close, Esc key closes. Fetches /api/discover/releases/{id} for tracklist; renders loading state during fetch.",
+      "files": ["docs/index.html"],
+      "passes": false,
+      "hours_estimate": 4,
+      "pass_criteria": ["Manual: panel opens via card click and Enter key; Esc closes; focus returns to card", "Mobile: full-screen panel on viewport <900px (use Chrome DevTools device emulation)"]
+    },
+    {
+      "id": "T-026", "tier": "tier_1", "category": "ui-ux",
+      "title": "Inline YouTube preview carousel — LAZY policy (v0.3 — S-NEW-4 fix)",
+      "description": "_renderYouTubeCarousel(release_key, track_index). On panel open, pre-warm YouTube search for TRACK #1 ONLY. All other tracks render with a 'Find' hint state; their ▶ button fires the search on user click — prevents per-panel-open yt-dlp storm (S-NEW-4 fix). Calls /api/youtube/search → 3-result carousel per track. Each iframe is www.youtube-nocookie.com/embed/{videoId}?autoplay=0&modestbranding=1 with allow='autoplay; encrypted-media' and sandbox='allow-scripts allow-same-origin allow-presentation'. 'Try another' button cycles to next candidate. iframe error handler auto-advances; on exhaustion shows '[Search YouTube] [Search Bandcamp]' fallback links. Results disk-cached in discover.db.youtube_results keyed by (release_key, track_index) — survives reload.",
+      "files": ["docs/index.html", "autocue/serve/routes.py"],
+      "passes": false,
+      "hours_estimate": 4,
+      "pass_criteria": ["Manual: panel open triggers ONE YouTube search (track 1), not 12", "Click ▶ on track 5 triggers search at click time", "Test: open panel, count /api/youtube/search calls = 1 (track 1 only)", "Reload preserves cached results"]
+    },
+    {
+      "id": "T-027", "tier": "tier_1", "category": "ui-ux",
+      "title": "Detail panel Download buttons + Shift-click power flow (v0.3 — W-NEW-1 fix)",
+      "description": "'Download all' button → confirm modal → fetches /api/download/album. 'Download selected' with per-track checkboxes → /api/download per track. Disabled with tooltip if /api/download/config reports yt-dlp+ffmpeg missing. Card-level Shift+click handler bypasses panel: opens confirm modal with **default focus on CANCEL button** (W-NEW-1 fix — prevents sticky-Shift + accidental-Enter from triggering download). User must Tab to or click Download to proceed.",
+      "files": ["docs/index.html"],
+      "passes": false,
+      "hours_estimate": 3,
+      "pass_criteria": ["Manual: Download buttons fire only after explicit click", "Shift+click confirm modal has Cancel as default focus (Tab order verified)", "Pressing Enter immediately on modal open triggers Cancel, not Download (verified by test)", "Disabled state visible when yt-dlp absent"]
+    },
+    {
+      "id": "T-028", "tier": "tier_1", "category": "ui-ux",
+      "title": "Keyboard shortcuts",
+      "description": "_setupKeyboardShortcuts(): j/k navigate feed (selected card outline), Enter open panel, s save, x dismiss, z snooze (opens duration popover), D Download all (panel-open required), Esc close panel. Shortcut help: '?' key shows a small modal listing all shortcuts.",
+      "files": ["docs/index.html"],
+      "passes": false,
+      "hours_estimate": 2,
+      "pass_criteria": ["Manual: each shortcut works as documented; '?' modal renders"]
+    },
+    {
+      "id": "T-029", "tier": "tier_1", "category": "ui-ux",
+      "title": "Filter bar + sort + Explore mode",
+      "description": "Sticky bar above feed: Source chips (Artist/Label/Shop/Novelty multi-select), Format select, Year select, Style multi-select (populated from current results), Sort dropdown (Taste match / Newest / Title / Artist / Explore mode). Each change calls /api/discover/feed with new query params. Persists per-session in sessionStorage, not localStorage.",
+      "files": ["docs/index.html"],
+      "passes": false,
+      "hours_estimate": 2.5,
+      "pass_criteria": ["Each filter triggers refresh and the new URL params hit the backend", "Explore mode flips novelty fraction to 0.5 via backend param"]
+    },
+    {
+      "id": "T-030", "tier": "tier_1", "category": "ui-ux",
+      "title": "Settings sub-panel: Followed Labels",
+      "description": "_renderLabelSettings(). Sections: 'Watched labels' (followed list with remove), 'Suggested from your library' (top-20 unwatched, one-click add), 'Search & add' (debounced autocomplete via /api/discover/labels/search). Each row shows last_scanned_at + health badge.",
+      "files": ["docs/index.html"],
+      "passes": false,
+      "hours_estimate": 2.5,
+      "pass_criteria": ["Manual: type label name → autocomplete → click → label appears in watched list; persists across reload"]
+    },
+    {
+      "id": "T-031", "tier": "tier_1", "category": "ui-ux",
+      "title": "Onboarding banner for first-run (zero followed labels)",
+      "description": "If GET /api/discover/labels lists nothing, show a top-of-feed banner: 'Pick labels from your library to watch' + top-10 chips with Add buttons + 'Add all'. Banner self-dismisses after first follow.",
+      "files": ["docs/index.html"],
+      "passes": false,
+      "hours_estimate": 1.5,
+      "pass_criteria": ["Manual: fresh discover.db → banner visible; Add all → banner disappears next render"]
+    },
+    {
+      "id": "T-032", "tier": "tier_1", "category": "ui-ux",
+      "title": "Settings sub-panel: Blocked artists / labels",
+      "description": "_renderBlockedList(). Two columns (artists / labels) with unblock buttons. Empty state copy: 'Nothing blocked. You can 🚫 block from a card\\'s More menu.'",
+      "files": ["docs/index.html"],
+      "passes": false,
+      "hours_estimate": 1,
+      "pass_criteria": ["Manual: block from card → appears in this list → unblock → disappears"]
+    },
+    {
+      "id": "T-033", "tier": "tier_1", "category": "ui-ux",
+      "title": "Snooze popover + resurface badge",
+      "description": "Clicking 💤 on a card opens a small popover with 1w / 1m / 3m buttons (default highlighted: 1m). Selection POSTs to /api/discover/snooze. When a card carries resurfaced=True (set by backend on feed events for releases past their until_date), render a '🔁 You snoozed this on {date}' chip; remove the chip once the card has been interacted with (or after 60s in view).",
+      "files": ["docs/index.html"],
+      "passes": false,
+      "hours_estimate": 2,
+      "pass_criteria": ["Manual: snooze 1m → release disappears; force date forward (or seed DB) → release reappears with badge"]
+    },
+    {
+      "id": "T-034", "tier": "tier_1", "category": "ui-ux",
+      "title": "Scan-progress UI + Refresh button + delta count",
+      "description": "Feed top shows a small status row: 'Refreshed 2h ago — 4 new since last refresh' with manual [Refresh] button. During scan, replaced by per-feeder progress bar reading from the SSE stream. Concurrent-scan-running state shows 'Scan in progress (started 12s ago)' + [Cancel].",
+      "files": ["docs/index.html"],
+      "passes": false,
+      "hours_estimate": 2.5,
+      "pass_criteria": ["Manual: trigger scan, see progress; cancel mid-scan; refresh after; delta count shown"]
+    },
+    {
+      "id": "T-035", "tier": "tier_1", "category": "ui-ux",
+      "title": "Empty states + error states",
+      "description": "Empty: no followed labels (onboarding banner), no results after filters (clear-filters CTA), all releases snoozed/dismissed ('You're caught up — enable Explore mode or follow more labels'). Error: Discogs token invalid (banner with re-enter link), Discogs rate-limit hit mid-scan (banner: 'Discogs is rate-limiting us — try again in 1 minute'), one feeder failed (small 'Shop watch had errors — see details' link → modal with feeder errors).",
+      "files": ["docs/index.html"],
+      "passes": false,
+      "hours_estimate": 2.5,
+      "pass_criteria": ["Manual: each empty/error state reachable and renders the right copy/CTA"]
+    },
+    {
+      "id": "T-036", "tier": "tier_1", "category": "ui-ux",
+      "title": "Export / Import state UI",
+      "description": "In Discover settings: 'Sync between machines' card with [Export discover.db] button (calls /api/discover/state/export → downloads gz) and [Import] file input (calls /api/discover/state/import). On import success: confirm modal showing pre/post counts, then full app reload.",
+      "files": ["docs/index.html"],
+      "passes": false,
+      "hours_estimate": 1.5,
+      "pass_criteria": ["Manual: round-trip export + import preserves saved/dismissed counts"]
+    },
+    {
+      "id": "T-037", "tier": "tier_1", "category": "ui-ux",
+      "title": "Discover stats surface",
+      "description": "Small 'Stats' link in Discover settings → modal/section showing scan count, avg scan duration, saves-per-scan, novelty share, top saved labels/artists. Read from /api/discover/stats.",
+      "files": ["docs/index.html"],
+      "passes": false,
+      "hours_estimate": 1,
+      "pass_criteria": ["Manual: stats render after seeding the DB with sample scans+saves"]
+    },
+    {
+      "id": "T-038", "tier": "tier_1", "category": "tests",
+      "title": "Vitest tests for Discover frontend",
+      "description": "tests/web/discover.test.js — copy and test: _renderDiscoverCard (source badges, action chips), _renderYouTubeCarousel (3-candidate cycling, error fallback), Shift+click handler, keyboard-shortcut handler, focus trap on detail panel, _renderResurfaceBadge. tests/web/discover_filters.test.js — filter matrix + sort + Explore mode params.",
+      "files": ["tests/web/discover.test.js", "tests/web/discover_filters.test.js"],
+      "passes": false,
+      "hours_estimate": 3,
+      "pass_criteria": ["npm test passes"]
+    },
+    {
+      "id": "T-039", "tier": "tier_1", "category": "tests",
+      "title": "Playwright e2e smoke for Discover",
+      "description": "tests/e2e/discover.spec.ts: open Discover → progress bar appears → at least 1 release renders → save one → reload → still saved → dismiss → no resurface in next scan → snooze → simulate +30d via env var → resurface badge appears. RUN_FULL=1 gated (writes).",
+      "files": ["tests/e2e/discover.spec.ts"],
+      "passes": false,
+      "hours_estimate": 2.5,
+      "pass_criteria": ["RUN_FULL=1 playwright test discover.spec.ts passes"]
+    },
+    {
+      "id": "T-040", "tier": "tier_1", "category": "performance",
+      "title": "Hard 60-request scan cap + per-feeder budget + rate-limit backoff (v0.3 — C-NEW-1 fix)",
+      "description": "Implement the 60-request hard cap from PRD §8 v0.3 Constraints in scan_orchestrator: artists=20, labels=15, shops=15, novelty=10. Each Discogs call increments scan.requests_used; orchestrator refuses to dispatch any feeder request beyond budget — silently skips with metric. Integrate Discogs client's RateLimitNearExhausted (when x-discogs-ratelimit-remaining<5, sleep 5s; on 429, abort scan with status='rate_limited'). Verify scan never exceeds the hard cap in a stress test with synthetic large library (100 artists / 50 labels) — only top-20 / top-15 reached.",
+      "files": ["autocue/analysis/discover/scan_orchestrator.py", "autocue/analysis/discogs.py"],
+      "passes": false,
+      "hours_estimate": 2.5,
+      "pass_criteria": ["scan.requests_used ≤ 60 at end-of-scan (Hypothesis property)", "Stress test: 100-artist library completes with only top-20 artists scanned, requests_used=60", "Simulated 429 mid-scan: scan finishes status='rate_limited' with clear error surfaced"]
+    },
+    {
+      "id": "T-041", "tier": "tier_1", "category": "docs",
+      "title": "Update CLAUDE.md with Discover v2 architecture",
+      "description": "Add the autocue/analysis/discover/ tree, the new /api/discover/* endpoints, the platform-native data dir, the feedparser dep, the discover.db schema sketch, and all new test files. Run bash .claude/hooks/check_doc_sync.sh → 0 gaps.",
+      "files": ["CLAUDE.md"],
+      "passes": false,
+      "hours_estimate": 1.5,
+      "pass_criteria": ["bash .claude/hooks/check_doc_sync.sh reports zero gaps"]
+    },
+    {
+      "id": "T-042", "tier": "tier_1", "category": "docs",
+      "title": "Update docs/FEATURES.md + new docs/reference/discover-v2.md",
+      "description": "FEATURES.md: user-facing copy for the new flow (follow labels, preview, save/snooze/block, Shift-click, keyboard shortcuts, Export/Import). discover-v2.md: long-form covering shop source-type model, novelty graph, validate_pack.py usage, troubleshooting (Discogs token invalid, rate-limited, scan stuck).",
+      "files": ["docs/FEATURES.md", "docs/reference/discover-v2.md"],
+      "passes": false,
+      "hours_estimate": 2,
+      "pass_criteria": ["Markdown preview readable; covers all flows in §7"]
+    },
+    {
+      "id": "T-043", "tier": "tier_1_5", "category": "data",
+      "title": "Author candidate_pack.json (30 shops)",
+      "description": "autocue/analysis/discover/shops/candidate_pack.json — the 30-row candidate list from PRD §6.10 with display_name, city, country, homepage_url_guess, preferred_strategy hint. Strategy hint guides the validate script's probe order.",
+      "files": ["autocue/analysis/discover/shops/candidate_pack.json"],
+      "passes": false,
+      "hours_estimate": 1.5,
+      "pass_criteria": ["JSON parses; ≥30 rows; each row has display_name + at least one of {discogs_handle_guess, homepage_url_guess, bandcamp_handle_guess}"]
+    },
+    {
+      "id": "T-044", "tier": "tier_1_5", "category": "functional",
+      "title": "Implement shop source-type probe helpers",
+      "description": "feeders/shops/{discogs_seller,rss,bandcamp,manual}.py — each implements a Source protocol: probe(spec) → {ok, items_count_or_none} and fetch(spec, since) → list[release]. feeders/rss_autodiscover.py: <link rel=alternate>, common paths /feed /rss /atom.xml /blogs/news.atom. All HTTP with 10s timeout, 5MB body cap, polite UA.",
+      "files": ["autocue/analysis/discover/feeders/shops/discogs_seller.py", "autocue/analysis/discover/feeders/shops/rss.py", "autocue/analysis/discover/feeders/shops/bandcamp.py", "autocue/analysis/discover/feeders/shops/manual.py", "autocue/analysis/discover/feeders/rss_autodiscover.py"],
+      "passes": false,
+      "hours_estimate": 4,
+      "pass_criteria": ["Each source-type probe + fetch covered by mocked-HTTP test", "rss_autodiscover finds feeds in 3 different realistic page samples"]
+    },
+    {
+      "id": "T-045", "tier": "tier_1_5", "category": "functional",
+      "title": "Implement validate_pack.py + CLI command",
+      "description": "shops/validate_pack.py — given candidate_pack.json, probe each row: Discogs seller (num_for_sale ≥ 5), then RSS auto-discover from homepage_url_guess, then Bandcamp, else manual. Write starter_pack.json with successful matches + source_type. Expose as `autocue discover validate-shops` CLI subcommand.",
+      "files": ["autocue/analysis/discover/shops/validate_pack.py", "autocue/cli.py"],
+      "passes": false,
+      "hours_estimate": 3,
+      "pass_criteria": ["CLI invocation produces starter_pack.json", "Output report counts {discogs, rss, bandcamp, manual}", "Polite: ≥1.5s gap between requests"]
+    },
+    {
+      "id": "T-046", "tier": "tier_1_5", "category": "tests",
+      "title": "Shop-source + validate-pack tests",
+      "description": "tests/test_discover_shop_sources.py, tests/test_discover_rss_autodiscover.py, tests/test_discover_validate_pack.py. Mock HTTP for each source path. Validate the polite-pause behavior, error tolerance, and starter_pack.json shape.",
+      "files": ["tests/test_discover_shop_sources.py", "tests/test_discover_rss_autodiscover.py", "tests/test_discover_validate_pack.py"],
+      "passes": false,
+      "hours_estimate": 2.5,
+      "pass_criteria": ["pytest tests/test_discover_shop_sources.py tests/test_discover_rss_autodiscover.py tests/test_discover_validate_pack.py passes"]
+    },
+    {
+      "id": "T-047", "tier": "tier_1_5", "category": "functional",
+      "title": "Implement shop_feeder (multi-source) — staging-column writes (v0.6 S5-5)",
+      "description": "feeders/shop.py: for each followed_shop in store, dispatch on source_type → call appropriate Source.fetch(). TTL gating reads COMMITTED last_scanned_at (6h). On scan completion of a shop, call store.mark_shop_scanned(shop_id, scan_id, scanned_at) which writes to last_scanned_at_pending + pending_scan_id (NEVER directly to last_scanned_at — S5-5). Update health column directly on result (errors bump consecutive_errors; 3rd consecutive error → health='error'). Yield (release, source='shop:{display_name}:{source_type}').",
+      "files": ["autocue/analysis/discover/feeders/shop.py"],
+      "passes": false,
+      "hours_estimate": 2.5,
+      "pass_criteria": ["Mocked sources produce expected releases; failing source eventually marked health=error after 3 attempts", "S5-5 acceptance: shop scan writes to last_scanned_at_pending + pending_scan_id, not directly to last_scanned_at"]
+    },
+    {
+      "id": "T-048", "tier": "tier_1_5", "category": "api-endpoint",
+      "title": "Shop endpoints",
+      "description": "GET /api/discover/shops/candidates (returns candidate_pack.json merged with current validation status from starter_pack.json). POST /api/discover/shops/validate (SSE: runs validate_pack.py, streams per-shop probe results). POST /api/discover/shops/probe (URL → detected source_type, no persist). POST /api/discover/shops/follow / /unfollow. GET /api/discover/shops/followed.",
+      "files": ["autocue/serve/routes.py", "autocue/serve/schemas.py"],
+      "passes": false,
+      "hours_estimate": 3,
+      "pass_criteria": ["TestClient covers all endpoints incl. validate SSE", "Probe endpoint doesn't persist anything"]
+    },
+    {
+      "id": "T-049", "tier": "tier_1_5", "category": "ui-ux",
+      "title": "Settings sub-panel: Shops",
+      "description": "_renderShopSettings(). 'Watched shops' (followed list with source-type icon, last_scanned_at, health badge, remove). 'Candidate shops' (list from /candidates, toggle to follow). 'Add by URL' (paste URL → /probe → confirm detected source → follow). 'Validate starter pack' button → runs SSE validation with progress.",
+      "files": ["docs/index.html"],
+      "passes": false,
+      "hours_estimate": 3,
+      "pass_criteria": ["Manual: validate-pack runs and updates UI; toggling a candidate makes it watched; pasting a URL detects RSS"]
+    },
+    {
+      "id": "T-050", "tier": "tier_1_5", "category": "integration",
+      "title": "Wire shop_feeder into scan_orchestrator",
+      "description": "Add shop_feeder to the orchestrator's feeder pool; respect per-shop request budget; show shop progress in SSE events; surface in /api/discover/stats.",
+      "files": ["autocue/analysis/discover/scan_orchestrator.py"],
+      "passes": false,
+      "hours_estimate": 1.5,
+      "pass_criteria": ["Scan including 3 mocked shops surfaces shop-source releases in the feed"]
+    },
+    {
+      "id": "T-051", "tier": "tier_2", "category": "ui-ux",
+      "title": "Saved tab with notes + rating columns",
+      "description": "Wishlist tab under Discover showing saved releases as a sortable table with editable note + 1-5 star rating. Schema columns already exist (added in T-011) — this task wires UI + endpoints.",
+      "files": ["docs/index.html", "autocue/serve/routes.py"],
+      "passes": false,
+      "hours_estimate": 3,
+      "pass_criteria": ["Manual: edit note + rating → persist across reload"]
+    },
+    {
+      "id": "T-052", "tier": "tier_2", "category": "functional",
+      "title": "Label-rename watchdog (W3)",
+      "description": "Background job (runs in deps lifespan, daily): for each followed_label, re-fetch Discogs label name; if changed, update store and log a notification. Surface in UI as a one-time chip 'Stones Throw renamed to Stones Throw Records.'",
+      "files": ["autocue/serve/deps.py", "autocue/analysis/discover/label_watchdog.py"],
+      "passes": false,
+      "hours_estimate": 2,
+      "pass_criteria": ["Mocked rename triggers update + notification"]
+    },
+    {
+      "id": "T-053", "tier": "tier_2", "category": "functional",
+      "title": "Library-suggests-shops",
+      "description": "Analyze top 10 library labels, query Discogs marketplace for sellers most frequently stocking those labels (using existing seller inventory probes), suggest top-N as shop candidates with confidence scores.",
+      "files": ["autocue/analysis/discover/shops/library_suggest.py"],
+      "passes": false,
+      "hours_estimate": 3,
+      "pass_criteria": ["Mocked label-to-seller graph produces sensible suggestions"]
+    },
+    {
+      "id": "T-054", "tier": "tier_2", "category": "ui-ux",
+      "title": "Weekly digest view",
+      "description": "'This week' tab inside Discover showing top-20 by score from last-7-days releases only. Reuses feed endpoint with sort=newest + year=this-week.",
+      "files": ["docs/index.html"],
+      "passes": false,
+      "hours_estimate": 1.5,
+      "pass_criteria": ["Manual: tab shows only last-7-day releases"]
+    },
+    {
+      "id": "T-055", "tier": "tier_2", "category": "data",
+      "title": "Expand STYLE_ADJACENCY to ~150 styles",
+      "description": "Tier 1 ships ~50 hand-curated; Tier 2 expands. Henri (or contributors via PR) adds adjacency edges for jazz subgenres, ambient/IDM, world music spectrums. Keep STYLE_ALIAS_MAP synchronized.",
+      "files": ["autocue/analysis/discover/style_graph.py"],
+      "passes": false,
+      "hours_estimate": 3,
+      "pass_criteria": ["STYLE_ADJACENCY has ≥150 nodes; passes integrity tests"]
+    },
+    {
+      "id": "T-056", "tier": "tier_3", "category": "functional",
+      "title": "Friend lane with private-collection UX",
+      "description": "Implement friend feeder + Discogs username CRUD + chronological-by-default ranking with 'Match mine' toggle + private-collection pre-flight check with 'Copy message to send them' affordance.",
+      "files": ["autocue/analysis/discover/feeders/friend.py", "docs/index.html", "autocue/serve/routes.py"],
+      "passes": false,
+      "hours_estimate": 8,
+      "pass_criteria": ["Friend with public collection → lane populates; private → explicit ask-them UX"]
+    },
+    {
+      "id": "T-057", "tier": "tier_3", "category": "functional",
+      "title": "Generic HTML scrape fallback for shops",
+      "description": "For shops without Discogs/RSS/Bandcamp, allow user to define CSS selectors for 'new arrivals' (title, artist, image, link). Profile saved in starter_pack.json.",
+      "files": ["autocue/analysis/discover/feeders/shops/html_scrape.py"],
+      "passes": false,
+      "hours_estimate": 6,
+      "pass_criteria": ["Selector profile applied to a sample shop HTML produces parsed releases"]
+    },
+    {
+      "id": "T-058", "tier": "tier_3", "category": "ui-ux",
+      "title": "Export saved → text/cart for shop visits",
+      "description": "Button in Saved tab: download .txt of saved releases (one per line: 'Artist - Title - Label'), or Discogs cart-paste format.",
+      "files": ["docs/index.html"],
+      "passes": false,
+      "hours_estimate": 1,
+      "pass_criteria": ["Manual: download produces a usable .txt"]
+    },
+    {
+      "id": "T-059", "tier": "tier_3", "category": "functional",
+      "title": "Background pre-download of top-N saved overnight",
+      "description": "Optional scheduler: 02:00 local time, pre-download highest-rated saved releases to default download dir, gated on yt-dlp+ffmpeg present + disk space available + user opt-in setting.",
+      "files": ["autocue/analysis/discover/auto_download.py"],
+      "passes": false,
+      "hours_estimate": 4,
+      "pass_criteria": ["Mocked scheduler invokes download for top-N respecting space + opt-in"]
+    }
+  ]
+}
