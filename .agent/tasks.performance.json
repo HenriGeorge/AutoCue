@@ -256,7 +256,7 @@
     "title": "Preserve sticky filter bar + footer action bar layout under virtualization",
     "category": "ui-ux",
     "specFilePath": ".agent/tasks/performance/TASK-037.json",
-    "passes": false
+    "passes": true
   },
   {
     "id": "TASK-038",
