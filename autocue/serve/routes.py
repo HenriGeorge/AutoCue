@@ -2998,3 +2998,38 @@ def discover_stats(store=Depends(get_discover_store)):
         blocked_artist_count=len(store.list_blocked_artists()),
         blocked_label_count=len(store.list_blocked_labels()),
     )
+
+
+# ── /api/perf/recent (TASK-045) ────────────────────────────────────────────
+# Dev-only diagnostic — returns the recent perf ring buffer + per-name p50/p95/p99
+# stats. Disabled (404) unless AUTOCUE_PERF=1 was set when the server started.
+
+@router.get("/perf/recent")
+def perf_recent(limit: int = 100):
+    """Return the most recent perf spans + p50/p95/p99 stats per span name."""
+    from .. import perf as _perf
+
+    if not _perf.is_enabled():
+        raise HTTPException(status_code=404, detail="AUTOCUE_PERF not enabled")
+
+    limit = max(1, min(1000, int(limit)))
+    spans = _perf.recent_spans(limit=limit)
+
+    # Aggregate stats per name from the same ring buffer.
+    names: dict[str, list[float]] = {}
+    for name, _start, dur_ms in spans:
+        names.setdefault(name, []).append(dur_ms)
+
+    stats: dict[str, dict[str, float]] = {}
+    for name in names:
+        s = _perf.get_stats(name)
+        if s is not None:
+            stats[name] = s
+
+    return {
+        "spans": [
+            {"name": n, "start_ts": st, "duration_ms": d}
+            for n, st, d in spans
+        ],
+        "stats": stats,
+    }

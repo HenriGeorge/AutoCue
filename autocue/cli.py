@@ -25,7 +25,16 @@ def main() -> None:
         p.add_argument("--port", type=int, default=7432)
         p.add_argument("--no-browser", action="store_true")
         p.add_argument("--db-path", metavar="PATH")
+        p.add_argument(
+            "--reset-cache",
+            action="store_true",
+            help="Delete the sidecar analysis cache (autocue_cache.sqlite "
+                 "+ WAL/SHM sidecars) before starting. No effect if absent.",
+        )
         a = p.parse_args(sys.argv[2:])
+        if a.reset_cache:
+            from .cache_reset import reset_sidecar_cache
+            reset_sidecar_cache(a.db_path)
         _serve(port=a.port, open_browser=not a.no_browser, db_path=a.db_path)
         return
 
