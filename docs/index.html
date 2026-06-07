@@ -3536,6 +3536,8 @@ async function detectLocalMode() {
 }
 
 async function loadTracksFromServer(playlistId = null) {
+  // TASK-050 — perf mark around the full library-load round-trip.
+  try { _perf.mark('library-load-start'); } catch (_) {}
   const tracksUrl = playlistId != null
     ? `/api/tracks?limit=10000&playlist_id=${playlistId}&sort_by=${currentSort.by}&sort_order=${currentSort.order}`
     : `/api/tracks?limit=10000&sort_by=${currentSort.by}&sort_order=${currentSort.order}`;
@@ -3552,8 +3554,10 @@ async function loadTracksFromServer(playlistId = null) {
     ]);
   } catch (err) {
     if (countEl) countEl.textContent = '';
+    try { _perf.measure('library-load', 'library-load-start'); } catch (_) {}
     throw err;
   }
+  try { _perf.measure('library-load', 'library-load-start'); } catch (_) {}
   // TASK-029 — start polling the warm-up badge in case the sidecar
   // cache is still hydrating in the background.
   try { _warmupPoll.start(); } catch (_) {}
@@ -8018,6 +8022,9 @@ function camelotSortKey(key) {
 }
 
 function filteredTracks() {
+  // TASK-050 — perf mark around filter recompute (called on every render
+  // pass; intentionally cheap when AUTOCUE_PERF is disabled in localStorage).
+  try { _perf.mark('filter-start'); } catch (_) {}
   let tracks = parsedTracks;
   if (phraseOnlyFilter) tracks = tracks.filter(t => t.hasPhrase);
   if (beatsOnlyFilter) tracks = tracks.filter(t => t.hasBeats);
@@ -8051,6 +8058,7 @@ function filteredTracks() {
   if (myTagFilters.size > 0) tracks = tracks.filter(t => (t.myTags || []).some(tag => myTagFilters.has(tag)));
   if (selectedKeys.size > 0) tracks = tracks.filter(t => t.key && selectedKeys.has(t.key));
   if (genreFilters.size > 0) tracks = tracks.filter(t => genreFilters.has(t.genre || ''));
+  try { _perf.measure('filter-recompute', 'filter-start'); } catch (_) {}
   return tracks;
 }
 
