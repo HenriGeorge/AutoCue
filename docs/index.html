@@ -6100,6 +6100,7 @@ function buildTrackCard(track, cues, willSkip, opts = {}) {
 
   const card = document.createElement('div');
   card.className = 'track-card';
+  card.dataset.testid = 'track-card';
   card.dataset.trackId = track.id;
   if (track.colorName) card.dataset.color = track.colorName;
   if (nowPlayingId === track.id && !audioPlayer.paused) card.classList.add('now-playing');

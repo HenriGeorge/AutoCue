@@ -47,6 +47,32 @@ All DOM selectors the agent touches are listed in `tests/e2e/selectors-exist.spe
 
 Within local mode, three tabs (`#tab-cues`, `#tab-library`, `#tab-discover`) gate distinct feature sets. Within each tab the agent tests the panels listed under "Architecture" in `CLAUDE.md` — refer there for the current panel inventory rather than duplicating it here.
 
+## Per-control sweep
+
+After the Playwright smoke layer passes and BEFORE the documented feature sweep, run the **per-control sweep**: every interactive control with a stable id in `docs/index.html` becomes its own Playwright test row.
+
+The inventory lives in `tests/e2e/control-inventory.json`. Three top-level keys:
+- `globalControls` — always run regardless of `--scope` (top bar, tab nav, playlist filter, action bar, download bar).
+- `panelControls.cues` / `.library` / `.discover` — run when the panel is in scope.
+- `perTrack` — sampled selectors for per-track-card controls.
+
+The agent walks the inventory by running the existing Playwright spec at `tests/e2e/per-control-sweep.spec.ts` with the `AUTOCUE_QA_SCOPE` env var set from the user's `--scope` arg (e.g. `AUTOCUE_QA_SCOPE=cues,library`). Bare `/autocue-qa` invocation → `AUTOCUE_QA_SCOPE` unset → all three panels.
+
+Drift guard: `tests/e2e/control-inventory.spec.ts` runs every CI invocation and fails loudly when the live DOM contains an id missing from the inventory (control added, matrix missed) OR the inventory contains an id missing from the DOM (control renamed/removed). The drift guard is the canonical "have I missed a new control?" signal.
+
+### SMOKE_ONLY fallback
+
+If `tests/e2e/control-inventory.json` fails to parse (malformed JSON, schema mismatch), set `SMOKE_ONLY=1`, skip the per-control sweep, log the degradation reason in the run report ("inventory parse failed: <reason>"), and continue with the existing smoke + documented-feature sweep. Do NOT block on inventory parse errors — the agent should still produce a useful report.
+
+### Adding a new control
+
+When the UI gets a new control:
+1. Add its id (and `kind`, optional `collapsible`, optional `safeOnRealDb: false`) to `tests/e2e/control-inventory.json` in `globalControls` or the right `panelControls.<panel>` array.
+2. Run `cd tests/e2e && npm test` — the drift guard confirms the inventory matches the DOM.
+3. The per-control sweep test for that row runs automatically on the next CI.
+
+You do NOT need to write a Playwright test — the sweep iterates the inventory. Richer per-row verification (network assertions, SSE expectations) is added via optional `verify` fields on the row as the sweep matures.
+
 ## Documented feature sweep (Chrome DevTools)
 
 After the Playwright smoke layer passes, **every run must also drive the live UI via Chrome DevTools** through the user-facing behaviors documented in `docs/reference/`. This is the behavioral layer — Playwright covers wiring (does the page load, does the endpoint return 200), the DevTools sweep covers the *features as documented*.
