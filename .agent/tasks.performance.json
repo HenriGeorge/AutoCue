@@ -88,7 +88,7 @@
     "title": "Wire energy.get_energy_curve through CacheStore (L2)",
     "category": "functional",
     "specFilePath": ".agent/tasks/performance/TASK-013.json",
-    "passes": false
+    "passes": true
   },
   {
     "id": "TASK-014",
