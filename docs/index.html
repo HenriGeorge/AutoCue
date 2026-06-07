@@ -3272,6 +3272,45 @@ autocue --library --mode bar --bars-interval 8 --start-bar 1</pre>
 <audio id="autocue-player" preload="none"></audio>
 
 <script>
+// ── Perf instrumentation ──────────────────────────────────────────────────────
+// In-page performance helper that wraps performance.mark / performance.measure.
+// No-op unless localStorage.getItem('autocue_perf') === '1' so it never affects
+// production sessions. See .agent/prd/PERFORMANCE_PRD.md TASK-049 / TASK-050.
+var _perf = (function() {
+  var PREFIX = 'autocue:';
+  function _enabled() {
+    try { return localStorage.getItem('autocue_perf') === '1'; }
+    catch (_) { return false; }
+  }
+  return {
+    enabled: _enabled,
+    mark: function(name) {
+      if (!_enabled()) return;
+      try { performance.mark(PREFIX + name); } catch (_) {}
+    },
+    measure: function(name, startMark) {
+      if (!_enabled()) return null;
+      try {
+        performance.measure(PREFIX + name, PREFIX + startMark);
+        var entries = performance.getEntriesByName(PREFIX + name, 'measure');
+        var entry = entries[entries.length - 1];
+        if (entry) console.log('[AutoCue Perf] ' + name + ': ' + entry.duration.toFixed(2) + 'ms');
+        return entry || null;
+      } catch (_) { return null; }
+    },
+    getEntries: function() {
+      try {
+        return performance.getEntriesByType('measure').filter(function(e) {
+          return e.name.indexOf(PREFIX) === 0;
+        });
+      } catch (_) { return []; }
+    },
+    clear: function() {
+      try { performance.clearMarks(); performance.clearMeasures(); } catch (_) {}
+    },
+  };
+})();
+
 // ── SVG icons ──────────────────────────────────────────────────────────────────
 const SVG_PLAY  = `<svg viewBox="0 0 24 24" fill="currentColor"><polygon points="5,3 19,12 5,21"/></svg>`;
 const SVG_PAUSE = `<svg viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>`;

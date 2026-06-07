@@ -67,7 +67,7 @@
     "title": "Create autocue/cache.py with CacheStore SQLite sidecar",
     "category": "data-model",
     "specFilePath": ".agent/tasks/performance/TASK-010.json",
-    "passes": false
+    "passes": true
   },
   {
     "id": "TASK-011",
@@ -305,7 +305,7 @@
     "title": "autocue/perf.py with perf_span context manager + ring buffer",
     "category": "functional",
     "specFilePath": ".agent/tasks/performance/TASK-044.json",
-    "passes": false
+    "passes": true
   },
   {
     "id": "TASK-045",
@@ -340,7 +340,7 @@
     "title": "Frontend _perf helper with mark / measure",
     "category": "ui-ux",
     "specFilePath": ".agent/tasks/performance/TASK-049.json",
-    "passes": false
+    "passes": true
   },
   {
     "id": "TASK-050",
