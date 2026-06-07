@@ -5694,6 +5694,41 @@ function _esc(s) {
   }[c]));
 }
 
+// Timestamped export filename so a user with multiple machines doesn't
+// overwrite their own backups when they re-export.
+function _discoverV2ExportFilename(now) {
+  const d = now || new Date();
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  const dd = String(d.getDate()).padStart(2, '0');
+  return `discover-${yyyy}-${mm}-${dd}.db.gz`;
+}
+
+// Build a human-readable diff line from before/after import counts. Skips
+// fields with no change so the toast stays short.
+function _formatImportDiff(before, after) {
+  const labels = {
+    saved: 'saves',
+    dismissed: 'dismisses',
+    snoozed: 'snoozes',
+    downloaded: 'downloads',
+    followed_labels: 'followed labels',
+    blocked_artists: 'blocked artists',
+    blocked_labels: 'blocked labels',
+  };
+  const parts = [];
+  for (const key of Object.keys(labels)) {
+    const b = (before && before[key]) || 0;
+    const a = (after && after[key]) || 0;
+    const delta = a - b;
+    if (delta === 0) continue;
+    const sign = delta > 0 ? '+' : '';
+    parts.push(`${sign}${delta} ${labels[key]}`);
+  }
+  if (!parts.length) return 'Imported — no changes';
+  return 'Imported · ' + parts.join(', ');
+}
+
 // ── Keyboard shortcuts (T-028) ──────────────────────────────────────────
 // Active-card index lives at module scope so j/k navigation survives feed
 // re-renders (after each Save / Dismiss / Snooze the grid is rebuilt).
@@ -6070,24 +6105,44 @@ function initDiscoverV2() {
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = 'discover.db.gz';
+      a.download = _discoverV2ExportFilename();
       document.body.appendChild(a);
       a.click();
       a.remove();
       URL.revokeObjectURL(url);
+      if (typeof showToast === 'function') {
+        showToast('Exported ' + a.download);
+      }
     } catch (e) {
-      alert('Export failed: ' + e);
+      if (typeof showToast === 'function') {
+        showToast('Export failed: ' + (e && e.message || e), true);
+      }
     }
   });
   document.getElementById('disc-v2-import-input')?.addEventListener('change', async (ev) => {
     const file = ev.target.files?.[0];
     if (!file) return;
-    if (!confirm('Importing will replace your current Discover state. Continue?')) return;
+    try { ev.target.value = ''; } catch (_) { /* reset so same file re-fires */ }
+
+    // Pre-import audit so the user sees what they'd be replacing.
+    const s = DiscoverV2.state;
+    const summary =
+      `You currently have:\n` +
+      `  ${s.savedKeys.size} saved · ${s.dismissedKeys.size} dismissed · ${s.snoozedKeys.size} snoozed\n` +
+      `  ${s.followedLabels.length} followed labels · ` +
+      `${s.blockedArtists.length + s.blockedLabels.length} blocked entries\n\n` +
+      `Importing "${file.name}" will REPLACE all of this. Continue?`;
+    if (!confirm(summary)) return;
+
     try {
       const result = await DiscoverV2.importState(file);
-      alert('Imported. ' + JSON.stringify(result.after));
+      if (typeof showToast === 'function') {
+        showToast(_formatImportDiff(result.before, result.after));
+      }
     } catch (e) {
-      alert('Import failed: ' + e);
+      if (typeof showToast === 'function') {
+        showToast('Import failed: ' + (e && e.message || e), true);
+      }
     }
   });
 
