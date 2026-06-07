@@ -1970,6 +1970,7 @@ def download_single(req: DownloadRequest):
 
     def event_stream():
         events: "queue.Queue[dict]" = queue.Queue()
+        cancel_event = threading.Event()
 
         def progress(d: dict) -> None:
             events.put({
@@ -1984,8 +1985,11 @@ def download_single(req: DownloadRequest):
                 path = dl.download_audio(
                     req.query, dest_dir=req.dest_dir,
                     audio_format=req.audio_format, progress_cb=progress,
+                    cancel_event=cancel_event,
                 )
                 result["path"] = path
+            except dl.DownloadCancelled:
+                result["cancelled"] = True
             except Exception as exc:  # noqa: BLE001
                 result["error"] = str(exc)
             finally:
@@ -1994,13 +1998,21 @@ def download_single(req: DownloadRequest):
         t = threading.Thread(target=worker, daemon=True)
         t.start()
 
-        while True:
-            ev = events.get()
-            if ev.get("_end"):
-                break
-            yield f"data: {_json.dumps({'processed': 0, 'total': 1, 'query': req.query, **ev})}\n\n"
+        try:
+            while True:
+                ev = events.get()
+                if ev.get("_end"):
+                    break
+                yield f"data: {_json.dumps({'processed': 0, 'total': 1, 'query': req.query, **ev})}\n\n"
+        except BaseException:  # includes GeneratorExit (client disconnect)
+            # Signal the worker; it'll abort at the next yt-dlp progress tick.
+            # No yield can run here — Starlette has closed the stream.
+            cancel_event.set()
+            raise
 
-        if "error" in result:
+        if result.get("cancelled"):
+            yield f"data: {_json.dumps({'done': True, 'status': 'cancelled', 'failed': 1})}\n\n"
+        elif "error" in result:
             yield f"data: {_json.dumps({'done': True, 'status': 'error', 'error': result['error'], 'failed': 1})}\n\n"
         else:
             yield f"data: {_json.dumps({'done': True, 'status': 'finished', 'path': result.get('path'), 'downloaded': 1})}\n\n"
@@ -2021,21 +2033,31 @@ def download_album(req: DownloadAlbumRequest):
         raise HTTPException(503, "ffmpeg not found on PATH — required to extract audio.")
 
     def event_stream():
+        import threading as _threading
         total = len(req.tracks)
         downloaded = 0
         failed = 0
-        for i, spec in enumerate(req.tracks):
-            label = spec.title or spec.query
-            try:
-                path = dl.download_audio(
-                    spec.query, dest_dir=req.dest_dir, audio_format=req.audio_format,
-                )
-                downloaded += 1
-                yield f"data: {_json.dumps({'processed': i+1, 'total': total, 'title': label, 'query': spec.query, 'status': 'finished', 'path': path, 'downloaded': downloaded})}\n\n"
-            except Exception as exc:  # noqa: BLE001
-                failed += 1
-                logger.warning("album download failed for %r: %s", spec.query, exc)
-                yield f"data: {_json.dumps({'processed': i+1, 'total': total, 'title': label, 'query': spec.query, 'status': 'error', 'error': str(exc), 'failed': failed})}\n\n"
-        yield f"data: {_json.dumps({'done': True, 'downloaded': downloaded, 'failed': failed, 'total': total})}\n\n"
+        cancel_event = _threading.Event()
+        try:
+            for i, spec in enumerate(req.tracks):
+                label = spec.title or spec.query
+                try:
+                    path = dl.download_audio(
+                        spec.query, dest_dir=req.dest_dir, audio_format=req.audio_format,
+                        cancel_event=cancel_event,
+                    )
+                    downloaded += 1
+                    yield f"data: {_json.dumps({'processed': i+1, 'total': total, 'title': label, 'query': spec.query, 'status': 'finished', 'path': path, 'downloaded': downloaded})}\n\n"
+                except dl.DownloadCancelled:
+                    # Client disconnected mid-track — bubble out of the loop.
+                    raise
+                except Exception as exc:  # noqa: BLE001
+                    failed += 1
+                    logger.warning("album download failed for %r: %s", spec.query, exc)
+                    yield f"data: {_json.dumps({'processed': i+1, 'total': total, 'title': label, 'query': spec.query, 'status': 'error', 'error': str(exc), 'failed': failed})}\n\n"
+            yield f"data: {_json.dumps({'done': True, 'downloaded': downloaded, 'failed': failed, 'total': total})}\n\n"
+        except (BaseException, dl.DownloadCancelled):
+            cancel_event.set()
+            raise
 
     return StreamingResponse(event_stream(), media_type="text/event-stream")

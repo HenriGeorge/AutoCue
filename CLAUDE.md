@@ -174,8 +174,7 @@ npm test                             # run 191 Vitest tests for the web app (65 
 autocue serve --no-browser           # start local server on localhost:7432
 autocue --library --dry-run          # preview CLI output without writing
 autocue --track "Song Title"
-autocue --library --overwrite        # re-generate for all tracks
-autocue --library --uncued-only      # only tracks with zero existing hot cues
+autocue --library --overwrite        # re-generate for all tracks (default skips already-cued)
 autocue --library --playlist "NAME"  # restrict --library to a named playlist
 ```
 

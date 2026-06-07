@@ -13,10 +13,18 @@ from __future__ import annotations
 
 import logging
 import os
+import threading
 from pathlib import Path
 from typing import Any, Callable
 
 logger = logging.getLogger(__name__)
+
+
+class DownloadCancelled(Exception):
+    """Raised inside yt-dlp's progress hook when a caller-supplied cancel_event
+    is set (e.g. an SSE client disconnected). yt-dlp propagates the exception
+    out of ``extract_info`` and the partial download is left in place — see the
+    "Orphaned files" section of docs/reference/youtube-download.md."""
 
 
 def ytdlp_available() -> bool:
@@ -94,6 +102,7 @@ def download_audio(
     audio_format: str = "mp3",
     audio_quality: str = "192",
     progress_cb: Callable[[dict[str, Any]], None] | None = None,
+    cancel_event: threading.Event | None = None,
 ) -> str:
     """Download the best audio for a URL or search term and extract it to ``audio_format``.
 
@@ -102,6 +111,12 @@ def download_audio(
 
     ``progress_cb`` (optional) receives yt-dlp progress dicts
     ({'status', 'downloaded_bytes', 'total_bytes', ...}) for streaming UIs.
+
+    ``cancel_event`` (optional) is checked on every yt-dlp progress tick. When
+    set, ``DownloadCancelled`` is raised inside the hook, which yt-dlp will
+    propagate out of ``extract_info`` — callers should catch it. SSE handlers
+    set this when the client disconnects so the daemon worker thread does not
+    keep yt-dlp running indefinitely.
     """
     if not ytdlp_available():
         raise RuntimeError(
@@ -117,6 +132,10 @@ def download_audio(
     written: dict[str, str] = {}
 
     def _hook(d: dict[str, Any]) -> None:
+        # Check cancellation FIRST — even before progress_cb — so a long
+        # download stops at the next tick when the client disconnects.
+        if cancel_event is not None and cancel_event.is_set():
+            raise DownloadCancelled("client disconnected")
         if progress_cb:
             try:
                 progress_cb(d)

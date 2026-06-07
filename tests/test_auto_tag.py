@@ -114,6 +114,53 @@ class TestEnsureCategoryTags:
         result = ensure_category_tags(db)
         assert set(result.keys()) == set(_CATEGORIES.keys())
 
+    def test_reuses_existing_tag_with_different_casing(self):
+        """Manually-created lowercase 'warmup' should NOT cause a duplicate."""
+        from autocue.analysis.auto_tag import ensure_category_tags
+        existing = [
+            _make_my_tag(99, "warmup"),       # lowercase
+            _make_my_tag(100, "  Peak  "),    # whitespace-padded
+            _make_my_tag(101, "BUILD"),       # all caps
+        ]
+        db = _make_db(existing_tags=existing)
+        result = ensure_category_tags(db)
+
+        # All three existing tags reused — no duplicates created for them
+        assert result["warmup"] == "99"
+        assert result["peak"] == "100"
+        assert result["build"] == "101"
+        # Only the missing two (after_hours, closing) get created
+        assert db.session.add.call_count == 2
+
+
+class TestEnsureTagByName:
+    def test_reuses_tag_with_different_casing(self):
+        """Bug fix: "Vocal" and "vocal" should resolve to the same row."""
+        from autocue.analysis.auto_tag import ensure_tag_by_name
+        existing = [_make_my_tag(77, "Vocal")]
+        db = _make_db(existing_tags=existing)
+
+        same_id = ensure_tag_by_name(db, "vocal")
+        assert same_id == "77"
+        assert db.session.add.call_count == 0
+
+    def test_reuses_tag_with_whitespace(self):
+        from autocue.analysis.auto_tag import ensure_tag_by_name
+        existing = [_make_my_tag(88, "Tech House")]
+        db = _make_db(existing_tags=existing)
+
+        same_id = ensure_tag_by_name(db, "  tech house  ")
+        assert same_id == "88"
+        assert db.session.add.call_count == 0
+
+    def test_creates_new_tag_preserves_original_casing(self):
+        from autocue.analysis.auto_tag import ensure_tag_by_name
+        db = _make_db()
+        ensure_tag_by_name(db, "Disco")
+        # The newly-added tag preserves the user's casing
+        added_tag = db.session.add.call_args[0][0]
+        assert added_tag.Name == "Disco"
+
 
 # ---------------------------------------------------------------------------
 # apply_classification_tags

@@ -155,3 +155,72 @@ class TestDownloadAudio:
                     dl.download_audio("X", dest_dir=str(tmp_path), progress_cb=captured.append)
         statuses = [c["status"] for c in captured]
         assert "downloading" in statuses and "finished" in statuses
+
+
+class TestCancelEvent:
+    """Bug fix: client disconnect must stop the download worker."""
+
+    def _make_mock_ydl(self):
+        """Build a MagicMock yt-dlp that exposes the progress hook for direct calls."""
+        ydl = MagicMock()
+
+        def ydl_ctor(opts):
+            ydl.__enter__.return_value._hook = opts["progress_hooks"][0]
+            return ydl
+        fake_module = SimpleNamespace(YoutubeDL=MagicMock(side_effect=ydl_ctor))
+        return ydl, fake_module
+
+    def test_cancel_event_set_before_call_aborts_immediately(self, tmp_path):
+        import threading
+        ydl, fake_module = self._make_mock_ydl()
+
+        def run_extract(target, download=False):
+            hook = ydl.__enter__.return_value._hook
+            hook({"status": "downloading", "downloaded_bytes": 1, "total_bytes": 100})
+            return {"title": "X"}
+        ydl.__enter__.return_value.extract_info.side_effect = run_extract
+
+        cancel = threading.Event()
+        cancel.set()  # already cancelled
+
+        with patch.object(dl, "ytdlp_available", return_value=True):
+            with patch.object(dl, "ffmpeg_available", return_value=True):
+                with patch.dict(sys.modules, {"yt_dlp": fake_module}):
+                    with pytest.raises(dl.DownloadCancelled):
+                        dl.download_audio("X", dest_dir=str(tmp_path), cancel_event=cancel)
+
+    def test_cancel_event_set_mid_download_raises_in_hook(self, tmp_path):
+        import threading
+        ydl, fake_module = self._make_mock_ydl()
+        cancel = threading.Event()
+
+        def run_extract(target, download=False):
+            hook = ydl.__enter__.return_value._hook
+            hook({"status": "downloading", "downloaded_bytes": 1, "total_bytes": 100})
+            cancel.set()
+            hook({"status": "downloading", "downloaded_bytes": 50, "total_bytes": 100})
+            return {"title": "X"}
+        ydl.__enter__.return_value.extract_info.side_effect = run_extract
+
+        with patch.object(dl, "ytdlp_available", return_value=True):
+            with patch.object(dl, "ffmpeg_available", return_value=True):
+                with patch.dict(sys.modules, {"yt_dlp": fake_module}):
+                    with pytest.raises(dl.DownloadCancelled):
+                        dl.download_audio("X", dest_dir=str(tmp_path), cancel_event=cancel)
+
+    def test_no_cancel_event_runs_normally(self, tmp_path):
+        ydl, fake_module = self._make_mock_ydl()
+
+        def run_extract(target, download=False):
+            hook = ydl.__enter__.return_value._hook
+            hook({"status": "downloading", "downloaded_bytes": 1, "total_bytes": 100})
+            hook({"status": "finished", "filename": str(tmp_path / "X.webm")})
+            return {"title": "X", "requested_downloads": [{"filepath": str(tmp_path / "X.mp3")}]}
+        ydl.__enter__.return_value.extract_info.side_effect = run_extract
+
+        with patch.object(dl, "ytdlp_available", return_value=True):
+            with patch.object(dl, "ffmpeg_available", return_value=True):
+                with patch.dict(sys.modules, {"yt_dlp": fake_module}):
+                    path = dl.download_audio("X", dest_dir=str(tmp_path))
+        assert path.endswith("X.mp3")
+
