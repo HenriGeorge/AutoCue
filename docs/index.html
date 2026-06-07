@@ -5225,6 +5225,87 @@ function _renderSuggestedLabels(suggestions) {
   });
 }
 
+// Format a millisecond duration for the stats block.
+function _formatStatsDuration(ms) {
+  if (ms == null || !Number.isFinite(ms) || ms <= 0) return '–';
+  if (ms < 1000) return `${Math.round(ms)} ms`;
+  const sec = ms / 1000;
+  if (sec < 60) return `${sec.toFixed(1)}s`;
+  const m = Math.floor(sec / 60);
+  const s = Math.round(sec - m * 60);
+  return `${m}m ${s}s`;
+}
+
+function _formatStatsRatio(n) {
+  if (n == null || !Number.isFinite(n)) return '–';
+  if (n >= 1) return n.toFixed(1);
+  return n.toFixed(2);
+}
+
+function _formatStatsPercent(n) {
+  if (n == null || !Number.isFinite(n)) return '–';
+  return `${Math.round(n * 100)}%`;
+}
+
+// Render the stats block surfaced under Settings → Stats. Skips empty
+// sub-sections (no top labels yet, no novelty share recorded yet) so the
+// block stays useful even on a fresh install.
+function _renderDiscoverV2Stats(stats) {
+  const block = document.getElementById('disc-v2-stats-block');
+  if (!block) return;
+  if (!stats) {
+    block.innerHTML = '<em>No stats yet — run a scan first.</em>';
+    return;
+  }
+  const noveltyShare = stats.novelty_share || {};
+  const noveltyParts = Object.keys(noveltyShare).sort().map(k =>
+    `${_esc(k)} ${_formatStatsPercent(noveltyShare[k])}`
+  );
+  const topLabels = (stats.top_labels || []).slice(0, 5);
+  const topArtists = (stats.top_artists || []).slice(0, 5);
+
+  const counts = [
+    `<strong>${stats.total_scans}</strong> scans`,
+    `<strong>${stats.saved_count}</strong> saved`,
+    `<strong>${stats.dismissed_count}</strong> dismissed`,
+    `<strong>${stats.snoozed_count}</strong> snoozed`,
+    `<strong>${stats.downloaded_count}</strong> downloaded`,
+    `<strong>${stats.followed_count}</strong> followed labels`,
+  ];
+  if (stats.blocked_artist_count || stats.blocked_label_count) {
+    counts.push(
+      `<strong>${stats.blocked_artist_count + stats.blocked_label_count}</strong> blocked`
+    );
+  }
+
+  const rows = [];
+  rows.push(`<div style="display:flex;flex-wrap:wrap;gap:10px;margin-bottom:8px;">${counts.join(' · ')}</div>`);
+  rows.push(
+    `<div style="display:flex;gap:14px;flex-wrap:wrap;margin-bottom:8px;color:var(--muted);">` +
+    `<span>avg scan: <strong style="color:var(--text);">${_formatStatsDuration(stats.avg_duration_ms)}</strong></span>` +
+    `<span>saves per scan: <strong style="color:var(--text);">${_formatStatsRatio(stats.saves_per_scan)}</strong></span>` +
+    `</div>`
+  );
+  if (noveltyParts.length) {
+    rows.push(`<div style="margin-bottom:8px;color:var(--muted);">novelty mix: ${noveltyParts.join(' · ')}</div>`);
+  }
+  if (topLabels.length) {
+    rows.push(
+      `<div style="margin-bottom:4px;color:var(--muted);">top label sources: ` +
+      topLabels.map(l => `${_esc(l.name || 'unknown')} (${l.count})`).join(' · ') +
+      `</div>`
+    );
+  }
+  if (topArtists.length) {
+    rows.push(
+      `<div style="color:var(--muted);">top artist sources: ` +
+      topArtists.map(a => `${_esc(a.name || 'unknown')} (${a.count})`).join(' · ') +
+      `</div>`
+    );
+  }
+  block.innerHTML = rows.join('');
+}
+
 function _renderDiscoverV2Blocked() {
   const list = document.getElementById('disc-v2-blocked-list');
   if (!list) return;
@@ -5953,12 +6034,14 @@ function initDiscoverV2() {
       settings.style.display = wasHidden ? '' : 'none';
       if (wasHidden) {
         // Lazy-load stats when settings is opened.
+        const block = document.getElementById('disc-v2-stats-block');
+        if (block) block.innerHTML = '<em>Loading stats…</em>';
         try {
           const stats = await DiscoverV2.refreshStats();
-          document.getElementById('disc-v2-stats-block').innerHTML = `
-            ${stats.total_scans} scans · ${stats.saved_count} saved · ${stats.followed_count} followed labels
-          `;
-        } catch (_) {}
+          _renderDiscoverV2Stats(stats);
+        } catch (e) {
+          if (block) block.innerHTML = '<em>Could not load stats.</em>';
+        }
       }
     });
   }
