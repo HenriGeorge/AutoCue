@@ -8,7 +8,7 @@ from fastapi.responses import FileResponse
 from ..analysis.quality import check_library_health, check_track_health
 from ..db_writer import has_existing_hot_cues
 from ..generator import GenerationPrefs, generate_cues_for_track
-from .deps import get_db, get_ro_db
+from .deps import _get_discover_db_path_safe, get_db, get_ro_db
 
 
 def _rb_running(db) -> bool:
@@ -514,7 +514,7 @@ def apply(req: ApplyRequest, db=Depends(get_db)):
             db_path = Path(db_dir) / "master.db"
             if not db_path.exists():
                 raise FileNotFoundError(f"master.db not found at {db_path}")
-            backup_path = str(backup_database(db_path))
+            backup_path = str(backup_database(db_path, discover_db_path=_get_discover_db_path_safe()))
         except Exception as e:
             raise HTTPException(500, f"Backup failed — aborting: {e}")
 
@@ -585,7 +585,7 @@ def generate_apply(req: GenerateAndApplyRequest, db=Depends(get_db)):
             db_path = Path(db_dir) / "master.db"
             if not db_path.exists():
                 raise FileNotFoundError(f"master.db not found at {db_path}")
-            backup_path = str(backup_database(db_path))
+            backup_path = str(backup_database(db_path, discover_db_path=_get_discover_db_path_safe()))
         except Exception as e:
             raise HTTPException(500, f"Backup failed — aborting: {e}")
 
@@ -654,7 +654,7 @@ def generate_apply_stream(req: GenerateAndApplyRequest, db=Depends(get_db)):
             db_path = Path(db_dir) / "master.db"
             if not db_path.exists():
                 raise FileNotFoundError(f"master.db not found at {db_path}")
-            backup_path = str(backup_database(db_path))
+            backup_path = str(backup_database(db_path, discover_db_path=_get_discover_db_path_safe()))
         except Exception as e:
             raise HTTPException(500, f"Backup failed — aborting: {e}")
 
@@ -700,25 +700,44 @@ def generate_apply_stream(req: GenerateAndApplyRequest, db=Depends(get_db)):
 
 @router.get("/backups", response_model=list[BackupItem])
 def list_backups():
+    """List master backups. Discover sidecars (PRD §6.7) are reported via
+    the optional ``has_discover_sidecar`` flag on each BackupItem — when
+    True, a parallel ``discover_<TS>.db`` exists alongside the master file.
+
+    Only master backups appear as top-level entries; the listing groups by
+    timestamp so the UI sees one row per backup with the sidecar status as
+    metadata, not as a second entry."""
     import re
     from datetime import datetime
     from ..db_writer import BACKUP_DIR
     if not BACKUP_DIR.exists():
         return []
+    # Index discover sidecars by timestamp first so the master loop can
+    # check existence without a stat per master file.
+    discover_by_ts: dict[str, Path] = {}
+    for p in BACKUP_DIR.glob("discover_*.db"):
+        m = re.match(r"discover_(\d{8}T\d{6})\.db", p.name)
+        if m:
+            discover_by_ts[m.group(1)] = p
+
     items = []
-    for p in sorted(BACKUP_DIR.glob("*.db"), key=lambda f: f.stat().st_mtime, reverse=True):
+    for p in sorted(BACKUP_DIR.glob("master_*.db"),
+                    key=lambda f: f.stat().st_mtime, reverse=True):
         stat = p.stat()
         m = re.search(r"(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})", p.stem)
         if m:
             yr, mo, dy, hh, mm, ss = m.groups()
             created_at = f"{yr}-{mo}-{dy} {hh}:{mm}:{ss}"
+            ts_key = f"{yr}{mo}{dy}T{hh}{mm}{ss}"
         else:
             created_at = datetime.fromtimestamp(stat.st_mtime).strftime("%Y-%m-%d %H:%M:%S")
+            ts_key = None
         items.append(BackupItem(
             path=str(p),
             filename=p.name,
             size_mb=round(stat.st_size / (1024 * 1024), 2),
             created_at=created_at,
+            has_discover_sidecar=ts_key in discover_by_ts if ts_key else False,
         ))
     return items
 
@@ -784,11 +803,46 @@ def restore_backup(req: RestoreRequest, request_obj: Request, db=Depends(get_db)
     _similar_mod.clear_index()
     _audio_check_cache.clear()  # B1: drop stale audio-existence verdicts
 
-    return RestoreResponse(restored=True, message=f"Restored from {req.filename}")
+    # PRD §6.7 discover sidecar — restore the parallel discover_<TS>.db when
+    # the backup carried one. The 'master_TS.db' filename encodes the TS.
+    discover_restored = False
+    import re as _re
+    m = _re.match(r"master_(\d{8}T\d{6})\.db", req.filename)
+    if m:
+        ts_key = m.group(1)
+        discover_backup = BACKUP_DIR / f"discover_{ts_key}.db"
+        if discover_backup.exists():
+            try:
+                from .deps import discover_data_dir
+                discover_target = discover_data_dir() / "discover.db"
+                # Close any open store first so the file isn't locked.
+                current_store = getattr(request_obj.app.state, "discover_store", None)
+                if current_store is not None:
+                    current_store.close()
+                    request_obj.app.state.discover_store = None
+                shutil.copy2(discover_backup, discover_target)
+                discover_restored = True
+                logger.info("Restored discover sidecar from %s", discover_backup.name)
+            except Exception as exc:
+                logger.warning("Discover sidecar restore failed (master restored OK): %s", exc)
+        else:
+            logger.info(
+                "No discover.db sidecar for %s — leaving current curation state intact",
+                req.filename,
+            )
+
+    msg = f"Restored from {req.filename}"
+    if discover_restored:
+        msg += " (with Discover state)"
+    return RestoreResponse(restored=True, message=msg)
 
 
 @router.delete("/backups/{filename}")
 def delete_backup(filename: str):
+    """Delete a backup. PRD §6.7: when deleting a master backup, the
+    parallel discover_<TS>.db sidecar is removed too. WAL/SHM sidecars on
+    the master file are also unlinked."""
+    import re as _re
     from ..db_writer import BACKUP_DIR
     from pathlib import Path
     backup_path = (BACKUP_DIR / filename).resolve()
@@ -801,7 +855,16 @@ def delete_backup(filename: str):
         sidecar = Path(str(backup_path) + suf)
         if sidecar.exists():
             sidecar.unlink()
-    return {"deleted": filename}
+    # Discover sidecar — paired by timestamp on master_<TS>.db only.
+    deleted_discover = False
+    m = _re.match(r"master_(\d{8}T\d{6})\.db", filename)
+    if m:
+        ts_key = m.group(1)
+        discover_path = BACKUP_DIR / f"discover_{ts_key}.db"
+        if discover_path.exists():
+            discover_path.unlink()
+            deleted_discover = True
+    return {"deleted": filename, "deleted_discover_sidecar": deleted_discover}
 
 
 @router.post("/delete-cues", response_model=DeleteResponse)
@@ -823,7 +886,7 @@ def delete_cues(req: DeleteRequest, db=Depends(get_db)):
             db_path = Path(db_dir) / "master.db"
             if not db_path.exists():
                 raise FileNotFoundError(f"master.db not found at {db_path}")
-            backup_path = str(backup_database(db_path))
+            backup_path = str(backup_database(db_path, discover_db_path=_get_discover_db_path_safe()))
         except Exception as e:
             raise HTTPException(500, f"Backup failed — aborting: {e}")
 
@@ -865,7 +928,7 @@ def color_tracks_ep(req: ColorTracksRequest, db=Depends(get_db)):
             db_path = Path(db_dir) / "master.db"
             if not db_path.exists():
                 raise FileNotFoundError(f"master.db not found at {db_path}")
-            backup_path = str(backup_database(db_path))
+            backup_path = str(backup_database(db_path, discover_db_path=_get_discover_db_path_safe()))
         except Exception as e:
             raise HTTPException(500, f"Backup failed — aborting: {e}")
 
@@ -892,7 +955,7 @@ def color_tracks_stream_ep(req: ColorTracksRequest, db=Depends(get_db)):
             if db_dir is None:
                 raise RuntimeError("Cannot locate master.db")
             db_path = Path(db_dir) / "master.db"
-            backup_path = str(backup_database(db_path))
+            backup_path = str(backup_database(db_path, discover_db_path=_get_discover_db_path_safe()))
         except Exception as e:
             raise HTTPException(500, f"Backup failed — aborting: {e}")
 
@@ -1183,7 +1246,7 @@ def cue_tools_stream(req: CueToolsRequest, db=Depends(get_db)):
             db_path = Path(db_dir) / "master.db"
             if not db_path.exists():
                 raise FileNotFoundError(f"master.db not found at {db_path}")
-            backup_path = Path(backup_database(db_path)).name  # filename only, not full path
+            backup_path = Path(backup_database(db_path, discover_db_path=_get_discover_db_path_safe())).name  # filename only, not full path
         except Exception as e:
             raise HTTPException(500, f"Backup failed — aborting: {e}")
 

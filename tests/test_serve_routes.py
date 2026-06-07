@@ -1265,7 +1265,11 @@ class TestBackupsCreatedAt:
     def test_created_at_falls_back_to_mtime_for_odd_filenames(self, tmp_path):
         backup_dir = tmp_path / "backups"
         backup_dir.mkdir()
-        (backup_dir / "backup_manual.db").write_bytes(b"x")
+        # T-022 changed the /api/backups glob from "*.db" to "master_*.db" so
+        # the listing pairs cleanly with the new discover_<TS>.db sidecars.
+        # Use a "master_" prefix without a parseable timestamp to exercise
+        # the mtime-fallback branch.
+        (backup_dir / "master_manual.db").write_bytes(b"x")
         with patch("autocue.db_writer.BACKUP_DIR", backup_dir):
             client = _make_client()
             r = client.get("/api/backups")

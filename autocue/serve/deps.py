@@ -77,6 +77,20 @@ def _prewarm_index(db) -> None:
         logger.warning("Similarity index pre-warm failed: %s", e)
 
 
+def _get_discover_db_path_safe() -> Path | None:
+    """Return the active discover.db path if it exists, else None.
+
+    Used by the cue-write endpoints so their existing safety backups
+    automatically capture the discover sidecar (PRD §6.7) without having
+    to thread the DiscoverStore singleton through every call site.
+    """
+    try:
+        path = discover_data_dir() / "discover.db"
+    except Exception:
+        return None
+    return path if path.exists() else None
+
+
 def get_discover_store(request: Request):
     """Lazy-construct a DiscoverStore singleton on first call.
 
