@@ -4554,6 +4554,35 @@ const DiscoverV2 = (() => {
     state.followedLabels = r.items;
     notify();
   }
+  async function refreshBlocked() {
+    const [a, l] = await Promise.all([
+      _get('/api/discover/blocked-artists'),
+      _get('/api/discover/blocked-labels'),
+    ]);
+    state.blockedArtists = a.items || [];
+    state.blockedLabels = l.items || [];
+    notify();
+  }
+  async function blockArtist(discogsArtistId, name) {
+    await _post('/api/discover/block-artist',
+                {discogs_artist_id: discogsArtistId, name: name});
+    await refreshBlocked();
+  }
+  async function unblockArtist(discogsArtistId) {
+    await _post('/api/discover/unblock-artist',
+                {discogs_artist_id: discogsArtistId});
+    await refreshBlocked();
+  }
+  async function blockLabel(discogsLabelId, name) {
+    await _post('/api/discover/block-label',
+                {discogs_label_id: discogsLabelId, name: name});
+    await refreshBlocked();
+  }
+  async function unblockLabel(discogsLabelId) {
+    await _post('/api/discover/unblock-label',
+                {discogs_label_id: discogsLabelId});
+    await refreshBlocked();
+  }
   async function fetchSuggestedLabels(limit = 10) {
     const r = await _get('/api/discover/labels/suggested?limit=' + limit);
     return r.items;
@@ -4586,6 +4615,7 @@ const DiscoverV2 = (() => {
     loadInitialState, runScan, cancelScan,
     save, dismiss, snooze, loadDetail, searchYouTube,
     followLabel, unfollowLabel, refreshFollowed, fetchSuggestedLabels, searchLabels,
+    blockArtist, unblockArtist, blockLabel, unblockLabel, refreshBlocked,
     refreshStats, exportState, importState,
   };
 })();
@@ -4935,15 +4965,53 @@ function _renderDiscoverV2Blocked() {
   const sa = DiscoverV2.state.blockedArtists || [];
   const sl = DiscoverV2.state.blockedLabels || [];
   if (!sa.length && !sl.length) {
-    list.innerHTML = 'Nothing blocked. You can 🚫 block from a card&apos;s More menu.';
+    list.innerHTML = 'Nothing blocked. You can 🚫 block an artist or label from the release detail panel.';
     list.style.color = 'var(--muted)';
     return;
   }
   list.style.color = 'var(--text)';
-  const rows = [];
-  sa.forEach(a => rows.push(`<div>🎤 ${_esc(a.name || 'unknown')}</div>`));
-  sl.forEach(l => rows.push(`<div>🏷 ${_esc(l.name || 'unknown')}</div>`));
-  list.innerHTML = rows.join('');
+  list.innerHTML = '';
+
+  const _row = (kind, icon, name, id, unblockFn) => {
+    const row = document.createElement('div');
+    row.style.display = 'flex';
+    row.style.justifyContent = 'space-between';
+    row.style.alignItems = 'center';
+    row.style.padding = '4px 0';
+    row.setAttribute('data-blocked-kind', kind);
+    row.setAttribute('data-blocked-id', String(id));
+    row.innerHTML = `<span>${icon} ${_esc(name || 'unknown')}</span>`;
+    const btn = document.createElement('button');
+    btn.className = 'secondary-btn';
+    btn.style.fontSize = '11px';
+    btn.textContent = 'Unblock';
+    btn.addEventListener('click', async () => {
+      btn.disabled = true;
+      btn.textContent = '…';
+      try {
+        await unblockFn(id);
+      } catch (_) {
+        btn.disabled = false;
+        btn.textContent = 'Unblock';
+      }
+    });
+    row.appendChild(btn);
+    return row;
+  };
+
+  if (sa.length) {
+    const h = document.createElement('div');
+    h.innerHTML = `<strong style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.04em;">Artists (${sa.length})</strong>`;
+    list.appendChild(h);
+    sa.forEach(a => list.appendChild(_row('artist', '🎤', a.name, a.discogs_artist_id, DiscoverV2.unblockArtist)));
+  }
+  if (sl.length) {
+    const h = document.createElement('div');
+    h.style.marginTop = sa.length ? '8px' : '0';
+    h.innerHTML = `<strong style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.04em;">Labels (${sl.length})</strong>`;
+    list.appendChild(h);
+    sl.forEach(l => list.appendChild(_row('label', '🏷', l.name, l.discogs_label_id, DiscoverV2.unblockLabel)));
+  }
 }
 
 // Detail panel ── proper dialog: focus trap, return-focus, click-outside-to-close.
@@ -5084,6 +5152,11 @@ function _renderDetailBody(release, detail, status, errorMsg) {
   const isDismissed = DiscoverV2.state.dismissedKeys.has(release.release_key);
   const followsLabel = labelId &&
     DiscoverV2.state.followedLabels.some(l => l.label_id === labelId);
+  const artistId = (detail && detail.artist_id) || r.artist_id || 0;
+  const artistBlocked = artistId &&
+    (DiscoverV2.state.blockedArtists || []).some(b => b.discogs_artist_id === artistId);
+  const labelBlocked = labelId &&
+    (DiscoverV2.state.blockedLabels || []).some(b => b.discogs_label_id === labelId);
 
   const trackHtml = tracks.length
     ? `<ol class="disc-v2-detail-tracklist" aria-label="Tracklist">
@@ -5121,6 +5194,12 @@ function _renderDetailBody(release, detail, status, errorMsg) {
       ${labelId && !followsLabel
         ? `<button class="disc-v2-detail-action" data-detail-act="follow-label" data-label-id="${labelId}" data-label-name="${_esc(label)}">+ Follow ${_esc(label)}</button>`
         : ''}
+      ${artistId && !artistBlocked
+        ? `<button class="disc-v2-detail-action" data-detail-act="block-artist" data-artist-id="${artistId}" data-artist-name="${_esc(artist)}" title="Stop seeing this artist in Discover">🚫 Block ${_esc(artist)}</button>`
+        : ''}
+      ${labelId && !labelBlocked
+        ? `<button class="disc-v2-detail-action" data-detail-act="block-label" data-label-id="${labelId}" data-label-name="${_esc(label)}" title="Stop seeing this label in Discover">🚫 Block ${_esc(label)}</button>`
+        : ''}
     </div>
     <div id="disc-v2-detail-youtube-slot"></div>
     ${errHtml}
@@ -5155,6 +5234,21 @@ function _renderDetailBody(release, detail, status, errorMsg) {
           if (query && typeof runDownload === 'function') {
             runDownload(query, {});
           }
+        } else if (act === 'block-artist') {
+          const aid = parseInt(btn.getAttribute('data-artist-id'), 10);
+          const aname = btn.getAttribute('data-artist-name') || '';
+          await DiscoverV2.blockArtist(aid, aname);
+          // Blocking hides this release from future scans — close + remove from feed.
+          DiscoverV2.state.dismissedKeys.add(release.release_key);
+          _closeDetailPanel();
+          return;
+        } else if (act === 'block-label') {
+          const lid = parseInt(btn.getAttribute('data-label-id'), 10);
+          const lname = btn.getAttribute('data-label-name') || '';
+          await DiscoverV2.blockLabel(lid, lname);
+          DiscoverV2.state.dismissedKeys.add(release.release_key);
+          _closeDetailPanel();
+          return;
         }
         // Re-render to reflect updated state (e.g., save button → ✓ Saved).
         _renderDetailBody(release, detail, status, errorMsg);
