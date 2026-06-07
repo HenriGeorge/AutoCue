@@ -80,13 +80,15 @@ def status(db=Depends(get_ro_db)):
 @router.get("/playlists", response_model=list[PlaylistItem])
 def playlists(db=Depends(get_ro_db)):
     from pyrekordbox.db6 import DjmdPlaylist, DjmdSongPlaylist
+    from sqlalchemy import func as _func
     rows = db.query(DjmdPlaylist).filter(DjmdPlaylist.Name.isnot(None)).all()
+    counts = dict(
+        db.query(DjmdSongPlaylist.PlaylistID, _func.count(DjmdSongPlaylist.ID))
+        .group_by(DjmdSongPlaylist.PlaylistID)
+        .all()
+    )
     return [
-        PlaylistItem(
-            id=p.ID,
-            name=p.Name,
-            track_count=db.query(DjmdSongPlaylist).filter_by(PlaylistID=p.ID).count(),
-        )
+        PlaylistItem(id=p.ID, name=p.Name, track_count=counts.get(str(p.ID), 0))
         for p in rows
     ]
 
@@ -136,15 +138,20 @@ def tracks(
 
     total = q.count()
     rows = q.offset(offset).limit(limit).all()
+    row_ids = {str(t.ID) for t in rows}
+
     # Pre-load the 24-row key table once rather than querying per track
     key_map = {k.ID: k.ScaleName for k in db.query(DjmdKey).all() if k.ScaleName}
 
-    # Pre-load play history: ContentID → latest session DateCreated
+    # Pre-load play history: ContentID → latest DateCreated
+    # Fetch entire history tables (no IN clause) — faster than 3k-item IN for full-library loads
     last_played_map: dict[str, str] = {}
     try:
         from pyrekordbox.db6 import DjmdHistory, DjmdSongHistory
         hist_date = {str(h.ID): h.DateCreated for h in db.query(DjmdHistory).all() if h.DateCreated}
         for sh in db.query(DjmdSongHistory).all():
+            if sh.ContentID not in row_ids:
+                continue
             d = hist_date.get(str(sh.HistoryID))
             if d and sh.ContentID:
                 key = str(sh.ContentID)
@@ -154,11 +161,14 @@ def tracks(
         pass
 
     # Pre-load my tags: ContentID → [tag names]
+    # Fetch all SongMyTag rows at once (no IN clause) — avoids large IN for full-library loads
     my_tags_map: dict[str, list[str]] = {}
     try:
         from pyrekordbox.db6 import DjmdMyTag, DjmdSongMyTag
         tag_names = {str(t.ID): t.Name for t in db.query(DjmdMyTag).all() if t.Name}
         for st in db.query(DjmdSongMyTag).all():
+            if str(st.ContentID) not in row_ids:
+                continue
             n = tag_names.get(str(st.MyTagID))
             if n and st.ContentID:
                 my_tags_map.setdefault(str(st.ContentID), []).append(n)
@@ -260,9 +270,16 @@ def track_audio(track_id: int, db=Depends(get_ro_db)):
 @router.get("/tags")
 def list_tags(db=Depends(get_ro_db)):
     try:
-        from pyrekordbox.db6 import DjmdMyTag
+        from pyrekordbox.db6 import DjmdMyTag, DjmdSongMyTag
+        from sqlalchemy import distinct
+        # Only return tags that are actually applied to at least one track
+        used_ids = {
+            str(r[0])
+            for r in db.query(distinct(DjmdSongMyTag.MyTagID)).all()
+            if r[0] is not None
+        }
         tags = db.query(DjmdMyTag).filter(DjmdMyTag.Name.isnot(None)).all()
-        return [{"id": t.ID, "name": t.Name} for t in tags if t.Name]
+        return [{"id": t.ID, "name": t.Name} for t in tags if t.Name and str(t.ID) in used_ids]
     except Exception:
         return []
 
@@ -783,10 +800,12 @@ def _to_item(
         existing_hot_cues=existing,
         key=key,
         rating=int(getattr(t, "Rating", 0) or 0),
-        play_count=int(str(getattr(t, "DJPlayCount", None) or "0") or "0"),
+        play_count=int(getattr(t, "DJPlayCount", 0) or 0),
         last_played=(last_played_map or {}).get(str(t.ID)),
         my_tags=(my_tags_map or {}).get(str(t.ID), []),
         color_name=(color_name_map or {}).get(color_id, "") if color_id else "",
+        genre=getattr(t, "GenreName", None) or "",
+        comment=getattr(t, "Commnt", None) or "",
     )
 
 
@@ -1021,7 +1040,9 @@ def cue_tools_stream(req: CueToolsRequest, db=Depends(get_db)):
                     if out_ms >= 0:
                         # Use effective shift to keep loop length intact
                         effective_shift = new_ms - original_in_ms
-                        cue.OutMsec = max(0, out_ms + effective_shift)
+                        new_out_ms = max(0, out_ms + effective_shift)
+                        cue.OutMsec = new_out_ms
+                        cue.OutFrame = round(new_out_ms * 150 / 1000)
                 changed += 1
 
         elif operation == "delete_orphan":
@@ -1152,57 +1173,72 @@ def playlist_suggest(req: PlaylistSuggestRequest, db=Depends(get_ro_db)):
         pl = db.query(DjmdPlaylist).filter(DjmdPlaylist.ID == str(req.playlist_id)).first()
         if pl is None:
             raise HTTPException(404, f"Playlist {req.playlist_id} not found")
+        from pyrekordbox.db6 import DjmdContent as _DjmdContent
         ids = [
             e.ContentID
             for e in db.query(DjmdSongPlaylist).filter_by(PlaylistID=str(req.playlist_id)).all()
         ]
-        contents = [db.get_content(ID=i) for i in ids if i]
-        contents = [c for c in contents if c is not None]
+        valid_ids = [i for i in ids if i]
+        contents = (
+            db.session.query(_DjmdContent).filter(_DjmdContent.ID.in_(valid_ids)).all()
+            if valid_ids else []
+        )
     else:
         contents = db.get_content().all()
 
     exclude = set(req.exclude_ids)
+    seed_set = set(req.seed_track_ids)
     scored: list[tuple[float, int]] = []
+    seed_scored: dict[int, float] = {}
     for content in contents:
         cid = int(content.ID)
-        if cid in exclude:
+        # Seeds bypass exclude_ids; non-seeds skip if excluded
+        if cid in exclude and cid not in seed_set:
             continue
         try:
             data = get_classification(content, db)
             cat_score = data["scores"].get(req.category, 0.0)
-            if cat_score > 0:
+            if cid in seed_set:
+                seed_scored[cid] = cat_score
+            elif cat_score > 0:
                 scored.append((cat_score, cid))
         except Exception:
-            pass
+            if cid in seed_set:
+                seed_scored[cid] = 0.0
+
+    # Seed results maintain original selection order
+    seed_items: list[tuple[float, int]] = [
+        (seed_scored.get(sid, 0.0), sid) for sid in req.seed_track_ids
+    ]
+    fill_count = max(0, req.count - len(seed_items))
 
     import random
     scored.sort(reverse=True)
-    # Pick from the top pool with weighted randomness so repeated calls give variety.
-    # Pool size: 3× the requested count (min 60, capped at available).
-    pool_size = min(len(scored), max(req.count * 3, 60))
+    pool_size = min(len(scored), max(fill_count * 3, 60))
     pool = scored[:pool_size]
-    if len(pool) <= req.count:
-        top = pool
-    else:
-        weights = [s ** 2 for s, _ in pool]  # square to favour high scorers
-        chosen: list[tuple[float, int]] = []
-        seen: set[int] = set()
-        for _ in range(req.count * 4):  # draw with replacement, dedup until we have enough
-            if len(chosen) >= req.count:
-                break
-            pick = random.choices(pool, weights=weights, k=1)[0]
-            if pick[1] not in seen:
-                seen.add(pick[1])
-                chosen.append(pick)
-        # If weighted draw didn't fill the quota, append remaining in score order
-        if len(chosen) < req.count:
-            for item in pool:
-                if len(chosen) >= req.count:
+    fill: list[tuple[float, int]] = []
+    if pool and fill_count > 0:
+        if len(pool) <= fill_count:
+            fill = pool
+        else:
+            weights = [s ** 2 for s, _ in pool]
+            seen: set[int] = set()
+            for _ in range(fill_count * 4):
+                if len(fill) >= fill_count:
                     break
-                if item[1] not in seen:
-                    seen.add(item[1])
-                    chosen.append(item)
-        top = chosen
+                pick = random.choices(pool, weights=weights, k=1)[0]
+                if pick[1] not in seen:
+                    seen.add(pick[1])
+                    fill.append(pick)
+            if len(fill) < fill_count:
+                for item in pool:
+                    if len(fill) >= fill_count:
+                        break
+                    if item[1] not in seen:
+                        seen.add(item[1])
+                        fill.append(item)
+
+    top = seed_items + fill
 
     return PlaylistSuggestResponse(
         category=req.category,
@@ -1231,12 +1267,16 @@ async def classify_library(
 
     def event_stream():
         if playlist_id is not None:
+            from pyrekordbox.db6 import DjmdContent as _DjmdContent
             ids = [
                 e.ContentID
                 for e in db.query(DjmdSongPlaylist).filter_by(PlaylistID=str(playlist_id)).all()
             ]
-            contents = [db.get_content(ID=i) for i in ids if i]
-            contents = [c for c in contents if c is not None]
+            valid_ids = [i for i in ids if i]
+            contents = (
+                db.session.query(_DjmdContent).filter(_DjmdContent.ID.in_(valid_ids)).all()
+                if valid_ids else []
+            )
         else:
             contents = db.get_content().all()
 
@@ -1264,8 +1304,8 @@ async def classify_library(
 @router.get("/tracks/{track_id}/similar", response_model=SimilarTracksResponse)
 def track_similar(
     track_id: int,
-    n: int = 10,
-    bpm_gate: float = 8.0,
+    n: int = Query(10, ge=1, le=100),
+    bpm_gate: float = Query(8.0, ge=0.0, le=50.0),
     force_rebuild: bool = False,
     db=Depends(get_ro_db),
 ):
@@ -1321,6 +1361,7 @@ def build_set_endpoint(req: SetBuilderRequest, db=Depends(get_ro_db)):
         energy_mode=req.energy_mode,
         bpm_step_max=req.bpm_step_max,
         seed_track_id=req.seed_track_id,
+        anchor_track_ids=req.anchor_track_ids or None,
     )
 
     tracks = result["tracks"]
@@ -1385,6 +1426,19 @@ def setbuilder_alternatives(
 
     prev_content = db.get_content(ID=prev_id) if prev_id else None
     next_content = db.get_content(ID=next_id) if next_id else None
+    ref_content  = db.get_content(ID=track_id)
+
+    def _genre(content) -> str:
+        if content is None:
+            return ""
+        try:
+            return str(getattr(content, "GenreName", "") or "")
+        except Exception:
+            return ""
+
+    ref_genre = _genre(ref_content)
+    # Preferred genre = genre of the track being replaced; fall back to neighbours
+    neighbour_genres = {g for g in [_genre(prev_content), _genre(next_content)] if g}
 
     results: list[SetAlternativeItem] = []
     for cid in list(candidate_ids)[:60]:
@@ -1396,6 +1450,19 @@ def setbuilder_alternatives(
             to_next   = score_transition(cand, next_content, db)["overall"] if next_content else None
             scores = [s for s in [from_prev, to_next] if s is not None]
             combined = sum(scores) / len(scores) if scores else 50.0
+
+            cand_genre = _genre(cand)
+            # Genre match: compare against the track being replaced first, then neighbours
+            if not ref_genre and not neighbour_genres:
+                genre_match = None
+            elif cand_genre and (cand_genre == ref_genre or cand_genre in neighbour_genres):
+                genre_match = True
+            elif cand_genre:
+                genre_match = False
+                combined = max(0.0, combined - 20.0)  # 20-point penalty for genre mismatch
+            else:
+                genre_match = None  # candidate has no genre — no penalty, no bonus
+
             raw_bpm = getattr(cand, "BPM", 0) or 0
             bpm = float(raw_bpm) / 100.0
             key = ""
@@ -1414,6 +1481,8 @@ def setbuilder_alternatives(
                 score=round(combined, 1),
                 from_prev=round(from_prev, 1) if from_prev is not None else None,
                 to_next=round(to_next, 1) if to_next is not None else None,
+                genre=cand_genre,
+                genre_match=genre_match,
             ))
         except Exception:
             pass
@@ -1429,11 +1498,14 @@ def create_playlist(req: CreatePlaylistRequest, db=Depends(get_db)):
     from datetime import datetime
     from uuid import uuid4
     from sqlalchemy import func as _func
+    from ..db_writer import rekordbox_is_running
 
     if not req.name.strip():
         raise HTTPException(400, "Playlist name is required")
     if not req.track_ids:
         raise HTTPException(400, "No tracks provided")
+    if rekordbox_is_running():
+        raise HTTPException(409, "Rekordbox is running — close it before saving playlists")
 
     try:
         from pyrekordbox.db6.tables import DjmdPlaylist, DjmdSongPlaylist
@@ -1482,7 +1554,10 @@ def create_playlist(req: CreatePlaylistRequest, db=Depends(get_db)):
 @router.post("/auto-tag", response_model=AutoTagResponse)
 def auto_tag(req: AutoTagRequest, db=Depends(get_db)):
     from ..analysis.auto_tag import apply_tags
+    from ..db_writer import rekordbox_is_running
 
+    if rekordbox_is_running() and not req.dry_run:
+        raise HTTPException(409, "Rekordbox is running — close it before applying tags")
     try:
         result = apply_tags(
             db,
@@ -1552,13 +1627,24 @@ def auto_tag_discogs(req: DiscogsTagRequest, db=Depends(get_db)):
     from fastapi.responses import StreamingResponse
     from ..analysis.discogs import search_styles
     from ..analysis.auto_tag import ensure_tag_by_name
+    from ..db_writer import rekordbox_is_running
+
+    if rekordbox_is_running() and not req.dry_run:
+        raise HTTPException(409, "Rekordbox is running — close it before applying tags")
 
     def event_stream():
-        from pyrekordbox.db6 import DjmdContent
+        from pyrekordbox.db6 import DjmdContent, DjmdMyTag, DjmdSongMyTag
+        from ..analysis.auto_tag import ALL_AUTOCUE_TAG_NAMES
         total   = len(req.track_ids)
         tagged  = 0
         skipped = 0
         errors  = 0
+
+        # Pre-build a map of tag_id → tag_name for the skip_existing check (one query)
+        if req.skip_existing:
+            tag_name_map = {str(t.ID): t.Name for t in db.session.query(DjmdMyTag).all() if t.Name}
+        else:
+            tag_name_map = {}
 
         for i, tid in enumerate(req.track_ids):
             try:
@@ -1567,6 +1653,21 @@ def auto_tag_discogs(req: DiscogsTagRequest, db=Depends(get_db)):
                     skipped += 1
                     yield f"data: {_json.dumps({'processed': i+1, 'total': total, 'track_id': tid, 'styles': [], 'skipped': skipped})}\n\n"
                     continue
+
+                # Skip tracks that already have Discogs-style tags (non-AutoCue My Tags)
+                if req.skip_existing:
+                    existing_song_tags = db.session.query(DjmdSongMyTag).filter(
+                        DjmdSongMyTag.ContentID == str(tid)
+                    ).all()
+                    has_discogs_tag = any(
+                        tag_name_map.get(str(st.MyTagID), "") not in ALL_AUTOCUE_TAG_NAMES
+                        and tag_name_map.get(str(st.MyTagID), "") != ""
+                        for st in existing_song_tags
+                    )
+                    if has_discogs_tag:
+                        skipped += 1
+                        yield f"data: {_json.dumps({'processed': i+1, 'total': total, 'track_id': tid, 'styles': [], 'skipped': skipped})}\n\n"
+                        continue
 
                 artist = str(getattr(content, "ArtistName", "") or "")
                 title  = str(getattr(content, "Title", "") or "")
@@ -1615,7 +1716,10 @@ def auto_tag_discogs(req: DiscogsTagRequest, db=Depends(get_db)):
 @router.post("/auto-tag/undo", response_model=AutoTagUndoResponse)
 def auto_tag_undo(req: AutoTagUndoRequest, db=Depends(get_db)):
     from ..analysis.auto_tag import undo_tag_run
+    from ..db_writer import rekordbox_is_running
 
+    if rekordbox_is_running():
+        raise HTTPException(409, "Rekordbox is running — close it before undoing tags")
     try:
         result = undo_tag_run(db, req.undo_data.model_dump())
         db.session.commit()
@@ -1632,6 +1736,10 @@ def auto_tag_undo(req: AutoTagUndoRequest, db=Depends(get_db)):
 @router.post("/enrich-comments", response_model=EnrichCommentsResponse)
 def enrich_comments(req: EnrichCommentsRequest, db=Depends(get_db)):
     from ..analysis.comment import enrich_comments_batch
+    from ..db_writer import rekordbox_is_running
+
+    if rekordbox_is_running() and not req.dry_run:
+        raise HTTPException(409, "Rekordbox is running — close it before enriching comments")
     try:
         result = enrich_comments_batch(
             req.track_ids, db,
@@ -1640,7 +1748,69 @@ def enrich_comments(req: EnrichCommentsRequest, db=Depends(get_db)):
         )
         return EnrichCommentsResponse(dry_run=req.dry_run, **result)
     except Exception as exc:
+        db.session.rollback()
         raise HTTPException(500, str(exc)) from exc
+
+
+@router.post("/enrich-comments/stream")
+async def enrich_comments_stream(req: EnrichCommentsRequest, db=Depends(get_db)):
+    """SSE version of enrich-comments — streams per-track progress events."""
+    from fastapi.responses import StreamingResponse
+    from ..analysis.comment import enrich_comment
+    from ..db_writer import rekordbox_is_running, backup_database
+
+    if rekordbox_is_running() and not req.dry_run:
+        raise HTTPException(409, "Rekordbox is running — close it before enriching comments")
+
+    import json as _json
+
+    def event_stream():
+        enriched = 0
+        skipped = 0
+        errors = 0
+        backup_path = None
+        track_ids = req.track_ids or []
+        total = len(track_ids)
+
+        if not req.dry_run and track_ids:
+            from pathlib import Path as _Path
+            try:
+                db_dir = getattr(db, "_db_dir", None)
+                if db_dir:
+                    backup_path = str(backup_database(_Path(db_dir) / "master.db"))
+            except Exception:
+                pass
+
+        for i, tid in enumerate(track_ids):
+            try:
+                content = db.get_content(ID=tid)
+                if content is None:
+                    skipped += 1
+                else:
+                    result = enrich_comment(content, db, overwrite=req.overwrite, dry_run=req.dry_run)
+                    if result is None:
+                        skipped += 1
+                    else:
+                        enriched += 1
+                        if not req.dry_run:
+                            try:
+                                db.session.commit()
+                            except Exception as commit_exc:
+                                db.session.rollback()
+                                errors += 1
+                                enriched -= 1
+                                logger.warning("Enrichment commit failed for track %s: %s", tid, commit_exc)
+            except Exception:
+                errors += 1
+            yield f"data: {_json.dumps({'processed': i + 1, 'total': total, 'enriched': enriched})}\n\n"
+
+        yield f"data: {_json.dumps({'done': True, 'enriched': enriched, 'skipped': skipped, 'errors': errors, 'backup_path': backup_path, 'dry_run': req.dry_run})}\n\n"
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
 
 
 @router.post("/enrich-comments/preview", response_model=CommentPreviewResponse)
@@ -1649,7 +1819,7 @@ def enrich_comments_preview(req: CommentPreviewRequest, db=Depends(get_ro_db)):
     content = db.get_content(ID=req.track_id)
     if content is None:
         raise HTTPException(404, f"Track {req.track_id} not found")
-    current = str(getattr(content, "Comment", "") or "")
+    current = str(getattr(content, "Commnt", "") or "")
     enrichment = build_comment_string(content, db)
     # Compute preview without writing
     preview = enrich_comment(content, db, overwrite=False, dry_run=True) or current
@@ -1701,7 +1871,7 @@ def discover_new_releases(
                 suggested += 1
                 payload = {"processed": processed, "total": total, "suggested": suggested, **{
                     k: item.get(k) for k in
-                    ("artist", "album", "title", "year", "thumb", "cover", "genres", "styles", "url", "query")
+                    ("artist", "album", "title", "year", "thumb", "cover", "genres", "styles", "formats", "url", "query")
                 }}
                 yield f"data: {_json.dumps(payload)}\n\n"
         except Exception as exc:
@@ -1734,14 +1904,41 @@ def _resolve_discogs_token() -> str:
 # Download — YouTube audio via yt-dlp (optional dependency)
 # ---------------------------------------------------------------------------
 
+def _detect_music_folder(db) -> str | None:
+    """Find the common ancestor directory of tracked audio files.
+
+    Samples up to 30 DjmdContent.FolderPath values (absolute paths) and returns
+    os.path.commonpath() over their parent directories. This is a good proxy for
+    the DJ's music root (e.g. ~/Music/Rekordbox). Returns None on any failure.
+    """
+    import os
+    from pathlib import Path
+    paths: list[str] = []
+    try:
+        from pyrekordbox.db6 import DjmdContent
+        for row in db.query(DjmdContent).limit(30).all():
+            raw = getattr(row, "FolderPath", None) or ""
+            if raw and os.path.isabs(raw):
+                paths.append(str(Path(raw).parent))
+    except Exception:
+        return None
+    if not paths:
+        return None
+    try:
+        return os.path.commonpath(paths)
+    except (ValueError, TypeError):
+        return None
+
+
 @router.get("/download/config", response_model=DownloadConfigResponse)
-def download_config():
-    """Report whether yt-dlp + ffmpeg are available and the default download dir."""
+def download_config(db=Depends(get_ro_db)):
+    """Report whether yt-dlp + ffmpeg are available, the default download dir, and the detected music folder."""
     from .. import download as dl
     return DownloadConfigResponse(
         available=dl.ytdlp_available(),
         ffmpeg=dl.ffmpeg_available(),
         default_dir=dl.default_download_dir(),
+        music_folder=_detect_music_folder(db),
     )
 
 

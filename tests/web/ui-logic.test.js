@@ -403,6 +403,7 @@ function filteredTracks(parsedTracks, {
   playsFilter = 'all',
   lastPlayedFilter = 'all',
   myTagFilter = '',
+  genreFilters = new Set(),
 } = {}) {
   let tracks = parsedTracks
   if (phraseOnlyFilter) tracks = tracks.filter(t => t.hasPhrase)
@@ -426,6 +427,7 @@ function filteredTracks(parsedTracks, {
     }
   }
   if (myTagFilter) tracks = tracks.filter(t => (t.myTags || []).includes(myTagFilter))
+  if (genreFilters.size > 0) tracks = tracks.filter(t => genreFilters.has(t.genre || ''))
   return tracks
 }
 
@@ -537,6 +539,35 @@ describe('filteredTracks — My Tag filter', () => {
 
   it('tag not present on any track returns empty', () => {
     expect(filteredTracks(sampleTracks, { myTagFilter: 'Ambient' })).toHaveLength(0)
+  })
+})
+
+describe('filteredTracks — genre filter (multi-select, OR logic)', () => {
+  const genreTracks = [
+    { id: '1', name: 'A', artist: '', genre: 'Techno', myTags: [] },
+    { id: '2', name: 'B', artist: '', genre: 'House',  myTags: [] },
+    { id: '3', name: 'C', artist: '', genre: 'Drum and Bass', myTags: [] },
+    { id: '4', name: 'D', artist: '', genre: '',       myTags: [] },
+  ]
+  it('empty genreFilters returns all tracks', () => {
+    expect(filteredTracks(genreTracks, { genreFilters: new Set() })).toHaveLength(4)
+  })
+  it('single genre filters correctly', () => {
+    const result = filteredTracks(genreTracks, { genreFilters: new Set(['Techno']) })
+    expect(result).toHaveLength(1)
+    expect(result[0].id).toBe('1')
+  })
+  it('multiple genres use OR logic', () => {
+    const result = filteredTracks(genreTracks, { genreFilters: new Set(['Techno', 'House']) })
+    expect(result).toHaveLength(2)
+    expect(result.map(t => t.id).sort()).toEqual(['1', '2'])
+  })
+  it('genre not present returns empty', () => {
+    expect(filteredTracks(genreTracks, { genreFilters: new Set(['Ambient']) })).toHaveLength(0)
+  })
+  it('track with empty genre string not matched by genre filter', () => {
+    const result = filteredTracks(genreTracks, { genreFilters: new Set(['Techno', 'House']) })
+    expect(result.find(t => t.id === '4')).toBeUndefined()
   })
 })
 
@@ -1255,5 +1286,222 @@ describe('_renderSuggestion', () => {
   it('includes a Discogs link when url present', () => {
     const html = _renderSuggestion({ artist: 'A', album: 'B', url: 'https://discogs.com/x' })
     expect(html).toContain('href="https://discogs.com/x"')
+  })
+})
+
+// ── Fix: r.json().catch(() => ({})) on restore / undo / delete-cues ────────
+//
+// These three fetch calls use r.json().catch(() => ({})) so that a non-JSON
+// error body (e.g. a 502 from a stale tab, or an nginx HTML error page) never
+// causes a SyntaxError that masks the real HTTP status.
+//
+// The functions below are extracted from docs/index.html verbatim (minus the
+// DOM side-effects that aren't relevant to the error-path logic under test).
+
+function makeToastCaptureSimple() {
+  const messages = []
+  return { showToast: m => messages.push(m), messages }
+}
+
+function mockNonJsonResponse(status, statusText) {
+  return vi.fn().mockResolvedValue({
+    ok: status >= 200 && status < 300,
+    status,
+    statusText,
+    json: () => Promise.reject(new SyntaxError('Unexpected token I in JSON')),
+  })
+}
+
+// --- restore backup (docs/index.html ~line 3188) ---
+async function restoreBackup_fn(filename, fetchImpl, showToast) {
+  try {
+    const r = await fetchImpl('/api/restore', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ filename }),
+    })
+    const resp = await r.json().catch(() => ({}))
+    if (!r.ok) throw new Error(resp.detail || r.statusText)
+    showToast(resp.message + ' — reloading tracks…')
+  } catch (e) { showToast(`Restore failed: ${e.message}`) }
+}
+
+// --- undo last apply (docs/index.html ~line 3382) ---
+async function undoApply_fn(filename, fetchImpl, showToast) {
+  try {
+    const r = await fetchImpl('/api/restore', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ filename }),
+    })
+    const resp = await r.json().catch(() => ({}))
+    if (!r.ok) throw new Error(resp.detail || r.statusText)
+    showToast('Undo successful — tracks reloaded')
+  } catch (e) { showToast(`Undo failed: ${e.message}`) }
+}
+
+// --- delete all cues (docs/index.html ~line 5195) ---
+async function deleteAllCues_fn(trackIds, fetchImpl, showToast) {
+  try {
+    const r = await fetchImpl('/api/delete-cues', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ track_ids: trackIds, dry_run: false }),
+    })
+    const resp = await r.json().catch(() => ({}))
+    if (!r.ok) throw new Error(resp.detail || r.statusText)
+    showToast(`Deleted ${resp.deleted} cues from ${resp.tracks_affected} tracks — backup saved`)
+  } catch (err) { showToast(`Delete failed: ${err.message}`) }
+}
+
+describe('r.json().catch — non-JSON error bodies show statusText, not SyntaxError', () => {
+  it('restore: 502 non-JSON shows "Restore failed: Bad Gateway"', async () => {
+    const { showToast, messages } = makeToastCaptureSimple()
+    await restoreBackup_fn('backup.db', mockNonJsonResponse(502, 'Bad Gateway'), showToast)
+    expect(messages[0]).toBe('Restore failed: Bad Gateway')
+    expect(messages[0]).not.toContain('SyntaxError')
+    expect(messages[0]).not.toContain('Unexpected token')
+  })
+
+  it('restore: 409 JSON body shows detail message', async () => {
+    const { showToast, messages } = makeToastCaptureSimple()
+    const fetch = mockResponse({ detail: 'Rekordbox is running' }, 409)
+    await restoreBackup_fn('backup.db', fetch, showToast)
+    expect(messages[0]).toContain('Rekordbox is running')
+  })
+
+  it('restore: 200 JSON shows success toast', async () => {
+    const { showToast, messages } = makeToastCaptureSimple()
+    const fetch = mockResponse({ message: 'Restored', restored: true })
+    await restoreBackup_fn('backup.db', fetch, showToast)
+    expect(messages[0]).toBe('Restored — reloading tracks…')
+  })
+
+  it('undo: 502 non-JSON shows "Undo failed: Bad Gateway"', async () => {
+    const { showToast, messages } = makeToastCaptureSimple()
+    await undoApply_fn('backup.db', mockNonJsonResponse(502, 'Bad Gateway'), showToast)
+    expect(messages[0]).toBe('Undo failed: Bad Gateway')
+    expect(messages[0]).not.toContain('Unexpected token')
+  })
+
+  it('undo: 409 JSON body shows detail message', async () => {
+    const { showToast, messages } = makeToastCaptureSimple()
+    const fetch = mockResponse({ detail: 'Rekordbox is running' }, 409)
+    await undoApply_fn('backup.db', fetch, showToast)
+    expect(messages[0]).toContain('Rekordbox is running')
+  })
+
+  it('undo: 200 JSON shows success toast', async () => {
+    const { showToast, messages } = makeToastCaptureSimple()
+    const fetch = mockResponse({ restored: true, message: 'ok' })
+    await undoApply_fn('backup.db', fetch, showToast)
+    expect(messages[0]).toBe('Undo successful — tracks reloaded')
+  })
+
+  it('delete-cues: 502 non-JSON shows "Delete failed: Bad Gateway"', async () => {
+    const { showToast, messages } = makeToastCaptureSimple()
+    await deleteAllCues_fn([1, 2], mockNonJsonResponse(502, 'Bad Gateway'), showToast)
+    expect(messages[0]).toBe('Delete failed: Bad Gateway')
+    expect(messages[0]).not.toContain('Unexpected token')
+  })
+
+  it('delete-cues: 409 JSON body shows detail message', async () => {
+    const { showToast, messages } = makeToastCaptureSimple()
+    const fetch = mockResponse({ detail: 'Rekordbox is running' }, 409)
+    await deleteAllCues_fn([1], fetch, showToast)
+    expect(messages[0]).toContain('Rekordbox is running')
+  })
+
+  it('delete-cues: 200 JSON shows deleted count', async () => {
+    const { showToast, messages } = makeToastCaptureSimple()
+    const fetch = mockResponse({ deleted: 24, tracks_affected: 6, backup_path: null })
+    await deleteAllCues_fn([1, 2], fetch, showToast)
+    expect(messages[0]).toContain('24')
+    expect(messages[0]).toContain('6 tracks')
+  })
+})
+
+// ── AppState pub/sub (docs/index.html) ──────────────────────────────────────────
+// Extracted verbatim — update if AppState implementation changes in index.html
+function makeAppState() {
+  var _subs  = new Map()
+  var _dirty = new Set()
+  var _pending = null
+  function subscribe(key, fn) {
+    if (!_subs.has(key)) _subs.set(key, new Set())
+    _subs.get(key).add(fn)
+    return function() { var s = _subs.get(key); if (s) s.delete(fn) }
+  }
+  function _flush() {
+    _pending = null
+    var toCall = new Set()
+    _dirty.forEach(function(k) {
+      var s = _subs.get(k)
+      if (s) s.forEach(function(fn) { toCall.add(fn) })
+    })
+    _dirty.clear()
+    toCall.forEach(function(fn) { fn() })
+  }
+  function signal(key) {
+    _dirty.add(key)
+    if (!_pending) _pending = Promise.resolve().then(_flush)
+  }
+  return { subscribe, signal }
+}
+
+describe('AppState pub/sub', () => {
+  it('subscriber fires after signal', async () => {
+    const as = makeAppState()
+    const calls = []
+    as.subscribe('x', () => calls.push('x'))
+    as.signal('x')
+    await Promise.resolve()
+    expect(calls).toEqual(['x'])
+  })
+
+  it('multiple signals in same tick coalesce into one flush', async () => {
+    const as = makeAppState()
+    let count = 0
+    as.subscribe('filters', () => count++)
+    as.signal('filters')
+    as.signal('filters')
+    as.signal('filters')
+    await Promise.resolve()
+    expect(count).toBe(1)
+  })
+
+  it('two different keys both notify their own subscribers', async () => {
+    const as = makeAppState()
+    const calls = []
+    as.subscribe('filters', () => calls.push('filters'))
+    as.subscribe('tracks',  () => calls.push('tracks'))
+    as.signal('filters')
+    as.signal('tracks')
+    await Promise.resolve()
+    expect(calls).toContain('filters')
+    expect(calls).toContain('tracks')
+    expect(calls.length).toBe(2)
+  })
+
+  it('unsubscribe stops future notifications', async () => {
+    const as = makeAppState()
+    let count = 0
+    const unsub = as.subscribe('x', () => count++)
+    as.signal('x')
+    await Promise.resolve()
+    expect(count).toBe(1)
+    unsub()
+    as.signal('x')
+    await Promise.resolve()
+    expect(count).toBe(1) // did not increase
+  })
+
+  it('second signal after flush schedules a new flush', async () => {
+    const as = makeAppState()
+    const calls = []
+    as.subscribe('x', () => calls.push(calls.length))
+    as.signal('x')
+    await Promise.resolve() // first flush
+    expect(calls.length).toBe(1)
+    as.signal('x')
+    await Promise.resolve() // second flush
+    expect(calls.length).toBe(2)
   })
 })

@@ -9,6 +9,7 @@ from pathlib import Path
 import uvicorn
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from .deps import lifespan
@@ -46,6 +47,7 @@ def create_app(db_path: str | None = None, port: int = DEFAULT_PORT) -> FastAPI:
         f"http://localhost:{port}",
         f"http://127.0.0.1:{port}",
     ]
+    app.add_middleware(GZipMiddleware, minimum_size=1000)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=allowed_origins,

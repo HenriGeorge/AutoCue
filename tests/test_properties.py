@@ -530,10 +530,10 @@ class TestEnergyScoreProperties:
     # Breakpoints: None curves treated as neutral (0.5)
     # -----------------------------------------------------------------------
 
-    def test_none_curves_gives_100(self):
-        # Both None → end_a = start_b = 0.5 → delta = 0 → 100.0
-        assert _energy_score(None, None) == 100.0
+    def test_none_curves_gives_neutral(self):
+        # Both None → unknown energy → neutral 50 (not a perfect match)
+        assert _energy_score(None, None) == 50.0
 
-    def test_none_curve_a_and_flat_05_b_is_100(self):
-        # None curve_a → end_a = 0.5; curve_b = [0.5] → start_b = 0.5 → delta = 0
-        assert _energy_score(None, [0.5]) == 100.0
+    def test_none_curve_a_and_flat_05_b_is_capped(self):
+        # None curve_a → end_a assumed 0.5; curve_b = [0.5] → delta = 0 → score=100 capped at 75
+        assert _energy_score(None, [0.5]) == 75.0

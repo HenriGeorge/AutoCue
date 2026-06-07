@@ -125,7 +125,7 @@ def enrich_comment(content, db, *, overwrite: bool = False, dry_run: bool = Fals
     Returns the new comment string, or None if nothing changed.
     Does NOT commit — caller must commit the session.
     """
-    existing = str(getattr(content, "Comment", "") or "").strip()
+    existing = str(getattr(content, "Commnt", "") or "").strip()
     enrichment = build_comment_string(content, db)
 
     if not enrichment:
@@ -145,7 +145,7 @@ def enrich_comment(content, db, *, overwrite: bool = False, dry_run: bool = Fals
         return None
 
     if not dry_run:
-        content.Comment = new_comment
+        content.Commnt = new_comment
 
     return new_comment
 

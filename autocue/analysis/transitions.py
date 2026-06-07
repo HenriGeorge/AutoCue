@@ -111,9 +111,23 @@ def _window_avg(curve: list[float], window: int, from_end: bool) -> float:
 
 
 def _energy_score(curve_a: list[float] | None, curve_b: list[float] | None) -> float:
-    """0–100. Measures smoothness of energy handoff from end-of-A to start-of-B."""
+    """0–100. Measures smoothness of energy handoff from end-of-A to start-of-B.
+
+    When energy data is missing, returns a neutral penalty rather than a perfect
+    score — unknown is not the same as a perfect match.
+    """
+    if not curve_a and not curve_b:
+        return 50.0   # both unknown — neutral, not perfect
     end_a = _window_avg(curve_a, _ENERGY_WINDOW, from_end=True) if curve_a else 0.5
     start_b = _window_avg(curve_b, _ENERGY_WINDOW, from_end=False) if curve_b else 0.5
+    score = _score_delta(end_a, start_b)
+    # One side missing — partial penalty: cap at 75 to reflect uncertainty
+    if not curve_a or not curve_b:
+        return min(score, 75.0)
+    return score
+
+
+def _score_delta(end_a: float, start_b: float) -> float:
     delta = abs(end_a - start_b)
     # Full score when delta ≤ 0.05; linear decay to 0 at delta = 0.5
     if delta <= 0.05:
@@ -175,6 +189,84 @@ def _energy_explanation(end_a: float | None, start_b: float | None, score: float
     if score > 0:
         return f"Energy {direction} ({delta:.0%}) — noticeable"
     return f"Energy {direction} sharply ({delta:.0%})"
+
+
+def transition_advice(ts: dict) -> str:
+    """Return a single-sentence practical DJ mixing tip for a scored transition.
+
+    Takes the dict returned by score_transition() and produces actionable advice:
+    what technique to use (beatmix/cut/filter), key handling, and energy notes.
+    """
+    bpm_a = ts.get("bpm_a", 0.0)
+    bpm_b = ts.get("bpm_b", 0.0)
+    key_a = ts.get("key_a", "")
+    key_b = ts.get("key_b", "")
+    bpm_score = ts.get("bpm", 50.0)
+    key_score = ts.get("key", 50.0)
+    end_energy = ts.get("end_energy_a")
+    start_energy = ts.get("start_energy_b")
+
+    parts: list[str] = []
+
+    # --- BPM technique ---
+    ratio = bpm_b / bpm_a if bpm_a > 0 else 1.0
+    if 0.46 <= ratio <= 0.54:
+        parts.append(
+            f"Half-time drop ({bpm_a:.0f}→{bpm_b:.0f} BPM) — "
+            "let outgoing finish, bring incoming in at full energy"
+        )
+    elif 1.85 <= ratio <= 2.15:
+        parts.append(
+            f"Double-time ({bpm_a:.0f}→{bpm_b:.0f} BPM) — quick cut at phrase boundary"
+        )
+    elif bpm_score >= 95.0:
+        parts.append("BPM matched — beatmix, blend over 16–32 bars")
+    elif bpm_score >= 70.0:
+        diff = bpm_b - bpm_a
+        sign = f"+{diff:.1f}" if diff > 0 else f"{diff:.1f}"
+        parts.append(f"Nudge pitch {sign} BPM — blend over 8–16 bars")
+    elif bpm_score > 0:
+        diff = abs(bpm_b - bpm_a)
+        parts.append(
+            f"{diff:.1f} BPM gap — phrase-align then cut, or loop outro of outgoing track"
+        )
+    else:
+        diff = abs(bpm_b - bpm_a)
+        parts.append(
+            f"{diff:.1f} BPM gap — hard cut at phrase boundary or use an acappella/dub"
+        )
+
+    # --- Key technique ---
+    if key_score >= 95.0:
+        pass  # same key — no extra note needed, BPM advice covers it
+    elif key_score >= 75.0:
+        parts.append(f"compatible key ({key_a}→{key_b}) — harmonic blend works")
+    elif key_score >= 60.0:
+        parts.append(
+            f"mild dissonance ({key_a}→{key_b}) — keep overlap ≤8 bars or high-pass outgoing"
+        )
+    elif key_score >= 25.0:
+        parts.append(
+            f"key clash ({key_a}→{key_b}) — EQ-kill lows/mids before incoming lands"
+        )
+    elif key_a and key_b:
+        parts.append(
+            f"key incompatible ({key_a}→{key_b}) — cut-mix or use a cappella intro"
+        )
+
+    # --- Energy technique ---
+    if end_energy is not None and start_energy is not None:
+        delta = start_energy - end_energy
+        if delta > 0.20:
+            parts.append(
+                f"energy jumps {delta:.0%} — filter incoming until mix point, then open slowly"
+            )
+        elif delta < -0.20:
+            parts.append(
+                f"energy drops {abs(delta):.0%} — use outgoing outro as a bridge, delay mix"
+            )
+
+    return "; ".join(parts) if parts else "Standard blend"
 
 
 def score_transition(content_a, content_b, db) -> dict:
