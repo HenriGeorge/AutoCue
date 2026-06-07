@@ -31,10 +31,20 @@ const SHELL_SCHEMA = {
 };
 
 async function sh(cmd, label) {
-  return await agent(
-    `Run exactly this shell command and return its stdout and exit code: \n\n${cmd}\n\nDo not modify the command. Return JSON only.`,
+  const r = await agent(
+    `Execute this shell command in the current working directory using the Bash tool:\n\n\`\`\`\n${cmd}\n\`\`\`\n\nReturn the result via the StructuredOutput tool with two fields:\n- stdout: the LITERAL stdout bytes the command produced. An empty string is valid. Do NOT JSON-encode it. Do NOT wrap it in an object.\n- exitCode: the integer exit code.\n\nExample of CORRECT output for a command that printed "42" and exited 0:\n  {"stdout": "42", "exitCode": 0}\n\nExample of INCORRECT output (do not do this):\n  {"stdout": "{\\"stdout\\": \\"42\\", \\"exitCode\\": 0}", "exitCode": 0}\n\nDo not paraphrase, summarize, or add commentary to stdout. Return the raw bytes only.`,
     { label, schema: SHELL_SCHEMA, phase: "Fetch" },
   );
+  // Defensive unwrap: if the agent put the envelope inside .stdout, peel it.
+  if (r && typeof r.stdout === "string" && /^\s*\{\s*"stdout"\s*:/.test(r.stdout)) {
+    try {
+      const inner = JSON.parse(r.stdout);
+      if (inner && typeof inner === "object" && typeof inner.stdout === "string") {
+        return { stdout: inner.stdout, exitCode: typeof inner.exitCode === "number" ? inner.exitCode : r.exitCode };
+      }
+    } catch {}
+  }
+  return r;
 }
 
 function dedupeAndValidateIssues(input) {
