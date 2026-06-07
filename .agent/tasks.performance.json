@@ -319,14 +319,14 @@
     "title": "Add perf_span timing to all SSE endpoints + key sync handlers",
     "category": "functional",
     "specFilePath": ".agent/tasks/performance/TASK-046.json",
-    "passes": false
+    "passes": true
   },
   {
     "id": "TASK-047",
     "title": "tests/perf/ suite enforcing performance budgets",
     "category": "functional",
     "specFilePath": ".agent/tasks/performance/TASK-047.json",
-    "passes": false
+    "passes": true
   },
   {
     "id": "TASK-048",
@@ -347,6 +347,6 @@
     "title": "Frontend perf marks around library load, filter, sort, virtualized render, audio load",
     "category": "ui-ux",
     "specFilePath": ".agent/tasks/performance/TASK-050.json",
-    "passes": false
+    "passes": true
   }
 ]

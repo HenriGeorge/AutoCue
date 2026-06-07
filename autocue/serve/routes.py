@@ -176,6 +176,7 @@ def tracks(
 ):
     from pyrekordbox.db6 import DjmdAlbum, DjmdArtist, DjmdContent, DjmdKey, DjmdPlaylist, DjmdSongPlaylist
     from sqlalchemy import asc, desc, func
+    from .. import perf as _perf
 
     # TASK-023 — ETag/304 revalidation keyed by master.db mtime.
     mtime = _master_db_mtime(db)
@@ -201,25 +202,30 @@ def tracks(
             and snapshot is not None
             and snapshot.get("mtime") == mtime
         ):
-            with lock:
-                payload = snapshot["payload"]
-            ids_subset = None
-            if playlist_id is not None:
-                pl = db.query(DjmdPlaylist).filter_by(ID=str(playlist_id)).first()
-                if not pl:
-                    raise HTTPException(404, f"Playlist {playlist_id} not found")
-                ids_subset = {
-                    str(e.ContentID)
-                    for e in db.query(DjmdSongPlaylist).filter_by(PlaylistID=pl.ID)
-                }
-            filtered = (
-                [item for item in payload if str(item.id) in ids_subset]
-                if ids_subset is not None
-                else payload
-            )
-            response.headers["X-Total-Count"] = str(len(filtered))
-            return filtered[offset:offset + limit]
+            with _perf.perf_span("tracks.cached"):
+                with lock:
+                    payload = snapshot["payload"]
+                ids_subset = None
+                if playlist_id is not None:
+                    pl = db.query(DjmdPlaylist).filter_by(ID=str(playlist_id)).first()
+                    if not pl:
+                        raise HTTPException(404, f"Playlist {playlist_id} not found")
+                    ids_subset = {
+                        str(e.ContentID)
+                        for e in db.query(DjmdSongPlaylist).filter_by(PlaylistID=pl.ID)
+                    }
+                filtered = (
+                    [item for item in payload if str(item.id) in ids_subset]
+                    if ids_subset is not None
+                    else payload
+                )
+                response.headers["X-Total-Count"] = str(len(filtered))
+                return filtered[offset:offset + limit]
 
+    # TASK-046 — wrap the SQL-build path so /api/perf/recent can show the
+    # cold-vs-warm cost split.
+    _build_span = _perf.perf_span("tracks.build")
+    _build_span.__enter__()
     q = db.get_content()
     if playlist_id is not None:
         pl = db.query(DjmdPlaylist).filter_by(ID=str(playlist_id)).first()
@@ -341,6 +347,7 @@ def tracks(
             except Exception as exc:
                 logger.warning("snapshot persist failed: %s", exc)
 
+    _build_span.__exit__(None, None, None)
     return items
 
 
