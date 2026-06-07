@@ -358,6 +358,12 @@ function filteredTracks() {
   let tracks = parsedTracks;
   if (phraseOnlyFilter) tracks = tracks.filter(t => t.hasPhrase);
   if (beatsOnlyFilter)  tracks = tracks.filter(t => t.hasBeats);
+  if (_audioOnlyFilter) tracks = tracks.filter(t => {
+    // Fail-open: only "missing" verdicts and non-file sources hide.
+    // Unprobed file-source tracks and "unverified" results stay visible.
+    if (t.source !== 'file') return false;
+    return _audioProbedAt[t.id] !== 'missing';
+  });
   if (searchQuery) {
     const q = searchQuery.toLowerCase();
     tracks = tracks.filter(t =>
@@ -402,6 +408,15 @@ Important invariants:
   analyzed in Rekordbox" view; either flag alone surfaces what's still
   missing. Both ride on cheap row-level fields (`AnalysisDataPath` and
   `BPM > 0`) — no ANLZ parsing on the server, no caching on the client.
+- **`_audioOnlyFilter` (🔌 Audio available)** uses the server's
+  `TrackItem.source` classification (cheap string check on
+  `DjmdContent.FolderPath`) plus a lazy `POST /api/tracks/check-audio`
+  probe that fills `_audioProbedAt[id]` with `"file" | "missing" |
+  "unverified"`. The filter is **fail-open** — tracks on an unmounted
+  drive (scandir failure) stay visible; only `"missing"` verdicts and
+  non-file `source` values hide. The probe is debounced (200ms),
+  chunked 500/request sequentially, and cancellable via
+  `AbortController`. See `rest-api.md` for the endpoint contract.
 - **`filteredTracks()` is fully covered by `ui-logic.test.js`** including
   the cross-filter matrix (search ∩ rating ∩ plays ∩ last-played ∩ tags ∩
   keys ∩ genres).
@@ -454,15 +469,13 @@ changes.
 ### Fingerprint
 
 ```js
-// index.html:5899
 function _computeSettingsFingerprint() {
   var s = getSettings();
   var skipExisting = document.getElementById('skip-existing-cues').checked;
   var mcMode = document.getElementById('memory-cue-mode').value;
-  // Sum total phrase cue count (not just key count) so different cue positions force a rebuild
-  var phraseTotal = Object.values(phraseCueState).reduce(function(a, arr) { return a + arr.length; }, 0);
+  console.assert(parsedTracksById.size === parsedTracks.length, 'parsedTracksById drift');
   return s.barsInterval + '|' + s.startBar + '|' + s.maxCues + '|' + skipExisting + '|'
-       + mcMode + '|' + analysisMode + '|' + phraseTotal + '|'
+       + mcMode + '|' + analysisMode + '|'
        + Object.keys(pendingCues).length + '|' + Object.keys(healthData).length;
 }
 ```
@@ -471,6 +484,35 @@ If the fingerprint differs from `_cardSettingsFingerprint`, every cached
 card is stale (because the cue layout, memory-cue mode, or pending preview
 changed), so `_cardMap.clear()` is called and every card is rebuilt from
 scratch.
+
+> **Phrase-storm fix (PR #10).** The fingerprint deliberately does **not**
+> include `phraseCueState` size. Phrase-batch updates land via the surgical
+> `_updateTrackCardCues(trackId)` path (see below), not a library-wide
+> rebuild. Including `phraseTotal` here was the root cause of Chrome's
+> "Page Unresponsive" dialog during phrase loads — every 300-track batch
+> changed the fingerprint, forcing 13 full DOM rebuilds per load.
+
+### Surgical per-card update — `_updateTrackCardCues(trackId)`
+
+Used by `loadPhraseFromServer()` to refresh **one** card without rebuilding
+the library. Looks up the cached DOM node via `_cardMap.get(tid)` and the
+track via `parsedTracksById.get(tid)`; rebuilds the card via
+`buildTrackCard()` and `replaceChild`s the old node. No FLIP, no observer
+re-attach, no fingerprint check. O(1) per call after the `parsedTracksById`
+Map lookup.
+
+Off-screen / filtered-out tracks aren't updated synchronously — when they
+later mount via the standard `renderTracks()` path, the card builder reads
+`phraseCueState` at build time and they come up correct. This is how the
+`_libraryEpoch` cache short-circuit stays cheap: only the ~30–100 visible
+cards in `_cardMap.keys()` get the per-card update on mode toggle.
+
+### Stale-entry sweep
+
+At the end of `renderTracks()`, `_cardMap.keys()` is intersected with the
+actual `#track-list` DOM children's `data-track-id` attributes. Entries
+whose card is no longer in the DOM are deleted. Bounds the cache against
+long sessions where filters / playlist swaps thin the list.
 
 When the fingerprint matches but the **sort order** changed,
 `renderTracks()` runs the FLIP reorder path: it snapshots
@@ -503,6 +545,98 @@ animate() calls** to avoid forced reflow on each iteration.
 - XML drop via `handleFile()` (`index.html:6354`).
 - Empty render fallbacks (no tracks / no matches) so a future "back to
   results" renders fresh cards.
+
+---
+
+## 10b. `#phrase-progress-banner` — pinned progress + Cancel (PR #10)
+
+A persistent banner mounted as the **second child of `#tracks-sticky`**,
+between `.tracks-header` and `#filter-bar`. Always present in the DOM
+(`max-height: 0; overflow: hidden`); animates `max-height` 0 → 100 px on
+activation (180 ms; the 100 px overestimate accommodates future content
+additions without clipping). Honors `prefers-reduced-motion`.
+
+Contents: spinner + `<strong>Computing phrase cues</strong>` + `N / M` count
++ `<progress max="100" value>` + `Cancel` button.
+
+`loadPhraseFromServer()` (PR #10) wires it: `_phraseLoadAbort = new
+AbortController()` at function entry; every `/api/generate` batch fetch
+passes `signal: _phraseLoadAbort.signal`. The Cancel button calls
+`_phraseLoadAbort.abort()`. The catch block disambiguates cancel from
+network error via `_phraseLoadAbort.signal.aborted` — `AbortError` with
+the flag set → "Phrase load cancelled" toast; any other thrown error →
+"Phrase load failed: <msg>" toast.
+
+`_libraryEpoch` (PR #10): a monotonic counter incremented by
+`_setParsedTracks()`. `loadPhraseFromServer()` stores `_phraseLoadedEpoch`
+on success; the **network-fetch step** short-circuits when
+`_phraseLoadedEpoch === _libraryEpoch && Object.keys(phraseCueState).length
+> 0`. The short-circuit still re-renders visible cards via the
+`_cardMap.keys()` iteration → `_updateTrackCardCues(id)` so bar → phrase
+→ bar mode toggles take ~5 ms instead of ~25 s of server round-trips.
+
+---
+
+## 10c. Orphan-track UX — info modal + YouTube rescue (PR #12)
+
+Tracks where `track.source !== 'file'` (streaming sources like Spotify or
+Tidal) or where the lazy probe verdict is `_audioProbedAt[id] === 'missing'`
+are flagged as **orphans** by `buildTrackCard()`. Instead of the
+**Load audio** button, they get a muted **"No audio ⓘ"** chip. Clicking
+opens `#track-info-modal`.
+
+### `#track-info-modal`
+
+Mounted once in `<body>`. Opens **instantly** with a `"Checking…"`
+placeholder in the source-label area, then probes
+`POST /api/tracks/check-audio` for the single track ID in parallel and
+replaces the placeholder when the response arrives. A monotonic
+`_infoModalRequestId` counter guards against late responses overwriting
+a re-opened modal for a different track — when the counter advances or
+the modal closes, in-flight responses are silently dropped.
+
+Contents: Title, Artist, Album, Genre, BPM, Key, Duration, FolderPath
+(monospace, copyable), Source label + help text, "Search YouTube ↗" link
+as escape hatch, and a **Download via YouTube** primary button visible
+when source is `streaming` / `missing`.
+
+### `#yt-modal` — candidate selection
+
+A separate modal opened from the info modal's Download button. Contents:
+
+- Editable query `<input>` defaulting to `${artist} ${title}` (no
+  type-to-search — explicit **Search** button or `Enter` submits).
+- The search button is disabled while in-flight. A spinner + indeterminate
+  `<progress>` cover the latency window (yt-dlp searches are 4–10 s).
+- Server-side bounds: 2-process semaphore (429 above), 30 s timeout
+  (504 on hang), in-flight dedupe by exact query. See `rest-api.md` for
+  the contract.
+- Candidate list: 5 rows with title, channel, duration. **Default-selected
+  = the candidate within ±15 % of `track.totalTime` if known**, else
+  none.
+- Clicking a candidate fires `POST /api/download` with the **chosen URL**
+  (deterministic — not a search term), SSE progress fills inside the
+  modal via the existing reader pattern.
+
+### Post-download relink
+
+On `done: true` with a path, the modal shows the new absolute path with a
+**Copy path** button. The button uses `navigator.clipboard.writeText()`
+inside a try/catch; on rejection (clipboard permission denied,
+non-secure context) a hidden `<input readonly value={path}>` is revealed
+so the user can manually `Cmd-C` / `Ctrl-C`. An inline Rekordbox 7
+instruction string explains the right-click → File Path relink step;
+auto-rewriting `DjmdContent.FolderPath` is **explicitly out of scope** —
+risky DB mutation the user does manually.
+
+### Toast aggregation
+
+The legacy `ensureLocalAudio()` callers (Load button, click-to-play
+artwork) now route through `_queueAudioFailToast(track)`. A
+module-level `_audioFailQueue: Set<string>` collects failed IDs; a 1 s
+flush window collapses N failures into one toast — `Audio file not
+found: <title>` for N=1, `Audio file not found for N tracks` for N>1.
+Replaces the stacked toasts seen in image #7.
 
 ---
 

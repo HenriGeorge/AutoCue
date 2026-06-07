@@ -493,6 +493,12 @@ The web UI always sends the IDs of the currently visible tracks (after applying 
 
 The **Beat grid only** (`♪`) toggle next to **Phrase only** narrows the list to tracks Rekordbox has actually analyzed (BPM > 0). Combine the two to surface fully-analyzed tracks; turn either off to find tracks that still need a pass through Rekordbox's analyzer. The two flags share the same client-side `filteredTracks()` plumbing as every other filter — selection, export, and bulk write endpoints all see the narrowed list.
 
+The third toggle **Audio available** (`🔌`) hides tracks whose audio is unreachable — streaming-source rows imported from Spotify or Tidal, plus files whose path no longer exists on disk. The check is lazy and fail-open: when the music folder is on an unmounted external drive or unreachable network share, the unverifiable tracks **stay visible** so you don't accidentally hide your library. Tracks confirmed missing get a muted "No audio ⓘ" chip on their card instead of the Load audio button. Clicking the chip opens a track info modal that shows the stored file path plus a **Download via YouTube** button — the candidate-selection flow lets you preview titles, channels, and duration before committing, so a missing track can be rescued with a real audio file in seconds. After a successful download, the modal exposes a Copy path button and a short Rekordbox 7 relink instruction; AutoCue intentionally does not auto-rewrite the Rekordbox file path (that DB mutation is yours to make, deliberately).
+
+### Phrase-analysis progress banner
+
+Switching into ✨ Phrase analysis with a multi-thousand-track library used to freeze Chrome long enough to trigger the "Page Unresponsive" dialog. The Cues tab now shows a persistent progress banner (pinned below the *Tracks* title, above the filter row) with a live "Computing phrase cues N / M" counter, a thin progress bar, and a Cancel button. Cards update individually as their phrase cues arrive — no library-wide flicker. Cancelling stops the load cleanly; the next mode toggle within the same library state reuses cached phrase data and updates only the visible cards (~5 ms client-only operation).
+
 ---
 
 ## Feature 11: BPM Color Coding

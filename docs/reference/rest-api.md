@@ -521,6 +521,7 @@ Sort details:
 | `duration`          | float     | `DjmdContent.Length` (seconds)                                          |
 | `has_phrase`        | bool      | `AnalysisDataPath` is set (= [ANLZ](./GLOSSARY.md#anlz-files-and-tags) `.EXT` file written; no `iterdir` scan) |
 | `has_beats`         | bool      | `BPM > 0`                                                               |
+| `source`            | enum      | `"file" \| "streaming" \| "unknown"` — cheap `FolderPath` string check. Streaming-URI prefixes (`spotify:`, `tidal:`, `applemusic:`, `http(s)://`) classify as `"streaming"`. **No `os.path.exists()` in `/api/tracks`** — actual disk verification lives at [`POST /api/tracks/check-audio`](#post-apitrackscheck-audio--lazy-disk-verification). |
 | `existing_hot_cues` | int       | Count of [`DjmdCue`](./GLOSSARY.md#djmdcue) rows with [`Kind`](./GLOSSARY.md#cue-encoding-kind-slot-inframe-outmsec) ∈ [1, 8] for this track |
 | `key`               | string    | [Camelot](./GLOSSARY.md#camelot-key-wheel) string from `DjmdKey.ScaleName` |
 | `last_played`       | string \| null | Latest [`DjmdHistory`](./GLOSSARY.md#djmdhistory--djmdsonghistory).DateCreated for this track  |
@@ -582,6 +583,125 @@ Stream the track's audio file (`routes.py:244`). Reads `DjmdContent.FolderPath`
 
 This endpoint is used by the in-page mini player. Browsers send range
 requests; `FileResponse` handles 206 partial content natively.
+
+</details>
+
+<details>
+<summary><code>POST /api/tracks/check-audio</code> — lazy disk verification</summary>
+
+Lazy verification of audio-file presence for a batch of tracks (PR #12).
+Compensates for `/api/tracks` deliberately **not** stat-ing every row — a
+~3 775-track `stat()` fan-out on a network drive or external USB could
+take minutes.
+
+**Request — `CheckAudioRequest`**
+
+```json
+{ "track_ids": [212087170, 129670190, …] }   // max 1000 — 429 above
+```
+
+**Response — 200 (`CheckAudioResponse`)**
+
+```json
+{
+  "results": {
+    "212087170": "file",
+    "129670190": "missing",
+    "85904626":  "unverified"
+  },
+  "unverified_dirs": ["/Volumes/USB"]
+}
+```
+
+| Verdict | Meaning |
+|---|---|
+| `"file"` | `scandir(parent)` succeeded and the file is present |
+| `"missing"` | `scandir(parent)` succeeded and the file is **not** present |
+| `"unverified"` | `scandir(parent)` raised (mount unreachable, permission denied) — the client surfaces a soft warning and **does not hide the track** (fail-open) |
+
+**Implementation notes**
+
+- Groups stat calls by parent directory via `os.scandir()` — one syscall
+  per directory, not per file. A folder with 200 tracks costs one
+  scandir, not 200.
+- Cache lives at `routes._audio_check_cache: dict[(content_id,
+  parent_mtime), str]`. Cleared on `/api/restore` alongside the other
+  analysis caches (`similar._INDEX`, `energy._cache`,
+  `classify._class_cache`, `score._mixability_cache`).
+- **Network-FS caveat**: some SMB / NFS implementations don't update
+  parent `mtime` on file create/delete. Cache may go stale until server
+  restart.
+- Client side: posts only currently-visible `source: "file"` IDs,
+  chunked 500 sequentially with 200 ms debounce, AbortController-cancellable.
+
+**Status codes**
+
+- `200` — verification complete.
+- `429` — `len(track_ids) > 1000`.
+
+</details>
+
+<details>
+<summary><code>GET /api/youtube/search</code> — YouTube candidate search</summary>
+
+Read-only candidate search for the "Download via YouTube" rescue flow
+(PR #12). Wraps `dl.search_youtube(query, n)` which already exists.
+
+**Query params**
+
+| Param | Type | Default | Meaning |
+|---|---|---|---|
+| `q` | string | — | Search query. Required. |
+| `n` | int | 5 | Max results (1–10). |
+
+**Response — 200 (`YoutubeSearchResponse`)**
+
+```json
+{
+  "candidates": [
+    {
+      "url": "https://www.youtube.com/watch?v=…",
+      "title": "Michael Jackson - Beat It (Official Video)",
+      "channel": "MichaelJacksonVEVO",
+      "duration": 258.0,
+      "thumbnail": null
+    },
+    …
+  ]
+}
+```
+
+**Bounds (v5 plan M1 / P2)**
+
+- **2-process semaphore** (`routes._yt_search_semaphore`) bounds
+  concurrent yt-dlp invocations. Excess returns **429** instead of
+  queuing.
+- **30-second hard timeout** via `Future.result(timeout=30)`. Timeout
+  releases the semaphore slot and returns **504** so a hung YouTube
+  response can't permanently jam the cap.
+- **In-flight dedupe** by exact query string in
+  `routes._inflight_yt_searches`. Two concurrent clicks with the same
+  query share one yt-dlp process; clicks with different queries each
+  spawn one (subject to the semaphore cap).
+
+**Status codes**
+
+- `200` — search complete.
+- `429` — both semaphore slots held; client should wait and retry.
+- `503` — yt-dlp isn't installed (optional `[download]` extra missing).
+- `504` — search exceeded the 30 s timeout.
+- `500` — yt-dlp raised an unexpected exception.
+
+**Client UX**
+
+The web UI's candidate-selection modal (`#yt-modal`) uses **no
+type-to-search**: an explicit Search button (or `Enter` keypress) fires
+the request, the button is disabled while in-flight, and the candidate
+list shows title / channel / duration so the user can spot covers and
+megamixes before committing to a download. The default-selected candidate
+is the one within ±15 % of `track.duration` if known. Selecting fires
+`POST /api/download` with the chosen URL — a **deterministic** download,
+not a `ytsearch1:` round trip.
 
 </details>
 
