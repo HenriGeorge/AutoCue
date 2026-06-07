@@ -182,13 +182,13 @@ class TestEnergyScore:
         assert _energy_score(a, b) == 0.0
 
     def test_none_curves_return_neutral(self):
-        # Both None → delta = 0 → 100
-        assert _energy_score(None, None) == 100.0
+        # Both None → unknown energy → neutral 50, not perfect 100
+        assert _energy_score(None, None) == 50.0
 
     def test_partial_none_returns_partial(self):
-        # One None (0.5 neutral), other [0.9] → delta = 0.4
+        # One None → capped at 75; other [0.9] → delta=0.4 → ~22.2, capped at 75
         score = _energy_score(None, [0.9] * 20)
-        assert 0 < score < 100
+        assert 0 < score <= 75.0
 
     def test_score_decreases_with_delta(self):
         base = [0.5] * 20

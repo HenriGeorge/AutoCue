@@ -334,19 +334,19 @@ An overall score ≥ 80 is an excellent transition. 60–79 is good. 40–59 is 
 
 ### What it produces
 
-`POST /api/setbuilder` returns an ordered list of tracks forming a complete DJ set. Each track includes its title, artist, BPM, Camelot key, AutoCue category label, and the transition score from the previous track.
+`POST /api/setbuilder` returns an ordered list of tracks forming a complete DJ set. Each track includes its title, artist, BPM, Camelot key, AutoCue category label, transition score from the previous track, and a **mixing tip** explaining how to execute each transition.
 
 ### Beam search algorithm explained
 
 Rather than evaluating all possible track sequences (O(n²) per step, prohibitive for 10,000-track libraries), AutoCue uses beam search:
 
-1. **Seed selection**: if no `seed_track_id` is provided, AutoCue scans all tracks and picks the one that best balances `bpm_score(start_bpm, track_bpm) × 0.5 + category_score(first_category) × 0.5`.
+1. **Seed selection**: if no `seed_track_id` is provided, AutoCue scans all tracks and picks the one that best balances `bpm_score(start_bpm, track_bpm) × 0.5 + category_score(first_category) × 0.5`. A two-pass approach ensures the seed is at or above `start_bpm` — falling back to any BPM only if no in-range track is found.
 
-2. **Per step**: for the current end track of each active beam, AutoCue calls `find_similar(track_id, n=20)` to get the 20 most similar candidates within the BPM gate. This is O(n × 20) per step, not O(n²).
+2. **Per step**: for the current end track of each active beam, AutoCue calls `find_similar(track_id, n=40)` to get up to 40 similar candidates within the BPM gate. When building BPM, the gate looks asymmetrically further ahead (minimum ±12 BPM toward `end_bpm`) to ensure higher-tempo candidates are visible. This is O(n × 40) per step, not O(n²).
 
-3. **Filtering**: each candidate must (a) not already appear in the beam (deduplication), (b) have BPM within `[current_bpm × 0.97, current_bpm × (1 + bpm_step_max)]`, (c) score ≥ 0.3 for the target category at this point in the set, and (d) score ≥ 40 overall on the transition scorer.
+3. **Filtering**: each candidate must (a) not already appear in the beam by track ID (deduplication), (b) not share the same title + artist as an existing track (blocks duplicate imports), (c) not exceed the per-artist repeat cap (default: max 2 appearances per artist), (d) have BPM within `[current_bpm × 0.97, current_bpm × (1 + bpm_step_max)]` — and when building BPM, never descend below `start_bpm × 0.97`, (e) score ≥ 0.3 for the target category at this point in the set, and (f) score ≥ 40 overall on the transition scorer.
 
-4. **Scoring**: the transition score minus an energy penalty (0 or 15 points) is the adjusted score used to rank candidates.
+4. **Scoring**: when `start_bpm ≠ end_bpm`, the scoring uses a setbuilder-specific weighting (`0.25 × BPM + 0.40 × key + 0.35 × energy`) instead of the standard transition scorer weighting. This prevents the standard BPM component from penalising intentional tempo movement. A **BPM-progress bonus** (up to +15 points) rewards tracks that move toward `end_bpm`, proportional to the fraction of remaining BPM distance covered. The adjusted score is `reweighted_overall − energy_penalty + bpm_bonus`.
 
 5. **Beam maintenance**: at the end of each step, the top 5 new beams (by cumulative adjusted score) are kept. This explores 5 parallel paths simultaneously so a locally suboptimal track can still lead to a better overall set.
 
@@ -372,15 +372,33 @@ At each step, the target category is computed by mapping the step index into the
 - Steps 4–6: target `build`
 - Steps 7–9: target `peak`
 
-A track must score ≥ 0.3 for the target category to be a candidate. If no candidates pass the threshold, the beam is kept unchanged (it stops growing) rather than forcing a poor-fit track.
+A track must score ≥ 0.3 for the target category to be a candidate. Because the category trapezoids are BPM-gated (e.g. `build` starts at 108 BPM), the category arc only fires naturally once the BPM has climbed to the correct range. The BPM-progress bonus ensures the beam climbs BPM before worrying about the category filter.
 
 ### Seed track option
 
 If you provide `seed_track_id`, the set always starts with that specific track. This is useful when you know how you want to open your set and want AutoCue to complete the rest.
 
-### Duplicate prevention
+### Duplicate and repeat prevention
 
-Each beam maintains a `visited` set of track IDs. A track already in the beam is never proposed as a candidate, so no track appears twice.
+Each beam maintains:
+- A `visited` set of track IDs — no track appears twice in the same beam
+- A `visited_titles` set of `"title|||artist"` strings — blocks the same song from appearing under two different track IDs (common with re-imports)
+- A `visited_artists` counter — caps any single artist at 2 appearances per set (configurable)
+
+### DJ mixing tips (`mix_advice`)
+
+Each track in the result (except the first) includes a `mix_advice` string describing how to execute the transition. The tip is derived from the transition scorer components:
+
+| Situation | Example tip |
+|---|---|
+| Matched BPM, same key | `BPM matched — beatmix, blend over 16–32 bars` |
+| +5 BPM, adjacent key | `Nudge pitch +5.1 BPM — blend over 8–16 bars; compatible key (5A→4A) — harmonic blend works` |
+| Large BPM gap | `18.4 BPM gap — hard cut at phrase boundary or use an acappella/dub` |
+| Key clash | `BPM matched — beatmix, blend over 16–32 bars; key clash (1A→7B) — EQ-kill lows/mids before incoming lands` |
+| Energy jump | `BPM matched — beatmix, blend over 16–32 bars; energy jumps 25% — filter incoming until mix point, then open slowly` |
+| Half-time drop | `Half-time drop (120→60 BPM) — let outgoing finish, bring incoming in at full energy` |
+
+In the web UI, tips appear between rows in the connector line, styled as italic hints (💡).
 
 ---
 

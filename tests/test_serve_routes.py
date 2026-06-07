@@ -1075,14 +1075,30 @@ class TestAudioEndpoint:
 # /api/tags
 # ---------------------------------------------------------------------------
 
+def _make_tags_db(tags, used_tag_ids):
+    """Return a mock DB where /api/tags calls work correctly.
+
+    The endpoint makes two queries:
+      1. distinct(DjmdSongMyTag.MyTagID) → list of (id,) tuples for used tag IDs
+      2. DjmdMyTag filtered by Name → list of tag objects
+    """
+    db = _make_db()
+    used_q = MagicMock()
+    used_q.all.return_value = [(tid,) for tid in used_tag_ids]
+
+    tag_q = MagicMock()
+    tag_q.filter.return_value = tag_q
+    tag_q.all.return_value = tags
+
+    # First call (distinct SongMyTag) → used_q; second call (MyTag) → tag_q
+    db.query.side_effect = [used_q, tag_q]
+    return db
+
+
 class TestTagsEndpoint:
     def test_returns_list_of_tag_names(self):
-        db = _make_db()
         tags = [SimpleNamespace(ID=1, Name="House"), SimpleNamespace(ID=2, Name="Techno")]
-        tag_q = MagicMock()
-        tag_q.filter.return_value = tag_q
-        tag_q.all.return_value = tags
-        db.query.return_value = tag_q
+        db = _make_tags_db(tags, used_tag_ids=[1, 2])
         client = _make_client(db)
         r = client.get("/api/tags")
         assert r.status_code == 200
@@ -1091,29 +1107,33 @@ class TestTagsEndpoint:
         assert "Techno" in names
 
     def test_returns_empty_list_when_no_tags(self):
-        db = _make_db()
-        tag_q = MagicMock()
-        tag_q.filter.return_value = tag_q
-        tag_q.all.return_value = []
-        db.query.return_value = tag_q
+        db = _make_tags_db([], used_tag_ids=[])
         client = _make_client(db)
         r = client.get("/api/tags")
         assert r.status_code == 200
         assert r.json() == []
 
     def test_filters_out_none_name_tags(self):
-        db = _make_db()
         tags = [SimpleNamespace(ID=1, Name="House"), SimpleNamespace(ID=2, Name=None)]
-        tag_q = MagicMock()
-        tag_q.filter.return_value = tag_q
-        tag_q.all.return_value = tags
-        db.query.return_value = tag_q
+        db = _make_tags_db(tags, used_tag_ids=[1, 2])
         client = _make_client(db)
         r = client.get("/api/tags")
         assert r.status_code == 200
         names = [item["name"] for item in r.json()]
         assert None not in names
         assert "" not in names
+
+    def test_filters_out_unused_tags(self):
+        """Tags with no tracks (not in DjmdSongMyTag) must be excluded."""
+        tags = [SimpleNamespace(ID=1, Name="House"), SimpleNamespace(ID=2, Name="Techno")]
+        # Only tag 1 (House) has tracks assigned
+        db = _make_tags_db(tags, used_tag_ids=[1])
+        client = _make_client(db)
+        r = client.get("/api/tags")
+        assert r.status_code == 200
+        names = [item["name"] for item in r.json()]
+        assert "House" in names
+        assert "Techno" not in names
 
 
 # ---------------------------------------------------------------------------
@@ -2302,7 +2322,8 @@ class TestAutoTagEndpoint:
         payload = {"tagged": 3, "skipped_no_data": 1,
                    "errors": 0, "dry_run": False,
                    "undo_data": {"removed": [], "added": ["101", "102", "103"]}}
-        with self._patch_auto_tag(payload):
+        with self._patch_auto_tag(payload), \
+             patch("autocue.db_writer.rekordbox_is_running", return_value=False):
             client = _make_client(db)
             r = client.post("/api/auto-tag", json={"track_ids": [1, 2, 3, 4]})
         assert r.status_code == 200
@@ -2326,7 +2347,8 @@ class TestAutoTagEndpoint:
         payload = {"tagged": 1, "skipped_no_data": 0,
                    "errors": 0, "dry_run": False,
                    "undo_data": {"removed": [], "added": ["50"]}}
-        with self._patch_auto_tag(payload):
+        with self._patch_auto_tag(payload), \
+             patch("autocue.db_writer.rekordbox_is_running", return_value=False):
             client = _make_client(db)
             r = client.post("/api/auto-tag", json={"track_ids": [1]})
         assert r.status_code == 200
@@ -2336,7 +2358,8 @@ class TestAutoTagEndpoint:
         db = _make_db()
         payload = {"tagged": 1, "skipped_no_data": 0, "errors": 0, "dry_run": False,
                    "undo_data": {"removed": [], "added": ["60"]}}
-        with self._patch_auto_tag(payload) as mock_fn:
+        with self._patch_auto_tag(payload) as mock_fn, \
+             patch("autocue.db_writer.rekordbox_is_running", return_value=False):
             client = _make_client(db)
             r = client.post("/api/auto-tag", json={"track_ids": [1], "tag_types": ["vocal", "energy_level"]})
         assert r.status_code == 200
@@ -2349,7 +2372,7 @@ class TestAutoTagEndpoint:
         with patch(
             "autocue.analysis.auto_tag.apply_tags",
             side_effect=Exception("DB exploded"),
-        ):
+        ), patch("autocue.db_writer.rekordbox_is_running", return_value=False):
             client = _make_client(db)
             r = client.post("/api/auto-tag", json={"track_ids": [1]})
         assert r.status_code == 500
@@ -2360,7 +2383,8 @@ class TestAutoTagEndpoint:
         payload = {"tagged": 0, "skipped_no_data": 0,
                    "errors": 0, "dry_run": False,
                    "undo_data": {"removed": [], "added": []}}
-        with self._patch_auto_tag(payload):
+        with self._patch_auto_tag(payload), \
+             patch("autocue.db_writer.rekordbox_is_running", return_value=False):
             client = _make_client(db)
             r = client.post("/api/auto-tag", json={"track_ids": []})
         assert r.status_code == 200
@@ -2375,7 +2399,8 @@ class TestAutoTagUndoEndpoint:
 
     def test_returns_200_on_success(self):
         db = _make_db()
-        with self._patch_undo({"removed": 2, "restored": 1}):
+        with self._patch_undo({"removed": 2, "restored": 1}), \
+             patch("autocue.db_writer.rekordbox_is_running", return_value=False):
             client = _make_client(db)
             r = client.post(
                 "/api/auto-tag/undo",
@@ -2389,7 +2414,8 @@ class TestAutoTagUndoEndpoint:
 
     def test_commits_on_success(self):
         db = _make_db()
-        with self._patch_undo({"removed": 0, "restored": 0}):
+        with self._patch_undo({"removed": 0, "restored": 0}), \
+             patch("autocue.db_writer.rekordbox_is_running", return_value=False):
             client = _make_client(db)
             r = client.post(
                 "/api/auto-tag/undo",
@@ -2403,7 +2429,7 @@ class TestAutoTagUndoEndpoint:
         with patch(
             "autocue.analysis.auto_tag.undo_tag_run",
             side_effect=RuntimeError("undo boom"),
-        ):
+        ), patch("autocue.db_writer.rekordbox_is_running", return_value=False):
             client = _make_client(db)
             r = client.post(
                 "/api/auto-tag/undo",
@@ -2469,6 +2495,37 @@ class TestDownloadConfigEndpoint:
         assert data["available"] is True
         assert data["ffmpeg"] is False
         assert "default_dir" in data
+        assert "music_folder" in data  # may be None if no tracks with absolute FolderPath
+
+    def test_returns_music_folder_from_track_paths(self):
+        db = _make_db()
+        content_rows = [
+            SimpleNamespace(FolderPath='/Users/test/Music/Rekordbox/Track1.mp3'),
+            SimpleNamespace(FolderPath='/Users/test/Music/Rekordbox/Track2.mp3'),
+        ]
+        q = MagicMock()
+        q.limit.return_value = q
+        q.all.return_value = content_rows
+        db.query.return_value = q
+        client = _make_client(db)
+        with patch("autocue.download.ytdlp_available", return_value=False):
+            with patch("autocue.download.ffmpeg_available", return_value=False):
+                r = client.get("/api/download/config")
+        data = r.json()
+        assert data["music_folder"] == '/Users/test/Music/Rekordbox'
+
+    def test_music_folder_none_when_no_absolute_paths(self):
+        db = _make_db()
+        content_rows = [SimpleNamespace(FolderPath='relative/path/Track.mp3')]
+        q = MagicMock()
+        q.limit.return_value = q
+        q.all.return_value = content_rows
+        db.query.return_value = q
+        client = _make_client(db)
+        with patch("autocue.download.ytdlp_available", return_value=False):
+            with patch("autocue.download.ffmpeg_available", return_value=False):
+                r = client.get("/api/download/config")
+        assert r.json()["music_folder"] is None
 
 
 class TestDownloadEndpoint:
@@ -2599,6 +2656,100 @@ class TestWriteGuards:
                 r = client.post("/api/enrich-comments",
                                 json={"track_ids": [1], "dry_run": True})
         assert r.status_code == 200
+
+
+# ---------------------------------------------------------------------------
+# Discogs skip_existing
+# ---------------------------------------------------------------------------
+
+class TestDiscogsSkipExisting:
+    """skip_existing=True skips tracks that already have non-AutoCue My Tags."""
+
+    def _make_db_discogs(self, existing_tag_name=None):
+        """Build a mock DB with one track and optional pre-existing My Tag."""
+        from autocue.analysis.auto_tag import ALL_AUTOCUE_TAG_NAMES
+        db = MagicMock()
+
+        content = MagicMock()
+        content.ID = 1
+        content.ArtistName = "Artist"
+        content.Title = "Title"
+        db.get_content.return_value = content
+
+        # Pre-build tag_name_map: one tag with given name
+        tag_mock = MagicMock()
+        tag_mock.ID = "tag-1"
+        tag_mock.Name = existing_tag_name or ""
+
+        song_tag_mock = MagicMock()
+        song_tag_mock.MyTagID = "tag-1"
+
+        def _query_side_effect(cls):
+            from pyrekordbox.db6 import DjmdMyTag, DjmdSongMyTag
+            q = MagicMock()
+            if cls is DjmdMyTag:
+                q.all.return_value = [tag_mock] if existing_tag_name else []
+            elif cls is DjmdSongMyTag:
+                q.filter.return_value = q
+                q.all.return_value = [song_tag_mock] if existing_tag_name else []
+            else:
+                q.all.return_value = []
+                q.filter.return_value = q
+                q.first.return_value = None
+            return q
+
+        db.session.query.side_effect = _query_side_effect
+        db.session.commit.return_value = None
+        return db
+
+    def test_skip_existing_skips_track_with_discogs_tag(self):
+        db = self._make_db_discogs(existing_tag_name="Deep House")
+        with patch("autocue.db_writer.rekordbox_is_running", return_value=False):
+            with patch("autocue.analysis.discogs.search_styles", return_value=["Deep House"]) as mock_search:
+                client = _make_client(db)
+                r = client.post("/api/auto-tag/discogs",
+                                json={"track_ids": [1], "token": "tok",
+                                      "dry_run": False, "skip_existing": True})
+        assert r.status_code == 200
+        events = _sse_payloads(r.text)
+        final = events[-1]
+        assert final["done"] is True
+        assert final["skipped"] == 1
+        assert final["tagged"] == 0
+        # search_styles must NOT have been called — the skip happens before the API call
+        mock_search.assert_not_called()
+
+    def test_skip_existing_does_not_skip_track_with_only_autocue_tags(self):
+        db = self._make_db_discogs(existing_tag_name="Peak")  # AutoCue category tag
+        with patch("autocue.db_writer.rekordbox_is_running", return_value=False):
+            with patch("autocue.analysis.discogs.search_styles", return_value=["Deep House"]):
+                with patch("autocue.analysis.auto_tag.ensure_tag_by_name", return_value="tag-2"):
+                    client = _make_client(db)
+                    r = client.post("/api/auto-tag/discogs",
+                                    json={"track_ids": [1], "token": "tok",
+                                          "dry_run": False, "skip_existing": True})
+        assert r.status_code == 200
+        events = _sse_payloads(r.text)
+        final = events[-1]
+        assert final["done"] is True
+        assert final["tagged"] == 1
+        assert final["skipped"] == 0
+
+    def test_skip_existing_false_processes_all_tracks(self):
+        db = self._make_db_discogs(existing_tag_name="Deep House")
+        with patch("autocue.db_writer.rekordbox_is_running", return_value=False):
+            with patch("autocue.analysis.discogs.search_styles", return_value=["Deep House"]):
+                with patch("autocue.analysis.auto_tag.ensure_tag_by_name", return_value="tag-2"):
+                    client = _make_client(db)
+                    r = client.post("/api/auto-tag/discogs",
+                                    json={"track_ids": [1], "token": "tok",
+                                          "dry_run": False, "skip_existing": False})
+        assert r.status_code == 200
+        events = _sse_payloads(r.text)
+        final = events[-1]
+        assert final["done"] is True
+        assert final["tagged"] == 1
+        assert final["skipped"] == 0
 
 
 # ---------------------------------------------------------------------------

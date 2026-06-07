@@ -403,6 +403,7 @@ function filteredTracks(parsedTracks, {
   playsFilter = 'all',
   lastPlayedFilter = 'all',
   myTagFilter = '',
+  genreFilters = new Set(),
 } = {}) {
   let tracks = parsedTracks
   if (phraseOnlyFilter) tracks = tracks.filter(t => t.hasPhrase)
@@ -426,6 +427,7 @@ function filteredTracks(parsedTracks, {
     }
   }
   if (myTagFilter) tracks = tracks.filter(t => (t.myTags || []).includes(myTagFilter))
+  if (genreFilters.size > 0) tracks = tracks.filter(t => genreFilters.has(t.genre || ''))
   return tracks
 }
 
@@ -537,6 +539,35 @@ describe('filteredTracks — My Tag filter', () => {
 
   it('tag not present on any track returns empty', () => {
     expect(filteredTracks(sampleTracks, { myTagFilter: 'Ambient' })).toHaveLength(0)
+  })
+})
+
+describe('filteredTracks — genre filter (multi-select, OR logic)', () => {
+  const genreTracks = [
+    { id: '1', name: 'A', artist: '', genre: 'Techno', myTags: [] },
+    { id: '2', name: 'B', artist: '', genre: 'House',  myTags: [] },
+    { id: '3', name: 'C', artist: '', genre: 'Drum and Bass', myTags: [] },
+    { id: '4', name: 'D', artist: '', genre: '',       myTags: [] },
+  ]
+  it('empty genreFilters returns all tracks', () => {
+    expect(filteredTracks(genreTracks, { genreFilters: new Set() })).toHaveLength(4)
+  })
+  it('single genre filters correctly', () => {
+    const result = filteredTracks(genreTracks, { genreFilters: new Set(['Techno']) })
+    expect(result).toHaveLength(1)
+    expect(result[0].id).toBe('1')
+  })
+  it('multiple genres use OR logic', () => {
+    const result = filteredTracks(genreTracks, { genreFilters: new Set(['Techno', 'House']) })
+    expect(result).toHaveLength(2)
+    expect(result.map(t => t.id).sort()).toEqual(['1', '2'])
+  })
+  it('genre not present returns empty', () => {
+    expect(filteredTracks(genreTracks, { genreFilters: new Set(['Ambient']) })).toHaveLength(0)
+  })
+  it('track with empty genre string not matched by genre filter', () => {
+    const result = filteredTracks(genreTracks, { genreFilters: new Set(['Techno', 'House']) })
+    expect(result.find(t => t.id === '4')).toBeUndefined()
   })
 })
 
@@ -1384,5 +1415,93 @@ describe('r.json().catch — non-JSON error bodies show statusText, not SyntaxEr
     await deleteAllCues_fn([1, 2], fetch, showToast)
     expect(messages[0]).toContain('24')
     expect(messages[0]).toContain('6 tracks')
+  })
+})
+
+// ── AppState pub/sub (docs/index.html) ──────────────────────────────────────────
+// Extracted verbatim — update if AppState implementation changes in index.html
+function makeAppState() {
+  var _subs  = new Map()
+  var _dirty = new Set()
+  var _pending = null
+  function subscribe(key, fn) {
+    if (!_subs.has(key)) _subs.set(key, new Set())
+    _subs.get(key).add(fn)
+    return function() { var s = _subs.get(key); if (s) s.delete(fn) }
+  }
+  function _flush() {
+    _pending = null
+    var toCall = new Set()
+    _dirty.forEach(function(k) {
+      var s = _subs.get(k)
+      if (s) s.forEach(function(fn) { toCall.add(fn) })
+    })
+    _dirty.clear()
+    toCall.forEach(function(fn) { fn() })
+  }
+  function signal(key) {
+    _dirty.add(key)
+    if (!_pending) _pending = Promise.resolve().then(_flush)
+  }
+  return { subscribe, signal }
+}
+
+describe('AppState pub/sub', () => {
+  it('subscriber fires after signal', async () => {
+    const as = makeAppState()
+    const calls = []
+    as.subscribe('x', () => calls.push('x'))
+    as.signal('x')
+    await Promise.resolve()
+    expect(calls).toEqual(['x'])
+  })
+
+  it('multiple signals in same tick coalesce into one flush', async () => {
+    const as = makeAppState()
+    let count = 0
+    as.subscribe('filters', () => count++)
+    as.signal('filters')
+    as.signal('filters')
+    as.signal('filters')
+    await Promise.resolve()
+    expect(count).toBe(1)
+  })
+
+  it('two different keys both notify their own subscribers', async () => {
+    const as = makeAppState()
+    const calls = []
+    as.subscribe('filters', () => calls.push('filters'))
+    as.subscribe('tracks',  () => calls.push('tracks'))
+    as.signal('filters')
+    as.signal('tracks')
+    await Promise.resolve()
+    expect(calls).toContain('filters')
+    expect(calls).toContain('tracks')
+    expect(calls.length).toBe(2)
+  })
+
+  it('unsubscribe stops future notifications', async () => {
+    const as = makeAppState()
+    let count = 0
+    const unsub = as.subscribe('x', () => count++)
+    as.signal('x')
+    await Promise.resolve()
+    expect(count).toBe(1)
+    unsub()
+    as.signal('x')
+    await Promise.resolve()
+    expect(count).toBe(1) // did not increase
+  })
+
+  it('second signal after flush schedules a new flush', async () => {
+    const as = makeAppState()
+    const calls = []
+    as.subscribe('x', () => calls.push(calls.length))
+    as.signal('x')
+    await Promise.resolve() // first flush
+    expect(calls.length).toBe(1)
+    as.signal('x')
+    await Promise.resolve() // second flush
+    expect(calls.length).toBe(2)
   })
 })

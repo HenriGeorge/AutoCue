@@ -112,7 +112,9 @@
       display: flex;
       align-items: center;
       gap: 16px;
+      transition: padding 0.28s cubic-bezier(0.4, 0, 0.2, 1);
     }
+    #top-bar.scrolled header { padding: 7px 40px; }
     .logo {
       display: flex;
       align-items: center;
@@ -124,14 +126,19 @@
       background: var(--surface2); border: 1px solid var(--border-hover);
       border-radius: 8px;
       display: flex; align-items: center; justify-content: center;
+      transition: width 0.28s cubic-bezier(0.4,0,0.2,1),
+                  height 0.28s cubic-bezier(0.4,0,0.2,1);
     }
+    #top-bar.scrolled .logo-icon { width: 26px; height: 26px; }
     .logo-icon svg { width: 20px; height: 20px; }
     .logo-text {
       font-size: 17px;
       font-weight: 700;
       color: var(--text);
       letter-spacing: -0.4px;
+      transition: font-size 0.28s cubic-bezier(0.4,0,0.2,1);
     }
+    #top-bar.scrolled .logo-text { font-size: 15px; }
     header nav { margin-left: auto; }
     header a {
       color: var(--muted-soft, #78716c);
@@ -146,7 +153,7 @@
     main {
       max-width: 900px;
       margin: 0 auto;
-      padding: 48px 24px 100px;
+      padding: 24px 24px 100px;
     }
 
     /* ── Steps ── */
@@ -241,14 +248,35 @@
     /* ── Settings ── */
     #settings-section {
       background: var(--surface); border: 1px solid var(--border);
-      border-radius: 12px; padding: 20px 24px; margin-bottom: 16px; display: none;
+      border-radius: 12px; padding: 0; margin-bottom: 16px; display: none;
+      overflow: hidden;
     }
     #settings-section.visible { display: block; }
     .settings-title {
       font-size: 13px; font-weight: 600;
       text-transform: uppercase; letter-spacing: .08em;
-      color: var(--muted); margin-bottom: 20px;
+      color: var(--muted);
+      display: flex; align-items: center; justify-content: space-between; gap: 8px;
+      padding: 14px 20px; cursor: pointer; user-select: none;
     }
+    .settings-title:hover { background: var(--surface2); }
+    .settings-title-left { display: flex; align-items: center; gap: 8px; }
+    .settings-title-summary {
+      font-size: 12px; font-weight: 400; text-transform: none;
+      letter-spacing: 0; color: var(--muted); opacity: .8;
+    }
+    .settings-toggle-icon { font-size: 10px; transition: transform 220ms ease; flex-shrink: 0; }
+    #settings-section.collapsed .settings-toggle-icon { transform: rotate(-90deg); }
+    .settings-body {
+      padding: 0 20px 20px; display: grid; grid-template-rows: 1fr;
+      transition: grid-template-rows 220ms ease, padding 220ms ease;
+    }
+    #settings-section.collapsed .settings-body {
+      grid-template-rows: 0fr; padding-bottom: 0;
+    }
+    .settings-body-inner { overflow: hidden; }
+    /* legacy margin for first grid inside body */
+    .settings-body .settings-grid:first-child { margin-top: 6px; }
     .settings-grid {
       display: grid;
       grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
@@ -282,7 +310,11 @@
 
     /* ── Track list ── */
     #tracks-section { display: none; }
-    #tracks-section.visible { display: block; }
+    #tracks-section.visible {
+      display: block;
+      border-radius: 16px 16px 0 0;
+      box-shadow: 0 -2px 24px rgba(0,0,0,.07), 0 0 0 1px var(--border);
+    }
     .tracks-header { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; flex-wrap: wrap; }
     .tracks-title { font-size: 20px; font-weight: 700; margin: 0; }
     .sort-bar {
@@ -356,7 +388,7 @@
     .album-tracks {
       border: 1px solid var(--border); border-top: none;
       border-bottom-left-radius: 10px; border-bottom-right-radius: 10px;
-      padding: 6px 6px 2px; display: none;
+      padding: 6px 6px 2px; display: none; overflow: hidden;
     }
     .album-tracks.open { display: block; }
     .album-tracks .track-card { margin-bottom: 6px; }
@@ -369,6 +401,7 @@
 
     /* ── Track card ── */
     .track-card {
+      position: relative;
       background: var(--surface);
       border: 1px solid var(--border);
       border-left-width: 3px;
@@ -380,7 +413,17 @@
       cursor: pointer;
     }
     .track-card:hover { border-color: var(--border-hover); background: var(--surface); box-shadow: var(--shadow-md); transform: translateY(-1px); }
-    .track-card.now-playing { border-color: var(--green); }
+    /* D2: Left-border radar ping on now-playing */
+    @keyframes _nowPlayingPulse {
+      0%   { box-shadow: 0 0 0 0 color-mix(in srgb, var(--green) 40%, transparent), var(--shadow-sm); }
+      65%  { box-shadow: 0 0 0 9px color-mix(in srgb, var(--green) 0%, transparent), var(--shadow-sm); }
+      100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--green) 0%, transparent), var(--shadow-sm); }
+    }
+    .track-card.now-playing {
+      border-color: var(--green);
+      animation: _nowPlayingPulse 2.6s ease-out infinite;
+    }
+    .track-card.now-playing:hover { animation-play-state: paused; }
     .track-card.selected { border-color: var(--green); background: rgba(40,226,20,.04); }
     /* Rekordbox BPM color accents — left border + dot */
     .track-card[data-color="Pink"]   { border-left-color: #e4849b; }
@@ -539,7 +582,7 @@
     .mix-breakdown {
       display: none; margin-top: 4px; padding: 8px 10px;
       background: var(--surface); border: 1px solid var(--border); border-radius: 6px;
-      font-size: 11px;
+      font-size: 11px; overflow: hidden;
     }
     .mix-breakdown.open { display: block; }
     .mix-breakdown-row {
@@ -582,6 +625,16 @@
     .panel-card:hover { border-color: var(--border-hover); box-shadow: var(--shadow-md); }
     .panel-card.animate-in { animation: fadeSlideIn 0.35s ease-out forwards; }
     .track-card.animate-in { animation: fadeSlideIn 0.35s ease-out forwards; }
+    @keyframes _cardEnter {
+      from { opacity: 0; transform: translateY(8px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+    .card-enter { animation: _cardEnter 200ms ease-out both; }
+    @keyframes _cardExit {
+      from { opacity: 1; transform: translateX(0); }
+      to   { opacity: 0; transform: translateX(-12px); }
+    }
+    .card-exit { animation: _cardExit 200ms ease-in forwards; pointer-events: none; }
     .mix-score-row { justify-content: flex-start; }
     .similar-btn { margin-left: auto; transition: all 0.18s ease; border: 1px solid var(--border); border-radius: 20px; padding: 2px 10px; font-size: 11px; background: transparent; color: var(--muted); cursor: pointer; }
     /* primary button handled below */
@@ -591,7 +644,7 @@
     .similar-panel {
       display: none; margin-top: 6px;
       background: var(--surface2); border: 1px solid var(--border);
-      border-radius: 4px; padding: 6px 8px; font-size: 11px;
+      border-radius: 4px; padding: 6px 8px; font-size: 11px; overflow: hidden;
     }
     .similar-panel.visible { display: block; }
     .similar-row {
@@ -616,9 +669,12 @@
       display: none; font-size: 11px; color: var(--muted);
       background: var(--surface2); border: 1px solid var(--border);
       border-radius: 4px; padding: 6px 8px; margin-top: 4px;
-      width: 100%; box-sizing: border-box;
+      width: 100%; box-sizing: border-box; overflow: hidden;
     }
     .cue-reason-panel.visible { display: block; }
+
+    /* General fade-in-up helper (reuses existing fadeSlideIn keyframe) */
+    .fade-in-up { animation: fadeSlideIn 0.35s ease-out both; }
     .cue-reason-panel ul { margin: 2px 0 0 12px; padding: 0; list-style: disc; }
     .cue-reason-panel li { margin-bottom: 2px; }
 
@@ -638,18 +694,31 @@
       width: 2px; background: var(--text); border-radius: 1px;
       pointer-events: none; opacity: .7;
     }
+    /* D3: Cue badge seek flash */
+    @keyframes _cueSeek {
+      0%   { opacity: 1; transform: scale(1); }
+      45%  { opacity: 0.35; transform: scale(1.2); }
+      100% { opacity: 1; transform: scale(1); }
+    }
+    .cue-badge.seek-flash { animation: _cueSeek 0.22s ease-out; }
     /* ── Sticky tracks header ───────────────────────────────────── */
     #tracks-sticky {
       position: sticky; top: var(--top-bar-h, 0px); z-index: 100;
-      background: var(--bg);
+      background: var(--surface-card);
       /* bleed beyond main's 24px side padding so background is seamless edge-to-edge */
       margin-left: -24px; margin-right: -24px;
       padding: 16px 24px 0;
-      transition: border-color 200ms;
+      border-radius: 16px 16px 0 0;
+      transition: background 300ms ease, box-shadow 300ms ease, border-color 300ms ease, border-radius 300ms ease, backdrop-filter 300ms ease;
     }
     #tracks-sticky.shadowed {
       border-bottom: 1px solid var(--border);
       padding-bottom: 14px;
+      background: color-mix(in srgb, var(--surface-card) 90%, transparent);
+      backdrop-filter: blur(14px);
+      -webkit-backdrop-filter: blur(14px);
+      box-shadow: 0 4px 20px rgba(0,0,0,.10);
+      border-radius: 0;
     }
 
     /* Camelot key filter */
@@ -775,10 +844,20 @@
       flex-shrink: 0;
     }
     .mini-time { font-family: var(--mono); font-size: 11px; color: var(--muted); white-space: nowrap; }
+    /* D4: Mini waveform canvas scrubber */
+    #mini-waveform-wrap {
+      position: relative; width: 120px; height: 22px;
+      clip-path: inset(0 round 4px); cursor: pointer;
+      background: var(--surface2);
+    }
+    #mini-waveform {
+      display: block; width: 120px; height: 22px;
+      image-rendering: pixelated;
+    }
     #mini-scrubber {
+      position: absolute; inset: 0; opacity: 0;
+      width: 100%; height: 100%; cursor: pointer; margin: 0; padding: 0;
       -webkit-appearance: none; appearance: none;
-      width: 100px; height: 4px; border-radius: 2px;
-      background: var(--surface2); accent-color: var(--green); cursor: pointer;
     }
     @media (max-width: 640px) {
       #mini-progress { display: none; }
@@ -794,6 +873,7 @@
       transition: all .18s ease;
       flex-shrink: 0;
       box-shadow: 0 1px 3px rgba(0,0,0,.2);
+      position: relative; overflow: hidden;
     }
     button.primary:hover { background: #2a2a2a; transform: translateY(-1px); box-shadow: 0 4px 14px rgba(0,0,0,.22); }
     button.primary:active { transform: translateY(0); box-shadow: 0 1px 3px rgba(0,0,0,.2); }
@@ -891,11 +971,45 @@
       cursor: pointer; font-family: var(--font);
       transition: all .18s ease;
       box-shadow: var(--shadow-sm);
+      position: relative; overflow: hidden;
     }
     .secondary-btn:hover { border-color: var(--border-hover); box-shadow: var(--shadow-md); transform: translateY(-1px); }
     .secondary-btn:active { transform: translateY(0); box-shadow: var(--shadow-sm); }
     html.dark .secondary-btn { background: var(--surface2); box-shadow: none; }
     html.dark .secondary-btn:hover { box-shadow: 0 4px 12px rgba(0,0,0,.3); }
+
+    /* ── Genre chip pills ── */
+    .genre-chip {
+      background: var(--surface-card); border: 1px solid var(--border);
+      border-radius: 9999px; padding: 3px 10px; font-size: 11px;
+      color: var(--muted); cursor: pointer; font-family: var(--font);
+      transition: all .15s; white-space: nowrap;
+    }
+    .genre-chip:hover { border-color: var(--green); color: var(--green); }
+    .genre-chip.active {
+      background: color-mix(in srgb, var(--green) 14%, transparent);
+      border-color: var(--green); color: var(--green); font-weight: 600;
+    }
+
+    /* ── Set Builder / Playlist Suggest row artwork + playback ── */
+    .sb-row.anchor-track .sb-row-num::before { content: '⚓'; font-size: 9px; margin-right: 2px; }
+    .sb-art {
+      width: 40px; height: 40px; flex-shrink: 0; border-radius: 6px;
+      background: var(--surface2); overflow: hidden; position: relative; cursor: pointer;
+    }
+    .sb-art img { width: 100%; height: 100%; object-fit: cover; display: block; }
+    .sb-art-ph {
+      width: 100%; height: 100%; display: flex; align-items: center;
+      justify-content: center; font-size: 16px; color: var(--muted);
+    }
+    .sb-art-play {
+      position: absolute; inset: 0; display: flex; align-items: center;
+      justify-content: center; background: rgba(0,0,0,.45);
+      opacity: 0; transition: opacity .15s; font-size: 14px; color: #fff;
+      border-radius: 6px;
+    }
+    .sb-art:hover .sb-art-play { opacity: 1; }
+    .sb-art.playing .sb-art-play { opacity: 1; }
 
     /* ── Mode buttons — segmented control ── */
     .mode-group {
@@ -995,7 +1109,8 @@
     #sb-guide-title { font-size:12px; font-weight:700; color:var(--text); display:flex; align-items:center; gap:6px; }
     #sb-guide-chevron { font-size:10px; color:var(--muted); transition:transform .2s; }
     #sb-guide-chevron.open { transform:rotate(180deg); }
-    #sb-guide-body { display:none; padding:14px; }
+    #sb-guide-body { display:none; padding:14px; overflow:hidden; }
+    #sb-guide-body.open { display:block; }
     #sb-guide-tabs { display:flex; gap:6px; flex-wrap:wrap; margin-bottom:12px; }
     .sb-guide-tab {
       font-size:11px; font-weight:600; padding:4px 10px; border-radius:9999px;
@@ -1078,18 +1193,95 @@
     .sb-track-row { display:flex; gap:8px; align-items:baseline; padding:5px 0; border-bottom:1px solid var(--border); font-size:13px; }
     .sb-track-row:last-child { border-bottom:none; }
 
-    /* ── Toast ── */
-    #toast {
+    /* ── Toast stack ── */
+    #toast-stack {
       position: fixed; bottom: 72px; left: 50%; transform: translateX(-50%);
+      z-index: 9999; display: flex; flex-direction: column-reverse;
+      align-items: center; gap: 8px; pointer-events: none;
+    }
+    .toast-item {
       background: #292524; color: #fafaf9;
       border-radius: 9999px; padding: 10px 20px;
       font-size: 13px; font-weight: 600;
       box-shadow: 0 4px 24px rgba(0,0,0,.4);
-      z-index: 9999; opacity: 0; pointer-events: none; transition: opacity .2s;
-      white-space: nowrap;
+      pointer-events: auto; white-space: nowrap; cursor: default;
+      animation: _toastIn 0.24s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+      transform-origin: bottom center;
     }
-    #toast.show { opacity: 1; }
-    html.dark #toast { background: #fafaf9; color: #0c0a09; }
+    .toast-item.toast-out {
+      animation: _toastOut 0.18s ease-in forwards;
+    }
+    .toast-item.toast-error { background: #7f1d1d; color: #fecaca; }
+    .toast-item.toast-success { background: #14532d; color: #bbf7d0; }
+    html.dark .toast-item { background: #fafaf9; color: #0c0a09; }
+    html.dark .toast-item.toast-error { background: #fecaca; color: #7f1d1d; }
+    html.dark .toast-item.toast-success { background: #bbf7d0; color: #14532d; }
+    @keyframes _toastIn {
+      from { opacity: 0; transform: translateY(10px) scale(0.88); }
+      to   { opacity: 1; transform: translateY(0) scale(1); }
+    }
+    @keyframes _toastOut {
+      from { opacity: 1; transform: translateY(0) scale(1); }
+      to   { opacity: 0; transform: translateY(-6px) scale(0.9); }
+    }
+
+    /* ── Button spinner ── */
+    .btn-spinner {
+      display: inline-block; width: 11px; height: 11px;
+      border: 2px solid currentColor; border-top-color: transparent;
+      border-radius: 50%; animation: _spin 0.55s linear infinite;
+      margin-right: 6px; vertical-align: -1px;
+    }
+    @keyframes _spin { to { transform: rotate(360deg); } }
+
+    /* ── Cancellable button (SSE operations in progress) ── */
+    @keyframes _cancelGlow {
+      0%, 100% { box-shadow: 0 0 6px rgba(255,85,85,0.25); }
+      50%       { box-shadow: 0 0 18px rgba(255,85,85,0.55), 0 0 4px rgba(255,85,85,0.6); }
+    }
+    .btn-cancel {
+      border-color: #f55 !important;
+      color: #f55 !important;
+      background: transparent !important;
+      animation: _cancelGlow 1.4s ease-in-out infinite !important;
+      cursor: pointer !important;
+    }
+
+    /* ── Keyboard shortcut overlay ── */
+    #kbd-overlay {
+      position: fixed; inset: 0; background: rgba(0,0,0,0.65);
+      z-index: 99998; display: none; align-items: center; justify-content: center;
+      backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px);
+      animation: _fadeIn 0.15s ease;
+    }
+    #kbd-overlay.open { display: flex; }
+    #kbd-modal {
+      background: var(--surface2); border: 1px solid var(--border);
+      border-radius: 16px; padding: 28px 32px; max-width: 480px; width: 90vw;
+      box-shadow: 0 20px 60px rgba(0,0,0,0.4);
+      animation: _slideUp 0.2s cubic-bezier(0.34, 1.2, 0.64, 1) forwards;
+    }
+    #kbd-modal h3 { font-size: 16px; font-weight: 700; margin: 0 0 20px; color: var(--text); }
+    .kbd-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 32px; }
+    .kbd-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+    .kbd-label { font-size: 12px; color: var(--muted); }
+    .kbd-key {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 5px; padding: 2px 8px;
+      font-size: 11px; font-weight: 700; font-family: monospace; color: var(--text);
+      white-space: nowrap; flex-shrink: 0;
+    }
+    #kbd-overlay .kbd-close { margin-top: 24px; text-align: right; }
+    #kbd-overlay .kbd-close button {
+      background: none; border: 1px solid var(--border); border-radius: 6px;
+      padding: 5px 14px; font-size: 12px; color: var(--muted); cursor: pointer;
+    }
+    #kbd-overlay .kbd-close button:hover { color: var(--text); border-color: var(--border-hover); }
+    @keyframes _fadeIn { from { opacity: 0; } to { opacity: 1; } }
+    @keyframes _slideUp {
+      from { opacity: 0; transform: translateY(16px) scale(0.96); }
+      to   { opacity: 1; transform: translateY(0) scale(1); }
+    }
 
     /* ── Keyboard focus rings ── */
     :focus-visible { outline: 2px solid var(--green); outline-offset: 2px; border-radius: 3px; }
@@ -1129,12 +1321,14 @@
     @media (max-width: 900px) {
       main { padding: 24px 16px 80px; }
       header { padding: 14px 20px; }
+      #top-bar.scrolled header { padding: 7px 20px; }
       .panel-card { padding: 16px 18px; }
       #tracks-sticky { margin-left: -16px; margin-right: -16px; padding-left: 16px; padding-right: 16px; }
     }
     @media (max-width: 600px) {
       main { padding: 16px 12px 80px; }
       header { padding: 10px 16px; gap: 8px; }
+      #top-bar.scrolled header { padding: 5px 16px; }
       .logo-text { font-size: 17px; }
       .settings-grid { grid-template-columns: 1fr; }
       .panel-card { padding: 12px 14px; }
@@ -1175,11 +1369,48 @@
     to   { opacity: 1; transform: translateY(0); }
   }
   .tab-entering { animation: tabFadeIn 0.22s ease forwards; }
+
+  /* ── Micro-interactions ───────────────────────────────────────────────────── */
+  /* Button ripple */
+  @keyframes _btnRipple { to { transform: scale(40); opacity: 0; } }
+  .btn-ripple {
+    position: absolute; border-radius: 50%;
+    width: 8px; height: 8px; pointer-events: none;
+    background: rgba(255,255,255,0.28);
+    transform: scale(0); opacity: 0.45;
+    animation: _btnRipple 0.52s ease-out forwards;
+  }
+  html.dark .btn-ripple { background: rgba(0,0,0,0.18); }
+
+  /* Track count pop on filter change */
+  @keyframes _countPop {
+    0%   { transform: scale(1); }
+    40%  { transform: scale(1.13); color: var(--green); }
+    100% { transform: scale(1); }
+  }
+  .tracks-count.count-pop { animation: _countPop 0.28s ease-out; }
+
+  /* Cue badge active press */
+  .cue-badge.playable:active { transform: scale(0.92); opacity: 1; }
+
+  /* ── Tooltip ──────────────────────────────────────────────────────────────── */
+  #tooltip {
+    position: fixed; z-index: 9999;
+    background: rgba(18,18,18,0.93); color: #fff;
+    font-size: 11.5px; line-height: 1.45;
+    padding: 5px 9px; border-radius: 6px;
+    pointer-events: none; white-space: pre-line; max-width: 220px;
+    box-shadow: 0 3px 12px rgba(0,0,0,.35);
+    opacity: 0; transform: translateY(3px);
+    transition: opacity 0.13s ease, transform 0.13s ease;
+  }
+  #tooltip.tip-visible { opacity: 1; transform: translateY(0); }
   </style>
 <script src="https://cdn.tailwindcss.com"></script>
 <script>tailwind.config = { corePlugins: { preflight: false }, darkMode: 'class' }</script>
 </head>
 <body>
+<div id="tooltip" aria-hidden="true"></div>
 
 <div id="top-bar">
 <header>
@@ -1198,6 +1429,7 @@
   <nav style="display:flex;align-items:center;gap:16px;">
     <a href="guides/index.html">DJ Guides</a>
     <a href="https://github.com/HenriGeorge/AutoCue" target="_blank" rel="noopener">GitHub ↗</a>
+    <button id="kbd-hint-btn" title="Keyboard shortcuts (?)" aria-label="Show keyboard shortcuts" style="background:none;border:1px solid var(--border);border-radius:6px;padding:3px 8px;font-size:11px;font-weight:700;color:var(--muted);cursor:pointer;font-family:monospace;transition:border-color .15s,color .15s;" onmouseover="this.style.borderColor='var(--border-hover)';this.style.color='var(--text)'" onmouseout="this.style.borderColor='';this.style.color=''">?</button>
     <button id="theme-toggle" aria-label="Switch to dark mode">
       <svg class="icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
         <circle cx="12" cy="12" r="5"/>
@@ -1267,7 +1499,7 @@
         <option value="">All tracks</option>
       </select>
       <!-- F3: Restore backup -->
-      <button id="restore-btn" class="secondary-btn" style="margin-left:auto;font-size:12px;">Restore backup…</button>
+      <button id="restore-btn" class="secondary-btn" style="margin-left:auto;font-size:12px;" data-tip="Restore a previous database backup. AutoCue saves a snapshot before every apply operation.">Restore backup…</button>
     </div>
     <!-- F3: Restore backup picker (hidden until restore-btn clicked) -->
     <div id="restore-bar" style="display:none; margin-top:8px; gap:10px; align-items:flex-start; flex-wrap:wrap;">
@@ -1319,8 +1551,8 @@
   <div id="analysis-mode-bar" style="display:none; margin-bottom:16px; align-items:center; gap:12px;">
     <span style="font-size:13px;color:var(--muted);">Analysis mode:</span>
     <div class="mode-group">
-      <button id="mode-bar-btn" class="mode-btn active">Bar intervals</button>
-      <button id="mode-phrase-btn" class="mode-btn">✨ Phrase analysis</button>
+      <button id="mode-bar-btn" class="mode-btn active" data-tip="Bar intervals&#10;Places cues every N bars using the BPM grid. Works for any analyzed track.">Bar intervals</button>
+      <button id="mode-phrase-btn" class="mode-btn" data-tip="Phrase analysis&#10;Uses Rekordbox's phrase detection (Intro, Chorus, Outro, etc.). Falls back to bar intervals when no phrase data is available.">✨ Phrase analysis</button>
     </div>
   </div>
 
@@ -1349,49 +1581,59 @@
 
   <!-- Settings -->
   <section id="settings-section">
-    <div class="settings-title">Cue settings</div>
-    <div class="settings-grid" id="bar-mode-fields">
-      <div class="settings-divider">Timing</div>
-      <div class="field">
-        <label for="bars-interval">Place a cue every N bars</label>
-        <input type="number" id="bars-interval" value="16" min="1" max="128" />
+    <div class="settings-title" id="settings-title-toggle">
+      <div class="settings-title-left">
+        ⚙ Cue Settings
+        <span class="settings-title-summary" id="settings-summary"></span>
       </div>
-      <div class="field">
-        <label for="start-bar">Starting at bar</label>
-        <input type="number" id="start-bar" value="1" min="1" max="512" />
-      </div>
+      <span class="settings-toggle-icon">▾</span>
     </div>
-    <div class="settings-grid" id="always-fields" style="margin-top:10px">
-      <div class="field">
-        <label for="max-cues">Max hot cues per track</label>
-        <input type="number" id="max-cues" value="8" min="1" max="8" />
+    <div class="settings-body">
+      <div class="settings-body-inner">
+        <div class="settings-grid" id="bar-mode-fields">
+          <div class="settings-divider">Timing</div>
+          <div class="field">
+            <label for="bars-interval">Place a cue every N bars</label>
+            <input type="number" id="bars-interval" value="16" min="1" max="128" />
+          </div>
+          <div class="field">
+            <label for="start-bar">Starting at bar</label>
+            <input type="number" id="start-bar" value="1" min="1" max="512" />
+          </div>
+        </div>
+        <div class="settings-grid" id="always-fields" style="margin-top:10px">
+          <div class="field">
+            <label for="max-cues">Max hot cues per track</label>
+            <input type="number" id="max-cues" value="8" min="1" max="8" />
+          </div>
+        </div>
+        <div class="settings-grid" style="margin-top:10px">
+          <div class="settings-divider">Slots &amp; Labels</div>
+          <div class="field" style="grid-column:1/-1">
+            <label style="display:flex;align-items:center;gap:8px" title="Memory cues (Kind=0) don't use hot cue slots and are shown separately on CDJs. 'Load Point only' writes one marker at the track start so your CDJ loads at the right position. 'Full set' also adds a green Mix-In marker at the first drop, an orange Mix-Out at the last Outro phrase, and a red Warning cue 16 bars before the end (when the outro is short).">
+              Memory cues:
+              <select id="memory-cue-mode" style="font-size:inherit;padding:2px 6px;border-radius:4px;border:1px solid var(--border)">
+                <option value="none">None</option>
+                <option value="load_only">Load Point only (CDJ Auto Cue)</option>
+                <option value="all">Full set: Load + Mix-In + Mix-Out + Warning</option>
+              </select>
+            </label>
+          </div>
+          <div class="field" style="grid-column:1/-1">
+            <label style="display:flex;align-items:center;gap:8px;cursor:pointer" title="Phrase mode only. Adds extra cues at fill-beat positions — the short drum fills Rekordbox detects just before a phrase change (e.g. before a drop). Fill cues are added after phrase cues and are capped at the 8-cue limit. Has no effect in bar-interval mode.">
+              <input type="checkbox" id="add-fill-cues" />
+              Add fill-beat cues (phrase mode only — places a cue at each fill section start)
+            </label>
+          </div>
+        </div>
+        <div class="existing-cues-info" id="existing-cues-info" style="display:none">
+          <span class="existing-cues-label" id="existing-cues-label"></span>
+          <label class="skip-cues-label" title="Tracks that already have hot cues will be shown as Skipped and left untouched. Uncheck to overwrite existing cues with AutoCue's suggestions. A backup is always made before any writes.">
+            <input type="checkbox" id="skip-existing-cues" checked />
+            Skip tracks that already have hot cues
+          </label>
+        </div>
       </div>
-    </div>
-    <div class="settings-grid" style="margin-top:10px">
-      <div class="settings-divider">Slots &amp; Labels</div>
-      <div class="field" style="grid-column:1/-1">
-        <label style="display:flex;align-items:center;gap:8px" title="Memory cues (Kind=0) don't use hot cue slots and are shown separately on CDJs. 'Load Point only' writes one marker at the track start so your CDJ loads at the right position. 'Full set' also adds a green Mix-In marker at the first drop, an orange Mix-Out at the last Outro phrase, and a red Warning cue 16 bars before the end (when the outro is short).">
-          Memory cues:
-          <select id="memory-cue-mode" style="font-size:inherit;padding:2px 6px;border-radius:4px;border:1px solid var(--border)">
-            <option value="none">None</option>
-            <option value="load_only">Load Point only (CDJ Auto Cue)</option>
-            <option value="all">Full set: Load + Mix-In + Mix-Out + Warning</option>
-          </select>
-        </label>
-      </div>
-      <div class="field" style="grid-column:1/-1">
-        <label style="display:flex;align-items:center;gap:8px;cursor:pointer" title="Phrase mode only. Adds extra cues at fill-beat positions — the short drum fills Rekordbox detects just before a phrase change (e.g. before a drop). Fill cues are added after phrase cues and are capped at the 8-cue limit. Has no effect in bar-interval mode.">
-          <input type="checkbox" id="add-fill-cues" />
-          Add fill-beat cues (phrase mode only — places a cue at each fill section start)
-        </label>
-      </div>
-    </div>
-    <div class="existing-cues-info" id="existing-cues-info" style="display:none">
-      <span class="existing-cues-label" id="existing-cues-label"></span>
-      <label class="skip-cues-label" title="Tracks that already have hot cues will be shown as Skipped and left untouched. Uncheck to overwrite existing cues with AutoCue's suggestions. A backup is always made before any writes.">
-        <input type="checkbox" id="skip-existing-cues" checked />
-        Skip tracks that already have hot cues
-      </label>
     </div>
   </section>
 
@@ -1406,9 +1648,9 @@
     <!-- F4: Search + F6: Phrase-only filter -->
     <div id="filter-bar" style="display:none; margin-bottom:12px; flex-direction:column; gap:10px;">
       <!-- Row 1: Search + phrase toggle + selection actions -->
-      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
-        <input id="search-input" type="search" placeholder="Search title or artist…" style="flex:1;min-width:160px;background:var(--surface-card);color:var(--text);border:1px solid var(--border,#333);border-radius:8px;padding:8px 14px;font-size:13px;" />
-        <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;white-space:nowrap;padding:5px 10px;border:1px solid var(--border);border-radius:8px;background:var(--surface-card);" title="Show only tracks that have Rekordbox phrase data (ANLZ .EXT file).">
+      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;background:var(--surface-card);border-radius:12px;padding:8px 12px;transition:background 220ms ease;">
+        <input id="search-input" type="search" placeholder="Search title or artist…" style="flex:1;min-width:160px;background:transparent;color:var(--text);border:1px solid var(--border,#333);border-radius:8px;padding:8px 14px;font-size:13px;transition:border-color .15s;" />
+        <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;white-space:nowrap;padding:5px 10px;border:1px solid var(--border);border-radius:8px;background:var(--bg);transition:border-color .15s,background .15s;" title="Show only tracks that have Rekordbox phrase data (ANLZ .EXT file).">
           <input type="checkbox" id="phrase-only-cb" />
           ✨ Phrase only
         </label>
@@ -1457,9 +1699,17 @@
             </div>
           </div>
         </div>
-        <select id="genre-filter" style="background:var(--surface-card);color:var(--text);border:1px solid var(--border,#333);border-radius:8px;padding:5px 10px;font-size:12px;display:none;">
-          <option value="">Genre: Any</option>
-        </select>
+        <div style="position:relative">
+          <button id="genre-filter-btn" style="background:var(--surface-card);color:var(--text);border:1px solid var(--border,#333);border-radius:6px;padding:4px 8px;font-size:12px;cursor:pointer;white-space:nowrap;transition:border-color .15s;display:none;">Genre: Any ▾</button>
+          <div id="genre-filter-popup" style="display:none;position:fixed;z-index:9999;background:var(--surface-card);border:1px solid var(--border,#333);border-radius:10px;padding:10px;box-shadow:0 8px 32px rgba(0,0,0,.32);width:320px;max-height:300px;flex-direction:column;">
+            <input id="genre-search" type="search" placeholder="Search genres…" autocomplete="off"
+              style="width:100%;box-sizing:border-box;padding:5px 8px;font-size:12px;border:1px solid var(--border);border-radius:6px;background:var(--surface2);color:var(--text);margin-bottom:8px;font-family:var(--font);">
+            <div id="genre-filter-chips" style="display:flex;flex-wrap:wrap;gap:5px;overflow-y:auto;flex:1;padding-right:2px;margin-bottom:8px;"></div>
+            <div style="display:flex;justify-content:flex-end">
+              <button class="secondary-btn" id="genre-clear-btn" style="font-size:11px;padding:3px 8px;">Clear</button>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
     <div class="sort-bar" id="sort-bar" style="display:none">
@@ -1760,6 +2010,12 @@ autocue --library --mode bar --bars-interval 8 --start-bar 1</pre>
       <button id="discogs-save-btn" class="secondary-btn" style="font-size:12px;padding:4px 10px;">Save &amp; Test</button>
       <span id="discogs-save-status" style="font-size:12px;color:var(--muted);"></span>
     </div>
+    <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-bottom:8px;">
+      <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;">
+        <input type="checkbox" id="discogs-skip-existing" checked>
+        <span>Skip already tagged</span>
+      </label>
+    </div>
     <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
       <button id="discogs-run-btn" class="secondary-btn" style="font-size:13px;">Tag visible tracks from Discogs</button>
       <span id="discogs-status" style="font-size:12px;color:var(--muted);"></span>
@@ -1882,12 +2138,12 @@ autocue --library --mode bar --bars-interval 8 --start-bar 1</pre>
     </div>
     <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:6px;">
       <button id="sb-build-btn" class="primary" style="font-size:13px;">Build Set</button>
-      <button id="sb-use-selected-btn" class="secondary-btn" style="font-size:12px;padding:5px 12px;" title="Use selected tracks to set BPM range and seed track">Use selected as seed</button>
+      <button id="sb-use-selected-btn" class="secondary-btn" style="font-size:12px;padding:5px 12px;" title="Use selected tracks as must-include anchors in the set">Use selected as anchors</button>
       <span id="sb-status" style="font-size:12px;color:var(--muted);"></span>
     </div>
     <div id="sb-seed-row" style="display:none;font-size:12px;color:var(--muted);margin-bottom:6px;">
-      Seed: <span id="sb-seed-label" style="color:var(--text);font-weight:500;"></span>
-      <button id="sb-seed-clear" style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:11px;padding:0 4px;margin-left:4px;" title="Clear seed">×</button>
+      Anchors: <span id="sb-seed-label" style="color:var(--text);font-weight:500;"></span>
+      <button id="sb-seed-clear" style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:11px;padding:0 4px;margin-left:4px;" title="Clear anchors">×</button>
     </div>
     <div class="cue-tools-progress indeterminate" id="sb-progress" style="display:none;">
       <div class="cue-tools-progress-fill" id="sb-progress-fill"></div>
@@ -2090,6 +2346,7 @@ autocue --library --mode bar --bars-interval 8 --start-bar 1</pre>
     <div class="cue-tools-progress" id="disc-progress" style="margin-top:4px;margin-bottom:12px;display:none;">
       <div class="cue-tools-progress-fill" id="disc-progress-fill" style="width:0%"></div>
     </div>
+    <div id="disc-style-filter" style="display:none;margin-bottom:10px;flex-wrap:wrap;gap:4px;align-items:center;"></div>
     <div id="disc-results"></div>
   </section>
 
@@ -2098,7 +2355,7 @@ autocue --library --mode bar --bars-interval 8 --start-bar 1</pre>
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;flex-wrap:wrap;gap:8px;">
       <div>
         <h2 style="margin:0;font-size:15px;font-weight:700;">Download</h2>
-        <p style="margin:4px 0 0;font-size:12px;color:var(--muted);">Fetch audio from YouTube with yt-dlp. Use the Download button on any suggestion above, or paste a URL / search term below.</p>
+        <p style="margin:4px 0 0;font-size:12px;color:var(--muted);">Fetch audio from YouTube with yt-dlp. Use the ⬇ Album button on any suggestion above, or paste a URL / search term below.</p>
       </div>
     </div>
     <div id="download-unavailable" style="display:none;font-size:12px;color:var(--amber, #c98a00);background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:8px 10px;margin-bottom:12px;">
@@ -2108,12 +2365,15 @@ autocue --library --mode bar --bars-interval 8 --start-bar 1</pre>
       <div style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap;margin-bottom:8px;">
         <div class="cue-tools-param-group" style="flex:1;min-width:240px;">
           <label>YouTube URL or search term</label>
-          <input type="text" id="dl-query" placeholder="e.g. https://youtu.be/… or “Artist – Title”"
+          <input type="text" id="dl-query" placeholder="e.g. https://youtu.be/… or &quot;Artist – Title&quot;"
                  style="padding:6px 10px;border:1px solid var(--border);border-radius:6px;background:var(--bg);color:var(--text);font-size:13px;width:100%;box-sizing:border-box;">
         </div>
         <button id="dl-go-btn" class="secondary-btn" style="font-size:13px;">Download</button>
       </div>
-      <p style="margin:0 0 8px;font-size:11px;color:var(--muted);">Saving to <code id="dl-dest"></code></p>
+      <p style="margin:0 0 8px;font-size:11px;color:var(--muted);">
+        Saving to <code id="dl-dest"></code>
+        <button id="dl-dest-switch" style="display:none;margin-left:8px;font-size:11px;background:none;border:none;color:var(--green);cursor:pointer;padding:0;text-decoration:underline;"></button>
+      </p>
       <div class="cue-tools-progress" id="dl-progress" style="display:none;">
         <div class="cue-tools-progress-fill" id="dl-progress-fill" style="width:0%"></div>
       </div>
@@ -2140,7 +2400,10 @@ autocue --library --mode bar --bars-interval 8 --start-bar 1</pre>
     </div>
     <div id="mini-progress">
       <span class="mini-time" id="mini-current-time">0:00</span>
-      <input type="range" id="mini-scrubber" min="0" step="0.1" value="0" />
+      <div id="mini-waveform-wrap">
+        <canvas id="mini-waveform" width="120" height="22"></canvas>
+        <input type="range" id="mini-scrubber" min="0" step="0.1" value="0" />
+      </div>
       <span class="mini-time" id="mini-duration">0:00</span>
     </div>
   </div>
@@ -2150,27 +2413,46 @@ autocue --library --mode bar --bars-interval 8 --start-bar 1</pre>
     <div class="dl-info">
       Ready to import: <strong id="dl-summary">— tracks · — cues</strong>
     </div>
-    <button class="secondary-btn" id="undo-btn" style="display:none">↩ Undo last apply</button>
+    <button class="secondary-btn" id="undo-btn" style="display:none" data-tip="Restore the database backup taken before the last apply. Closes the current connection and reopens the restored database.">↩ Undo last apply</button>
   </div>
   <!-- Right group: color tools + separator + apply + delete -->
   <div style="display:flex;align-items:center;gap:8px;flex-shrink:0;">
     <label id="skip-colored-label" style="display:none;font-size:12px;color:var(--text);cursor:pointer;white-space:nowrap;gap:6px;align-items:center;padding:4px 8px;border:1px solid var(--border);border-radius:6px;background:var(--surface-card);" title="Leave tracks that already have a color set in Rekordbox unchanged. Only color currently uncolored tracks.">
       <input type="checkbox" id="skip-colored-cb"> Skip already colored
     </label>
-    <button class="secondary-btn" id="color-by-bpm-btn" style="display:none">Color tracks by BPM</button>
-    <button class="secondary-btn" id="preview-cues-btn" style="display:none">Preview cues</button>
+    <button class="secondary-btn" id="color-by-bpm-btn" style="display:none" data-tip="Assign Rekordbox colors by BPM range&#10;Aqua &lt;90 · Green 90–114 · Blue 115–124&#10;Orange 125–134 · Red 135–149 · Pink ≥150">Color tracks by BPM</button>
+    <button class="secondary-btn" id="preview-cues-btn" style="display:none" data-tip="Generate cue positions without writing to Rekordbox. A secondary timeline appears on each card. Click Apply when ready.">Preview cues</button>
     <div class="mini-sep" style="display:none" id="apply-sep"></div>
     <div id="delete-confirm-bar">
       <span class="confirm-msg" id="delete-confirm-msg">Delete all hot cues from X tracks?</span>
       <button class="danger" id="delete-confirm-btn">Confirm delete</button>
       <button class="secondary-btn" id="delete-cancel-btn">Cancel</button>
     </div>
-    <button class="secondary-btn" id="delete-cues-btn" style="display:none;color:#e74c3c;border-color:#e74c3c33;font-size:12px;">Delete all cues</button>
-    <button class="primary" id="download-btn">Download XML</button>
+    <button class="secondary-btn" id="delete-cues-btn" style="display:none;color:#e74c3c;border-color:#e74c3c33;font-size:12px;" data-tip="Remove all hot cues (A–H) from visible tracks.&#10;A database backup is made first.">Delete all cues</button>
+    <button class="primary" id="download-btn" data-tip="Download a Rekordbox XML with cues for manual import — or click to write directly to Rekordbox (local server mode).">Download XML</button>
   </div>
 </div>
 
-<div id="toast"></div>
+<div id="toast-stack"></div>
+
+<!-- Keyboard shortcut overlay (press ?) -->
+<div id="kbd-overlay" role="dialog" aria-modal="true" aria-label="Keyboard shortcuts">
+  <div id="kbd-modal">
+    <h3>Keyboard shortcuts</h3>
+    <div class="kbd-grid">
+      <div class="kbd-row"><span class="kbd-label">Show shortcuts</span><span class="kbd-key">?</span></div>
+      <div class="kbd-row"><span class="kbd-label">Search tracks</span><span class="kbd-key">/</span></div>
+      <div class="kbd-row"><span class="kbd-label">Select all visible</span><span class="kbd-key">Ctrl A</span></div>
+      <div class="kbd-row"><span class="kbd-label">Clear selection</span><span class="kbd-key">Esc</span></div>
+      <div class="kbd-row"><span class="kbd-label">Cues tab</span><span class="kbd-key">1</span></div>
+      <div class="kbd-row"><span class="kbd-label">Library tab</span><span class="kbd-key">2</span></div>
+      <div class="kbd-row"><span class="kbd-label">Discover tab</span><span class="kbd-key">3</span></div>
+      <div class="kbd-row"><span class="kbd-label">Play/pause</span><span class="kbd-key">Space</span></div>
+    </div>
+    <div class="kbd-close"><button id="kbd-close-btn">Close</button></div>
+  </div>
+</div>
+
 <audio id="autocue-player" preload="none"></audio>
 
 <script>
@@ -2262,16 +2544,59 @@ let playsFilter = 'all';   // 'all' | 'played' | 'unplayed'
 let lastPlayedFilter = 'all'; // 'all' | '7d' | '30d' | 'never'
 let myTagFilters = new Set(); // empty = all tags
 let selectedKeys = new Set(); // Camelot keys e.g. "8A", "8B"
-let genreFilter = '';        // '' = all genres
+let genreFilters = new Set(); // empty = all genres; OR logic
 // F7: bulk selection (track id strings)
 let selectedTrackIds = new Set();
 // F8: filename of the last successful apply backup (for one-click undo)
 let lastAppliedBackupFilename = null;
 
+// ── AppState: lightweight coalescing pub/sub ───────────────────────────────────
+// AppState.signal(key) notifies subscribers on the next microtask, coalescing
+// multiple signals in the same tick into a single flush per subscriber.
+var AppState = (function() {
+  var _subs  = new Map(); // key -> Set<fn>
+  var _dirty = new Set();
+  var _pending = null;
+
+  function subscribe(key, fn) {
+    if (!_subs.has(key)) _subs.set(key, new Set());
+    _subs.get(key).add(fn);
+    return function() { var s = _subs.get(key); if (s) s.delete(fn); };
+  }
+
+  function _flush() {
+    _pending = null;
+    var toCall = new Set();
+    _dirty.forEach(function(k) {
+      var s = _subs.get(k);
+      if (s) s.forEach(function(fn) { toCall.add(fn); });
+    });
+    _dirty.clear();
+    toCall.forEach(function(fn) {
+      try { fn(); } catch (e) { console.error('[AppState] subscriber error', e); }
+    });
+  }
+
+  function signal(key) {
+    _dirty.add(key);
+    if (!_pending) _pending = Promise.resolve().then(_flush);
+  }
+
+  return { subscribe: subscribe, signal: signal };
+})();
+
 // Audio state: trackId → { file, objectUrl, artworkUrl }
 let audioState   = {};
 let nowPlayingId = null;
 let isScrubbing  = false;
+let _energyCache = {};  // D4: trackId → Float32Array of energy curve
+let _playRafId   = null; // D1: RAF loop for smooth playhead
+var _cardMap = new Map();           // C: trackId → card element (shared cache for flat+album modes)
+var _cardSettingsFingerprint = '';  // C: fingerprint of settings affecting card content
+var _albumSortKey = '';             // C: last-rendered album sort key; skip rebuild if unchanged
+var _sparkObserver = null;          // C: reused observers prevent IntersectionObserver leaks
+var _mixObserver   = null;
+var _enterObserver = null;
 const blobUrlsToRevoke = new Set();
 
 // ── Local mode ────────────────────────────────────────────────────────────────
@@ -2292,10 +2617,21 @@ async function loadTracksFromServer(playlistId = null) {
   const tracksUrl = playlistId != null
     ? `/api/tracks?limit=10000&playlist_id=${playlistId}&sort_by=${currentSort.by}&sort_order=${currentSort.order}`
     : `/api/tracks?limit=10000&sort_by=${currentSort.by}&sort_order=${currentSort.order}`;
-  const [statusData, tracksData] = await Promise.all([
-    fetch('/api/status').then(r => r.json()),
-    fetch(tracksUrl).then(r => r.json()),
-  ]);
+
+  // Show loading state while fetch is in progress
+  const countEl = document.getElementById('local-track-count');
+  if (countEl) countEl.textContent = ' · Loading…';
+
+  let statusData, tracksData;
+  try {
+    [statusData, tracksData] = await Promise.all([
+      fetch('/api/status').then(r => r.json()),
+      fetch(tracksUrl).then(r => r.json()),
+    ]);
+  } catch (err) {
+    if (countEl) countEl.textContent = '';
+    throw err;
+  }
   // Show playlist track count when filtered, library total when viewing all
   if (playlistId != null) {
     const playlistName = document.getElementById('playlist-select').selectedOptions[0]?.text.replace(/\s*\(\d+\)$/, '') || 'Playlist';
@@ -2303,6 +2639,9 @@ async function loadTracksFromServer(playlistId = null) {
   } else {
     document.getElementById('local-track-count').textContent = ` · ${statusData.track_count} tracks`;
   }
+  _energyCache = {};           // D4 fix: invalidate on reload so stale curves don't persist
+  _cardMap.clear();            // C: force full rebuild on library reload
+  _cardSettingsFingerprint = '';
   parsedTracks = tracksData.map(t => ({
     id: String(t.id), name: t.title, artist: t.artist, album: t.album || '',
     bpm: t.bpm, totalTime: t.duration, tempo: null,
@@ -2329,9 +2668,21 @@ async function loadTracksFromServer(playlistId = null) {
   } else {
     info.style.display = 'none';
   }
-  document.getElementById('settings-section').classList.add('visible');
-  document.getElementById('tracks-section').classList.add('visible');
-  document.getElementById('download-bar').classList.add('visible');
+  // Staggered fade-in-up on initial connect
+  var _sectDelay = 0;
+  ['settings-section', 'tracks-section', 'download-bar'].forEach(function(id) {
+    var el = document.getElementById(id);
+    setTimeout(function() {
+      el.classList.add('visible');
+      el.classList.add('fade-in-up');
+      el.addEventListener('animationend', function() { el.classList.remove('fade-in-up'); }, { once: true });
+      // In local mode collapse settings so tracks are visible immediately
+      if (id === 'settings-section' && localMode) {
+        if (window._collapseSettings) window._collapseSettings();
+      }
+    }, _sectDelay);
+    _sectDelay += 70;
+  });
   document.getElementById('analysis-mode-bar').style.display = 'flex';
   document.getElementById('sort-bar').style.display = '';
   // Restore persisted sort UI
@@ -2345,7 +2696,7 @@ async function loadTracksFromServer(playlistId = null) {
   const hasColors = parsedTracks.some(t => t.colorName);
   document.getElementById('bpm-legend').classList.toggle('visible', hasColors);
   setStep(3);
-  renderTracks();
+  AppState.signal('tracks'); // renders via subscriber; keep updateOverwriteWarning paired
   updateOverwriteWarning();
   // Populate comment enrichment preview dropdown
   const ceSel = document.getElementById('ce-preview-track');
@@ -2358,18 +2709,20 @@ async function loadTracksFromServer(playlistId = null) {
       ceSel.appendChild(opt);
     }
   }
-  // Populate genre filter dropdown with unique non-empty genres
-  const genreSel = document.getElementById('genre-filter');
-  if (genreSel) {
+  // Populate genre filter popup
+  const genreChipsEl = document.getElementById('genre-filter-chips');
+  const genreBtnEl   = document.getElementById('genre-filter-btn');
+  if (genreChipsEl && genreBtnEl) {
     const genres = [...new Set(parsedTracks.map(t => t.genre).filter(Boolean))].sort();
-    genreSel.innerHTML = '<option value="">Genre: Any</option>';
+    genreChipsEl.innerHTML = '';
     for (const g of genres) {
-      const opt = document.createElement('option');
-      opt.value = g;
-      opt.textContent = g;
-      genreSel.appendChild(opt);
+      const chip = document.createElement('button');
+      chip.className = 'genre-chip' + (genreFilters.has(g) ? ' active' : '');
+      chip.textContent = g;
+      chip.dataset.genre = g;
+      genreChipsEl.appendChild(chip);
     }
-    genreSel.style.display = genres.length ? '' : 'none';
+    genreBtnEl.style.display = genres.length ? '' : 'none';
   }
 }
 
@@ -2382,7 +2735,8 @@ async function scanLibraryHealth() {
   const fill     = document.getElementById('health-progress-fill');
   const summary  = document.getElementById('health-summary');
 
-  btn.disabled = true;
+  const abortCtrl = new AbortController();
+  _setBtnCancellable(btn, 'Scanning…', abortCtrl);
   label.style.display = '';
   label.textContent = 'Scanning…';
   progBar.style.display = '';
@@ -2395,7 +2749,7 @@ async function scanLibraryHealth() {
     : '/api/health';
 
   try {
-    const r = await fetch(url);
+    const r = await fetch(url, { signal: abortCtrl.signal });
     if (!r.ok) { const e = await r.json().catch(() => ({})); throw new Error(e.detail || r.statusText); }
 
     const reader = r.body.getReader();
@@ -2404,6 +2758,9 @@ async function scanLibraryHealth() {
     let processed = 0;
     let total = null;
     let receivedDone = false;
+
+    // Cancel the reader stream when abort fires
+    abortCtrl.signal.addEventListener('abort', function() { reader.cancel().catch(function(){}); }, { once: true });
 
     while (true) {
       const { done, value } = await reader.read();
@@ -2421,11 +2778,13 @@ async function scanLibraryHealth() {
           fill.style.width = '100%';
           _renderHealthSummary(ev.summary);
         } else if (ev.total && !ev.track_id) {
-          total = ev.total;  // initial count event — enables linear progress from the start
+          total = ev.total;
         } else {
           processed++;
           healthData[String(ev.track_id)] = ev;
-          label.textContent = `Scanning… ${processed.toLocaleString()}`;
+          const prog = `Scanning… ${processed.toLocaleString()}`;
+          label.textContent = prog;
+          _setBtnCancellable(btn, prog, abortCtrl);
           const pct = total
             ? processed / total * 100
             : Math.min(97, processed / Math.max(processed + 50, 1) * 100);
@@ -2452,11 +2811,16 @@ async function scanLibraryHealth() {
       showToast('Health scan ended without a summary — results may be incomplete');
     }
     fill.style.width = '100%';
-    renderTracks();  // re-render to show health chips on cards
+    renderTracks();
   } catch (err) {
-    showToast(`Health scan failed: ${err.message}`);
+    if (err.name === 'AbortError') {
+      showToast(`Health scan cancelled — ${Object.keys(healthData).length.toLocaleString()} tracks scanned`);
+      if (Object.keys(healthData).length > 0) renderTracks();
+    } else {
+      showToast(`Health scan failed: ${err.message}`);
+    }
   } finally {
-    btn.disabled = false;
+    _setBtnLoading(btn, false);
     label.style.display = 'none';
     progBar.style.display = 'none';
   }
@@ -2706,8 +3070,8 @@ async function _runCueTools() {
     opParams = { delete_orphan: { keep_slots: keep } };
   }
 
-  btn.disabled = true;
-  btn.textContent = `Running… 0 / ${total}`;
+  const abortCtrl = new AbortController();
+  _setBtnCancellable(btn, `Running… 0 / ${total}`, abortCtrl);
   statusEl.style.display = '';
   statusEl.textContent = dryRun ? 'Dry run — no changes will be written' : '';
   progBar.style.display = '';
@@ -2719,6 +3083,7 @@ async function _runCueTools() {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ operation: op, track_ids: trackIds, dry_run: dryRun, ...opParams }),
+      signal: abortCtrl.signal,
     });
     if (!r.ok) {
       const err = await r.json().catch(() => ({}));
@@ -2728,6 +3093,9 @@ async function _runCueTools() {
     const reader = r.body.getReader();
     const dec = new TextDecoder();
     let buf = '';
+
+    abortCtrl.signal.addEventListener('abort', function() { reader.cancel().catch(function(){}); }, { once: true });
+
     while (true) {
       const { value, done } = await reader.read();
       if (done) break;
@@ -2747,10 +3115,9 @@ async function _runCueTools() {
                 <span style="color:var(--muted);font-size:12px">${s.cues_skipped} cues skipped · ${s.tracks_processed} tracks scanned${s.backup_path ? ' · backup saved' : ''}</span>`;
               resultEl.style.display = '';
               progFill.style.width = '100%';
-              btn.textContent = 'Run on visible tracks';
               statusEl.style.display = 'none';
             } else {
-              btn.textContent = `Running… ${ev.processed} / ${total}`;
+              _setBtnCancellable(btn, `Running… ${ev.processed} / ${total}`, abortCtrl);
               progFill.style.width = `${Math.round(ev.processed / total * 100)}%`;
             }
           } catch {}
@@ -2770,17 +3137,20 @@ async function _runCueTools() {
             <span style="color:var(--muted);font-size:12px">${s.cues_skipped} cues skipped · ${s.tracks_processed} tracks scanned${s.backup_path ? ' · backup saved' : ''}</span>`;
           resultEl.style.display = '';
           progFill.style.width = '100%';
-          btn.textContent = 'Run on visible tracks';
           statusEl.style.display = 'none';
         }
       } catch {}
     }
   } catch (err) {
-    showToast(`Cue tools failed: ${err.message}`);
-    btn.textContent = 'Run on visible tracks';
-    statusEl.style.display = 'none';
+    if (err.name === 'AbortError') {
+      showToast('Cue tools cancelled');
+      statusEl.style.display = 'none';
+    } else {
+      showToast(`Cue tools failed: ${err.message}`);
+      statusEl.style.display = 'none';
+    }
   } finally {
-    btn.disabled = false;
+    _setBtnLoading(btn, false);
     progBar.style.display = 'none';
   }
 }
@@ -2925,31 +3295,41 @@ async function discogsTagTracks() {
   const resultEl  = document.getElementById('discogs-result');
   const fillEl    = document.getElementById('discogs-progress-fill');
   const token     = (document.getElementById('discogs-token')?.value || '').trim();
-  const dryRun    = document.getElementById('discogs-dry-run')?.checked ?? false;
+  const dryRun       = document.getElementById('discogs-dry-run')?.checked ?? false;
+  const skipExisting = document.getElementById('discogs-skip-existing')?.checked ?? true;
   const trackIds  = activeTracks().map(t => parseInt(t.id));
   const total     = trackIds.length;
 
   if (!token) { showToast('Paste your Discogs token first'); return; }
   if (!total)  { showToast('No tracks to process'); return; }
 
-  btn.disabled = true;
-  btn.textContent = `Tagging… 0 / ${total}`;
+  let tagged = 0, skipped = 0, errors = 0;
+
+  const abortCtrl = new AbortController();
+  const _discogsCancelConfirm = () => {
+    if (tagged === 0) return true;  // nothing done yet — cancel immediately, no prompt
+    return window.confirm(
+      `Stop Discogs tagging?\n\n${tagged} track${tagged === 1 ? '' : 's'} already tagged — those changes are saved.\n\nOK to stop, Cancel to continue.`
+    );
+  };
+  _setBtnCancellable(btn, `Tagging… 0 / ${total}`, abortCtrl, _discogsCancelConfirm);
   resultEl.textContent = '';
   fillEl.style.width = '0%';
-
-  let tagged = 0, skipped = 0, errors = 0;
 
   try {
     const r = await fetch('/api/auto-tag/discogs', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ track_ids: trackIds, token, dry_run: dryRun }),
+      body: JSON.stringify({ track_ids: trackIds, token, dry_run: dryRun, skip_existing: skipExisting }),
+      signal: abortCtrl.signal,
     });
     if (!r.ok) { const e = await r.json(); throw new Error(e.detail || r.statusText); }
 
     const reader = r.body.getReader();
     const decoder = new TextDecoder();
     let buf = '';
+
+    abortCtrl.signal.addEventListener('abort', function() { reader.cancel().catch(function(){}); }, { once: true });
 
     while (true) {
       const { value, done } = await reader.read();
@@ -2968,22 +3348,28 @@ async function discogsTagTracks() {
         } else {
           const pct = Math.round((d.processed / total) * 100);
           fillEl.style.width = pct + '%';
-          btn.textContent = `Tagging… ${d.processed} / ${total}`;
-          if (d.styles && d.styles.length) tagged = d.tagged || tagged;
-          if (d.error) errors = d.errors || errors;
+          tagged = d.tagged ?? tagged;
+          errors = d.errors ?? errors;
+          _setBtnCancellable(btn, `Tagging… ${d.processed} / ${total}`, abortCtrl, _discogsCancelConfirm);
         }
       }
     }
+    if (abortCtrl.signal.aborted) throw new DOMException('Aborted', 'AbortError');
 
     const label = dryRun ? ' (dry run)' : '';
     resultEl.textContent = `Done${label}: ${tagged} tagged · ${skipped} no results · ${errors} errors`;
     if (!dryRun) showToast(`Discogs tags written for ${tagged} tracks`);
   } catch (err) {
-    showToast(`Discogs error: ${err.message}`);
-    resultEl.textContent = `Error: ${err.message}`;
+    if (err.name === 'AbortError') {
+      resultEl.textContent = `Stopped at ${tagged} tagged · ${skipped} skipped`;
+      if (tagged > 0 && !dryRun) showToast(`Discogs tagging stopped — ${tagged} tracks saved`);
+      else showToast('Discogs tagging cancelled');
+    } else {
+      showToast(`Discogs error: ${err.message}`);
+      resultEl.textContent = `Error: ${err.message}`;
+    }
   } finally {
-    btn.disabled = false;
-    btn.textContent = 'Tag visible tracks from Discogs';
+    _setBtnLoading(btn, false);
   }
 }
 
@@ -3036,6 +3422,7 @@ function discogsLoadSavedToken() {
 // ── Discover (new releases) + Download ────────────────────────────────────────
 
 let _downloadConfig = { available: false, ffmpeg: false, default_dir: '' };
+var _dlDestDir = '';   // active download destination (music folder or AutoCue default)
 
 function _discoverToken() {
   const inp = document.getElementById('discogs-token');
@@ -3043,10 +3430,13 @@ function _discoverToken() {
 }
 
 // Read an SSE response body (fetch + ReadableStream) and invoke onEvent per JSON event.
-async function _consumeSSE(response, onEvent) {
+async function _consumeSSE(response, onEvent, signal) {
   const reader  = response.body.getReader();
   const decoder = new TextDecoder();
   let buf = '';
+  if (signal) {
+    signal.addEventListener('abort', function() { reader.cancel().catch(function(){}); }, { once: true });
+  }
   while (true) {
     const { value, done } = await reader.read();
     if (done) break;
@@ -3058,6 +3448,8 @@ async function _consumeSSE(response, onEvent) {
       try { onEvent(JSON.parse(line.slice(5).trim())); } catch { /* ignore partial */ }
     }
   }
+  // Surface abort so callers can show "Cancelled" feedback
+  if (signal && signal.aborted) throw new DOMException('Aborted', 'AbortError');
 }
 
 function initDiscover() {
@@ -3072,13 +3464,64 @@ function initDiscover() {
   fetch('/api/download/config').then(r => r.ok ? r.json() : null).then(cfg => {
     if (!cfg) return;
     _downloadConfig = cfg;
+    // Use music folder (Rekordbox library root) as default, fall back to AutoCue dir
+    _dlDestDir = cfg.music_folder || cfg.default_dir || '~/Music/AutoCue';
     const ready = cfg.available && cfg.ffmpeg;
     document.getElementById('download-controls').style.display    = ready ? '' : 'none';
     document.getElementById('download-unavailable').style.display = ready ? 'none' : '';
     const dest = document.getElementById('dl-dest');
-    if (dest) dest.textContent = cfg.default_dir || '~/Music/AutoCue';
+    if (dest) dest.textContent = _dlDestDir;
+    // Show folder switcher when both music folder and AutoCue default are available and differ
+    if (cfg.music_folder && cfg.default_dir && cfg.music_folder !== cfg.default_dir) {
+      const switcher = document.getElementById('dl-dest-switch');
+      if (switcher) {
+        switcher.style.display = '';
+        switcher.dataset.primary = cfg.music_folder;
+        switcher.dataset.alt = cfg.default_dir;
+        switcher.textContent = 'Switch to AutoCue folder';
+      }
+    }
   }).catch(() => {});
 }
+
+// Toggle download destination between music folder and AutoCue default folder.
+document.addEventListener('click', e => {
+  const sw = e.target.closest && e.target.closest('#dl-dest-switch');
+  if (!sw) return;
+  const cur = _dlDestDir;
+  const pri = sw.dataset.primary;
+  const alt = sw.dataset.alt;
+  _dlDestDir = (cur === pri) ? alt : pri;
+  const dest = document.getElementById('dl-dest');
+  if (dest) dest.textContent = _dlDestDir;
+  sw.textContent = (_dlDestDir === pri) ? 'Switch to AutoCue folder' : 'Switch to music folder';
+});
+
+// Style filter chips for discovery results.
+function _renderStyleFilter(styles) {
+  const container = document.getElementById('disc-style-filter');
+  if (!container) return;
+  if (!styles.length) { container.style.display = 'none'; return; }
+  container.style.display = 'flex';
+  container.innerHTML = '<span style="font-size:11px;color:var(--muted);margin-right:4px;flex-shrink:0;">Filter:</span>'
+    + '<button class="tag-pill disc-sf-btn" style="cursor:pointer;" data-style="">All</button>'
+    + [...styles].sort().map(s => `<button class="tag-pill disc-sf-btn" style="cursor:pointer;" data-style="${_esc(s)}">${_esc(s)}</button>`).join('');
+  // Mark "All" active on first render
+  const allBtn = container.querySelector('[data-style=""]');
+  if (allBtn) allBtn.classList.add('active');
+}
+
+document.addEventListener('click', e => {
+  const btn = e.target.closest && e.target.closest('.disc-sf-btn');
+  if (!btn) return;
+  document.querySelectorAll('.disc-sf-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  const filter = btn.dataset.style;
+  document.querySelectorAll('.disc-card').forEach(card => {
+    const cardStyles = (card.dataset.styles || '').split(',');
+    card.style.display = (!filter || cardStyles.includes(filter)) ? '' : 'none';
+  });
+});
 
 async function scanDiscover() {
   const btn      = document.getElementById('disc-scan-btn');
@@ -3098,9 +3541,12 @@ async function scanDiscover() {
   btn.disabled = true;
   btn.textContent = 'Scanning…';
   resultsEl.innerHTML = '';
+  _renderStyleFilter([]);  // hide filter until results arrive
+  document.getElementById('disc-style-filter').style.display = 'none';
   progress.style.display = '';
   fill.style.width = '0%';
   let suggested = 0;
+  const seenStyles = new Set();
 
   const params = new URLSearchParams({
     since_year: String(sinceYear),
@@ -3120,11 +3566,13 @@ async function scanDiscover() {
       if (d.done) {
         fill.style.width = '100%';
         statusEl.textContent = `${d.suggested} new release${d.suggested === 1 ? '' : 's'} found`;
+        _renderStyleFilter([...seenStyles]);
         return;
       }
       if (d.album) {
         suggested++;
         resultsEl.insertAdjacentHTML('beforeend', _renderSuggestion(d));
+        (d.styles || []).forEach(s => seenStyles.add(s));
         statusEl.textContent = `${suggested} so far…`;
       }
     });
@@ -3141,26 +3589,40 @@ async function scanDiscover() {
 
 function _renderSuggestion(d) {
   const art = d.thumb || d.cover || '';
-  const styles = (d.styles || []).slice(0, 4)
+  const styleList = d.styles || [];
+  const styles = styleList.slice(0, 4)
     .map(s => `<span class="tag-pill">${_esc(s)}</span>`).join('');
   const year = d.year ? ` · ${d.year}` : '';
   const dlReady = _downloadConfig.available && _downloadConfig.ffmpeg;
   const dlBtn = dlReady
-    ? `<button class="secondary-btn disc-dl-btn" data-query="${_esc(d.query || (d.artist + ' ' + d.album))}" style="font-size:12px;padding:4px 10px;">Download</button>`
+    ? `<button class="secondary-btn disc-dl-btn" data-query="${_esc(d.query || (d.artist + ' ' + d.album))}" style="font-size:12px;padding:4px 10px;">⬇ Album</button>`
     : '';
   const discogs = d.url ? `<a href="${_esc(d.url)}" target="_blank" rel="noopener" style="font-size:12px;color:var(--green);">Discogs ↗</a>` : '';
+  const fmt = d.formats || [];
+  const fmtLabel = fmt.includes('Compilation') ? 'Comp' :
+                   fmt.includes('EP')          ? 'EP' :
+                   fmt.includes('Single')      ? 'Single' :
+                   fmt.includes('LP')          ? 'LP' : '';
+  const fmtBadge = fmtLabel
+    ? `<span style="font-size:10px;padding:1px 5px;border-radius:3px;background:var(--surface);color:var(--muted);border:1px solid var(--border);flex-shrink:0;">${fmtLabel}</span>`
+    : '';
   return `
-    <div class="disc-card" style="display:flex;gap:12px;align-items:center;padding:10px;border:1px solid var(--border);border-radius:8px;margin-bottom:8px;background:var(--surface2);">
+    <div class="disc-card" data-styles="${_esc(styleList.join(','))}" style="display:flex;gap:12px;align-items:center;padding:10px;border:1px solid var(--border);border-radius:8px;margin-bottom:8px;background:var(--surface2);">
       ${art ? `<img src="${_esc(art)}" alt="" style="width:54px;height:54px;border-radius:6px;object-fit:cover;flex-shrink:0;">` : '<div style="width:54px;height:54px;border-radius:6px;background:var(--surface);flex-shrink:0;"></div>'}
       <div style="flex:1;min-width:0;">
         <div style="font-weight:600;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${_esc(d.album || '')}</div>
-        <div style="font-size:12px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${_esc(d.artist || '')}${year}</div>
+        <div style="font-size:12px;color:var(--muted);display:flex;gap:6px;align-items:center;flex-wrap:wrap;">${_esc(d.artist || '')}${year} ${fmtBadge}</div>
         <div style="margin-top:4px;display:flex;gap:4px;flex-wrap:wrap;">${styles}</div>
       </div>
       <div style="display:flex;flex-direction:column;gap:6px;align-items:flex-end;flex-shrink:0;">
         ${dlBtn}
         ${discogs}
-        <span class="disc-dl-status" style="font-size:11px;color:var(--muted);"></span>
+        <div class="disc-dl-progress" style="display:none;width:90px;">
+          <div style="height:3px;background:var(--surface);border-radius:2px;overflow:hidden;margin-bottom:2px;">
+            <div class="disc-dl-bar" style="height:100%;width:0%;background:var(--green);transition:width .2s;"></div>
+          </div>
+          <span class="disc-dl-status" style="font-size:11px;color:var(--muted);"></span>
+        </div>
       </div>
     </div>`;
 }
@@ -3176,23 +3638,27 @@ document.addEventListener('click', (e) => {
   const btn = e.target.closest && e.target.closest('.disc-dl-btn');
   if (!btn) return;
   const card = btn.closest('.disc-card');
+  const progressEl = card ? card.querySelector('.disc-dl-progress') : null;
+  const barEl = card ? card.querySelector('.disc-dl-bar') : null;
   const statusEl = card ? card.querySelector('.disc-dl-status') : null;
-  runDownload(btn.dataset.query, { btn, statusEl });
+  runDownload(btn.dataset.query, { btn, statusEl, progressEl, barEl });
 });
 
-// Run a single download over SSE, updating a button + status element.
-async function runDownload(query, { btn, statusEl } = {}) {
+// Run a single download over SSE, updating a button + optional inline progress bar.
+async function runDownload(query, { btn, statusEl, progressEl, barEl } = {}) {
   if (!query) return;
   if (!(_downloadConfig.available && _downloadConfig.ffmpeg)) {
     showToast('Download tools not installed — see the Download panel'); return;
   }
   if (btn) { btn.disabled = true; btn.textContent = 'Downloading…'; }
+  if (progressEl) { progressEl.style.display = ''; }
+  if (barEl) barEl.style.width = '0%';
   if (statusEl) statusEl.textContent = 'starting…';
   try {
     const r = await fetch('/api/download', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ query }),
+      body: JSON.stringify({ query, dest_dir: _dlDestDir || undefined }),
     });
     if (!r.ok) {
       const e = await r.json().catch(() => ({}));
@@ -3200,23 +3666,26 @@ async function runDownload(query, { btn, statusEl } = {}) {
     }
     await _consumeSSE(r, d => {
       if (d.done) {
+        if (barEl) barEl.style.width = '100%';
         if (d.status === 'error') {
-          if (statusEl) statusEl.textContent = '✗ ' + (d.error || 'failed');
+          if (statusEl) { statusEl.textContent = '✗ failed'; statusEl.style.color = 'var(--red, #e05252)'; }
           showToast('Download failed: ' + (d.error || ''));
         } else {
-          if (statusEl) statusEl.textContent = '✓ downloaded';
-          showToast('Downloaded to ' + (d.path || _downloadConfig.default_dir));
+          if (statusEl) { statusEl.textContent = '✓ saved'; statusEl.style.color = 'var(--green)'; }
+          showToast('Downloaded to ' + (d.path || _dlDestDir || _downloadConfig.default_dir));
         }
         return;
       }
-      if (typeof d.percent === 'number' && statusEl) statusEl.textContent = d.percent + '%';
-      else if (d.status && statusEl) statusEl.textContent = d.status;
+      if (typeof d.percent === 'number') {
+        if (barEl) barEl.style.width = d.percent + '%';
+        if (statusEl) statusEl.textContent = d.percent + '%';
+      } else if (d.status && statusEl) statusEl.textContent = d.status;
     });
   } catch (err) {
-    if (statusEl) statusEl.textContent = '✗ ' + err.message;
+    if (statusEl) { statusEl.textContent = '✗ ' + err.message; statusEl.style.color = 'var(--red, #e05252)'; }
     showToast('Download failed: ' + err.message);
   } finally {
-    if (btn) { btn.disabled = false; btn.textContent = 'Download'; }
+    if (btn) { btn.disabled = false; btn.textContent = '⬇ Album'; }
   }
 }
 
@@ -3240,7 +3709,7 @@ async function downloadManual() {
     const r = await fetch('/api/download', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ query }),
+      body: JSON.stringify({ query, dest_dir: _dlDestDir || undefined }),
     });
     if (!r.ok) {
       const e = await r.json().catch(() => ({}));
@@ -3250,7 +3719,7 @@ async function downloadManual() {
       if (d.done) {
         fill.style.width = '100%';
         if (d.status === 'error') { statusEl.textContent = '✗ ' + (d.error || 'failed'); showToast('Download failed'); }
-        else { statusEl.textContent = '✓ Saved to ' + (d.path || _downloadConfig.default_dir); showToast('Download complete'); }
+        else { statusEl.textContent = '✓ Saved to ' + (d.path || _dlDestDir || _downloadConfig.default_dir); showToast('Download complete'); }
         return;
       }
       if (typeof d.percent === 'number') { fill.style.width = Math.max(5, d.percent) + '%'; statusEl.textContent = d.percent + '%'; }
@@ -3281,7 +3750,15 @@ async function enrichComments() {
 
   if (!ids.length) { showToast('No tracks to enrich', true); return; }
 
-  btn.disabled = true;
+  let enrichedSoFar = 0;
+  const abortCtrl = new AbortController();
+  const _enrichCancelConfirm = () => {
+    if (enrichedSoFar === 0) return true;
+    return window.confirm(
+      `Stop comment enrichment?\n\n${enrichedSoFar} track${enrichedSoFar === 1 ? '' : 's'} already enriched — those changes are saved.\n\nOK to stop, Cancel to continue.`
+    );
+  };
+  _setBtnCancellable(btn, `Enriching… 0 / ${ids.length}`, abortCtrl, _enrichCancelConfirm);
   status.textContent = `0 / ${ids.length}`;
   result.style.display = 'none';
   progBar.style.display = '';
@@ -3292,6 +3769,7 @@ async function enrichComments() {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ track_ids: ids, overwrite, dry_run: dryRun }),
+      signal: abortCtrl.signal,
     });
     if (!r.ok) {
       const err = await r.json().catch(() => ({ detail: r.statusText }));
@@ -3301,12 +3779,15 @@ async function enrichComments() {
     await _consumeSSE(r, ev => {
       if (ev.done) {
         finalResult = ev;
+        enrichedSoFar = ev.enriched ?? enrichedSoFar;
       } else if (ev.processed != null) {
         const pct = Math.round(ev.processed / ev.total * 100);
         progFill.style.width = pct + '%';
+        if (ev.enriched != null) enrichedSoFar = ev.enriched;
         status.textContent = `${ev.processed} / ${ev.total}`;
+        _setBtnCancellable(btn, `Enriching… ${ev.processed} / ${ev.total}`, abortCtrl, _enrichCancelConfirm);
       }
-    });
+    }, abortCtrl.signal);
     progFill.style.width = '100%';
     if (finalResult) {
       const label = dryRun ? ' (dry run)' : '';
@@ -3316,11 +3797,18 @@ async function enrichComments() {
       showToast(dryRun ? `Preview: ${finalResult.enriched} tracks would be enriched` : `Enriched ${finalResult.enriched} track comments`);
     }
   } catch (err) {
-    status.textContent = `Error: ${err.message}`;
-    showToast(`Enrichment failed: ${err.message}`, true);
+    if (err.name === 'AbortError') {
+      const saved = enrichedSoFar > 0 && !dryRun;
+      status.textContent = saved ? `Stopped — ${enrichedSoFar} enriched` : 'Cancelled';
+      if (saved) showToast(`Enrichment stopped — ${enrichedSoFar} tracks saved`);
+      else showToast('Comment enrichment cancelled');
+    } else {
+      status.textContent = `Error: ${err.message}`;
+      showToast(`Enrichment failed: ${err.message}`, true);
+    }
   } finally {
-    btn.disabled = false;
-    setTimeout(() => { progBar.style.display = 'none'; progFill.style.width = '0%'; }, 1000);
+    _setBtnLoading(btn, false);
+    setTimeout(() => { progBar.style.display = 'none'; progFill.style.width = '0%'; if (!status.textContent.includes('enriched')) status.textContent = ''; }, 2000);
   }
 }
 
@@ -3352,14 +3840,17 @@ async function colorTracksByBpm() {
   const btn = document.getElementById('color-by-bpm-btn');
   const trackIds = activeTracks().map(t => parseInt(t.id));
   const total = trackIds.length;
-  btn.textContent = `Coloring… 0 / ${total}`;
-  btn.disabled = true;
+
+  const abortCtrl = new AbortController();
+  _setBtnCancellable(btn, `Coloring… 0 / ${total}`, abortCtrl);
+
   try {
     const skipColored = document.getElementById('skip-colored-cb')?.checked ?? false;
     const r = await fetch('/api/color-tracks-stream', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ track_ids: trackIds, dry_run: false, skip_colored: skipColored }),
+      signal: abortCtrl.signal,
     });
     if (!r.ok) {
       const err = await r.json().catch(() => ({}));
@@ -3383,7 +3874,7 @@ async function colorTracksByBpm() {
         if (ev.done) {
           finalData = ev;
         } else {
-          btn.textContent = `Coloring… ${ev.colored + ev.skipped} / ${ev.total}`;
+          _setBtnCancellable(btn, `Coloring… ${ev.colored + ev.skipped} / ${ev.total}`, abortCtrl);
         }
       }
     }
@@ -3391,14 +3882,16 @@ async function colorTracksByBpm() {
     if (finalData) {
       const backupNote = finalData.backup_path ? ' — backup saved to ~/.autocue/backups/' : '';
       showToast(`Colored ${finalData.colored} track(s) by BPM${backupNote}`);
-      // Show legend now that colors are applied
       document.getElementById('bpm-legend').classList.add('visible');
     }
   } catch (err) {
-    showToast(`Color by BPM failed: ${err.message}`);
+    if (err.name === 'AbortError') {
+      showToast('Color by BPM cancelled');
+    } else {
+      showToast(`Color by BPM failed: ${err.message}`);
+    }
   } finally {
-    btn.textContent = 'Color tracks by BPM';
-    btn.disabled = false;
+    _setBtnLoading(btn, false);
   }
 }
 
@@ -3468,10 +3961,11 @@ async function applyToRekordbox() {
         lastAppliedBackupFilename = finalData.backup_path.split('/').pop();
         document.getElementById('undo-btn').style.display = '';
       }
-      const backupNote = finalData.backup_path ? ' — backup saved to ~/.autocue/backups/' : '';
-      showToast(`Applied ${finalData.applied} track(s)${backupNote}`);
+      const backupNote = finalData.backup_path ? ' · backup saved' : '';
+      const skippedNote = finalData.skipped > 0 ? `, ${finalData.skipped} skipped (already cued)` : '';
+      showToast(`Applied hot cues to ${finalData.applied} track${finalData.applied !== 1 ? 's' : ''}${skippedNote}${backupNote}`);
       // Success flash: turn button green for 2.5s
-      btn.textContent = '✓ Applied';
+      btn.textContent = `✓ ${finalData.applied} tracks`;
       btn.style.background = 'var(--green)';
       btn.style.color = '#000';
       btn.style.borderColor = 'var(--green)';
@@ -3551,12 +4045,14 @@ detectLocalMode().then(async connected => {
     document.getElementById('ps-more-btn').addEventListener('click', () => suggestPlaylist(true));
     document.getElementById('ps-reset-btn').addEventListener('click', () => {
       _psExcludedIds = [];
+      _psSeedTrackIds = [];
       _psTracks = [];
       document.getElementById('ps-tracklist').innerHTML = '';
       document.getElementById('ps-result').style.display = 'none';
       document.getElementById('ps-more-btn').style.display = 'none';
       document.getElementById('ps-reset-btn').style.display = 'none';
       document.getElementById('ps-summary').textContent = '';
+      document.getElementById('ps-status').textContent = '';
     });
     document.getElementById('ps-save-playlist-btn').addEventListener('click', psSavePlaylist);
     document.getElementById('setbuilder-section').style.display = '';
@@ -3564,6 +4060,7 @@ detectLocalMode().then(async connected => {
     document.getElementById('sb-use-selected-btn').addEventListener('click', _useSelectedForSetBuilder);
     document.getElementById('sb-seed-clear').addEventListener('click', () => {
       _sbSeedTrackId = null;
+      _sbAnchorTrackIds = [];
       document.getElementById('sb-seed-row').style.display = 'none';
     });
     document.getElementById('sb-save-playlist-btn').addEventListener('click', sbSavePlaylist);
@@ -3787,7 +4284,7 @@ document.getElementById('search-input').addEventListener('input', e => {
   _searchTimer = setTimeout(() => {
     searchQuery = e.target.value.trim();
     updateActiveFiltersChip();
-    if (parsedTracks.length) renderTracks();
+    AppState.signal('filters');
   }, 200);
 });
 
@@ -3795,31 +4292,26 @@ document.getElementById('search-input').addEventListener('input', e => {
 document.getElementById('phrase-only-cb').addEventListener('change', e => {
   phraseOnlyFilter = e.target.checked;
   updateActiveFiltersChip();
-  if (parsedTracks.length) renderTracks();
+  AppState.signal('filters');
 });
 
-// Genre filter
-document.getElementById('genre-filter').addEventListener('change', e => {
-  genreFilter = e.target.value;
-  updateActiveFiltersChip();
-  if (parsedTracks.length) renderTracks();
-});
+// Genre filter is handled by chip click listeners created in populateGenreChips()
 
 // Rating / plays / last-played / tag filters
 document.getElementById('rating-filter').addEventListener('change', e => {
   ratingFilter = parseInt(e.target.value) || 0;
   updateActiveFiltersChip();
-  if (parsedTracks.length) renderTracks();
+  AppState.signal('filters');
 });
 document.getElementById('plays-filter').addEventListener('change', e => {
   playsFilter = e.target.value;
   updateActiveFiltersChip();
-  if (parsedTracks.length) renderTracks();
+  AppState.signal('filters');
 });
 document.getElementById('lastplayed-filter').addEventListener('change', e => {
   lastPlayedFilter = e.target.value;
   updateActiveFiltersChip();
-  if (parsedTracks.length) renderTracks();
+  AppState.signal('filters');
 });
 // Tag filter popup
 (function() {
@@ -3831,7 +4323,7 @@ document.getElementById('lastplayed-filter').addEventListener('change', e => {
     else myTagFilters.add(tag);
     updateTagFilterUI();
     updateActiveFiltersChip();
-    if (parsedTracks.length) renderTracks();
+    AppState.signal('filters');
   }
 
   function updateTagFilterUI() {
@@ -3882,7 +4374,7 @@ document.getElementById('lastplayed-filter').addEventListener('change', e => {
     myTagFilters.clear();
     updateTagFilterUI();
     updateActiveFiltersChip();
-    if (parsedTracks.length) renderTracks();
+    AppState.signal('filters');
   });
 
   document.getElementById('tag-search').addEventListener('input', function() {
@@ -3903,8 +4395,87 @@ document.getElementById('lastplayed-filter').addEventListener('change', e => {
   });
 })();
 
+// Genre filter popup
+(function() {
+  const popup = document.getElementById('genre-filter-popup');
+  const btn   = document.getElementById('genre-filter-btn');
+
+  function toggleGenre(g) {
+    if (genreFilters.has(g)) genreFilters.delete(g);
+    else genreFilters.add(g);
+    updateGenreFilterUI();
+    updateActiveFiltersChip();
+    AppState.signal('filters');
+  }
+
+  function updateGenreFilterUI() {
+    document.querySelectorAll('#genre-filter-chips .genre-chip').forEach(function(b) {
+      b.classList.toggle('active', genreFilters.has(b.dataset.genre));
+    });
+    if (!btn) return;
+    if (genreFilters.size === 0) {
+      btn.textContent = 'Genre: Any ▾';
+      btn.style.borderColor = '';
+      btn.style.color = '';
+    } else {
+      btn.textContent = 'Genre: ' + genreFilters.size + ' ▾';
+      btn.style.borderColor = 'var(--green)';
+      btn.style.color = 'var(--green)';
+    }
+  }
+
+  function openPopup() {
+    popup.style.display = 'flex';
+    const rect = btn.getBoundingClientRect();
+    if (rect.bottom + 308 > window.innerHeight) {
+      popup.style.top = (rect.top - 304) + 'px';
+    } else {
+      popup.style.top = (rect.bottom + 4) + 'px';
+    }
+    popup.style.left = rect.left + 'px';
+    requestAnimationFrame(function() {
+      const pr = popup.getBoundingClientRect();
+      if (pr.right > window.innerWidth - 8) popup.style.left = (window.innerWidth - pr.width - 8) + 'px';
+      if (pr.left < 8) popup.style.left = '8px';
+    });
+  }
+
+  function closePopup() { popup.style.display = 'none'; }
+
+  window._updateGenreFilterUI = updateGenreFilterUI;
+
+  document.getElementById('genre-filter-chips').addEventListener('click', function(e) {
+    var chip = e.target.closest('.genre-chip');
+    if (chip) toggleGenre(chip.dataset.genre);
+  });
+
+  document.getElementById('genre-clear-btn').addEventListener('click', function() {
+    genreFilters.clear();
+    updateGenreFilterUI();
+    updateActiveFiltersChip();
+    AppState.signal('filters');
+  });
+
+  document.getElementById('genre-search').addEventListener('input', function() {
+    var q = this.value.toLowerCase();
+    document.querySelectorAll('#genre-filter-chips .genre-chip').forEach(function(chip) {
+      chip.style.display = chip.dataset.genre.toLowerCase().includes(q) ? '' : 'none';
+    });
+  });
+
+  btn.addEventListener('click', function(e) {
+    e.stopPropagation();
+    if (popup.style.display === 'flex') closePopup(); else openPopup();
+  });
+
+  document.addEventListener('click', function(e) {
+    if (popup.style.display === 'flex' && !popup.contains(e.target) && e.target !== btn)
+      closePopup();
+  });
+})();
+
 function updateActiveFiltersChip() {
-  const active = ratingFilter > 0 || playsFilter !== 'all' || lastPlayedFilter !== 'all' || myTagFilters.size > 0 || selectedKeys.size > 0 || phraseOnlyFilter || searchQuery || genreFilter;
+  const active = ratingFilter > 0 || playsFilter !== 'all' || lastPlayedFilter !== 'all' || myTagFilters.size > 0 || selectedKeys.size > 0 || phraseOnlyFilter || searchQuery || genreFilters.size > 0;
   const chip = document.getElementById('active-filters-chip');
   if (chip) chip.classList.toggle('visible', !!active);
 }
@@ -3934,22 +4505,21 @@ function clearAllFilters() {
   document.querySelectorAll('#camelot-grid button').forEach(b => b.classList.remove('selected'));
   const kfb = document.getElementById('key-filter-btn');
   if (kfb) { kfb.textContent = 'Key: Any ▾'; kfb.classList.remove('active'); }
-  genreFilter = '';
-  const gf = document.getElementById('genre-filter');
-  if (gf) gf.value = '';
+  genreFilters.clear();
+  if (window._updateGenreFilterUI) window._updateGenreFilterUI();
   updateActiveFiltersChip();
-  if (parsedTracks.length) renderTracks();
+  AppState.signal('filters'); // coalesces all the above mutations into one render
 }
 
 // F7: Bulk selection — Select all / Deselect all
 document.getElementById('select-all-btn').addEventListener('click', () => {
   for (const t of filteredTracks()) selectedTrackIds.add(t.id);
-  if (parsedTracks.length) renderTracks();
+  AppState.signal('filters');
   updateSelectionBar();
 });
 document.getElementById('deselect-all-btn').addEventListener('click', () => {
   selectedTrackIds.clear();
-  if (parsedTracks.length) renderTracks();
+  AppState.signal('filters');
   updateSelectionBar();
 });
 
@@ -4118,15 +4688,91 @@ function handleAudioFiles(fileList) {
 // ── Audio: playback ────────────────────────────────────────────────────────────
 const audioPlayer = document.getElementById('autocue-player');
 
+// D1: RAF loop — updates timeline playhead + mini waveform at ~60fps while playing
+function _startPlayRaf() {
+  if (_playRafId) return;
+  function _rafTick() {
+    if (audioPlayer.paused || !nowPlayingId) { _playRafId = null; return; }
+    updateTimeline();
+    _drawMiniWaveform(nowPlayingId);
+    _playRafId = requestAnimationFrame(_rafTick);
+  }
+  _playRafId = requestAnimationFrame(_rafTick);
+}
+function _stopPlayRaf() {
+  if (_playRafId) { cancelAnimationFrame(_playRafId); _playRafId = null; }
+}
+
+// D4: Draw energy waveform + progress + playhead on the mini player canvas
+function _drawMiniWaveform(trackId) {
+  if (isScrubbing) return; // D5 fix: don't overwrite canvas position during user drag
+  const canvas = document.getElementById('mini-waveform');
+  if (!canvas) return;
+  // D8 fix: HiDPI — set canvas physical pixel size once on first call
+  const dpr = window.devicePixelRatio || 1;
+  const cssW = 120, cssH = 22;
+  if (canvas.width !== cssW * dpr) {
+    canvas.width  = cssW * dpr;
+    canvas.height = cssH * dpr;
+  }
+  const ctx = canvas.getContext('2d');
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  const W = cssW, H = cssH;
+  const track = parsedTracks.find(t => t.id === trackId);
+  const pct = (track && track.totalTime)
+    ? Math.min(audioPlayer.currentTime / track.totalTime, 1) : 0;
+  const isDark = document.documentElement.classList.contains('dark');
+
+  ctx.clearRect(0, 0, W, H);
+
+  const curve = _energyCache[trackId];
+  if (curve && curve.length > 0) {
+    const barW = W / curve.length;
+    for (let i = 0; i < curve.length; i++) {
+      const barH = Math.max(2, curve[i] * H);
+      const x = i * barW;
+      const y = (H - barH) / 2;
+      const filled = (i / curve.length) <= pct;
+      ctx.fillStyle = filled ? 'rgba(40,226,20,0.85)' : (isDark ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.12)');
+      ctx.fillRect(x + 0.5, y, Math.max(barW - 1.5, 0.5), barH);
+    }
+  } else {
+    // Fallback: simple progress fill (use fillRect if roundRect unsupported on older browsers)
+    const _fillRound = (x, y, w, h, r) => {
+      if (ctx.roundRect) { ctx.roundRect(x, y, w, h, r); ctx.fill(); }
+      else { ctx.fillRect(x, y, w, h); }
+    };
+    ctx.fillStyle = isDark ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.10)';
+    ctx.beginPath(); _fillRound(0, H / 2 - 2, W, 4, 2);
+    ctx.fillStyle = 'rgba(40,226,20,0.85)';
+    ctx.beginPath(); _fillRound(0, H / 2 - 2, W * pct, 4, 2);
+  }
+
+  // Playhead line
+  const phX = Math.round(W * pct);
+  ctx.strokeStyle = isDark ? 'rgba(255,255,255,0.85)' : 'rgba(0,0,0,0.7)';
+  ctx.lineWidth = 1.5;
+  ctx.beginPath(); ctx.moveTo(phX, 0); ctx.lineTo(phX, H); ctx.stroke();
+}
+
 function playTrack(trackId, seekSec = 0) {
   const state = audioState[trackId];
   if (!state) return;
 
-  if (nowPlayingId !== trackId) {
+  const isNewSrc = nowPlayingId !== trackId;
+  if (isNewSrc) {
     audioPlayer.src = state.objectUrl;
+    // D2 fix: defer seek until metadata is loaded so currentTime sticks on new src
+    audioPlayer.addEventListener('loadedmetadata', function onMeta() {
+      audioPlayer.removeEventListener('loadedmetadata', onMeta);
+      audioPlayer.currentTime = seekSec;
+    }, { once: true });
+  } else {
+    audioPlayer.currentTime = seekSec;
   }
-  audioPlayer.currentTime = seekSec;
-  audioPlayer.play().catch(() => {});
+  audioPlayer.play().then(() => {
+    _startPlayRaf(); // D1 fix: start RAF only after browser confirms playback started
+  }).catch(() => {});
 
   nowPlayingId = trackId;
   updatePlaybackUI();
@@ -4135,6 +4781,7 @@ function playTrack(trackId, seekSec = 0) {
 
 function pausePlayback() {
   audioPlayer.pause();
+  _stopPlayRaf(); // D1
   updatePlaybackUI();
 }
 
@@ -4211,6 +4858,7 @@ function showMiniPlayer(trackId) {
   scrubber.max = track.totalTime || 100;
 
   updateMiniPlayerArtwork();
+  _drawMiniWaveform(trackId); // D4: initial draw (may have cached energy)
 
   document.getElementById('mini-player').classList.remove('hidden');
   document.getElementById('mini-sep').style.display = '';
@@ -4241,10 +4889,13 @@ function updateCardAudioState(trackId) {
   if (!card) return;
   card.querySelector('.play-btn')?.classList.remove('hidden');
   card.querySelector('.load-audio-btn')?.classList.add('hidden');
-  // Make cue badges playable
+  // Make cue badges playable — guard against double-listener if called more than once
   card.querySelectorAll('.cue-badge[data-pos-sec]').forEach(badge => {
     badge.classList.add('playable');
-    badge.addEventListener('click', () => seekAndPlay(trackId, parseFloat(badge.dataset.posSec)));
+    if (!badge.dataset.listenerAdded) {
+      badge.dataset.listenerAdded = '1';
+      badge.addEventListener('click', () => seekAndPlay(trackId, parseFloat(badge.dataset.posSec)));
+    }
   });
 }
 
@@ -4396,6 +5047,7 @@ async function runPhraseAnalysis() {
   document.getElementById('anlz-match-count').textContent =
     matched > 0 ? `${matched} / ${parsedTracks.length} matched` : '';
   renderTracks();
+  updateOverwriteWarning();
 }
 
 function updateOverwriteWarning() {
@@ -4454,7 +5106,7 @@ function filteredTracks() {
   }
   if (myTagFilters.size > 0) tracks = tracks.filter(t => (t.myTags || []).some(tag => myTagFilters.has(tag)));
   if (selectedKeys.size > 0) tracks = tracks.filter(t => t.key && selectedKeys.has(t.key));
-  if (genreFilter) tracks = tracks.filter(t => (t.genre || '') === genreFilter);
+  if (genreFilters.size > 0) tracks = tracks.filter(t => genreFilters.has(t.genre || ''));
   return tracks;
 }
 
@@ -4629,10 +5281,10 @@ function _explainCue(cue) {
 
 async function _toggleSimilarPanel(btn, panel, trackId) {
   if (panel.classList.contains('visible')) {
-    panel.classList.remove('visible');
+    _slideClose(panel, 'visible');
     return;
   }
-  panel.classList.add('visible');
+  _slideOpen(panel, 'visible');
   if (panel.dataset.loaded) return;
   panel.dataset.loaded = '1';
   panel.textContent = 'Loading…';
@@ -4767,7 +5419,7 @@ async function _renderMixabilityChip(chip, breakdown) {
       rowEl.appendChild(valEl);
       breakdown.appendChild(rowEl);
     }
-    chip.addEventListener('click', () => breakdown.classList.toggle('open'));
+    chip.addEventListener('click', () => _slideToggle(breakdown, 'open'));
   } catch {
     chip.textContent = '—';
     chip.className = 'mix-score-chip no-data';
@@ -4790,6 +5442,7 @@ async function _renderEnergySparkline(container) {
       return;
     }
     const pts = data.energy;
+    _energyCache[trackId] = pts;  // D4: cache for mini waveform
     const w = container.offsetWidth || 200;
     const h = 16;
     const step = w / (pts.length - 1 || 1);
@@ -5062,7 +5715,13 @@ function buildTrackCard(track, cues, willSkip, opts = {}) {
     const displayName = cue.name || cue.label || '';
     const slotLabel = cue.slot === -1 ? 'Mem' : (SLOT_NAMES[cue.slot] ?? '?');
     b.textContent = `${slotLabel} ${displayName} ${fmtTime(cue.posSec)}`.trim();
-    if (hasAudio) b.addEventListener('click', () => seekAndPlay(track.id, cue.posSec));
+    if (hasAudio) b.addEventListener('click', () => {
+      seekAndPlay(track.id, cue.posSec);
+      b.classList.remove('seek-flash');
+      void b.offsetWidth;
+      b.classList.add('seek-flash');
+      b.addEventListener('animationend', () => b.classList.remove('seek-flash'), { once: true });
+    });
 
     // ℹ Cue Reasoning button
     const infoBtn = document.createElement('button');
@@ -5075,7 +5734,7 @@ function buildTrackCard(track, cues, willSkip, opts = {}) {
       e.stopPropagation();
       const isVisible = reasonPanel.classList.contains('visible');
       // Close all other open panels in this card
-      badges.querySelectorAll('.cue-reason-panel.visible').forEach(p => p.classList.remove('visible'));
+      badges.querySelectorAll('.cue-reason-panel.visible').forEach(p => _slideClose(p, 'visible'));
       if (!isVisible) {
         const { confidence: cl, reasons } = _explainCue(cue);
         const header = document.createElement('div');
@@ -5086,7 +5745,7 @@ function buildTrackCard(track, cues, willSkip, opts = {}) {
         const ul = document.createElement('ul');
         reasons.forEach(r => { const li = document.createElement('li'); li.textContent = r; ul.appendChild(li); });
         reasonPanel.appendChild(ul);
-        reasonPanel.classList.add('visible');
+        _slideOpen(reasonPanel, 'visible');
       }
     });
     b.appendChild(infoBtn);
@@ -5237,12 +5896,22 @@ function buildTrackCard(track, cues, willSkip, opts = {}) {
   return card;
 }
 
+function _computeSettingsFingerprint() {
+  var s = getSettings();
+  var skipExisting = document.getElementById('skip-existing-cues').checked;
+  var mcMode = document.getElementById('memory-cue-mode').value;
+  // Sum total phrase cue count (not just key count) so different cue positions force a rebuild
+  var phraseTotal = Object.values(phraseCueState).reduce(function(a, arr) { return a + arr.length; }, 0);
+  return s.barsInterval + '|' + s.startBar + '|' + s.maxCues + '|' + skipExisting + '|' + mcMode + '|' + analysisMode + '|' + phraseTotal + '|' + Object.keys(pendingCues).length + '|' + Object.keys(healthData).length;
+}
+
 function renderTracks() {
   const { barsInterval, startBar, maxCues } = getSettings();
   const skipExisting = document.getElementById('skip-existing-cues').checked;
   const list = document.getElementById('track-list');
-  list.innerHTML = '';
   if (!parsedTracks.length) {
+    list.innerHTML = '';
+    _cardMap.clear(); _cardSettingsFingerprint = '';
     const empty = document.createElement('div');
     empty.className = 'empty-state';
     const icon = document.createElement('div');
@@ -5309,6 +5978,8 @@ function renderTracks() {
   const sorted = sortedTracks();
 
   if (!sorted.length) {
+    list.innerHTML = '';
+    _cardMap.clear(); _cardSettingsFingerprint = '';
     const empty = document.createElement('div');
     empty.className = 'empty-state';
     const icon = document.createElement('div');
@@ -5328,6 +5999,17 @@ function renderTracks() {
   }
 
   if (currentSort.by === 'album') {
+    const newFingerprint = _computeSettingsFingerprint();
+    const newSortKey = sorted.map(t => t.id).join(',');
+    const settingsChanged = newFingerprint !== _cardSettingsFingerprint;
+    const orderChanged = newSortKey !== _albumSortKey;
+
+    if (settingsChanged) {
+      _cardSettingsFingerprint = newFingerprint;
+      _cardMap.clear();
+    }
+    _albumSortKey = newSortKey;
+
     // Group consecutive tracks by album name
     const groups = new Map();
     for (const track of sorted) {
@@ -5336,119 +6018,212 @@ function renderTracks() {
       groups.get(key).push(track);
     }
 
-    for (const [albumName, tracks] of groups) {
-      // Count cues for this group
-      for (const track of tracks) {
-        const cues = computeCues(track);
-        if (cues.length) { tracksWithCues++; totalCues += cues.length; }
-      }
-
-      const group = document.createElement('div');
-      group.className = 'album-group';
-
-      // Album header
-      const header = document.createElement('div');
-      const isOpen = expandedAlbums.has(albumName);
-      header.className = 'album-header' + (isOpen ? ' open' : '');
-
-      // Album art (from first track that has one)
-      const artBox = document.createElement('div');
-      artBox.className = 'album-art-lg';
-      if (localMode && tracks.length) {
-        const ph = document.createElement('span');
-        ph.textContent = '♪';
-        artBox.appendChild(ph);
-        let artIdx = 0;
-        function tryNextArt() {
-          if (artIdx >= tracks.length) return;
-          const img = document.createElement('img');
-          img.src = `/api/tracks/${tracks[artIdx++].id}/artwork`;
-          img.onload = () => { ph.remove(); artBox.appendChild(img); };
-          img.onerror = tryNextArt;
+    // Only rebuild DOM when something actually changed
+    if (settingsChanged || orderChanged || !list.firstChild) {
+      list.innerHTML = '';
+      for (const [albumName, tracks] of groups) {
+        // Count cues for this group
+        for (const track of tracks) {
+          const cues = computeCues(track);
+          if (cues.length) { tracksWithCues++; totalCues += cues.length; }
         }
-        tryNextArt();
+
+        const group = document.createElement('div');
+        group.className = 'album-group';
+
+        // Album header
+        const header = document.createElement('div');
+        const isOpen = expandedAlbums.has(albumName);
+        header.className = 'album-header' + (isOpen ? ' open' : '');
+
+        // Album art (from first track that has one)
+        const artBox = document.createElement('div');
+        artBox.className = 'album-art-lg';
+        if (localMode && tracks.length) {
+          const ph = document.createElement('span');
+          ph.textContent = '♪';
+          artBox.appendChild(ph);
+          let artIdx = 0;
+          function tryNextArt() {
+            if (artIdx >= tracks.length) return;
+            const img = document.createElement('img');
+            img.src = `/api/tracks/${tracks[artIdx++].id}/artwork`;
+            img.onload = () => { ph.remove(); artBox.appendChild(img); };
+            img.onerror = tryNextArt;
+          }
+          tryNextArt();
+        }
+        header.appendChild(artBox);
+
+        // Info: album name + artist
+        const info = document.createElement('div');
+        info.className = 'album-header-info';
+        const nameDiv = document.createElement('div');
+        nameDiv.className = 'album-header-name';
+        nameDiv.textContent = albumName || 'Unknown Album';
+        info.appendChild(nameDiv);
+        const artists = [...new Set(tracks.map(t => t.artist).filter(Boolean))];
+        if (artists.length) {
+          const sub = document.createElement('div');
+          sub.className = 'album-header-sub';
+          sub.textContent = artists.slice(0, 3).join(', ') + (artists.length > 3 ? '…' : '');
+          info.appendChild(sub);
+        }
+        header.appendChild(info);
+
+        // Right side: track count + chevron
+        const right = document.createElement('div');
+        right.className = 'album-header-right';
+        const count = document.createElement('span');
+        count.className = 'album-track-count';
+        count.textContent = `${tracks.length} track${tracks.length !== 1 ? 's' : ''}`;
+        right.appendChild(count);
+        const chev = document.createElement('span');
+        chev.className = 'album-chevron';
+        chev.textContent = '▶';
+        right.appendChild(chev);
+        header.appendChild(right);
+
+        // Track list (shown when expanded) — reuse cached cards when possible
+        const tracksDiv = document.createElement('div');
+        tracksDiv.className = 'album-tracks' + (isOpen ? ' open' : '');
+        for (const track of tracks) {
+          const tid = String(track.id);
+          let card = _cardMap.get(tid);
+          if (!card) {
+            const willSkip = skipExisting && track.existingHotCues > 0;
+            card = buildTrackCard(track, computeCues(track), willSkip, { hideAlbum: true });
+            _cardMap.set(tid, card);
+          }
+          tracksDiv.appendChild(card);
+        }
+
+        header.addEventListener('click', () => {
+          const opening = !expandedAlbums.has(albumName);
+          if (opening) expandedAlbums.add(albumName); else expandedAlbums.delete(albumName);
+          header.classList.toggle('open', opening);
+          if (opening) { _slideOpen(tracksDiv, 'open'); } else { _slideClose(tracksDiv, 'open'); }
+        });
+
+        group.appendChild(header);
+        group.appendChild(tracksDiv);
+        list.appendChild(group);
       }
-      header.appendChild(artBox);
-
-      // Info: album name + artist
-      const info = document.createElement('div');
-      info.className = 'album-header-info';
-      const nameDiv = document.createElement('div');
-      nameDiv.className = 'album-header-name';
-      nameDiv.textContent = albumName || 'Unknown Album';
-      info.appendChild(nameDiv);
-      const artists = [...new Set(tracks.map(t => t.artist).filter(Boolean))];
-      if (artists.length) {
-        const sub = document.createElement('div');
-        sub.className = 'album-header-sub';
-        sub.textContent = artists.slice(0, 3).join(', ') + (artists.length > 3 ? '…' : '');
-        info.appendChild(sub);
+    } else {
+      // Nothing changed — just tally cues for the counter
+      for (const [, tracks] of groups) {
+        for (const track of tracks) {
+          const cues = computeCues(track);
+          if (cues.length) { tracksWithCues++; totalCues += cues.length; }
+        }
       }
-      header.appendChild(info);
-
-      // Right side: track count + chevron
-      const right = document.createElement('div');
-      right.className = 'album-header-right';
-      const count = document.createElement('span');
-      count.className = 'album-track-count';
-      count.textContent = `${tracks.length} track${tracks.length !== 1 ? 's' : ''}`;
-      right.appendChild(count);
-      const chev = document.createElement('span');
-      chev.className = 'album-chevron';
-      chev.textContent = '▶';
-      right.appendChild(chev);
-      header.appendChild(right);
-
-      // Track list (shown when expanded)
-      const tracksDiv = document.createElement('div');
-      tracksDiv.className = 'album-tracks' + (isOpen ? ' open' : '');
-      for (const track of tracks) {
-        const willSkip = skipExisting && track.existingHotCues > 0;
-        tracksDiv.appendChild(buildTrackCard(track, computeCues(track), willSkip, { hideAlbum: true }));
-      }
-
-      header.addEventListener('click', () => {
-        const opening = !expandedAlbums.has(albumName);
-        if (opening) expandedAlbums.add(albumName); else expandedAlbums.delete(albumName);
-        header.classList.toggle('open', opening);
-        tracksDiv.classList.toggle('open', opening);
-      });
-
-      group.appendChild(header);
-      group.appendChild(tracksDiv);
-      list.appendChild(group);
     }
   } else {
+    // --- Batch C: Smart Track List Diffing ---
+    const newFingerprint = _computeSettingsFingerprint();
+    const settingsChanged = newFingerprint !== _cardSettingsFingerprint;
+    if (settingsChanged) {
+      _cardSettingsFingerprint = newFingerprint;
+      _cardMap.clear();
+    }
+
+    const newSet = new Set(sorted.map(t => String(t.id)));
+
+    // Pre-count exits to decide whether to animate (must happen before snapshot to avoid wasted layout work)
+    const exitCount = [..._cardMap.keys()].filter(id => !newSet.has(id)).length;
+    const animateTransitions = !settingsChanged && !_prefersReducedMotion && exitCount <= 30;
+
+    // Snapshot positions of staying cards (FLIP "first" step — before any DOM changes)
+    const snapshots = new Map();
+    if (animateTransitions) {
+      for (const [id, card] of _cardMap) {
+        if (newSet.has(id) && card.isConnected) {
+          snapshots.set(id, card.getBoundingClientRect().top);
+        }
+      }
+    }
+
+    // Identify exiting cards — skip animation for large exits (> 30 cards) to avoid DOM bloat
+    const exitingCards = [];
+    for (const [id, card] of _cardMap) {
+      if (!newSet.has(id)) {
+        _cardMap.delete(id);
+        if (animateTransitions) {
+          card.classList.add('card-exit');
+          card.addEventListener('animationend', () => card.remove(), { once: true });
+          setTimeout(() => { if (card.isConnected) card.remove(); }, 300); // fallback if animationend never fires
+          exitingCards.push(card);
+        }
+      }
+    }
+
+    // Build or reuse cards for new sorted list
+    const newCards = [];
+    const enteringCards = [];
     for (const track of sorted) {
+      const tid = String(track.id);
       const willSkip = skipExisting && track.existingHotCues > 0;
       const cues = computeCues(track);
       if (cues.length) { tracksWithCues++; totalCues += cues.length; }
-      list.appendChild(buildTrackCard(track, cues, willSkip, {}));
-    }
-    var allCards = list.querySelectorAll('.track-card');
-    allCards.forEach(function(card, i) {
-      if (i < 8) {
-        card.style.animationDelay = (i * 30) + 'ms';
-        card.classList.add('animate-in');
+
+      let card = _cardMap.get(tid);
+      if (!card || settingsChanged) {
+        card = buildTrackCard(track, cues, willSkip, {});
+        _cardMap.set(tid, card);
+        enteringCards.push(card);
       } else {
-        card.style.opacity = '0';
-        card.style.transform = 'translateY(10px)';
+        // Sync selection state for reused cards (may have changed via Select All etc.)
+        const isSelected = selectedTrackIds.has(track.id) || selectedTrackIds.has(tid);
+        const cb = card.querySelector('.track-select-cb');
+        if (cb) cb.checked = isSelected;
+        card.classList.toggle('selected', isSelected);
       }
-    });
-    if (allCards.length > 8) {
-      var cardObserver = new IntersectionObserver(function(entries) {
-        entries.forEach(function(entry) {
-          if (entry.isIntersecting) {
-            entry.target.style.opacity = '';
-            entry.target.style.transform = '';
-            entry.target.classList.add('animate-in');
-            cardObserver.unobserve(entry.target);
-          }
-        });
-      }, { threshold: 0.05, rootMargin: '0px 0px -10px 0px' });
-      allCards.forEach(function(card, i) {
-        if (i >= 8) cardObserver.observe(card);
+      newCards.push(card);
+    }
+
+    // Commit new DOM order — exiting cards appended at end so they animate out in place
+    list.replaceChildren(...newCards, ...exitingCards);
+
+    // FLIP: batch-read all "Last" positions first, then apply animations (avoids layout thrashing)
+    if (animateTransitions && snapshots.size) {
+      const flipDeltas = [];
+      for (const card of newCards) {
+        const tid = card.dataset.trackId;
+        if (!tid || !snapshots.has(tid)) continue;
+        const newTop = card.getBoundingClientRect().top; // all reads batched before any animate()
+        const delta = snapshots.get(tid) - newTop;
+        if (Math.abs(delta) > 0.5) flipDeltas.push({ card, delta });
+      }
+      for (const { card, delta } of flipDeltas) {
+        card.animate(
+          [{ transform: `translateY(${delta}px)` }, { transform: 'translateY(0)' }],
+          { duration: 250, easing: 'ease-out' }
+        );
+      }
+    }
+
+    // Enter animation for new cards (staggered, max 8; rest revealed by scroll)
+    if (!_prefersReducedMotion && enteringCards.length) {
+      enteringCards.slice(0, 8).forEach(function(card, i) {
+        card.style.animationDelay = (i * 30) + 'ms';
+        card.classList.add('card-enter');
       });
+      if (enteringCards.length > 8) {
+        if (_enterObserver) { _enterObserver.disconnect(); }
+        _enterObserver = new IntersectionObserver(function(entries) {
+          entries.forEach(function(entry) {
+            if (entry.isIntersecting) {
+              entry.target.style.opacity = '';
+              entry.target.classList.add('card-enter');
+              _enterObserver.unobserve(entry.target);
+            }
+          });
+        }, { threshold: 0.05, rootMargin: '0px 0px 100px 0px' });
+        enteringCards.slice(8).forEach(function(card) {
+          card.style.opacity = '0';
+          _enterObserver.observe(card);
+        });
+      }
     }
   }
 
@@ -5458,28 +6233,38 @@ function renderTracks() {
   const countLabel = totalFiltered === totalAll
     ? `${totalAll} track${totalAll !== 1 ? 's' : ''}`
     : `${totalFiltered} of ${totalAll} track${totalAll !== 1 ? 's' : ''}`;
-  document.getElementById('tracks-count').textContent = countLabel;
+  var _countEl = document.getElementById('tracks-count');
+  if (_countEl.textContent !== countLabel) {
+    _countEl.textContent = countLabel;
+    requestAnimationFrame(function() {
+      _countEl.classList.remove('count-pop');
+      void _countEl.offsetWidth;
+      _countEl.classList.add('count-pop');
+    });
+  }
   document.getElementById('dl-summary').textContent =
     `${tracksWithCues} track${tracksWithCues !== 1 ? 's' : ''} · ${totalCues} cue${totalCues !== 1 ? 's' : ''}`;
   updateSelectionBar();
 
   if (localMode) {
-    const sparkObserver = new IntersectionObserver((entries) => {
+    if (_sparkObserver) { _sparkObserver.disconnect(); }
+    _sparkObserver = new IntersectionObserver((entries) => {
       for (const entry of entries) {
         if (entry.isIntersecting) {
-          sparkObserver.unobserve(entry.target);
+          _sparkObserver.unobserve(entry.target);
           _renderEnergySparkline(entry.target);
         }
       }
     }, { rootMargin: '200px' });
     for (const el of list.querySelectorAll('.energy-sparkline')) {
-      sparkObserver.observe(el);
+      _sparkObserver.observe(el);
     }
 
-    const mixObserver = new IntersectionObserver((entries) => {
+    if (_mixObserver) { _mixObserver.disconnect(); }
+    _mixObserver = new IntersectionObserver((entries) => {
       for (const entry of entries) {
         if (entry.isIntersecting) {
-          mixObserver.unobserve(entry.target);
+          _mixObserver.unobserve(entry.target);
           if (entry.target._isCategoryChip) {
             _renderCategoryChip(entry.target);
           } else {
@@ -5489,7 +6274,7 @@ function renderTracks() {
       }
     }, { rootMargin: '200px' });
     for (const el of list.querySelectorAll('.mix-score-chip[data-track-id], .category-chip[data-track-id]')) {
-      mixObserver.observe(el);
+      _mixObserver.observe(el);
     }
   }
 }
@@ -5565,6 +6350,9 @@ function handleFile(file) {
     const { doc, tracks } = result;
     parsedDoc    = doc;
     parsedTracks = tracks;
+    _energyCache = {};           // D4 fix: clear stale curves on XML reload
+    _cardMap.clear();            // C: force full rebuild on XML reload
+    _cardSettingsFingerprint = '';
     originalXmlText = e.target.result;
 
     const withExisting = tracks.filter(t => t.existingHotCues > 0).length;
@@ -5581,6 +6369,8 @@ function handleFile(file) {
     document.getElementById('tracks-section').classList.add('visible');
     document.getElementById('download-bar').classList.add('visible');
     document.getElementById('audio-drop-section').classList.add('visible');
+    // Trigger sticky shadow check now that the section is visible
+    requestAnimationFrame(() => { if (window._checkStickyHeader) window._checkStickyHeader(); });
     document.getElementById('backup-bar').style.display = '';
     document.getElementById('analysis-mode-bar').style.display = 'flex';
 
@@ -5601,21 +6391,305 @@ function setStep(n) {
   });
 }
 
-// ── Toast ──────────────────────────────────────────────────────────────────────
-let toastTimer = null;
-function showToast(msg) {
-  const t = document.getElementById('toast');
-  t.textContent = msg;
-  t.classList.add('show');
-  clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => t.classList.remove('show'), 2800);
+// ── Toast stack ────────────────────────────────────────────────────────────────
+function showToast(msg, isError) {
+  const stack = document.getElementById('toast-stack');
+  if (!stack) return;
+  // Cap stack at 3 — dismiss oldest first
+  while (stack.children.length >= 3) _dismissToast(stack.firstChild);
+  const el = document.createElement('div');
+  el.className = 'toast-item' + (isError ? ' toast-error' : '');
+  el.textContent = msg;
+  stack.appendChild(el);
+  const timer = setTimeout(() => _dismissToast(el), 2800);
+  el.addEventListener('click', () => { clearTimeout(timer); _dismissToast(el); });
 }
+function _dismissToast(el) {
+  if (!el || !el.parentNode) return;
+  el.classList.add('toast-out');
+  el.addEventListener('animationend', () => el.remove(), { once: true });
+}
+
+// ── Human-readable fetch error messages ────────────────────────────────────────
+function _humanFetchError(err) {
+  const msg = (err && err.message) || String(err);
+  if (msg === 'Failed to fetch' || msg === 'NetworkError when attempting to fetch resource.' || msg.includes('ERR_CONNECTION_REFUSED')) {
+    return 'Cannot reach the AutoCue server. Make sure it is running (autocue serve) and try again.';
+  }
+  if (msg.includes('index is still building') || msg.includes('not ready')) {
+    return 'The similarity index is still warming up — please wait a few seconds and try again.';
+  }
+  if (msg.includes('502') || msg.includes('Bad Gateway')) {
+    return 'Server gateway error (502). The server may be restarting — try again shortly.';
+  }
+  if (msg.includes('503') || msg.includes('Service Unavailable')) {
+    return 'Server is temporarily unavailable (503). Try again in a moment.';
+  }
+  if (msg.includes('timeout') || msg.includes('Timeout')) {
+    return 'The request timed out. Your library may be large — try again or reduce the set duration.';
+  }
+  return msg;
+}
+
+// ── Button loading state ────────────────────────────────────────────────────────
+function _setBtnLoading(btn, loading, loadingText) {
+  if (!btn) return;
+  if (loading) {
+    if (!btn._origHTML) btn._origHTML = btn.innerHTML;
+    btn.disabled = true;
+    btn.classList.remove('btn-cancel');
+    btn._cancelHandler = null;
+    btn.innerHTML = `<span class="btn-spinner"></span>${loadingText || btn.textContent}`;
+  } else {
+    btn.disabled = false;
+    btn.classList.remove('btn-cancel');
+    if (btn._cancelHandler) { btn.removeEventListener('click', btn._cancelHandler); btn._cancelHandler = null; }
+    if (btn._origHTML !== undefined) { btn.innerHTML = btn._origHTML; delete btn._origHTML; }
+  }
+}
+
+// ── Cancellable SSE button ──────────────────────────────────────────────────────
+// Puts btn into cancel mode: red glow, clickable, fires abort on click.
+// beforeAbort (optional): called on click; if it returns false, abort is skipped
+//   (use for confirm dialogs — return false to keep the operation running).
+// Call _setBtnLoading(btn, false) in finally to restore.
+function _setBtnCancellable(btn, progressText, abortCtrl, beforeAbort) {
+  if (!btn) return;
+  if (!btn._origHTML) btn._origHTML = btn.innerHTML;
+  btn.disabled = false;
+  btn.classList.add('btn-cancel');
+  btn.innerHTML = `✕&nbsp; ${progressText}`;
+  if (btn._cancelHandler) btn.removeEventListener('click', btn._cancelHandler);
+  btn._cancelHandler = function() {
+    if (beforeAbort && beforeAbort() === false) return;
+    abortCtrl.abort();
+  };
+  btn.addEventListener('click', btn._cancelHandler, { once: true });
+}
+
+// ── Slide accordion animations ─────────────────────────────────────────────────
+// _slideOpen / _slideClose work alongside CSS open/visible class toggling.
+// The CSS class controls the final display value; JS animates the height+opacity transition.
+// Respects prefers-reduced-motion: skips animation entirely so transitionend-based cleanup
+// always runs (avoids _slideActive getting permanently stuck).
+var _prefersReducedMotion = !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+
+function _slideOpen(el, openClass) {
+  openClass = openClass || 'open';
+  if (el._slideActive) return;
+  el.classList.add(openClass);
+  if (_prefersReducedMotion) return;  // instant open — no animation, no lock needed
+  el._slideActive = true;
+  el.style.overflow = 'hidden';
+  el.style.transition = '';
+  el.style.height = '';
+  var h = el.scrollHeight;            // forces reflow → natural height
+  el.style.height = '0px';
+  el.style.opacity = '0';
+  el.style.transition = 'height 0.24s cubic-bezier(0.4,0,0.2,1), opacity 0.22s ease';
+  var done = false;
+  function _openCleanup() {
+    if (done) return; done = true;
+    el.style.height = ''; el.style.overflow = ''; el.style.opacity = ''; el.style.transition = '';
+    el._slideActive = false;
+  }
+  requestAnimationFrame(function() {
+    el.style.height = h + 'px';
+    el.style.opacity = '1';
+    el.addEventListener('transitionend', function handler(e) {
+      if (e.propertyName !== 'height') return;
+      el.removeEventListener('transitionend', handler);
+      _openCleanup();
+    });
+    setTimeout(_openCleanup, 400);    // safety: fires if transitionend never fires (DOM removal, etc.)
+  });
+}
+
+function _slideClose(el, openClass, onDone) {
+  openClass = openClass || 'open';
+  if (el._slideActive || !el.classList.contains(openClass)) {
+    if (onDone) onDone();
+    return;
+  }
+  if (_prefersReducedMotion) {        // instant close
+    el.classList.remove(openClass);
+    if (onDone) onDone();
+    return;
+  }
+  el._slideActive = true;
+  el.style.height = el.scrollHeight + 'px';
+  el.style.overflow = 'hidden';
+  el.style.transition = 'height 0.2s cubic-bezier(0.4,0,0.2,1), opacity 0.18s ease';
+  var done = false;
+  function _closeCleanup() {
+    if (done) return; done = true;
+    el.classList.remove(openClass);   // CSS sets display:none
+    el.style.height = ''; el.style.overflow = ''; el.style.opacity = ''; el.style.transition = '';
+    el._slideActive = false;
+    if (onDone) onDone();
+  }
+  requestAnimationFrame(function() {
+    el.style.height = '0px';
+    el.style.opacity = '0';
+    el.addEventListener('transitionend', function handler(e) {
+      if (e.propertyName !== 'height') return;
+      el.removeEventListener('transitionend', handler);
+      _closeCleanup();
+    });
+    setTimeout(_closeCleanup, 400);   // safety fallback
+  });
+}
+
+function _slideToggle(el, openClass) {
+  openClass = openClass || 'open';
+  if (el.classList.contains(openClass)) { _slideClose(el, openClass); }
+  else { _slideOpen(el, openClass); }
+}
+
+// ── Tooltip system ──────────────────────────────────────────────────────────────
+// Single shared #tooltip element; driven by data-tip attributes.
+// 380ms hover delay prevents flicker on fast mouse moves.
+// Smart repositioning flips left/up when near viewport edges.
+(function() {
+  var tip = document.getElementById('tooltip');
+  if (!tip) return;
+  var _target = null;
+  var _delay = null;
+  var _tw = 0, _th = 0;        // cached tip size — read once per text change, not per mousemove
+  var _lastX = 0, _lastY = 0;  // latest cursor position — used at show-time, not mouseover-time
+
+  function _show(text) {
+    tip.textContent = text;
+    _tw = tip.offsetWidth + 20;  // read once when text changes; avoids layout thrash on mousemove
+    _th = tip.offsetHeight + 12;
+    _placeAt(_lastX, _lastY);
+    tip.classList.add('tip-visible');
+  }
+  function _hide() {
+    clearTimeout(_delay); _delay = null;
+    _target = null;
+    tip.classList.remove('tip-visible');
+  }
+  function _placeAt(mx, my) {
+    var vw = window.innerWidth, vh = window.innerHeight;
+    var x = mx + 14, y = my + 20;
+    if (x + _tw > vw - 6) x = mx - _tw + 6;
+    if (y + _th > vh - 6) y = my - _th - 4;
+    tip.style.left = Math.max(4, x) + 'px';
+    tip.style.top  = Math.max(4, y) + 'px';
+  }
+
+  document.addEventListener('mousemove', function(e) {
+    _lastX = e.clientX; _lastY = e.clientY;
+    if (_target && tip.classList.contains('tip-visible')) _placeAt(_lastX, _lastY);
+  });
+  document.addEventListener('mouseover', function(e) {
+    var el = e.target.closest('[data-tip]');
+    if (!el || el === _target) return;
+    _hide();
+    _target = el;
+    _delay = setTimeout(function() {
+      var text = el.getAttribute('data-tip');
+      if (text) _show(text);  // uses _lastX/_lastY — cursor position at show-time, not entry-time
+    }, 380);
+  });
+  document.addEventListener('mouseout', function(e) {
+    if (!_target) return;
+    if (e.target.closest('[data-tip]') !== _target) return;
+    // Suppress false-positive: cursor moved to a child element (e.g. btn-spinner inside button)
+    if (e.relatedTarget && _target.contains(e.relatedTarget)) return;
+    _hide();
+  });
+  document.addEventListener('scroll', _hide, true);
+  document.addEventListener('click', _hide, true);
+})();
+
+// ── Button ripple ───────────────────────────────────────────────────────────────
+// Injects a .btn-ripple span at the click point; animates out and self-removes.
+document.addEventListener('click', function(e) {
+  var btn = e.target.closest('button.primary, .secondary-btn');
+  if (!btn || _prefersReducedMotion) return;
+  if (btn.disabled || btn.classList.contains('btn-cancel') || btn.querySelector('.btn-spinner')) return;
+  var r = document.createElement('span');
+  r.className = 'btn-ripple';
+  var rect = btn.getBoundingClientRect();
+  r.style.left = (e.clientX - rect.left - 4) + 'px';
+  r.style.top  = (e.clientY - rect.top  - 4) + 'px';
+  btn.appendChild(r);
+  r.addEventListener('animationend', function() { r.remove(); });
+});
+
+// ── Keyboard shortcuts ──────────────────────────────────────────────────────────
+(function() {
+  const overlay = document.getElementById('kbd-overlay');
+  const closeBtn = document.getElementById('kbd-close-btn');
+  if (!overlay) return;
+
+  function open()  { overlay.classList.add('open'); }
+  function close() { overlay.classList.remove('open'); }
+  closeBtn && closeBtn.addEventListener('click', close);
+  overlay.addEventListener('click', e => { if (e.target === overlay) close(); });
+  const hintBtn = document.getElementById('kbd-hint-btn');
+  hintBtn && hintBtn.addEventListener('click', () => overlay.classList.contains('open') ? close() : open());
+
+  document.addEventListener('keydown', function(e) {
+    const tag = (e.target.tagName || '').toUpperCase();
+    const inInput = tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || e.target.isContentEditable;
+
+    if (e.key === 'Escape') {
+      if (overlay.classList.contains('open')) { close(); e.preventDefault(); return; }
+    }
+
+    if (inInput) return;
+
+    if (e.key === '?') {
+      e.preventDefault();
+      overlay.classList.toggle('open');
+      return;
+    }
+    // Focus search on /
+    if (e.key === '/') {
+      const s = document.getElementById('track-search');
+      if (s) { e.preventDefault(); s.focus(); s.select(); }
+      return;
+    }
+    // Tab shortcuts: 1/2/3
+    if (e.key === '1') { switchTab('cues'); return; }
+    if (e.key === '2') { switchTab('library'); return; }
+    if (e.key === '3') { switchTab('discover'); return; }
+    // Select all visible tracks
+    if ((e.ctrlKey || e.metaKey) && e.key === 'a') {
+      const visible = document.getElementById('track-list');
+      if (visible) {
+        e.preventDefault();
+        filteredTracks().forEach(t => selectedTrackIds.add(String(t.id)));
+        updateSelectionBar();
+        AppState.signal('filters');
+      }
+      return;
+    }
+  });
+})();
 
 // ── Blob URL cleanup ───────────────────────────────────────────────────────────
 function revokeAllBlobUrls() {
   blobUrlsToRevoke.forEach(u => URL.revokeObjectURL(u));
 }
 window.addEventListener('beforeunload', revokeAllBlobUrls);
+
+// ── AppState subscriptions ─────────────────────────────────────────────────────
+// 'filters'  → re-render track list when any filter changes
+// 'settings' → re-render + overwrite warning when cue settings change
+// 'tracks'   → re-render after data load (tracks replaced/enriched)
+AppState.subscribe('filters', function() {
+  if (parsedTracks.length) renderTracks();
+});
+AppState.subscribe('settings', function() {
+  if (parsedTracks.length) { renderTracks(); updateOverwriteWarning(); }
+});
+AppState.subscribe('tracks', function() {
+  renderTracks();
+});
 
 // ── Events: XML drop ───────────────────────────────────────────────────────────
 const dropZone = document.getElementById('drop-zone');
@@ -5662,11 +6736,11 @@ document.getElementById('audio-folder-toggle').addEventListener('click', e => {
 // ── Events: Settings ───────────────────────────────────────────────────────────
 ['bars-interval', 'start-bar', 'max-cues'].forEach(id => {
   document.getElementById(id).addEventListener('input', () => {
-    if (parsedTracks.length) { renderTracks(); updateOverwriteWarning(); }
+    AppState.signal('settings');
   });
 });
 document.getElementById('skip-existing-cues').addEventListener('change', () => {
-  if (parsedTracks.length) { renderTracks(); updateOverwriteWarning(); }
+  AppState.signal('settings');
 });
 
 // ── Sort buttons ────────────────────────────────────────────────────────────────
@@ -5689,7 +6763,7 @@ document.querySelectorAll('.sort-btn').forEach(btn => {
         b.textContent = { title: 'Title', artist: 'Artist', album: 'Album', bpm: 'BPM', key: 'Key', rating: 'Rating', plays: 'Plays' }[b.dataset.sort];
       }
     });
-    if (parsedTracks.length) renderTracks();
+    AppState.signal('filters');
   });
 });
 
@@ -5797,17 +6871,19 @@ document.getElementById('delete-confirm-btn').addEventListener('click', async ()
 const miniScrubber = document.getElementById('mini-scrubber');
 
 audioPlayer.addEventListener('timeupdate', () => {
+  // D1: timeline + waveform updates moved to RAF loop; keep only time display + scrubber
   if (!isScrubbing) miniScrubber.value = audioPlayer.currentTime;
   document.getElementById('mini-current-time').textContent = fmtTime(audioPlayer.currentTime);
-  updateTimeline();
 });
 
 audioPlayer.addEventListener('ended', () => {
+  _stopPlayRaf(); // D1
   nowPlayingId = null;
   updatePlaybackUI();
 });
 
 audioPlayer.addEventListener('error', () => {
+  _stopPlayRaf(); // D1
   showToast('Could not play this file — format may not be supported');
   nowPlayingId = null;
   updatePlaybackUI();
@@ -5815,8 +6891,8 @@ audioPlayer.addEventListener('error', () => {
 
 miniScrubber.addEventListener('mousedown',  () => { isScrubbing = true; });
 miniScrubber.addEventListener('touchstart', () => { isScrubbing = true; }, { passive: true });
-miniScrubber.addEventListener('mouseup',  () => { audioPlayer.currentTime = parseFloat(miniScrubber.value); isScrubbing = false; });
-miniScrubber.addEventListener('touchend', () => { audioPlayer.currentTime = parseFloat(miniScrubber.value); isScrubbing = false; });
+miniScrubber.addEventListener('mouseup',  () => { audioPlayer.currentTime = parseFloat(miniScrubber.value); isScrubbing = false; if (nowPlayingId) _drawMiniWaveform(nowPlayingId); });
+miniScrubber.addEventListener('touchend', () => { audioPlayer.currentTime = parseFloat(miniScrubber.value); isScrubbing = false; if (nowPlayingId) _drawMiniWaveform(nowPlayingId); });
 
 document.getElementById('mini-play-btn').addEventListener('click', () => {
   if (nowPlayingId) togglePlayTrack(nowPlayingId);
@@ -5863,7 +6939,7 @@ document.getElementById('mode-bar-btn').addEventListener('click', () => {
   document.getElementById('mode-phrase-btn').classList.remove('active');
   document.getElementById('anlz-drop-section').style.display = 'none';
   _applyModeUI('bar');
-  if (parsedTracks.length) renderTracks();
+  AppState.signal('filters');
 });
 document.getElementById('mode-phrase-btn').addEventListener('click', async () => {
   analysisMode = 'phrase';
@@ -5979,7 +7055,7 @@ async function loadPhraseFromServer() {
     else selectedKeys.add(key);
     updateKeyUI();
     updateActiveFiltersChip();
-    if (parsedTracks.length) renderTracks();
+    AppState.signal('filters');
   }
 
   function updateKeyUI() {
@@ -6000,7 +7076,7 @@ async function loadPhraseFromServer() {
     selectedKeys.clear();
     updateKeyUI();
     updateActiveFiltersChip();
-    if (parsedTracks.length) renderTracks();
+    AppState.signal('filters');
   });
 
   document.getElementById('ck-related-btn').addEventListener('click', () => {
@@ -6010,9 +7086,7 @@ async function loadPhraseFromServer() {
       const m = key.match(/^(\d+)([AB])$/);
       if (!m) continue;
       const n = parseInt(m[1]), ab = m[2];
-      // same number, other letter (A↔B)
       toAdd.add(`${n}${ab === 'A' ? 'B' : 'A'}`);
-      // adjacent numbers (±1 on the wheel, wrapping 1↔12)
       const prev = n === 1 ? 12 : n - 1;
       const next = n === 12 ? 1 : n + 1;
       toAdd.add(`${prev}${ab}`);
@@ -6020,7 +7094,7 @@ async function loadPhraseFromServer() {
     }
     for (const k of toAdd) selectedKeys.add(k);
     updateKeyUI();
-    if (parsedTracks.length) renderTracks();
+    AppState.signal('filters');
   });
 
   // Toggle popup — fixed position, calculated from button rect
@@ -6047,6 +7121,37 @@ async function loadPhraseFromServer() {
   window.addEventListener('scroll', () => popup.classList.remove('open'), { passive: true });
 })();
 
+// ── Collapsible settings ────────────────────────────────────────────────────────
+(function initSettingsToggle() {
+  const sec     = document.getElementById('settings-section');
+  const toggle  = document.getElementById('settings-title-toggle');
+  const summary = document.getElementById('settings-summary');
+
+  function updateSummary() {
+    const mode    = document.getElementById('mode-phrase-btn')?.classList.contains('active') ? 'Phrase' : 'Bar intervals';
+    const bars    = document.getElementById('bars-interval')?.value || '16';
+    const maxCues = document.getElementById('max-cues')?.value || '8';
+    if (summary) summary.textContent = `${mode} · every ${bars} bars · max ${maxCues} cues`;
+  }
+
+  toggle.addEventListener('click', () => {
+    sec.classList.toggle('collapsed');
+    updateSummary();
+  });
+
+  // Keep summary fresh whenever settings inputs change
+  ['bars-interval', 'start-bar', 'max-cues', 'mode-bar-btn', 'mode-phrase-btn'].forEach(id => {
+    document.getElementById(id)?.addEventListener('change', updateSummary);
+    document.getElementById(id)?.addEventListener('click',  updateSummary);
+  });
+
+  // Expose so local-mode init can collapse it
+  window._collapseSettings = () => { sec.classList.add('collapsed'); updateSummary(); };
+  window._expandSettings   = () => sec.classList.remove('collapsed');
+
+  updateSummary();
+})();
+
 // ── Scroll to top ───────────────────────────────────────────────────────────────
 (function initScrollToTop() {
   const btn = document.getElementById('scroll-top-btn');
@@ -6062,16 +7167,24 @@ async function loadPhraseFromServer() {
 (function initStickyHeader() {
   const tracksSticky = document.getElementById('tracks-sticky');
   if (!tracksSticky) return;
+  function checkShadow() {
+    // Skip while the section is hidden (getBoundingClientRect returns top:0 for hidden elements)
+    if (!document.getElementById('tracks-section')?.classList.contains('visible')) {
+      tracksSticky.classList.remove('shadowed');
+      return;
+    }
+    const rect = tracksSticky.getBoundingClientRect();
+    const topBarH = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--top-bar-h')) || 0;
+    tracksSticky.classList.toggle('shadowed', rect.top <= topBarH + 1);
+  }
   let rafPending = false;
   window.addEventListener('scroll', () => {
     if (rafPending) return;
     rafPending = true;
-    requestAnimationFrame(() => {
-      rafPending = false;
-      const rect = tracksSticky.getBoundingClientRect();
-      tracksSticky.classList.toggle('shadowed', rect.top <= 1);
-    });
+    requestAnimationFrame(() => { rafPending = false; checkShadow(); });
   }, { passive: true });
+  // Expose so loadTracksFromServer can trigger a correct initial check
+  window._checkStickyHeader = checkShadow;
 })();
 
 // ── Set Builder ────────────────────────────────────────────────────────────────
@@ -6082,6 +7195,7 @@ const _CAT_COLORS = {
 };
 
 let _sbSeedTrackId = null;
+let _sbAnchorTrackIds = [];
 
 function _bpmToCategory(bpm) {
   if (bpm <= 0) return 'peak';
@@ -6102,14 +7216,14 @@ function _useSelectedForSetBuilder() {
   if (bpms.length) {
     document.getElementById('sb-start-bpm').value = Math.round(bpms[0]);
     document.getElementById('sb-end-bpm').value = Math.round(bpms[bpms.length - 1]);
-    const mid = tracks.filter(t => t.bpm > 0).sort((a, b) => a.bpm - b.bpm);
-    const seed = mid[Math.floor(mid.length / 2)] || tracks[0];
-    _sbSeedTrackId = parseInt(seed.id, 10);
-    const label = `${seed.name || seed.title || '(untitled)'} — ${seed.artist || ''} (${seed.bpm ? seed.bpm.toFixed(1) + ' BPM' : '?'})`;
-    document.getElementById('sb-seed-label').textContent = label;
-    document.getElementById('sb-seed-row').style.display = '';
-    showToast(`Seed set: ${seed.name || seed.title || '(untitled)'}`);
   }
+  _sbAnchorTrackIds = ids.map(id => parseInt(id, 10));
+  const n = tracks.length;
+  const names = tracks.slice(0, 2).map(t => t.name || t.title || '(untitled)').join(', ');
+  const label = `${n} track${n !== 1 ? 's' : ''}: ${names}${n > 2 ? ` + ${n - 2} more` : ''}`;
+  document.getElementById('sb-seed-label').textContent = label;
+  document.getElementById('sb-seed-row').style.display = '';
+  showToast(`${n} anchor${n !== 1 ? 's' : ''} set for Set Builder`);
 }
 
 function _useSelectedForPlaylist() {
@@ -6119,20 +7233,28 @@ function _useSelectedForPlaylist() {
   const tracks = ids.map(id => lookup[String(id)]).filter(Boolean);
   if (!tracks.length) { showToast('Selected tracks not found', true); return; }
 
-  const bpms = tracks.map(t => t.bpm || 0).filter(b => b > 0);
-  if (!bpms.length) { showToast('Selected tracks have no BPM data', true); return; }
-  const medianBpm = bpms.sort((a, b) => a - b)[Math.floor(bpms.length / 2)];
-  const cat = _bpmToCategory(medianBpm);
-  document.getElementById('ps-category').value = cat;
+  _psSeedTrackIds = ids.map(id => parseInt(id, 10));
   _psExcludedIds = [];
   _psCategoryLast = null;
-  showToast(`Category set to ${cat} (median BPM: ${medianBpm.toFixed(1)})`);
+
+  // Auto-detect category from median BPM
+  const bpms = tracks.map(t => t.bpm || 0).filter(b => b > 0);
+  if (bpms.length) {
+    const medianBpm = bpms.sort((a, b) => a - b)[Math.floor(bpms.length / 2)];
+    const cat = _bpmToCategory(medianBpm);
+    document.getElementById('ps-category').value = cat;
+  }
+  const n = tracks.length;
+  const status = document.getElementById('ps-status');
+  if (status) status.textContent = `${n} seed track${n !== 1 ? 's' : ''} pre-included`;
+  showToast(`${n} seed track${n !== 1 ? 's' : ''} set for Playlist Suggest`);
 }
 
 let _psExcludedIds = [];
 let _psCategoryLast = null;
 let _psTracks = [];
 let _psDragIdx = null;
+let _psSeedTrackIds = [];
 
 async function suggestPlaylist(append) {
   const btn     = document.getElementById('ps-suggest-btn');
@@ -6158,18 +7280,20 @@ async function suggestPlaylist(append) {
     list.innerHTML = '';
   }
 
-  btn.disabled = true;
+  _setBtnLoading(btn, true, append ? 'Adding…' : 'Searching…');
   moreBtn.disabled = true;
-  status.textContent = 'Finding tracks…';
+  status.textContent = '';
   if (!append) result.style.display = 'none';
   const psProgress = document.getElementById('ps-progress');
   if (psProgress) psProgress.style.display = '';
 
   try {
+    const psBody = { category, count, exclude_ids: _psExcludedIds };
+    if (_psSeedTrackIds.length) psBody.seed_track_ids = _psSeedTrackIds;
     const r = await fetch('/api/playlists/suggest', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ category, count, exclude_ids: _psExcludedIds }),
+      body: JSON.stringify(psBody),
     });
     if (!r.ok) {
       const err = await r.json().catch(() => ({ detail: r.statusText }));
@@ -6204,7 +7328,7 @@ async function suggestPlaylist(append) {
     showToast(`Suggest failed: ${err.message}`, true);
   } finally {
     if (psProgress) psProgress.style.display = 'none';
-    btn.disabled = false;
+    _setBtnLoading(btn, false);
     moreBtn.disabled = false;
   }
 }
@@ -6231,6 +7355,10 @@ function _psRenderSet() {
     row.innerHTML = `
       <div class="sb-drag-handle" title="Drag to reorder">⠿</div>
       <div class="sb-row-num">${i + 1}</div>
+      <div class="sb-art" data-tid="${t.track_id}">
+        <div class="sb-art-ph">♪</div>
+        <div class="sb-art-play">▶</div>
+      </div>
       <div class="sb-row-main">
         <div class="sb-row-title">${t.title || '(untitled)'}</div>
         <div class="sb-row-artist">${t.artist || ''}</div>
@@ -6243,6 +7371,15 @@ function _psRenderSet() {
       </div>
       <button class="sb-row-replace" data-idx="${i}">↻ Replace</button>
     `;
+
+    // Artwork (lazy, always — server is up whenever PS is shown)
+    const psArtEl = row.querySelector('.sb-art');
+    const psArtImg = document.createElement('img');
+    psArtImg.loading = 'lazy';
+    psArtImg.src = '/api/tracks/' + t.track_id + '/artwork';
+    psArtImg.onload = function() { const ph = psArtEl.querySelector('.sb-art-ph'); if (ph) ph.style.display = 'none'; };
+    psArtImg.onerror = function() {};
+    psArtEl.insertBefore(psArtImg, psArtEl.querySelector('.sb-art-play'));
 
     row.addEventListener('dragstart', e => {
       _psDragIdx = i;
@@ -6275,6 +7412,32 @@ function _psRenderSet() {
       e.stopPropagation();
       _psToggleAltPanel(i, t.track_id, allIds);
     });
+
+    // Playback: hover preloads; click art cell plays (local mode only)
+    if (localMode) {
+      psArtEl.addEventListener('mouseenter', () => {
+        const tr = (parsedTracks || []).find(x => x.id == t.track_id);
+        if (tr) ensureLocalAudio(tr).catch(() => {});
+      });
+      psArtEl.addEventListener('click', e => {
+        e.stopPropagation();
+        const tr = (parsedTracks || []).find(x => x.id == t.track_id);
+        if (!tr) return;
+        ensureLocalAudio(tr).then(() => {
+          if (audioState[tr.id]) {
+            playTrack(tr.id, 0);
+            document.querySelectorAll('.sb-art').forEach(el => {
+              const isPlaying = el.dataset.tid == t.track_id;
+              el.classList.toggle('playing', isPlaying);
+              el.querySelector('.sb-art-play').textContent = isPlaying ? '⏸' : '▶';
+            });
+          }
+        });
+      });
+    }
+
+    // Mark seed tracks visually
+    if (_psSeedTrackIds.includes(t.track_id)) row.classList.add('anchor-track');
 
     list.appendChild(row);
   });
@@ -6322,15 +7485,18 @@ async function _psToggleAltPanel(idx, trackId, allIds) {
       const fromStr = alt.from_prev != null ? `from prev: ${Math.round(alt.from_prev)}` : '';
       const toStr   = alt.to_next != null ? `to next: ${Math.round(alt.to_next)}` : '';
       const reasons = [fromStr, toStr].filter(Boolean).join(' · ');
+      const genreColor = alt.genre_match === true ? 'var(--green)' : alt.genre_match === false ? '#c03030' : 'var(--muted)';
+      const genreBadge = alt.genre ? `<span style="font-size:10px;padding:1px 5px;border-radius:3px;border:1px solid ${genreColor}44;color:${genreColor};white-space:nowrap;overflow:hidden;max-width:80px;text-overflow:ellipsis;" title="${_esc(alt.genre)}">${_esc(alt.genre)}</span>` : '';
       html += `
         <div class="sb-alt-item" data-alt-idx="${idx}" data-alt='${JSON.stringify(alt).replace(/'/g,"&#39;")}'>
           <div class="sb-alt-main">
-            <div class="sb-alt-title">${alt.title || '(untitled)'}</div>
-            <div class="sb-alt-artist">${alt.artist || ''}</div>
+            <div class="sb-alt-title">${_esc(alt.title || '(untitled)')}</div>
+            <div class="sb-alt-artist">${_esc(alt.artist || '')}</div>
           </div>
           <div class="sb-alt-meta">
             <span style="font-family:var(--mono)">${alt.bpm.toFixed(1)}</span>
-            <span style="background:var(--surface);border:1px solid var(--border);border-radius:4px;padding:1px 4px;font-family:var(--mono)">${alt.key || '—'}</span>
+            <span style="background:var(--surface);border:1px solid var(--border);border-radius:4px;padding:1px 4px;font-family:var(--mono)">${_esc(alt.key || '—')}</span>
+            ${genreBadge}
             ${reasons ? `<span style="color:var(--muted-soft)">${reasons}</span>` : ''}
             <span class="sb-alt-score" style="color:${scoreColor}">${Math.round(alt.score)}</span>
           </div>
@@ -6358,7 +7524,7 @@ async function _psToggleAltPanel(idx, trackId, allIds) {
       });
     });
   } catch (err) {
-    panel.innerHTML = `<div class="sb-alt-panel-title" style="color:#c03030">Failed: ${err.message}</div>`;
+    panel.innerHTML = `<div class="sb-alt-panel-title" style="color:#c03030">${_humanFetchError(err)}</div>`;
   }
 }
 
@@ -6429,6 +7595,10 @@ function _sbRenderSet() {
     row.innerHTML = `
       <div class="sb-drag-handle" title="Drag to reorder">⠿</div>
       <div class="sb-row-num">${i + 1}</div>
+      <div class="sb-art" data-tid="${t.track_id}">
+        <div class="sb-art-ph">♪</div>
+        <div class="sb-art-play">▶</div>
+      </div>
       <div class="sb-row-main">
         <div class="sb-row-title">${t.title || '(untitled)'}${t.relaxed ? ' <span style="font-size:9px;color:var(--muted-soft);font-weight:400">(relaxed)</span>' : ''}</div>
         <div class="sb-row-artist">${t.artist || ''}</div>
@@ -6440,6 +7610,15 @@ function _sbRenderSet() {
       </div>
       <button class="sb-row-replace" data-idx="${i}">↻ Replace</button>
     `;
+
+    // Artwork (lazy)
+    const sbArtEl = row.querySelector('.sb-art');
+    const sbArtImg = document.createElement('img');
+    sbArtImg.loading = 'lazy';
+    sbArtImg.src = '/api/tracks/' + t.track_id + '/artwork';
+    sbArtImg.onload = function() { const ph = sbArtEl.querySelector('.sb-art-ph'); if (ph) ph.style.display = 'none'; };
+    sbArtImg.onerror = function() {};
+    sbArtEl.insertBefore(sbArtImg, sbArtEl.querySelector('.sb-art-play'));
 
     // Drag handlers
     row.addEventListener('dragstart', e => {
@@ -6475,6 +7654,32 @@ function _sbRenderSet() {
       _sbToggleAltPanel(i, t.track_id, allIds);
     });
 
+    // Playback: hover preloads audio; click art cell plays (local mode only)
+    if (localMode) {
+      sbArtEl.addEventListener('mouseenter', () => {
+        const tr = (parsedTracks || []).find(x => x.id == t.track_id);
+        if (tr) ensureLocalAudio(tr).catch(() => {});
+      });
+      sbArtEl.addEventListener('click', e => {
+        e.stopPropagation();
+        const tr = (parsedTracks || []).find(x => x.id == t.track_id);
+        if (!tr) return;
+        ensureLocalAudio(tr).then(() => {
+          if (audioState[tr.id]) {
+            playTrack(tr.id, 0);
+            document.querySelectorAll('.sb-art').forEach(el => {
+              const isPlaying = el.dataset.tid == t.track_id;
+              el.classList.toggle('playing', isPlaying);
+              el.querySelector('.sb-art-play').textContent = isPlaying ? '⏸' : '▶';
+            });
+          }
+        });
+      });
+    }
+
+    // Mark anchor tracks visually
+    if (_sbAnchorTrackIds.includes(t.track_id)) row.classList.add('anchor-track');
+
     list.appendChild(row);
 
     // ── Transition connector to next track ──
@@ -6495,12 +7700,16 @@ function _sbRenderSet() {
       const scoreClass = score == null ? '' : score >= 70 ? 'sb-conn-score' : score >= 45 ? 'sb-conn-score low' : 'sb-conn-score bad';
       const scoreStr = score != null ? `<span class="${scoreClass}">${Math.round(score)}</span>` : '';
 
+      const adviceStr = next.mix_advice || '';
       conn.innerHTML = `
         <div class="sb-connector-line"></div>
-        <div class="sb-connector-info">
-          ${bpmStr}
-          ${keyStr ? `· ${keyStr}` : ''}
-          ${scoreStr ? `· Mix ${scoreStr}` : ''}
+        <div style="display:flex;flex-direction:column;gap:2px;">
+          <div class="sb-connector-info">
+            ${bpmStr}
+            ${keyStr ? `· ${keyStr}` : ''}
+            ${scoreStr ? `· Mix ${scoreStr}` : ''}
+          </div>
+          ${adviceStr ? `<div style="font-size:10px;color:var(--muted-soft);padding-left:0;font-style:italic;">💡 ${adviceStr}</div>` : ''}
         </div>
       `;
       list.appendChild(conn);
@@ -6553,15 +7762,18 @@ async function _sbToggleAltPanel(idx, trackId, allIds) {
       const fromStr = alt.from_prev != null ? `from prev: ${Math.round(alt.from_prev)}` : '';
       const toStr   = alt.to_next != null ? `to next: ${Math.round(alt.to_next)}` : '';
       const reasons = [fromStr, toStr].filter(Boolean).join(' · ');
+      const genreColor = alt.genre_match === true ? 'var(--green)' : alt.genre_match === false ? '#c03030' : 'var(--muted)';
+      const genreBadge = alt.genre ? `<span style="font-size:10px;padding:1px 5px;border-radius:3px;border:1px solid ${genreColor}44;color:${genreColor};white-space:nowrap;overflow:hidden;max-width:80px;text-overflow:ellipsis;" title="${_esc(alt.genre)}">${_esc(alt.genre)}</span>` : '';
       html += `
         <div class="sb-alt-item" data-alt-idx="${idx}" data-alt='${JSON.stringify(alt).replace(/'/g,"&#39;")}'>
           <div class="sb-alt-main">
-            <div class="sb-alt-title">${alt.title || '(untitled)'}</div>
-            <div class="sb-alt-artist">${alt.artist || ''}</div>
+            <div class="sb-alt-title">${_esc(alt.title || '(untitled)')}</div>
+            <div class="sb-alt-artist">${_esc(alt.artist || '')}</div>
           </div>
           <div class="sb-alt-meta">
             <span style="font-family:var(--mono)">${alt.bpm.toFixed(1)}</span>
-            <span style="background:var(--surface);border:1px solid var(--border);border-radius:4px;padding:1px 4px;font-family:var(--mono)">${alt.key || '—'}</span>
+            <span style="background:var(--surface);border:1px solid var(--border);border-radius:4px;padding:1px 4px;font-family:var(--mono)">${_esc(alt.key || '—')}</span>
+            ${genreBadge}
             ${reasons ? `<span style="color:var(--muted-soft)">${reasons}</span>` : ''}
             <span class="sb-alt-score" style="color:${scoreColor}">${Math.round(alt.score)}</span>
           </div>
@@ -6591,7 +7803,7 @@ async function _sbToggleAltPanel(idx, trackId, allIds) {
       });
     });
   } catch (err) {
-    panel.innerHTML = `<div class="sb-alt-panel-title" style="color:#c03030">Failed: ${err.message}</div>`;
+    panel.innerHTML = `<div class="sb-alt-panel-title" style="color:#c03030">${_humanFetchError(err)}</div>`;
   }
 }
 
@@ -6638,10 +7850,11 @@ async function buildSet() {
     duration_minutes: parseFloat(document.getElementById('sb-duration').value) || 60,
     energy_mode:      document.getElementById('sb-energy-mode').value,
   };
-  if (_sbSeedTrackId) body.seed_track_id = _sbSeedTrackId;
+  if (_sbAnchorTrackIds.length) body.anchor_track_ids = _sbAnchorTrackIds;
+  else if (_sbSeedTrackId) body.seed_track_id = _sbSeedTrackId;
 
-  btn.disabled = true;
-  status.textContent = 'Building set…';
+  _setBtnLoading(btn, true, 'Building…');
+  status.textContent = '';
   result.style.display = 'none';
   progBar.style.display = '';
 
@@ -6669,10 +7882,11 @@ async function buildSet() {
     result.style.display = '';
     showToast(`Set built: ${d.total_tracks} tracks`);
   } catch (err) {
-    status.textContent = `Error: ${err.message}`;
-    showToast(`Set Builder failed: ${err.message}`, true);
+    const human = _humanFetchError(err);
+    status.textContent = human;
+    showToast(human, true);
   } finally {
-    btn.disabled = false;
+    _setBtnLoading(btn, false);
     progBar.style.display = 'none';
   }
 }
@@ -6707,9 +7921,9 @@ document.addEventListener('DOMContentLoaded', function() {
   if (!header) return;
 
   header.addEventListener('click', function() {
-    var open = body.style.display === 'block';
-    body.style.display = open ? 'none' : 'block';
+    var open = body.classList.contains('open');
     chevron.classList.toggle('open', !open);
+    if (open) { _slideClose(body, 'open'); } else { _slideOpen(body, 'open'); }
   });
 
   document.querySelectorAll('[data-guide-tab]').forEach(function(btn) {

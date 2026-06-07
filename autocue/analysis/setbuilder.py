@@ -16,7 +16,7 @@ from dataclasses import dataclass, field
 from .classify import get_classification
 from . import similar as _similar_mod
 from .similar import find_similar, _build_index
-from .transitions import score_transition, _bpm_score
+from .transitions import score_transition, transition_advice, _bpm_score
 
 
 _log = logging.getLogger(__name__)
@@ -36,6 +36,7 @@ class SetTrack:
     key: str
     category: str
     transition_score: float | None  # None for first track
+    mix_advice: str | None = None   # DJ mixing tip for this transition
     relaxed: bool = False           # True if placed via relaxed constraint pass
 
 
@@ -45,6 +46,8 @@ class _Beam:
     total_duration: float = 0.0  # seconds
     cumulative_score: float = 0.0
     visited: set[int] = field(default_factory=set)
+    visited_titles: set[str] = field(default_factory=set)   # "title|||artist" lowercase
+    visited_artists: dict[str, int] = field(default_factory=dict)  # artist → count
 
 
 def _category_order(prefs: dict) -> list[str]:
@@ -103,6 +106,7 @@ def build_set(
     energy_mode: str = "build",     # "build" | "flat" | "drop"
     bpm_step_max: float = 0.08,     # max BPM increase per step (8%)
     seed_track_id: int | None = None,
+    anchor_track_ids: list[int] | None = None,
 ) -> dict:
     """
     Build a DJ set using beam search.
@@ -160,6 +164,8 @@ def build_set(
         total_duration=seed_dur,
         cumulative_score=0.0,
         visited={int(seed_content.ID)},
+        visited_titles={f"{seed_title}|||{seed_artist}".lower()},
+        visited_artists={seed_artist.lower(): 1} if seed_artist else {},
     )]
 
     step = 0
@@ -205,6 +211,8 @@ def build_set(
                         current_track.track_id, current_track.bpm, tier["category"],
                         beam.visited, db, tier["bpm_step_max"], start_bpm, end_bpm,
                         category_min=tier["category_min"],
+                        visited_titles=beam.visited_titles,
+                        visited_artists=beam.visited_artists,
                     )
                 candidates = _cand_cache[cache_key]
                 if not candidates:
@@ -216,15 +224,36 @@ def build_set(
                         if cand_content is None:
                             continue
                         ts = score_transition(current_content, cand_content, db)
-                        overall = ts["overall"]
+
+                        # Setbuilder-specific reweighting: reduce BPM penalty weight
+                        # (0.40→0.25) so BPM progression is not structurally punished.
+                        # The standard 40% BPM weight makes same-BPM always beat any
+                        # BPM-progressing candidate; this rebalance lets key+energy matter more.
+                        if end_bpm != start_bpm:
+                            overall = round(0.25 * ts["bpm"] + 0.40 * ts["key"] + 0.35 * ts["energy"], 1)
+                        else:
+                            overall = ts["overall"]
+
                         if overall < tier["transition_min"]:
                             continue
 
                         ep = _energy_penalty(ts["end_energy_a"], ts["start_energy_b"], energy_mode)
-                        adjusted = overall - ep
+
+                        # BPM-progress bonus: reward movement toward end_bpm (up to 15 pts).
+                        # Without this the beam picks same-BPM tracks every time.
+                        bpm_bonus = 0.0
+                        if end_bpm != start_bpm:
+                            progress_needed = end_bpm - current_track.bpm
+                            progress_made = cand_bpm - current_track.bpm
+                            if abs(progress_needed) > 0.5 and progress_needed * progress_made > 0:
+                                bpm_bonus = min(15.0, 15.0 * abs(progress_made / progress_needed))
+
+                        adjusted = overall - ep + bpm_bonus
                         cand_title, cand_artist, _, cand_dur = _get_track_info(cand_content)
                         cand_class = get_classification(cand_content, db)
 
+                        title_key = f"{cand_title}|||{cand_artist}".lower()
+                        artist_key = cand_artist.lower()
                         new_track = SetTrack(
                             track_id=cand_id,
                             title=cand_title,
@@ -232,7 +261,8 @@ def build_set(
                             bpm=cand_bpm,
                             key=cand_key,
                             category=cand_class.get("primary", target_cat),
-                            transition_score=round(overall, 1),
+                            transition_score=round(ts["overall"], 1),
+                            mix_advice=transition_advice(ts),
                             relaxed=used_relaxed,
                         )
                         new_beam = _Beam(
@@ -240,6 +270,9 @@ def build_set(
                             total_duration=beam.total_duration + cand_dur,
                             cumulative_score=beam.cumulative_score + adjusted,
                             visited=beam.visited | {cand_id},
+                            visited_titles=beam.visited_titles | {title_key},
+                            visited_artists={**beam.visited_artists,
+                                             artist_key: beam.visited_artists.get(artist_key, 0) + 1},
                         )
                         scored.append((adjusted, new_beam))
                     except Exception as exc:
@@ -270,7 +303,7 @@ def build_set(
         return {"tracks": [], "terminated_reason": "no_candidates_passed_thresholds"}
 
     best = beams[0]
-    return {
+    result = {
         "tracks": [
             {
                 "track_id": t.track_id,
@@ -280,12 +313,63 @@ def build_set(
                 "key": t.key,
                 "category": t.category,
                 "transition_score": t.transition_score,
+                "mix_advice": t.mix_advice,
                 "relaxed": t.relaxed,
             }
             for t in best.tracks
         ],
         "terminated_reason": terminated_reason,
     }
+
+    if anchor_track_ids:
+        _merge_anchors(db, result, anchor_track_ids)
+
+    return result
+
+
+def _merge_anchors(db, result: dict, anchor_ids: list[int]) -> None:
+    """Mutate result['tracks'] to ensure every anchor_id is present.
+
+    Anchors already found by beam search are left in place.  Missing anchors are
+    inserted at their BPM-sorted position so the set remains roughly ordered.
+    """
+    tracks = result["tracks"]
+    existing = {t["track_id"] for t in tracks}
+
+    for anchor_id in anchor_ids:
+        if anchor_id in existing:
+            continue
+        try:
+            content = db.get_content(ID=anchor_id)
+            if content is None:
+                continue
+            title, artist, bpm, _ = _get_track_info(content)
+            key = ""
+            try:
+                k = getattr(content, "Key", None)
+                if k:
+                    key = str(getattr(k, "ScaleName", "") or "")
+            except Exception:
+                pass
+            cls = get_classification(content, db)
+            anchor_dict = {
+                "track_id": anchor_id,
+                "title": title,
+                "artist": artist,
+                "bpm": round(bpm, 2),
+                "key": key,
+                "category": cls.get("primary", "unknown"),
+                "transition_score": None,
+                "relaxed": False,
+            }
+            insert_pos = next(
+                (j for j, t in enumerate(tracks) if t["bpm"] >= bpm),
+                len(tracks),
+            )
+            tracks.insert(insert_pos, anchor_dict)
+            existing.add(anchor_id)
+        except Exception as exc:
+            _log.debug("setbuilder: anchor %s merge failed: %s", anchor_id, exc)
 
 
 def _relaxation_tiers(bpm_step_max: float, target_cat: str) -> list[dict]:
@@ -315,21 +399,25 @@ def _find_seed(db, start_bpm: float, category: str):
 
     best_content = None
     best_score = -1.0
-    for c in contents:
-        try:
-            raw_bpm = getattr(c, "BPM", 0) or 0
-            bpm = float(raw_bpm) / 100.0
-            if bpm <= 0:
-                continue
-            bpm_s = _bpm_score(start_bpm, bpm) / 100.0
-            cls = get_classification(c, db)
-            cat_s = cls.get("scores", {}).get(category, 0.0)
-            score = bpm_s * 0.5 + cat_s * 0.5
-            if score > best_score:
-                best_score = score
-                best_content = c
-        except Exception:
-            pass
+    # Two-pass: prefer tracks at/above start_bpm; fall back to any BPM if none found
+    for min_bpm in (start_bpm * 0.97, 0.0):
+        for c in contents:
+            try:
+                raw_bpm = getattr(c, "BPM", 0) or 0
+                bpm = float(raw_bpm) / 100.0
+                if bpm <= 0 or bpm < min_bpm:
+                    continue
+                bpm_s = _bpm_score(start_bpm, bpm) / 100.0
+                cls = get_classification(c, db)
+                cat_s = cls.get("scores", {}).get(category, 0.0)
+                score = bpm_s * 0.5 + cat_s * 0.5
+                if score > best_score:
+                    best_score = score
+                    best_content = c
+            except Exception:
+                pass
+        if best_content is not None:
+            break
     return best_content
 
 
@@ -343,19 +431,35 @@ def _get_candidates(
     start_bpm: float,
     end_bpm: float,
     category_min: float | None = _CATEGORY_SCORE_THRESHOLD,
+    visited_titles: set[str] | None = None,
+    visited_artists: dict[str, int] | None = None,
+    max_artist_repeats: int = 2,
 ) -> list[tuple[int, float, str]]:
     """Return list of (track_id, bpm, key) candidate tuples.
 
     target_cat=None and category_min=None skips the category filter entirely
     (used by the final relaxation tier).
     """
-    # BPM gate: allow up to bpm_step_max increase, or small decrease
-    bpm_lo = current_bpm * (1.0 - 0.03)
-    bpm_hi = current_bpm * (1.0 + bpm_step_max)
-    # Ensure we stay within overall start_bpm–end_bpm range
-    bpm_gate = max(abs(bpm_hi - current_bpm), abs(current_bpm - bpm_lo), 8.0)
+    # BPM gate: asymmetric — look wider toward end_bpm so find_similar can
+    # surface higher-BPM candidates (the secondary bpm_lo/bpm_hi filter below
+    # still enforces the actual step constraint).
+    if end_bpm > start_bpm:
+        bpm_lo = max(current_bpm * (1.0 - 0.03), start_bpm * 0.97)
+        bpm_hi = current_bpm * (1.0 + bpm_step_max)
+        bpm_gate = max(bpm_hi - current_bpm, current_bpm - bpm_lo, 12.0)
+    elif end_bpm < start_bpm:
+        bpm_lo = current_bpm * (1.0 - bpm_step_max)
+        bpm_hi = current_bpm * (1.0 + 0.03)
+        bpm_gate = max(bpm_hi - current_bpm, current_bpm - bpm_lo, 12.0)
+    else:
+        bpm_lo = current_bpm * (1.0 - 0.03)
+        bpm_hi = current_bpm * (1.0 + 0.03)
+        bpm_gate = max(abs(bpm_hi - current_bpm), abs(current_bpm - bpm_lo), 8.0)
 
-    similar = find_similar(track_id, db, n=_CANDIDATES_PER_STEP, bpm_gate=bpm_gate)
+    # Fetch more candidates when building BPM — same-BPM tracks fill slots quickly
+    n = _CANDIDATES_PER_STEP * 2 if end_bpm != start_bpm else _CANDIDATES_PER_STEP
+
+    similar = find_similar(track_id, db, n=n, bpm_gate=bpm_gate)
     results = []
     for item in similar:
         cid = item["track_id"]
@@ -369,6 +473,16 @@ def _get_candidates(
             bpm = float(raw_bpm) / 100.0
             if bpm < bpm_lo or bpm > bpm_hi:
                 continue
+            title = str(getattr(content, "Title", None) or "")
+            artist = str(getattr(content, "ArtistName", None) or "")
+            # Block exact same title+artist even if different track_id (duplicate imports)
+            if visited_titles is not None:
+                if f"{title}|||{artist}".lower() in visited_titles:
+                    continue
+            # Cap same artist at max_artist_repeats per set
+            if visited_artists is not None:
+                if visited_artists.get(artist.lower(), 0) >= max_artist_repeats:
+                    continue
             # Category filter — skip if target_cat or category_min is None
             if target_cat is not None and category_min is not None:
                 cls = get_classification(content, db)

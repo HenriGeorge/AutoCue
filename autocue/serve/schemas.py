@@ -322,6 +322,7 @@ class PlaylistSuggestRequest(BaseModel):
     category: str  # "warmup" | "build" | "peak" | "after_hours" | "closing"
     count: int = 20
     exclude_ids: list[int] = []
+    seed_track_ids: list[int] = []  # pre-included tracks; bypass exclude_ids
     playlist_id: int | None = None  # scope to a specific playlist, or None = full library
 
 
@@ -346,6 +347,7 @@ class SetBuilderRequest(BaseModel):
     energy_mode: Literal["build", "flat", "drop"] = "build"
     bpm_step_max: float = 0.08
     seed_track_id: int | None = None
+    anchor_track_ids: list[int] = []  # must-include tracks, merged at BPM-sorted positions
 
 
 class SetBuilderTrackItem(BaseModel):
@@ -356,6 +358,7 @@ class SetBuilderTrackItem(BaseModel):
     key: str
     category: str
     transition_score: float | None = None
+    mix_advice: str | None = None
     relaxed: bool = False  # True if this track was placed via relaxed constraints
 
 
@@ -403,6 +406,7 @@ class DiscogsTagRequest(BaseModel):
     track_ids: list[int]
     token: str  # Discogs personal access token
     dry_run: bool = False
+    skip_existing: bool = False  # skip tracks that already have non-AutoCue My Tags (Discogs styles)
 
 
 class DiscogsTagEvent(BaseModel):
@@ -443,6 +447,8 @@ class SetAlternativeItem(BaseModel):
     score: float          # combined fit score
     from_prev: float | None = None  # transition score from previous track
     to_next: float | None = None    # transition score to next track
+    genre: str = ""
+    genre_match: bool | None = None  # True = matches reference genre, False = mismatch, None = unknown
 
 
 class SetAlternativesResponse(BaseModel):
@@ -493,6 +499,7 @@ class DiscoverItem(BaseModel):
     cover: str | None = None
     genres: list[str] = []
     styles: list[str] = []
+    formats: list[str] = []        # Discogs format tags e.g. ["Vinyl","LP","Album"]
     url: str | None = None
     query: str | None = None       # ready-made "artist album" download query
     done: bool = False
@@ -507,6 +514,7 @@ class DownloadConfigResponse(BaseModel):
     available: bool          # yt-dlp importable
     ffmpeg: bool             # ffmpeg on PATH (needed for audio extraction)
     default_dir: str
+    music_folder: str | None = None  # detected Rekordbox music root (common ancestor of FolderPath)
 
 
 class DownloadRequest(BaseModel):
