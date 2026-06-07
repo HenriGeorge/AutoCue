@@ -144,7 +144,7 @@
     "title": "/api/tracks in-memory snapshot keyed by master.db mtime",
     "category": "api-endpoint",
     "specFilePath": ".agent/tasks/performance/TASK-021.json",
-    "passes": false
+    "passes": true
   },
   {
     "id": "TASK-022",
@@ -158,7 +158,7 @@
     "title": "Add ETag / If-None-Match revalidation to /api/tracks",
     "category": "api-endpoint",
     "specFilePath": ".agent/tasks/performance/TASK-023.json",
-    "passes": false
+    "passes": true
   },
   {
     "id": "TASK-024",

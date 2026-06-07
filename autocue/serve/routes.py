@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, Response
 from fastapi.responses import FileResponse
 
 from ..analysis.quality import check_library_health, check_track_health
@@ -139,18 +139,86 @@ def playlists(db=Depends(get_ro_db)):
     ]
 
 
+def _master_db_mtime(db) -> float | None:
+    """Return the master.db mtime — used as the snapshot + ETag key (TASK-021/023)."""
+    import os
+    from pathlib import Path
+    db_dir = getattr(db, "_db_dir", None)
+    if db_dir is None:
+        return None
+    try:
+        return os.path.getmtime(Path(db_dir) / "master.db")
+    except OSError:
+        return None
+
+
+def _invalidate_tracks_snapshot(app) -> None:
+    """Drop the in-memory /api/tracks snapshot (TASK-026)."""
+    lock = getattr(app.state, "tracks_snapshot_lock", None)
+    if lock is None:
+        app.state.tracks_snapshot = None
+        return
+    with lock:
+        app.state.tracks_snapshot = None
+
+
 @router.get("/tracks", response_model=list[TrackItem])
 def tracks(
     response: Response,
+    request: Request,
     playlist_id: int | None = Query(None),
     sort_by: str = Query("title"),
     sort_order: str = Query("asc"),
     limit: int = Query(5000),
     offset: int = 0,
+    if_none_match: str | None = Header(default=None, alias="If-None-Match"),
     db=Depends(get_ro_db),
 ):
     from pyrekordbox.db6 import DjmdAlbum, DjmdArtist, DjmdContent, DjmdKey, DjmdPlaylist, DjmdSongPlaylist
     from sqlalchemy import asc, desc, func
+
+    # TASK-023 — ETag/304 revalidation keyed by master.db mtime.
+    mtime = _master_db_mtime(db)
+    etag = f'"{int(mtime)}"' if mtime is not None else None
+    if etag is not None:
+        response.headers["ETag"] = etag
+        if if_none_match is not None and if_none_match == etag:
+            return Response(status_code=304, headers={"ETag": etag})
+
+    # TASK-021 — fast path: serve from in-memory snapshot when the request
+    # matches the snapshot's profile (default sort, full library) and the
+    # master.db mtime hasn't changed. Filter by playlist + slice in Python.
+    if (
+        mtime is not None
+        and sort_by == "title"
+        and sort_order == "asc"
+    ):
+        app = request.app
+        lock = getattr(app.state, "tracks_snapshot_lock", None)
+        snapshot = getattr(app.state, "tracks_snapshot", None)
+        if (
+            lock is not None
+            and snapshot is not None
+            and snapshot.get("mtime") == mtime
+        ):
+            with lock:
+                payload = snapshot["payload"]
+            ids_subset = None
+            if playlist_id is not None:
+                pl = db.query(DjmdPlaylist).filter_by(ID=str(playlist_id)).first()
+                if not pl:
+                    raise HTTPException(404, f"Playlist {playlist_id} not found")
+                ids_subset = {
+                    str(e.ContentID)
+                    for e in db.query(DjmdSongPlaylist).filter_by(PlaylistID=pl.ID)
+                }
+            filtered = (
+                [item for item in payload if str(item.id) in ids_subset]
+                if ids_subset is not None
+                else payload
+            )
+            response.headers["X-Total-Count"] = str(len(filtered))
+            return filtered[offset:offset + limit]
 
     q = db.get_content()
     if playlist_id is not None:
@@ -242,7 +310,26 @@ def tracks(
     )
 
     response.headers["X-Total-Count"] = str(total)
-    return [_to_item(t, db, key_map, last_played_map, my_tags_map, color_name_map, hot_cue_counts) for t in rows]
+    items = [_to_item(t, db, key_map, last_played_map, my_tags_map, color_name_map, hot_cue_counts) for t in rows]
+
+    # TASK-021 write-through — populate the snapshot when the request matches
+    # the default-sort full-library profile. Later requests with the same
+    # profile (and unchanged master.db mtime) skip the SQL pipeline entirely.
+    if (
+        mtime is not None
+        and playlist_id is None
+        and sort_by == "title"
+        and sort_order == "asc"
+        and offset == 0
+        and total <= limit
+    ):
+        app = request.app
+        lock = getattr(app.state, "tracks_snapshot_lock", None)
+        if lock is not None:
+            with lock:
+                app.state.tracks_snapshot = {"mtime": mtime, "payload": items}
+
+    return items
 
 
 _FOLDER_ART_NAMES = ["cover.jpg", "folder.jpg", "artwork.jpg", "front.jpg",
