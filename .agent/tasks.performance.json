@@ -249,7 +249,7 @@
     "title": "Search/filter debounce: 80ms requestIdleCallback",
     "category": "ui-ux",
     "specFilePath": ".agent/tasks/performance/TASK-036.json",
-    "passes": false
+    "passes": true
   },
   {
     "id": "TASK-037",

@@ -7323,15 +7323,28 @@ document.getElementById('restore-confirm-btn').addEventListener('click', async (
   finally { btn.disabled = false; btn.textContent = 'Restore'; }
 });
 
-// F4: Search input with debounce
+// TASK-036 — Search input debounced through requestIdleCallback so the
+// browser defers the filter recompute to idle time instead of competing
+// with input event paint. Falls back to setTimeout where rIC isn't
+// supported (jsdom in tests; older Safari).
 let _searchTimer = null;
-document.getElementById('search-input').addEventListener('input', e => {
+let _searchRic = null;
+const _scheduleSearchRecompute = (fn) => {
+  if (typeof window.requestIdleCallback === 'function') {
+    if (_searchRic !== null) window.cancelIdleCallback(_searchRic);
+    _searchRic = window.requestIdleCallback(() => { _searchRic = null; fn(); }, { timeout: 80 });
+    return;
+  }
   clearTimeout(_searchTimer);
-  _searchTimer = setTimeout(() => {
-    searchQuery = e.target.value.trim();
+  _searchTimer = setTimeout(fn, 80);
+};
+document.getElementById('search-input').addEventListener('input', e => {
+  const value = e.target.value.trim();
+  _scheduleSearchRecompute(() => {
+    searchQuery = value;
     updateActiveFiltersChip();
     AppState.signal('filters');
-  }, 200);
+  });
 });
 
 // F6: Phrase-only filter
