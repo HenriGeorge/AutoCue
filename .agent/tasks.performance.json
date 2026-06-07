@@ -32,7 +32,7 @@
     "title": "Refactor /api/auto-tag to parallel detector evaluation + single tag writer",
     "category": "api-endpoint",
     "specFilePath": ".agent/tasks/performance/TASK-005.json",
-    "passes": false
+    "passes": true
   },
   {
     "id": "TASK-006",

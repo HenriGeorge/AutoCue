@@ -527,7 +527,14 @@ def apply_tags(
 
     Returns summary dict with keys: tagged, skipped_no_data, errors,
     dry_run, undo_data.
+
+    TASK-005 — when AUTOCUE_PARALLEL_AUTO_TAG=1, the *read-only* detector
+    evaluation runs through the shared ThreadPoolExecutor. Writes (delete
+    old AutoCue tags + insert new DjmdSongMyTag rows) still happen on a
+    single writer thread (the caller's thread) to honor the single-writer
+    rule for master.db. Default = existing serial behaviour.
     """
+    import os as _os
     from pyrekordbox.db6.tables import DjmdSongMyTag
 
     if tag_types is None:
@@ -542,59 +549,116 @@ def apply_tags(
     errors = 0
     undo_data: dict[str, Any] = {"removed": [], "added": []}
 
-    for track_id in track_ids:
+    parallel = _os.environ.get("AUTOCUE_PARALLEL_AUTO_TAG") == "1"
+
+    def _eval_one(track_id):
+        """Pure-read worker: resolve content + run detectors. No writes."""
         try:
             content = db.get_content(ID=track_id)
             if content is None:
-                continue
-
-            names_to_write: list[str] = []
+                return (track_id, None, [], None)
+            names: list[str] = []
             for ttype in active_types:
-                names_to_write.extend(_DETECTORS[ttype](content, db))
+                names.extend(_DETECTORS[ttype](content, db))
+            return (track_id, content, names, None)
+        except Exception as exc:
+            return (track_id, None, [], exc)
 
+    def _write_one(track_id, names_to_write):
+        """Writer-thread side: delete old AutoCue tags + add new ones. Mutates
+        tagged/undo_data via closure. Returns True if any write happened."""
+        nonlocal tagged
+        if overwrite:
+            try:
+                for st in db.get_my_tag_songs(ContentID=str(track_id)).all():
+                    if str(st.MyTagID) in autocue_tag_ids:
+                        undo_data["removed"].append({
+                            "ID": str(st.ID),
+                            "MyTagID": str(st.MyTagID),
+                            "ContentID": str(st.ContentID),
+                            "TrackNo": st.TrackNo,
+                            "UUID": str(st.UUID) if st.UUID else None,
+                        })
+                        db.session.delete(st)
+            except Exception as exc:
+                _log.debug("apply_tags: delete old tags for %s: %s", track_id, exc)
+
+        for name in names_to_write:
+            if name not in tag_name_map:
+                continue
+            new_id = str(db.generate_unused_id(DjmdSongMyTag))
+            song_tag = DjmdSongMyTag(
+                ID=new_id,
+                UUID=str(uuid4()),
+                MyTagID=tag_name_map[name],
+                ContentID=str(track_id),
+                TrackNo=0,
+            )
+            db.session.add(song_tag)
+            undo_data["added"].append(new_id)
+        tagged += 1
+        return True
+
+    if parallel:
+        from concurrent.futures import as_completed as _as_completed
+        from .concurrency import get_pool as _get_pool
+
+        pool = _get_pool()
+        futures = [pool.submit(_eval_one, tid) for tid in track_ids]
+        # Writer (this thread) drains completions one at a time.
+        for fut in _as_completed(futures):
+            try:
+                track_id, content, names_to_write, exc = fut.result()
+            except Exception as outer:
+                errors += 1
+                if errors <= 3:
+                    _log.warning("apply_tags future failed: %s", outer)
+                continue
+            if exc is not None:
+                errors += 1
+                if errors <= 3:
+                    _log.warning("apply_tags track %s: %s", track_id, exc)
+                continue
+            if content is None:
+                # get_content returned None — silently skip (matches serial path).
+                continue
             if not names_to_write:
                 skipped_no_data += 1
                 continue
-
             if dry_run:
                 tagged += 1
                 continue
-
-            if overwrite:
-                try:
-                    for st in db.get_my_tag_songs(ContentID=str(track_id)).all():
-                        if str(st.MyTagID) in autocue_tag_ids:
-                            undo_data["removed"].append({
-                                "ID": str(st.ID),
-                                "MyTagID": str(st.MyTagID),
-                                "ContentID": str(st.ContentID),
-                                "TrackNo": st.TrackNo,
-                                "UUID": str(st.UUID) if st.UUID else None,
-                            })
-                            db.session.delete(st)
-                except Exception as exc:
-                    _log.debug("apply_tags: delete old tags for %s: %s", track_id, exc)
-
-            for name in names_to_write:
-                if name not in tag_name_map:
+            try:
+                _write_one(track_id, names_to_write)
+            except Exception as werr:
+                errors += 1
+                if errors <= 3:
+                    _log.warning("apply_tags write track %s: %s", track_id, werr)
+    else:
+        for track_id in track_ids:
+            try:
+                content = db.get_content(ID=track_id)
+                if content is None:
                     continue
-                new_id = str(db.generate_unused_id(DjmdSongMyTag))
-                song_tag = DjmdSongMyTag(
-                    ID=new_id,
-                    UUID=str(uuid4()),
-                    MyTagID=tag_name_map[name],
-                    ContentID=str(track_id),
-                    TrackNo=0,
-                )
-                db.session.add(song_tag)
-                undo_data["added"].append(new_id)
 
-            tagged += 1
+                names_to_write: list[str] = []
+                for ttype in active_types:
+                    names_to_write.extend(_DETECTORS[ttype](content, db))
 
-        except Exception as exc:
-            errors += 1
-            if errors <= 3:
-                _log.warning("apply_tags track %s: %s", track_id, exc)
+                if not names_to_write:
+                    skipped_no_data += 1
+                    continue
+
+                if dry_run:
+                    tagged += 1
+                    continue
+
+                _write_one(track_id, names_to_write)
+
+            except Exception as exc:
+                errors += 1
+                if errors <= 3:
+                    _log.warning("apply_tags track %s: %s", track_id, exc)
 
     if not dry_run and (tagged or undo_data["removed"]):
         try:
