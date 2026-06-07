@@ -29,3 +29,54 @@
 - **`/api/health` SSE**: Streams one JSON event per track (TrackHealthReport), then `{"done":true,"summary":{...}}`. Accepts `?playlist_id=N` for incremental rescans and `?limit=N` (1–10000) to cap the per-track loop — `?limit` is used by the `autocue-qa` Playwright smoke suite to bound runs regardless of library size. Per-track exceptions yield `{"score":0,"fix_tier":"none","issues":[{"code":"INTERNAL_ERROR",...}]}` — one bad row never aborts the scan.
 
 - **Multi-select backup delete**: `DELETE /api/backups/{filename}` removes one backup; path traversal is blocked (only bare filenames accepted). The UI uses `_populateChecklist()`, `_updateSelectionCount()`, and `_checkedBackups()` helpers; `deleteCheckedBackups()` calls DELETE once per selected filename and shows a consolidated toast.
+
+## Performance v1 PRD additions
+
+- **`GET /api/tracks` snapshot fast path** (TASK-021 + TASK-022): when the request matches the
+  default-sort full-library profile (`sort_by=title`, `sort_order=asc`, `playlist_id` may be
+  set), the handler short-circuits the SQL pipeline by serving
+  `app.state.tracks_snapshot.payload` directly. The snapshot is keyed by `master.db` mtime;
+  ETag-style `If-None-Match` (TASK-023) returns `304` on match. Write-through builds the
+  snapshot lazily on the first qualifying request and persists a gzipped JSON copy to
+  `CacheStore.tracks_snapshot`. `serve/deps.py:lifespan` hydrates the in-memory snapshot from
+  CacheStore on startup if the master.db mtime still matches — so the first request after
+  `autocue serve` skips the SQL pipeline entirely. `tracks_snapshot_lock` (a `threading.Lock`)
+  serialises mutations.
+
+- **`GET /api/tracks` NDJSON streaming** (TASK-025): clients that send
+  `Accept: application/x-ndjson` get a `StreamingResponse` with one JSON object per line
+  (no enclosing array). JSON-array path is the default for back-compat with autocue-qa
+  Playwright + any existing callers. ETag + `X-Total-Count` headers are preserved on the
+  NDJSON path. Offset/limit applied identically.
+
+- **Snapshot invalidation middleware** (TASK-026): `serve/app.py` registers an HTTP middleware
+  `_invalidate_snapshot_on_mutation` that calls `_invalidate_tracks_snapshot(request.app)`
+  after any 2xx `POST` / `PUT` / `DELETE` to `/api/*`. Centralised invalidation means future
+  mutating endpoints inherit the hook automatically — no per-handler helper calls.
+  `CacheStore.invalidate_all()` is called only by `/api/restore` (TASK-017); the master.db
+  mtime check inside the handler causes the on-disk snapshot to self-invalidate after
+  ordinary mutations.
+
+- **Flagged-parallel SSE pattern** (TASKs 002–007): each of `/api/generate-apply-stream`,
+  `/api/health`, `/api/classify`, `/api/auto-tag` (+ `/auto-tag/discogs`),
+  `/api/enrich-comments/stream`, and the internal similarity index build now has a
+  pool-driven branch behind its own `AUTOCUE_PARALLEL_*` env flag. Shape: pool workers do
+  read/compute; the SSE generator loop is the single writer. Completion-order events;
+  bounded in-flight (`2 * pool_size()` for generate-apply via `_wait_any`); per-track
+  exception isolation. All flags default-off until TASK-008 verification.
+
+- **`GET /api/perf/recent`** (TASK-045): dev-only — returns `404` when `AUTOCUE_PERF` env is
+  unset. Otherwise returns `{spans: [{name, duration_ms, start_ts}, ...], stats: {name:
+  {count, p50, p95, p99}}}` from the in-process ring buffer. `?limit=` clamped to `[1, 1000]`.
+  Endpoint not surfaced in the OpenAPI schema when disabled.
+
+- **`GET /api/warmup`** (TASK-028): returns `{step, done, total, finished_at}` from
+  `app.state.warmup_progress` (under `warmup_lock`). UI polls every 2s while the sidecar
+  cache hydrates; the response with `step === 'done'` (and a `finished_at` ISO string) is
+  the signal to stop polling and hide the `#status-warmup` chip. Returns `step: 'unknown'`
+  when the lifespan never initialised the pipeline (test contexts, DB unavailable) — never
+  raises.
+
+- **`autocue serve --reset-cache`** (TASK-020): operator escape hatch — removes only
+  `autocue_cache.sqlite` + `-wal` + `-shm` before starting. Never `master.db`. No-op when
+  the cache file is absent. Implementation: `autocue/cache_reset.py`.
