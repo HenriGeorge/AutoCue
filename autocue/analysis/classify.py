@@ -8,12 +8,15 @@ BPM is stored in DjmdContent as integer × 100 (e.g., 14000 = 140.00 BPM).
 """
 from __future__ import annotations
 
+from typing import Any
+
 from .energy import get_energy_curve
 from .score import get_mixability
 
 CATEGORIES = ("warmup", "build", "peak", "after_hours", "closing")
 
 _class_cache: dict = {}  # content.ID → classification dict
+_cache_store = None  # type: Any | None — L2 sidecar, wired from serve/deps.py lifespan
 
 _CATEGORY_LABELS = {
     "warmup":      "Warm-up",
@@ -86,16 +89,66 @@ def _score_category(
     return 0.0
 
 
+def set_cache_store(store) -> None:
+    """Wire the L2 sidecar (CacheStore) — see TASK-014."""
+    global _cache_store
+    _cache_store = store
+
+
 def get_classification(content, db) -> dict:
     """
     Return classification scores for all five categories plus the primary category.
 
     Always returns a result (never None) — tracks with missing data score neutrally.
     Keys: primary, label, color, scores {warmup, build, peak, after_hours, closing}.
+
+    Cache layers (in order): L1 in-process dict → L2 sidecar CacheStore (if wired) →
+    compute. L2 lookups are keyed by ``(content.ID, anlz_mtime)``.
     """
     tid = content.ID
     if tid in _class_cache:
         return _class_cache[tid]
+
+    # L2 lookup — sidecar stores the full classification dict as JSON in
+    # the schema's ``scores_json`` slot (we keep ``primary_cat`` typed
+    # separately for query-by-primary later if needed).
+    if _cache_store is not None:
+        from .anlz_path import get_anlz_mtime
+        from ..cache import MISSING
+        try:
+            mtime = get_anlz_mtime(content, db)
+            l2 = _cache_store.get_classification(tid, expected_anlz_mtime=mtime)
+        except Exception:
+            l2 = None
+        if l2 is MISSING:
+            # ANLZ missing — caller still wants a neutral-default dict.
+            # Don't cache this in L1; let compute run once below and produce
+            # the actual neutral result.
+            pass
+        elif l2 is not None:
+            # Stored shape: l2 == {"primary": str, "scores": dict, "bpm": float, "energy_mean": float}
+            # plus any extra fields packed into "scores" via the round-tripped json.
+            scores_payload = l2.get("scores", {}) or {}
+            # ``scores_payload`` may carry the full result merged in (see
+            # write-through below); if so, reuse it. Otherwise rebuild a
+            # minimal valid result from the typed columns.
+            if isinstance(scores_payload, dict) and "scores" in scores_payload:
+                result = scores_payload
+            else:
+                primary = l2["primary"]
+                result = {
+                    "primary": primary,
+                    "label": _CATEGORY_LABELS.get(primary, primary),
+                    "color": _CATEGORY_COLORS.get(primary, "#888"),
+                    "confidence": round(max(scores_payload.values()) if scores_payload else 0.0, 3),
+                    "scores": scores_payload,
+                    "bpm": l2.get("bpm"),
+                    "energy_mean": l2.get("energy_mean"),
+                    "energy_peak": None,
+                    "vocal_proxy": False,
+                }
+            _class_cache[tid] = result
+            return result
 
     raw_bpm = getattr(content, "BPM", 0) or 0
     bpm = float(raw_bpm) / 100.0
@@ -131,4 +184,27 @@ def get_classification(content, db) -> dict:
         "vocal_proxy": vocal_proxy,
     }
     _class_cache[tid] = result
+
+    # Write-through to L2. Pack the FULL result into scores_json so the
+    # reader can reuse it without recomputing energy_peak / vocal_proxy.
+    if _cache_store is not None:
+        from .anlz_path import get_anlz_mtime, MISSING_MTIME
+        try:
+            mtime = get_anlz_mtime(content, db)
+            if mtime is None:
+                _cache_store.put_classification(
+                    tid, "unknown", {}, None, None, anlz_mtime=MISSING_MTIME
+                )
+            else:
+                _cache_store.put_classification(
+                    tid,
+                    primary_cat=primary,
+                    scores=result,  # store the full dict; reader reuses on hit
+                    bpm=result["bpm"],
+                    energy_mean=result["energy_mean"],
+                    anlz_mtime=mtime,
+                )
+        except Exception:
+            pass
+
     return result

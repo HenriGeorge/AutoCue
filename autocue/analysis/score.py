@@ -4,6 +4,8 @@ Returns None for tracks without phrase analysis data.
 """
 from __future__ import annotations
 
+from typing import Any
+
 from ..analyzer import _get_pssi_and_pqtz, _beat_to_ms
 from ..models import PhraseLabel, phrase_label
 from .energy import get_energy_curve
@@ -18,6 +20,13 @@ _VOCAL_SCORE_WITH_VOCALS = 0.3
 
 # Module-level cache: content.ID → result dict. Cleared in conftest.py autouse fixture.
 _mixability_cache: dict[int, dict] = {}
+_cache_store = None  # type: Any | None — L2 sidecar wired from serve/deps.py lifespan
+
+
+def set_cache_store(store) -> None:
+    """Wire the L2 sidecar (CacheStore) — see TASK-016."""
+    global _cache_store
+    _cache_store = store
 
 
 def get_mixability(content, db) -> dict | None:
@@ -26,10 +35,47 @@ def get_mixability(content, db) -> dict | None:
 
     Keys: score (0-100), intro_bars, outro_bars, phrase_count, vocal_proxy,
           energy_variance, outro_length_unknown, components {intro, outro, energy, vocals, structure}.
+
+    Cache layers: L1 in-process dict → L2 sidecar (if wired) → compute.
     """
     track_id = getattr(content, 'ID', None)
     if track_id is not None and int(track_id) in _mixability_cache:
         return _mixability_cache[int(track_id)]
+
+    # L2 lookup — packs the full result dict into components_json on write,
+    # so warm-path reconstruction is a JSON parse, not a recompute.
+    if _cache_store is not None and track_id is not None:
+        from .anlz_path import get_anlz_mtime
+        from ..cache import MISSING
+        try:
+            mtime = get_anlz_mtime(content, db)
+            l2 = _cache_store.get_mixability(int(track_id), expected_anlz_mtime=mtime)
+        except Exception:
+            l2 = None
+        if l2 is MISSING:
+            # ANLZ missing → mixability undefined; cache None in L1 to skip retry.
+            _mixability_cache[int(track_id)] = None
+            return None
+        if l2 is not None:
+            # ``components`` was used as the canonical bag for the full result
+            # — if it carries the full shape, reuse it; otherwise reconstruct
+            # the minimal subset.
+            components_payload = l2.get("components", {}) or {}
+            if isinstance(components_payload, dict) and "score" in components_payload:
+                result = components_payload
+            else:
+                result = {
+                    "score": int(l2["score"]),
+                    "intro_bars": 0,
+                    "outro_bars": 0,
+                    "phrase_count": 0,
+                    "vocal_proxy": False,
+                    "energy_variance": None,
+                    "outro_length_unknown": False,
+                    "components": components_payload,
+                }
+            _mixability_cache[int(track_id)] = result
+            return result
 
     pssi_content, pqtz_content = _get_pssi_and_pqtz(content, db)
     if pssi_content is None or pqtz_content is None:
@@ -123,4 +169,20 @@ def get_mixability(content, db) -> dict | None:
     }
     if track_id is not None:
         _mixability_cache[int(track_id)] = result
+
+    # Write-through to L2 sidecar — pack the FULL result into components_json
+    # so warm-path reads reconstruct in one JSON parse.
+    if _cache_store is not None and track_id is not None:
+        from .anlz_path import get_anlz_mtime, MISSING_MTIME
+        try:
+            mtime = get_anlz_mtime(content, db)
+            _cache_store.put_mixability(
+                int(track_id),
+                score=float(result["score"]),
+                components=result,  # full result as the bag
+                anlz_mtime=mtime if mtime is not None else MISSING_MTIME,
+            )
+        except Exception:
+            pass
+
     return result

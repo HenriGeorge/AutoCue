@@ -95,7 +95,7 @@
     "title": "Wire classify.get_classification through CacheStore (L2)",
     "category": "functional",
     "specFilePath": ".agent/tasks/performance/TASK-014.json",
-    "passes": false
+    "passes": true
   },
   {
     "id": "TASK-015",
@@ -109,14 +109,14 @@
     "title": "Wire score.get_mixability through CacheStore (L2)",
     "category": "functional",
     "specFilePath": ".agent/tasks/performance/TASK-016.json",
-    "passes": false
+    "passes": true
   },
   {
     "id": "TASK-017",
     "title": "Extend /api/restore to invalidate CacheStore (master.db swap)",
     "category": "api-endpoint",
     "specFilePath": ".agent/tasks/performance/TASK-017.json",
-    "passes": false
+    "passes": true
   },
   {
     "id": "TASK-018",

@@ -802,6 +802,14 @@ def restore_backup(req: RestoreRequest, request_obj: Request, db=Depends(get_db)
     _score_mod._mixability_cache.clear()
     _similar_mod.clear_index()
     _audio_check_cache.clear()  # B1: drop stale audio-existence verdicts
+    # Sidecar L2 cache (TASK-010 / TASK-017): wipe all rows so the next read
+    # against the restored DB doesn't return stale data.
+    _cache_store = getattr(request_obj.app.state, "cache_store", None)
+    if _cache_store is not None:
+        try:
+            _cache_store.invalidate_all()
+        except Exception as exc:
+            logger.warning("Could not invalidate sidecar cache during restore: %s", exc)
 
     # PRD §6.7 discover sidecar — restore the parallel discover_<TS>.db when
     # the backup carried one. The 'master_TS.db' filename encodes the TS.
