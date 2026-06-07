@@ -27,8 +27,8 @@ the JS calls into, see [`rest-api.md`](./rest-api.md).
 - [16. `_consumeSSE(response, onEvent, signal)` — SSE reader](#16-_consumesseresponse-onevent-signal--sse-reader)
 - [17. `_esc()` — HTML escaping for server-supplied strings](#17-_esc--html-escaping-for-server-supplied-strings)
 - [18. Sticky filter bar — `#tracks-sticky`](#18-sticky-filter-bar--tracks-sticky)
-- [19. Sticky action bar — `#download-bar`](#19-sticky-action-bar--download-bar)
-- [20. Status row — local mode banner](#20-status-row--local-mode-banner)
+- [19. Sticky action bar — `#action-bar` (selection) + `#download-bar` (legacy)](#19-sticky-action-bar--action-bar-selection--download-bar-legacy)
+- [20. Status row — `#app-status`](#20-status-row--app-status)
 - [21. Theme variables — CSS custom properties](#21-theme-variables--css-custom-properties)
 - [22. Multi-select backup delete](#22-multi-select-backup-delete)
 - [23. Fetch error handling](#23-fetch-error-handling)
@@ -107,8 +107,10 @@ coverage in [`tests/web/xml-processing.test.js`](../../tests/web/xml-processing.
 
 | Element              | Behaviour                                          |
 | -------------------- | -------------------------------------------------- |
-| `#drop-zone`         | Hidden. `#local-mode-banner` shown instead.        |
+| `#drop-zone`         | Hidden. `#local-mode-banner` shown inside `#upload-section`; `#app-status` row populated. |
 | `#tab-nav`           | Visible — exposes Cues / Library / Discover tabs.  |
+| `#app-status`        | Status row in `#top-bar` — DB connected · N tracks · scan age · Rekordbox state. |
+| `#action-bar`        | Sticky bottom selection bar — slides in when ≥1 track is selected. |
 | Apply button         | `#download-btn` reads "Apply to Rekordbox".        |
 | `#preview-cues-btn`  | Visible — calls `/api/generate` and stores result in `pendingCues`. |
 | `#delete-cues-btn`   | Visible — wipes all hot cues on filtered tracks.   |
@@ -823,10 +825,60 @@ Key choices:
 
 ---
 
-## 19. Sticky action bar — `#download-bar`
+## 19. Sticky action bar — `#action-bar` (selection) + `#download-bar` (legacy)
 
-The bottom action bar is a fixed-position element (`index.html:798`) that
-slides in when there is something to apply:
+Two bars live at the bottom of the viewport. They stack rather than
+replace each other so the selection-driven CTA never hides the always-on
+controls.
+
+### 19.1 `#action-bar` — selection-driven (added in the UI refresh)
+
+A fixed-position bar that slides in via `transform: translateY()` when
+`selectedTrackIds.size > 0`. Driven from `updateSelectionBar()`:
+
+```css
+#action-bar {
+  position: fixed; left: 0; right: 0; bottom: 0;
+  z-index: 350; pointer-events: none;
+  padding: 12px 20px calc(12px + env(safe-area-inset-bottom, 0px));
+  --ab-rest-y: 0px;                       /* shifted up by 66px when #download-bar is also visible */
+  transform: translateY(110%);
+  transition: transform 240ms cubic-bezier(.2,.7,.2,1);
+}
+body:has(#download-bar.visible) #action-bar { --ab-rest-y: -66px; }
+#action-bar.visible { transform: translateY(var(--ab-rest-y)); pointer-events: auto; }
+
+@media (prefers-reduced-motion: reduce) {
+  #action-bar { transition: none; }
+}
+```
+
+Contents (left → right):
+
+- **`#action-bar-count`** — `<strong>N</strong> selected`, with
+  `font-variant-numeric: tabular-nums` and `toLocaleString()` for the
+  thousands separator.
+- **`#action-bar-clear`** — "Clear" link; clicks the existing
+  `#deselect-all-btn`.
+- **`#action-bar-preview`** — neutral secondary button "Preview Cues";
+  proxies to `#preview-cues-btn` so the same `/api/generate` path runs.
+- **`#action-bar-apply`** — primary green "Apply to Rekordbox"; proxies
+  to `#download-btn` so the same backup + Rekordbox-running guards fire.
+
+The buttons proxy via `.click()` rather than duplicating handlers, so
+all existing wiring — backup creation, 409 toasts, success / error
+animations — kicks in unchanged.
+
+Body classes:
+- `.has-action-bar` is set whenever the bar is visible. It lifts
+  `#scroll-top-btn` 96 px so it doesn't collide with the bar.
+
+### 19.2 `#download-bar` — always-on (legacy)
+
+The pre-existing bottom bar is still in place and unchanged. It holds the
+mini player + "Ready to import" summary + Color / Preview / Delete /
+Apply buttons. When both bars are visible, `body:has(#download-bar.visible)`
+shifts `#action-bar` 66 px up so they stack cleanly.
 
 ```css
 #download-bar {
@@ -840,7 +892,7 @@ slides in when there is something to apply:
 #download-bar.visible { display: flex; }
 ```
 
-It contains:
+Contents (unchanged from the original implementation):
 
 - **Mini player** (`#mini-player`) — artwork, play/pause button, name +
   artist, current time, `#mini-waveform-wrap`, duration. Hidden until a
@@ -853,40 +905,57 @@ It contains:
 - **`#skip-colored-label`** — checkbox shown only in local mode to skip
   already-coloured tracks during the Color-by-BPM operation.
 - **`#color-by-bpm-btn`** (local mode).
-- **`#preview-cues-btn`** (local mode) — calls `/api/generate` and stores
-  results in `pendingCues` for card rendering.
+- **`#preview-cues-btn`** (local mode).
 - **`#delete-cues-btn`** (local mode) — wipes all hot cues (A–H) on the
   filtered selection. Backed by a confirm bar (`#delete-confirm-bar`).
 - **`#download-btn`** — labelled "Download XML" in XML mode and
-  "Apply to Rekordbox" in local mode (set at `index.html:4023`). Acts as
-  the primary CTA.
+  "Apply to Rekordbox" in local mode. Acts as the primary CTA.
 
-A small `<span id="selection-count">` and a "Deselect all" button live
-inside the sticky filter bar (`index.html:1658-1659`) to reflect
-`selectedTrackIds.size`. When 2 tracks are selected in local mode the
-`#transition-score-btn` reveals itself; clicking it opens the transition
-modal via `showTransitionScore()` (`index.html:5131`).
+The legacy `<span id="selection-count">` inside the sticky filter bar
+still reflects `selectedTrackIds.size`. When 2 tracks are selected in
+local mode the `#transition-score-btn` reveals itself; clicking it opens
+the transition modal via `showTransitionScore()`.
 
 ---
 
-## 20. Status row — local mode banner
+## 20. Status row — `#app-status`
 
-When the app detects a server, it surfaces three pieces of status:
+`#app-status` (added in the UI refresh) lives inside `#top-bar` next to
+`#tab-nav` and is the canonical status surface in local mode. It is
+hidden via CSS until `updateAppStatus({connected: true})` toggles
+`.visible`:
 
-| Element                  | Source                                                                                |
-| ------------------------ | ------------------------------------------------------------------------------------- |
-| `#local-mode-banner`     | "Connected to Rekordbox" pill — toggled at `index.html:4022`                          |
-| `#local-track-count`     | Filled by `loadTracksFromServer()` — either " · N tracks (Playlist)" or " · N tracks" |
-| `#playlist-filter-bar`   | Playlist dropdown + Restore backup button                                              |
+| Span                | Content                                       |
+| ------------------- | --------------------------------------------- |
+| `#status-db`        | "DB connected" with a green dot               |
+| `#status-count`     | `<strong>{N.toLocaleString()}</strong> tracks` |
+| `#status-scan`      | "Last scan just now / Xm ago / Xh ago / Xd ago" — recomputed every 60 s via `setInterval` |
+| `#status-rb`        | "Rekordbox closed ✓" (green dot), "Rekordbox open" (orange dot), or "Rekordbox ?" (idle) |
 
-Rekordbox-running detection is handled server-side (`db_writer.rekordbox_is_running()` via psutil)
-and surfaced as an HTTP 409 on Apply / Color / Delete; the UI shows a
-descriptive toast via `_humanFetchError()` (`index.html:6414`). There is no
-client-side polling of Rekordbox process state.
+```js
+function updateAppStatus({connected, trackCount, didScan, rekordboxRunning})
+```
 
-The `tracks-count` element near the top of the list shows
-`"N tracks"` or `"N of M tracks"` when filtering is active, with a small
-`count-pop` animation on change (`index.html:6237`).
+Single mutation entrypoint. Called from `loadTracksFromServer()` after
+every fetch (passing `didScan: true`). The Rekordbox-running flag is set
+by the UI's HTTP-409 handlers when a write endpoint reports
+`rekordbox_is_running()` truthy.
+
+The original "Connected to Rekordbox" `#local-mode-banner` and
+`#local-track-count` elements still exist inside `#upload-section`
+(toggled at `index.html:4022`) for backwards compatibility with the
+on-boarding flow, but `#app-status` is the surface a user actually
+reads once tracks are loaded.
+
+Rekordbox-running detection is server-side
+([`rekordbox_is_running()`](./backup-and-restore.md#what-the-guard-actually-checks))
+and combines a `psutil` process probe with an `fcntl`/`msvcrt`
+exclusive-lock attempt on `master.db`. The UI shows a descriptive toast
+via `_humanFetchError()` on every 409.
+
+The `tracks-count` chip near the top of the list still shows
+`"N tracks"` or `"N of M tracks"` when filtering is active, with the
+`count-pop` animation on change.
 
 ---
 
