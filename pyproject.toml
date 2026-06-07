@@ -21,3 +21,8 @@ autocue = "autocue.cli:main"
 dev = ["pytest>=7.0", "httpx>=0.27.0", "hypothesis>=6.0"]
 # YouTube download support (also requires an ffmpeg binary on PATH)
 download = ["yt-dlp>=2024.1.0"]
+
+[tool.pytest.ini_options]
+markers = [
+    "perf: gated performance benchmark — skipped unless RUN_PERF=1 (see conftest.py)",
+]

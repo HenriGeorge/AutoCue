@@ -328,6 +328,18 @@ def tracks(
         if lock is not None:
             with lock:
                 app.state.tracks_snapshot = {"mtime": mtime, "payload": items}
+        # TASK-022 — persist gzipped JSON to CacheStore so cold-start
+        # /api/tracks calls (after server restart) skip the SQL pipeline
+        # entirely. Failure is non-fatal — the in-memory snapshot still works.
+        cache_store = getattr(app.state, "cache_store", None)
+        if cache_store is not None:
+            try:
+                payload_bytes = cache_store.gzip_json(
+                    [item.model_dump() for item in items]
+                )
+                cache_store.put_tracks_snapshot(mtime, payload_bytes)
+            except Exception as exc:
+                logger.warning("snapshot persist failed: %s", exc)
 
     return items
 
