@@ -117,9 +117,12 @@ def get_energy_curve(content, db, n_points: int = 50) -> list[float] | None:
     Results are populated into L1 always; into L2 only when wired.
     L2 lookups are keyed by ``(content.ID, anlz_mtime)``.
     """
+    from ..perf import perf_span
+
     cache_key = (content.ID, n_points)
     if cache_key in _cache:
-        return _cache[cache_key]
+        with perf_span("energy.L1.hit"):
+            return _cache[cache_key]
 
     # L2 lookup (sidecar).
     if _cache_store is not None and n_points == 50:
@@ -127,13 +130,14 @@ def get_energy_curve(content, db, n_points: int = 50) -> list[float] | None:
         # fall through to compute + L1 cache (rare path).
         from .anlz_path import get_anlz_mtime, MISSING_MTIME
         from ..cache import MISSING
-        try:
-            mtime = get_anlz_mtime(content, db)
-            l2 = _cache_store.get_energy_curve(
-                content.ID, expected_anlz_mtime=mtime
-            )
-        except Exception:
-            l2 = None
+        with perf_span("energy.L2.lookup"):
+            try:
+                mtime = get_anlz_mtime(content, db)
+                l2 = _cache_store.get_energy_curve(
+                    content.ID, expected_anlz_mtime=mtime
+                )
+            except Exception:
+                l2 = None
         if l2 is MISSING:
             _cache[cache_key] = None
             return None
@@ -142,16 +146,17 @@ def get_energy_curve(content, db, n_points: int = 50) -> list[float] | None:
             return l2
 
     curve: list[float] | None = None
-    try:
-        anlz_dat = db.read_anlz_file(content, "DAT")
-        if anlz_dat is not None:
-            raw = _read_pwav_amplitudes(anlz_dat)
-            if raw and len(raw) >= 2:
-                normalized = [v / 31.0 for v in raw]
-                smoothed = _smooth_3(normalized)
-                curve = _downsample_avg(smoothed, n_points)
-    except Exception:
-        pass
+    with perf_span("energy.compute"):
+        try:
+            anlz_dat = db.read_anlz_file(content, "DAT")
+            if anlz_dat is not None:
+                raw = _read_pwav_amplitudes(anlz_dat)
+                if raw and len(raw) >= 2:
+                    normalized = [v / 31.0 for v in raw]
+                    smoothed = _smooth_3(normalized)
+                    curve = _downsample_avg(smoothed, n_points)
+        except Exception:
+            pass
 
     _cache[cache_key] = curve
 

@@ -201,10 +201,14 @@ async def lifespan(app: FastAPI):
         try:
             from ..cache import CacheStore
             from ..analysis import energy as _energy
+            from ..analysis import classify as _classify
+            from ..analysis import score as _score
             db_dir = getattr(app.state.db, "_db_dir", None)
             if db_dir is not None:
                 app.state.cache_store = CacheStore.open_for(str(db_dir))
                 _energy.set_cache_store(app.state.cache_store)
+                _classify.set_cache_store(app.state.cache_store)
+                _score.set_cache_store(app.state.cache_store)
                 logger.info("Sidecar analysis cache opened at %s", db_dir)
             else:
                 app.state.cache_store = None
@@ -243,7 +247,11 @@ async def lifespan(app: FastAPI):
     if cache_store is not None:
         try:
             from ..analysis import energy as _energy
+            from ..analysis import classify as _classify
+            from ..analysis import score as _score
             _energy.set_cache_store(None)
+            _classify.set_cache_store(None)
+            _score.set_cache_store(None)
             cache_store.close()
         except Exception as exc:  # pragma: no cover — best-effort shutdown
             logger.warning("Could not close sidecar cache cleanly: %s", exc)
