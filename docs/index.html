@@ -1842,6 +1842,44 @@
       background: rgba(220, 80, 80, 0.1); color: var(--text);
       border: 1px solid rgba(220, 80, 80, 0.3); font-size: 13px;
     }
+    .disc-v2-yt-carousel {
+      position: relative; margin: 0 0 14px;
+      border-radius: 8px; overflow: hidden; background: #000;
+    }
+    .disc-v2-yt-frame {
+      position: relative; width: 100%; aspect-ratio: 16 / 9; background: #000;
+    }
+    .disc-v2-yt-frame iframe {
+      position: absolute; inset: 0; width: 100%; height: 100%; border: 0;
+    }
+    .disc-v2-yt-controls {
+      display: flex; align-items: center; justify-content: space-between;
+      gap: 8px; padding: 6px 8px; background: var(--surface2);
+      border-top: 1px solid var(--border); font-size: 12px;
+    }
+    .disc-v2-yt-nav {
+      display: flex; gap: 6px;
+    }
+    .disc-v2-yt-nav button {
+      border: 1px solid var(--border); background: var(--surface);
+      color: var(--text); width: 28px; height: 24px; border-radius: 4px;
+      cursor: pointer; font-size: 13px; line-height: 1;
+    }
+    .disc-v2-yt-nav button:disabled {
+      opacity: 0.4; cursor: default;
+    }
+    .disc-v2-yt-title {
+      flex: 1; min-width: 0; overflow: hidden;
+      text-overflow: ellipsis; white-space: nowrap;
+      color: var(--text);
+    }
+    .disc-v2-yt-counter {
+      color: var(--muted); flex-shrink: 0;
+    }
+    .disc-v2-yt-placeholder {
+      padding: 14px; font-size: 12px; color: var(--muted);
+      background: var(--surface2); border-radius: 8px; margin: 0 0 14px;
+    }
   </style>
 <script src="https://cdn.tailwindcss.com"></script>
 <script>tailwind.config = { corePlugins: { preflight: false }, darkMode: 'class' }</script>
@@ -4213,6 +4251,7 @@ const DiscoverV2 = (() => {
     scanReleasesSeen: 0,
     tokenValid: null,           // null = unknown
     settingsOpen: false,
+    youtubeByKey: new Map(),    // release_key → {status, candidates, error}
   };
 
   const subs = new Set();
@@ -4385,6 +4424,31 @@ const DiscoverV2 = (() => {
     return _get('/api/discover/releases/' + encodeURIComponent(releaseId));
   }
 
+  // YouTube preview: lazy, per-release, cached for the session.
+  async function searchYouTube(release, n = 3) {
+    const key = release.release_key;
+    const cached = state.youtubeByKey.get(key);
+    if (cached && cached.status !== 'error') return cached;
+    const r = release.release || {};
+    const q = [r.artist, r.title].filter(Boolean).join(' ').trim();
+    if (!q) {
+      const empty = {status: 'loaded', candidates: []};
+      state.youtubeByKey.set(key, empty);
+      return empty;
+    }
+    state.youtubeByKey.set(key, {status: 'loading', candidates: []});
+    try {
+      const res = await _get('/api/youtube/search?q=' + encodeURIComponent(q) + '&n=' + n);
+      const entry = {status: 'loaded', candidates: res.candidates || []};
+      state.youtubeByKey.set(key, entry);
+      return entry;
+    } catch (e) {
+      const entry = {status: 'error', candidates: [], error: String(e)};
+      state.youtubeByKey.set(key, entry);
+      return entry;
+    }
+  }
+
   async function followLabel(labelId, name) {
     await _post('/api/discover/labels/follow', {label_id: labelId, name: name});
     await refreshFollowed();
@@ -4428,7 +4492,7 @@ const DiscoverV2 = (() => {
   return {
     state, subscribe,
     loadInitialState, runScan, cancelScan,
-    save, dismiss, snooze, loadDetail,
+    save, dismiss, snooze, loadDetail, searchYouTube,
     followLabel, unfollowLabel, refreshFollowed, fetchSuggestedLabels, searchLabels,
     refreshStats, exportState, importState,
   };
@@ -4659,6 +4723,83 @@ async function _openDetailPanel(releaseKey) {
   } catch (e) {
     _renderDetailBody(release, null, 'error', String(e));
   }
+
+  // YouTube preview is lazy: only fired after the Discogs detail has resolved
+  // (or failed). It's intentionally fire-and-forget — failure shows an inline
+  // message, never blocks the rest of the panel.
+  _loadYouTubePreview(release);
+}
+
+function _extractYouTubeId(url) {
+  if (!url) return null;
+  const s = String(url);
+  // Common shapes:
+  //   https://www.youtube.com/watch?v=XXXXXXXXXXX
+  //   https://youtu.be/XXXXXXXXXXX
+  //   https://www.youtube.com/embed/XXXXXXXXXXX
+  //   https://m.youtube.com/watch?v=XXXXXXXXXXX
+  let m = s.match(/[?&]v=([A-Za-z0-9_-]{6,})/);
+  if (m) return m[1];
+  m = s.match(/youtu\.be\/([A-Za-z0-9_-]{6,})/);
+  if (m) return m[1];
+  m = s.match(/youtube\.com\/embed\/([A-Za-z0-9_-]{6,})/);
+  if (m) return m[1];
+  return null;
+}
+
+async function _loadYouTubePreview(release) {
+  const slot = document.getElementById('disc-v2-detail-youtube-slot');
+  if (!slot) return;
+  slot.innerHTML = '<div class="disc-v2-yt-placeholder"><span class="disc-v2-spinner" aria-hidden="true"></span> Loading YouTube previews…</div>';
+  const entry = await DiscoverV2.searchYouTube(release, 3);
+  // The user may have closed (and re-opened a different) panel while we waited.
+  // Only paint if this slot still belongs to the same release.
+  if (!_detailCurrentRelease || _detailCurrentRelease.release_key !== release.release_key) return;
+  if (entry.status === 'error') {
+    slot.innerHTML = '<div class="disc-v2-yt-placeholder">Could not load YouTube previews: ' + _esc(entry.error || '') + '</div>';
+    return;
+  }
+  const candidates = (entry.candidates || []).filter(c => _extractYouTubeId(c.url));
+  if (!candidates.length) {
+    slot.innerHTML = '<div class="disc-v2-yt-placeholder">No YouTube previews found for this release.</div>';
+    return;
+  }
+  _renderYouTubeCarousel(slot, candidates, 0);
+}
+
+function _renderYouTubeCarousel(slot, candidates, index) {
+  const cur = candidates[index];
+  const videoId = _extractYouTubeId(cur.url);
+  // rel=0 disables related-video sidebar; do NOT autoplay (avoid alert/dialog
+  // analogue and respect user agency).
+  const embedUrl = 'https://www.youtube.com/embed/' + encodeURIComponent(videoId) + '?rel=0';
+  slot.innerHTML = `
+    <div class="disc-v2-yt-carousel" data-yt-index="${index}">
+      <div class="disc-v2-yt-frame">
+        <iframe src="${_esc(embedUrl)}"
+                title="${_esc(cur.title || 'YouTube preview')}"
+                allow="encrypted-media; picture-in-picture"
+                referrerpolicy="strict-origin-when-cross-origin"
+                allowfullscreen></iframe>
+      </div>
+      <div class="disc-v2-yt-controls">
+        <div class="disc-v2-yt-nav">
+          <button data-yt-act="prev" aria-label="Previous YouTube candidate" ${index === 0 ? 'disabled' : ''}>‹</button>
+          <button data-yt-act="next" aria-label="Next YouTube candidate" ${index === candidates.length - 1 ? 'disabled' : ''}>›</button>
+        </div>
+        <div class="disc-v2-yt-title" title="${_esc(cur.title || '')}">${_esc(cur.title || 'Untitled')}</div>
+        <div class="disc-v2-yt-counter">${index + 1} / ${candidates.length}</div>
+      </div>
+    </div>
+  `;
+  slot.querySelectorAll('[data-yt-act]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const act = btn.getAttribute('data-yt-act');
+      const next = act === 'prev' ? index - 1 : index + 1;
+      if (next < 0 || next >= candidates.length) return;
+      _renderYouTubeCarousel(slot, candidates, next);
+    });
+  });
 }
 
 function _renderDetailBody(release, detail, status, errorMsg) {
@@ -4747,6 +4888,8 @@ function _renderDetailBody(release, detail, status, errorMsg) {
         }
         // Re-render to reflect updated state (e.g., save button → ✓ Saved).
         _renderDetailBody(release, detail, status, errorMsg);
+        // The re-render blows away the YouTube slot — repaint from cache.
+        _loadYouTubePreview(release);
       } catch (e) {
         const err = document.createElement('p');
         err.className = 'disc-v2-detail-error';
