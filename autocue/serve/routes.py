@@ -790,8 +790,70 @@ def generate_apply_stream(req: GenerateAndApplyRequest, db=Depends(get_db)):
 
     total = len(req.track_ids)
 
+    import os as _os
+
     def event_stream():
         applied = skipped = 0
+        if _os.environ.get("AUTOCUE_PARALLEL_GENERATE_APPLY") == "1":
+            # TASK-002 — parallel compute (ANLZ read + cue generation) on the
+            # shared pool; single-threaded writer loop preserves SQLite
+            # single-writer semantics on master.db. Gated behind env var
+            # until TASK-008 pyrekordbox thread-safety verification lands.
+            from concurrent.futures import as_completed
+
+            from ..analysis.concurrency import get_pool
+
+            pool = get_pool()
+
+            def _compute_one(tid):
+                try:
+                    content = db.get_content(ID=tid)
+                    if content is None:
+                        return (tid, None, None, "not_found")
+                    if req.phrase_only:
+                        try:
+                            has_ext = bool(db.get_anlz_path(content, "EXT"))
+                        except Exception:
+                            has_ext = False
+                        if not has_ext:
+                            return (tid, content, None, "no_phrase")
+                    cues, _ = generate_cues_for_track(content, db, prefs)
+                    if not cues:
+                        return (tid, content, None, "no_cues")
+                    return (tid, content, cues, None)
+                except Exception as exc:  # noqa: BLE001
+                    return (tid, None, None, f"err:{exc}")
+
+            futures = [pool.submit(_compute_one, tid) for tid in req.track_ids]
+            processed = 0
+            for fut in as_completed(futures):
+                try:
+                    tid, content, cues, skip = fut.result()
+                except Exception:
+                    # Defensive — _compute_one already swallows its errors.
+                    tid, content, cues, skip = (None, None, None, "err:future")
+                processed += 1
+                if processed % 100 == 0:
+                    db.session.expire_all()
+                if skip or content is None or not cues:
+                    skipped += 1
+                else:
+                    try:
+                        n = write_cues_to_db(
+                            content, cues, db,
+                            overwrite=req.overwrite, dry_run=req.dry_run,
+                        )
+                        if n > 0:
+                            applied += 1
+                        else:
+                            skipped += 1
+                    except Exception:
+                        skipped += 1
+                yield f"data: {json.dumps({'processed': processed, 'total': total, 'applied': applied, 'skipped': skipped})}\n\n"
+            yield f"data: {json.dumps({'done': True, 'applied': applied, 'skipped': skipped, 'backup_path': backup_path})}\n\n"
+            return
+
+        # Serial path (default) — unchanged behavior.
         for i, tid in enumerate(req.track_ids):
             # Expire session identity map every 100 tracks to prevent memory accumulation
             if i % 100 == 0 and i > 0:

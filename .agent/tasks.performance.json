@@ -11,7 +11,7 @@
     "title": "Refactor /api/generate-apply-stream to parallel compute + single writer",
     "category": "api-endpoint",
     "specFilePath": ".agent/tasks/performance/TASK-002.json",
-    "passes": false
+    "passes": true
   },
   {
     "id": "TASK-003",
