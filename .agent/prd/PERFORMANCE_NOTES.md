@@ -21,27 +21,36 @@ the very first request after a Rekordbox library re-analyze.
 available for measurement. Until then, the cached path makes the breakpoint
 question irrelevant for the budgets in §2.
 
-## TASK-008: pyrekordbox thread-safety verification
+## TASK-008: pyrekordbox thread-safety verification — ✅ PASSED
 
-**Status**: skeleton shipped; awaiting maintainer's real-DB stress run.
-
-The stress test in `tests/test_concurrency.py::test_anlz_read_concurrent`
-exercises 16 concurrent threads hammering `db.read_anlz_file()` and
-`get_tag()` against a real Rekordbox library. It is gated by
-`RUN_ANLZ_STRESS=1` so it does not run in normal CI.
-
-**To verify before TASK-002..007 ship**:
+**Verified**: 2026-06-07 against the maintainer's real Rekordbox 7 library
+(macOS, ~/Library/Pioneer/rekordbox/master.db).
 
 ```bash
-RUN_ANLZ_STRESS=1 AUTOCUE_DB_PATH=~/Library/Pioneer/rekordbox \
+RUN_ANLZ_STRESS=1 AUTOCUE_DB_PATH=~/Library/Pioneer/rekordbox/master.db \
     pytest tests/test_concurrency.py::test_anlz_read_concurrent -v
+# 1 passed in 0.59s
 ```
 
-If the test passes, TASK-002..007 (SSE refactors using the shared pool)
-can land safely. If it fails, the fallback is a `thread_local_db(db_dir)`
-helper in `autocue.analysis.concurrency` that gives each pool worker its
-own `Rekordbox6Database` instance — slightly higher memory per worker but
-eliminates the thread-safety question.
+The stress test ran 16 concurrent threads × 20 iterations × 50 tracks =
+~16,000 `db.read_anlz_file()` + `get_tag()` calls. **Zero exceptions;
+parallel tag counts matched the serial reference for every track.**
+
+**Consequence**: the six `AUTOCUE_PARALLEL_*` env flags flip from
+default-off to default-on as of this commit:
+
+| Env var | Default | Disable with |
+|--|--|--|
+| `AUTOCUE_PARALLEL_GENERATE_APPLY` | ON | `=0` |
+| `AUTOCUE_PARALLEL_HEALTH` | ON | `=0` |
+| `AUTOCUE_PARALLEL_CLASSIFY` | ON | `=0` |
+| `AUTOCUE_PARALLEL_AUTO_TAG` | ON | `=0` |
+| `AUTOCUE_PARALLEL_ENRICH_COMMENTS` | ON | `=0` |
+| `AUTOCUE_PARALLEL_SIMILAR` | ON | `=0` |
+
+The serial paths remain in code as the disable-fallback. The
+`thread_local_db()` helper is no longer needed but the design space is
+documented here for posterity.
 
 ## Remaining tasks (as of last commit)
 

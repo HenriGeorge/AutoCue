@@ -53,7 +53,7 @@
     "title": "Verify pyrekordbox read_anlz_file() thread-safety; fallback to thread-local DB if needed",
     "category": "functional",
     "specFilePath": ".agent/tasks/performance/TASK-008.json",
-    "passes": false
+    "passes": true
   },
   {
     "id": "TASK-009",

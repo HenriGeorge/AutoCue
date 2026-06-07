@@ -549,7 +549,8 @@ def apply_tags(
     errors = 0
     undo_data: dict[str, Any] = {"removed": [], "added": []}
 
-    parallel = _os.environ.get("AUTOCUE_PARALLEL_AUTO_TAG") == "1"
+    # TASK-005 default-on as of TASK-008 verification; set =0 to disable.
+    parallel = _os.environ.get("AUTOCUE_PARALLEL_AUTO_TAG", "1") != "0"
 
     def _eval_one(track_id):
         """Pure-read worker: resolve content + run detectors. No writes."""

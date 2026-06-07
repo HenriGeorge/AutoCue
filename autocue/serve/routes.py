@@ -807,11 +807,12 @@ def generate_apply_stream(req: GenerateAndApplyRequest, db=Depends(get_db)):
 
     def event_stream():
         applied = skipped = 0
-        if _os.environ.get("AUTOCUE_PARALLEL_GENERATE_APPLY") == "1":
+        if _os.environ.get("AUTOCUE_PARALLEL_GENERATE_APPLY", "1") != "0":
             # TASK-002 — parallel compute (ANLZ read + cue generation) on the
             # shared pool; single-threaded writer loop preserves SQLite
-            # single-writer semantics on master.db. Gated behind env var
-            # until TASK-008 pyrekordbox thread-safety verification lands.
+            # single-writer semantics on master.db. Default-on as of
+            # TASK-008 verification; set AUTOCUE_PARALLEL_GENERATE_APPLY=0
+            # to fall back to the serial path.
             #
             # TASK-040 — bounded in-flight count so memory stays bounded for
             # 10k+-track applies; we batch-submit instead of dumping every
@@ -1827,10 +1828,10 @@ async def classify_library(
         counts: dict[str, int] = {c: 0 for c in CATEGORIES}
         counts["unknown"] = 0
         total = 0
-        # TASK-004 — parallel classify path gated behind AUTOCUE_PARALLEL_CLASSIFY=1
-        # until TASK-008 verification. Default = existing serial behaviour.
+        # TASK-004 — parallel classify path (default-on as of TASK-008
+        # verification; set AUTOCUE_PARALLEL_CLASSIFY=0 to disable).
         import os as _os
-        if _os.environ.get("AUTOCUE_PARALLEL_CLASSIFY") == "1":
+        if _os.environ.get("AUTOCUE_PARALLEL_CLASSIFY", "1") != "0":
             from concurrent.futures import as_completed as _as_completed
             from ..analysis.concurrency import get_pool as _get_pool
 
@@ -2437,12 +2438,13 @@ async def enrich_comments_stream(req: EnrichCommentsRequest, db=Depends(get_db))
             except Exception:
                 pass
 
-        # TASK-006 — flagged parallel comment-string build (AUTOCUE_PARALLEL_ENRICH_COMMENTS=1).
-        # Read-only string building runs in pool workers; writes (content.Commnt =
-        # new_comment + db.commit()) stay sequential in the generator (single-writer
-        # rule). Default = existing serial behaviour until TASK-008 verification.
+        # TASK-006 — parallel comment-string build (default-on as of
+        # TASK-008 verification; set AUTOCUE_PARALLEL_ENRICH_COMMENTS=0
+        # to disable). Read-only string building runs in pool workers;
+        # writes (content.Commnt = new_comment + db.commit()) stay
+        # sequential in the generator (single-writer rule).
         import os as _os
-        if _os.environ.get("AUTOCUE_PARALLEL_ENRICH_COMMENTS") == "1" and track_ids:
+        if _os.environ.get("AUTOCUE_PARALLEL_ENRICH_COMMENTS", "1") != "0" and track_ids:
             from concurrent.futures import as_completed as _as_completed
             from ..analysis.concurrency import get_pool as _get_pool
 

@@ -123,7 +123,7 @@ def test_similar_index_lock_blocks_concurrent_builds(monkeypatch):
     second caller must wait for the first to finish, then early-exit."""
     from unittest.mock import MagicMock, patch
 
-    monkeypatch.delenv("AUTOCUE_PARALLEL_SIMILAR", raising=False)
+    monkeypatch.setenv("AUTOCUE_PARALLEL_SIMILAR", "0")
     db = MagicMock()
 
     started = threading.Event()
