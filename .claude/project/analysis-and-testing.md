@@ -11,12 +11,83 @@
 ## Analysis caches
 
 - **Analysis module caches** (all cleared by the `conftest.py` autouse fixture before every test):
-  - `energy._cache` — keyed by `(content.ID, n_points)` (NOT just the track ID — the curve length is part of the key).
-  - `classify._class_cache` — keyed by `content.ID`.
-  - `score._mixability_cache` — keyed by `content.ID`. `get_mixability` IS cached (this changed from earlier — it is no longer always recomputed).
+  - `energy._cache` — L1 keyed by `(content.ID, n_points)` (NOT just the track ID — the curve length is part of the key).
+  - `classify._class_cache` — L1 keyed by `content.ID`.
+  - `score._mixability_cache` — L1 keyed by `content.ID`. `get_mixability` IS cached (this changed from earlier — it is no longer always recomputed).
   - `similar._INDEX` / `_INDEX_BUILT` — the in-process similarity index; reset via `similar.clear_index()`.
+  - `CacheStore` (L2 sidecar) — see "Sidecar cache (L2)" below.
 
-- **similar._INDEX / _INDEX_BUILT**: The similarity index is module-level in `similar.py`, guarded by `_INDEX_LOCK`. To check from another module (e.g. `setbuilder.py`) whether the index is built, import the module (`from . import similar as _similar_mod`) and check `_similar_mod._INDEX_BUILT` — do NOT import `_INDEX_BUILT` directly (that creates a copy that never updates). The server pre-warms the index in a background thread on startup (`deps._prewarm_index`).
+- **similar._INDEX / _INDEX_BUILT**: The similarity index is module-level in `similar.py`, guarded by `_INDEX_LOCK`. To check from another module (e.g. `setbuilder.py`) whether the index is built, import the module (`from . import similar as _similar_mod`) and check `_similar_mod._INDEX_BUILT` — do NOT import `_INDEX_BUILT` directly (that creates a copy that never updates). The server pre-warms the index in a background thread on startup (`deps._prewarm_index`, now embedded in `_run_warmup_pipeline`).
+
+## Sidecar cache (L2)
+
+- **CacheStore** at `<rekordbox_dir>/autocue_cache.sqlite` (`autocue/cache.py`, TASK-010). Plain
+  SQLite (no SQLCipher) — contains no credentials, no audio, no Discogs tokens. WAL mode +
+  `check_same_thread=False` + a `threading.Lock` for serialised access. Schema-version mismatch
+  drops + recreates all tables (no migrations in v1; cache is regenerable). Reset via
+  `autocue serve --reset-cache` (TASK-020) which removes only the three known files
+  (`autocue_cache.sqlite` + `-wal` + `-shm`) — never `master.db`.
+- **Six tables**: `meta`, `energy_curve`, `classification`, `similarity_vector`, `mixability`,
+  `tracks_snapshot`. Per-track rows keyed by `(content.ID, anlz_mtime)`. `MISSING_MTIME = -1.0`
+  sentinel stored for tracks with no ANLZ so we don't re-attempt on every call until the file
+  reappears. Resolve current mtime via `autocue.analysis.anlz_path.get_anlz_mtime(content, db)` —
+  every L2 callsite must go through this helper so the key calculation stays consistent.
+- **L2 wiring per module** (each exposes `set_cache_store(store)` called from
+  `serve/deps.py:lifespan`):
+  - `energy.get_energy_curve` (TASK-013) — only the default `n_points=50` hits L2; non-default
+    callers fall through to compute + L1.
+  - `classify.get_classification` (TASK-014) — full result dict packed into `scores_json` so warm
+    reads recover label/color/confidence/energy_peak/vocal_proxy without recompute.
+  - `similar._index_track` (TASK-015) — 6-float vector with NaN in `energy_mean` slot when ANLZ
+    was missing (recovered on read so the find_similar data-quality cap at ≤0.65 fires correctly).
+  - `score.get_mixability` (TASK-016) — full result packed into `components_json`; MISSING
+    sentinel caches `None` in L1 to skip retry.
+- **Invalidation**: `/api/restore` calls `CacheStore.invalidate_all()` (TASK-017). The HTTP
+  middleware in `serve/app.py` clears the in-memory `tracks_snapshot` on any 2xx mutating
+  request to `/api/*` (TASK-026); the master.db mtime check inside the handler makes the
+  on-disk snapshot self-invalidate.
+- **Warm-up** (TASK-018, TASK-027): `CacheStore.warm_up(db, content_ids, pool, progress_cb, cancel_event, batch_size)`
+  drives parallel hydration through the shared pool. `serve/deps.py:_run_warmup_pipeline`
+  invokes it as the `cache` step then proceeds to the `index` step (similarity build) then
+  `done`. Progress on `app.state.warmup_progress` (`{step, done, total, finished_at}`) under
+  `warmup_lock`; `warmup_cancel_event` lets the lifespan shutdown drain in-flight work within 5s.
+
+## Concurrency primitive
+
+- **Shared thread pool** (`autocue/analysis/concurrency.py`, TASK-001). `get_pool()` returns a
+  process-singleton `ThreadPoolExecutor`. Size: `pool_size()` reads `AUTOCUE_POOL_SIZE` env
+  (defaults to `min(8, cpu_count())`); non-integer values raise `ValueError`. `shutdown_pool()`
+  is idempotent and torn down on the serve lifespan shutdown.
+- **Single-writer invariant**: the pool serves only the read/compute side of every multi-track
+  endpoint. The SSE generator loop is the single writer for `master.db` (calls
+  `db.session.commit()` per track). `tests/test_concurrency_invariants.py` pins this contract
+  — adding a parallel write path will fire those tests.
+- **Flagged parallel SSE paths**: six endpoints gained pool-fanout implementations behind
+  env vars, default-off until TASK-008 pyrekordbox stress verification:
+  - `AUTOCUE_PARALLEL_GENERATE_APPLY` → `/api/generate-apply-stream` (TASK-002, plus TASKs 039–043
+    refinements: bounded in-flight `2 * pool_size`, `_wait_any` helper, threading.Event
+    cancellation polling `request._is_disconnected`).
+  - `AUTOCUE_PARALLEL_HEALTH` → `/api/health` (TASK-003).
+  - `AUTOCUE_PARALLEL_CLASSIFY` → `/api/classify` (TASK-004).
+  - `AUTOCUE_PARALLEL_AUTO_TAG` → `/api/auto-tag` + `/api/auto-tag/discogs` (TASK-005).
+  - `AUTOCUE_PARALLEL_ENRICH_COMMENTS` → `/api/enrich-comments/stream` (TASK-006).
+  - `AUTOCUE_PARALLEL_SIMILAR` → `similar._build_index` (TASK-007); uses `_index_track_safe`
+    worker that swallows exceptions and returns them to the reducer.
+
+## Perf instrumentation
+
+- **Backend** (`autocue/perf.py`, TASK-044): `perf_span(name)` context manager records
+  wall-clock to a 1000-entry ring buffer. Zero overhead when `AUTOCUE_PERF` is unset (no-op
+  yield). `AUTOCUE_PERF_SAMPLE_RATE` accepts floats for partial sampling. `get_stats(name)`
+  returns `{count, p50, p95, p99}`. Currently wrapped around `energy.L1.hit` / `energy.L2.lookup`
+  / `energy.compute` (TASK-046 — extend to more endpoints as needed) and `/api/tracks`
+  `tracks.cached` / `tracks.build`.
+- **Endpoint** (TASK-045): `GET /api/perf/recent` returns 404 unless `AUTOCUE_PERF=1`; otherwise
+  `{spans: [...], stats: {name: {count, p50, p95, p99}}}`. `?limit=` clamped to `[1, 1000]`.
+- **Frontend** (`docs/index.html`, TASK-049/050): `_perf` IIFE wraps `performance.mark` /
+  `performance.measure`; gated by `localStorage.autocue_perf === '1'`. Logs to console as
+  `[AutoCue Perf] <name>: <duration>ms`. Currently wraps `loadTracksFromServer` (library-load)
+  and `filteredTracks` (filter-recompute).
 
 ## Energy / transitions / setbuilder
 
@@ -47,3 +118,29 @@ Tests mock pyrekordbox objects rather than hitting a real database. When adding 
 JS tests in `tests/web/` copy functions verbatim from `docs/index.html` and run them in jsdom via Vitest. If you change `parseRekordboxXml`, `generateCues`, `computeCues`, `colorTracksByBpm`, `applyToRekordbox`, `filteredTracks`, `ensureLocalAudio`, `_explainCue`, `_esc`, or `_renderSuggestion` in `index.html`, update the corresponding copies in the test files. The `ui-logic.test.js` file tests sort label lookup, memory cue prepend logic, fetch HTTP error handling, the full `filteredTracks` filter matrix, backup multi-select, `_explainCue` across all explanation modes (phrase/bar/heuristic/memory/manual), the Discover card renderer (`_renderSuggestion` + `_esc` escaping), and the `AppState` pub/sub bus (coalescing, unsubscribe, multi-key). The `AppState` test helper (`makeAppState()`) is a standalone copy in `ui-logic.test.js` — update it if the production `AppState` logic changes.
 
 `tests/test_download.py` mocks the `yt_dlp` module via `sys.modules` patching (yt-dlp is not a test dependency) and stubs `shutil.which` for ffmpeg detection — so the download tests run everywhere without the optional extra installed. `tests/test_discovery.py` patches `discovery.search_artist_releases` rather than hitting Discogs.
+
+### Perf-test gating + concurrency tests
+
+- **Perf marker** (TASK-048): `[tool.pytest.ini_options].markers = ['perf']` registers the
+  marker; `tests/conftest.py:pytest_collection_modifyitems` skips `@pytest.mark.perf` tests
+  unless `RUN_PERF=1` is in env. Future benchmark suites under `tests/perf/` inherit this
+  gating automatically. The pre-existing `tests/perf/test_tracks_snapshot_perf.py` (TASK-047)
+  covers snapshot p95 < 50ms and 304 p95 < 10ms on 10k synthetic items.
+- **Concurrency tests** (TASK-009): `tests/test_concurrency.py` covers the pool primitive
+  (size resolution, singleton, shutdown, exception isolation, completion ordering,
+  thread-leak bound). `tests/test_concurrency_invariants.py` adds the cross-endpoint
+  guards: pool used for reads only in quality + similar paths, monotonic counter contract,
+  no thread leak across 100 fanouts, `_INDEX_LOCK` blocks concurrent builds.
+- **ANLZ stress test** (TASK-008, gated `RUN_ANLZ_STRESS=1`):
+  `tests/test_concurrency.py::test_anlz_read_concurrent` hammers `db.read_anlz_file()` from 16
+  threads against a real Rekordbox library. Must pass before any `AUTOCUE_PARALLEL_*` flag
+  flips to default-on.
+- **Parallel-path test convention**: each flagged-parallel endpoint has its own
+  `tests/test_*_parallel.py` exercising default-off + flag-on + per-track exception isolation
+  + (for write paths) undo round-trip. Files: `test_quality_parallel.py`,
+  `test_classify_similar_parallel.py`, `test_generate_apply_parallel.py`,
+  `test_generate_apply_bounded.py`, `test_auto_tag_parallel.py`,
+  `test_enrich_comments_parallel.py`.
+- **CacheStore tests** (`tests/test_cache.py`, `tests/test_cache_warmup.py`): use
+  `CacheStore.open_memory()` for `:memory:` SQLite. Lock-driven serialisation makes them safe
+  to run in parallel.

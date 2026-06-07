@@ -25,3 +25,60 @@
 - **DjmdCue ID generation**: `DjmdCue.ID` is VARCHAR(255) with no auto-generate default — must call `db.generate_unused_id(DjmdCue)` explicitly when inserting. Also set `UUID=str(uuid4())`, `ContentUUID` from the content row, `InFrame=round(position_ms * 150 / 1000)`, `OutMsec=-1`, and 0 for all other integer fields.
 
 - **Smart slot ordering**: `_apply_smart_slot_order()` in `generator.py` assigns slot A to the first non-Intro phrase chronologically (the DJ mix-in point). Slot B is reserved for the first OUTRO phrase (CDJ prep feature — DJs instinctively reach for B at mix-out). Slots C+ are ordered by `_SMART_PRIORITY` (CHORUS=0, UP=1, OUTRO=2, VERSE=3, DOWN=4, BRIDGE=5, INTRO=6). Only applied in phrase mode.
+
+## Sidecar analysis cache (Performance v1 PRD)
+
+- **Cache file**: `<rekordbox_dir>/autocue_cache.sqlite` (TASK-010). Lives in the SAME directory
+  as Rekordbox's `master.db`. Plain SQLite (no SQLCipher) — contains numeric energy curves,
+  classification labels, similarity vectors, mixability scores, and a gzipped `TrackItem`
+  snapshot. **No audio, no credentials, no Discogs tokens, no SQLCipher key.**
+- **Schema** (6 tables): `meta`, `energy_curve`, `classification`, `similarity_vector`,
+  `mixability`, `tracks_snapshot`. Per-track rows keyed by `(content.ID, anlz_mtime)` —
+  rows invalidate automatically when Rekordbox rewrites the ANLZ `.EXT`/`.DAT` files. Tracks
+  with no ANLZ store `anlz_mtime = -1.0` (`MISSING_MTIME`) so the reader skips re-attempting
+  until the file appears.
+- **Schema version**: `meta.schema_version`. Mismatch on open drops + recreates ALL tables
+  (no migrations in v1; cache is regenerable from ANLZ). Bump `SCHEMA_VERSION` in
+  `autocue/cache.py` when the layout changes.
+- **WAL mode + `check_same_thread=False` + `threading.Lock`** serialise access; readers
+  never block on writers.
+- **Reset**: `autocue serve --reset-cache` removes only `autocue_cache.sqlite` + `-wal` +
+  `-shm`. NEVER `master.db`. Path traversal is impossible because the suffix is constant
+  (TASK-020).
+- **Invalidation hooks**:
+  - `/api/restore` calls `CacheStore.invalidate_all()` (TASK-017) — restored backups may have
+    different `DjmdContent` rows.
+  - HTTP middleware in `serve/app.py` (TASK-026) clears `app.state.tracks_snapshot` after any
+    2xx POST/PUT/DELETE to `/api/*`.
+- **Tests** use `CacheStore.open_memory()` (`:memory:` SQLite) so they neither touch the
+  filesystem nor depend on a real Rekordbox install.
+
+## Thread-pool concurrency model
+
+- **Shared `ThreadPoolExecutor`** in `autocue/analysis/concurrency.py` (TASK-001). Size:
+  `AUTOCUE_POOL_SIZE` env (defaults to `min(8, cpu_count())`). Singleton via `get_pool()`;
+  cleaned up on serve lifespan exit via `shutdown_pool()`.
+- **Single-writer rule**: the pool runs only READ/COMPUTE work. The SSE generator loop is
+  the SINGLE writer for `master.db` — it owns `db.session.commit()`. Pool workers may NEVER
+  call `db.session.commit()` directly. `tests/test_concurrency_invariants.py` pins this
+  contract via tests that fail if a future PR introduces a parallel write path.
+- **Pattern** (every flagged-parallel endpoint follows this shape):
+  1. Pool worker reads source data (`db.get_content`, `db.read_anlz_file`, classify, etc.),
+     returns `(content_id, computed_data, error?)`.
+  2. Generator loop iterates `concurrent.futures.as_completed(...)` (or, for TASK-002, a
+     bounded-in-flight `_wait_any` cycle).
+  3. Writer-side per-track work runs ON THE GENERATOR'S THREAD — writes, commits, emits SSE.
+  4. Per-track exceptions in the worker are forwarded as a third tuple element; the writer
+     emits an error event and continues. One bad row never aborts the stream.
+- **`AUTOCUE_PARALLEL_*` env flags** (default-off until TASK-008 signoff): the six SSE
+  refactors are gated to preserve current behaviour for users until the maintainer runs the
+  stress test below.
+- **TASK-008 verification** (gated `RUN_ANLZ_STRESS=1`):
+  ```
+  RUN_ANLZ_STRESS=1 AUTOCUE_DB_PATH=~/Library/Pioneer/rekordbox \
+      pytest tests/test_concurrency.py::test_anlz_read_concurrent -v
+  ```
+  Hammers `db.read_anlz_file()` from 16 threads against a real Rekordbox library. Passing
+  is the gating signal to flip the six `AUTOCUE_PARALLEL_*` flags to default-on. If it
+  fails, the fallback is a `thread_local_db(db_dir)` helper in
+  `autocue/analysis/concurrency.py` giving each worker its own `Rekordbox6Database` instance.
