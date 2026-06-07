@@ -11,6 +11,7 @@ For project invariants and architecture, see [`../../CLAUDE.md`](../../CLAUDE.md
 |---|---|
 | [`cli-usage.md`](./cli-usage.md) | The `autocue` CLI — every flag, subcommand, exit code, and 10+ worked examples. Includes `autocue serve` launch options. |
 | [`cue-generation.md`](./cue-generation.md) | The phrase → bar → heuristic strategy fallback. Smart slot ordering (A = mix-in, B = first Outro). Memory cue modes. `DjmdCue` insert invariants (`Kind = slot + 1`, `InFrame = round(position_ms * 150 / 1000)`). |
+| [`cue-library-tools.md`](./cue-library-tools.md) | Bulk rename / recolor / shift / delete-orphan via `/api/cue-tools-stream`. Dry-run default. InFrame shift math (loops update both `InFrame` and `OutFrame`). Single backup up front. Confirmation required for destructive ops. |
 
 ## Analysis suite
 
@@ -22,6 +23,7 @@ For project invariants and architecture, see [`../../CLAUDE.md`](../../CLAUDE.md
 | [`transition-scoring.md`](./transition-scoring.md) | BPM (40%) + Camelot key (35%) + Energy (25%). `_energy_score(None, None) = 50.0` and one-side-missing → cap at 75 (Bug 3 fix). `transition_advice()` DJ tips decision tree. |
 | [`set-builder.md`](./set-builder.md) | Beam search (width=5) with O(n×K) candidate retrieval. Setbuilder-specific reweighting (0.25/0.40/0.35) when BPM is changing. +15 BPM-progress bonus. Asymmetric BPM gate (≥12 BPM forward). Three-axis dedup (track / title+artist / artist-count). `mix_advice` per row. `anchor_track_ids` must-includes. Bug 4 fix in full. |
 | [`library-health.md`](./library-health.md) | Cue Quality Checker scoring (−30 NO_CUES, −10 NO_PHRASE/NO_BEATGRID, −5 DUPLICATE_CUE/UNNAMED_CUES). Fix tiers (phrase / bar / heuristic / none). `/api/health` SSE with per-track exception isolation. |
+| [`playlist-suggest.md`](./playlist-suggest.md) | Category-filtered weighted-random suggestions (warmup / build / peak / after_hours / closing). `seed_track_ids` bypass `exclude_ids` and pin to the front. Pool size `max(count * 3, 60)`, weights `score ** 2` for variety across calls. Pairs with `POST /api/playlists` for Rekordbox playlist creation. |
 
 ## Tagging & enrichment
 
@@ -42,15 +44,8 @@ For project invariants and architecture, see [`../../CLAUDE.md`](../../CLAUDE.md
 | Doc | What it covers |
 |---|---|
 | [`rest-api.md`](./rest-api.md) | Full reference for every `/api/*` endpoint with request/response schemas, status codes, side effects, and example payloads. GZipMiddleware + CORS rules. SSE conventions. |
-
-## Pending
-
-These docs were planned but their agent runs hit the session rate limit before writing. Coming after the next agent dispatch:
-
-- **`web-app.md`** — `docs/index.html` architecture: two modes (XML / local), three tabs, AppState pub/sub bus, `_cardMap` smart diff + FLIP reorder, RAF playhead, mini waveform canvas, `_consumeSSE`, `_explainCue`.
-- **`backup-and-restore.md`** — `~/.autocue/backups/master_TIMESTAMP.db` + WAL/SHM sidecars. `/api/backups`, `/api/restore`, `DELETE /api/backups/{filename}`. Why restore must call `similar.clear_index()` (stale feature vectors).
-- **`cue-library-tools.md`** — bulk rename / recolor / shift / delete-orphan operations via `/api/cue-tools-stream`. Dry-run default. InFrame shift math. Backup behaviour.
-- **`playlist-suggest.md`** — category-filtered weighted-random suggestions. `seed_track_ids` bypass `exclude_ids`. Pool size = `max(count * 3, 60)`. Pairs with `POST /api/playlists` for creating a Rekordbox playlist from the result.
+| [`web-app.md`](./web-app.md) | `docs/index.html` architecture: two modes (XML / local), three tabs (Cues / Library / Discover), AppState pub/sub bus with microtask coalescing, `_cardMap` smart diff + FLIP reorder, RAF playhead, mini waveform canvas (HiDPI + invisible scrubber), `_consumeSSE`, `_explainCue`, theme variables, sticky filter bar. |
+| [`backup-and-restore.md`](./backup-and-restore.md) | `~/.autocue/backups/master_TIMESTAMP.db` + WAL/SHM sidecars. `/api/backups`, `/api/restore`, `DELETE /api/backups/{filename}`. Why restore must call `similar.clear_index()` and clear `_class_cache` / `_mixability_cache` / `energy._cache` — stale feature vectors would mismatch the restored DB. |
 
 ## Conventions
 
