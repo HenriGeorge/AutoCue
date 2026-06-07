@@ -1746,6 +1746,11 @@
       position: relative;
     }
     .disc-v2-card:hover { transform: translateY(-2px); box-shadow: 0 4px 12px rgba(0,0,0,0.08); }
+    .disc-v2-card.active {
+      outline: 2px solid var(--green);
+      outline-offset: 1px;
+    }
+    .disc-v2-card.active .disc-v2-card-actions { opacity: 1; }
     .disc-v2-card-art {
       width: 100%; aspect-ratio: 1; background: var(--surface2);
       background-size: cover; background-position: center;
@@ -1900,6 +1905,34 @@
     .disc-v2-dl-confirm-bar > div {
       height: 100%; width: 0%; background: var(--green);
       transition: width 0.2s ease;
+    }
+    .disc-v2-kbd-help {
+      position: fixed; top: 50%; left: 50%;
+      transform: translate(-50%, -50%);
+      background: var(--surface); color: var(--text);
+      border: 1px solid var(--border); border-radius: 10px;
+      padding: 18px 22px; width: min(420px, 90vw);
+      z-index: 1100; box-shadow: 0 12px 36px rgba(0,0,0,0.4);
+      display: none;
+    }
+    .disc-v2-kbd-help[aria-hidden="false"] { display: block; }
+    .disc-v2-kbd-help h3 { margin: 0 0 12px; font-size: 16px; }
+    .disc-v2-kbd-help dl {
+      margin: 0; display: grid; grid-template-columns: auto 1fr;
+      gap: 6px 14px; font-size: 13px;
+    }
+    .disc-v2-kbd-help dt {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
+      background: var(--surface2); border: 1px solid var(--border);
+      padding: 1px 6px; border-radius: 4px;
+      text-align: center; min-width: 2em;
+    }
+    .disc-v2-kbd-help dd { margin: 0; align-self: center; }
+    .disc-v2-kbd-help-close {
+      position: absolute; top: 8px; right: 8px;
+      width: 28px; height: 28px; border-radius: 50%;
+      border: none; background: var(--surface2); color: var(--text);
+      cursor: pointer;
     }
   </style>
 <script src="https://cdn.tailwindcss.com"></script>
@@ -2974,6 +3007,25 @@ autocue --library --mode bar --bars-interval 8 --start-bar 1</pre>
       <button id="disc-v2-detail-close-btn" class="disc-v2-detail-close" aria-label="Close detail panel">×</button>
       <div id="disc-v2-detail-body"></div>
     </div>
+  </div>
+
+  <!-- Keyboard shortcut help overlay (toggled by `?`). -->
+  <div id="disc-v2-kbd-backdrop" class="disc-v2-detail-backdrop" aria-hidden="true"></div>
+  <div id="disc-v2-kbd-help" class="disc-v2-kbd-help" role="dialog" aria-modal="true"
+       aria-labelledby="disc-v2-kbd-help-heading" aria-hidden="true">
+    <button id="disc-v2-kbd-help-close" aria-label="Close keyboard shortcut help">×</button>
+    <h3 id="disc-v2-kbd-help-heading">Discover keyboard shortcuts</h3>
+    <dl>
+      <dt>j</dt><dd>Next card</dd>
+      <dt>k</dt><dd>Previous card</dd>
+      <dt>Enter</dt><dd>Open detail panel</dd>
+      <dt>s</dt><dd>Save</dd>
+      <dt>x</dt><dd>Dismiss</dd>
+      <dt>z</dt><dd>Snooze (30 days)</dd>
+      <dt>D</dt><dd>Download (with confirmation)</dd>
+      <dt>?</dt><dd>Show / hide this help</dd>
+      <dt>Esc</dt><dd>Close any open panel</dd>
+    </dl>
   </div>
 
   <!-- Download confirm modal — Shift+click on a Discover card opens this.
@@ -5110,6 +5162,129 @@ function _esc(s) {
   }[c]));
 }
 
+// ── Keyboard shortcuts (T-028) ──────────────────────────────────────────
+// Active-card index lives at module scope so j/k navigation survives feed
+// re-renders (after each Save / Dismiss / Snooze the grid is rebuilt).
+let _activeCardIndex = -1;
+
+function _visibleDiscoverCards() {
+  // Use DOM order so the cursor follows what the user actually sees.
+  return Array.from(document.querySelectorAll('#disc-v2-grid .disc-v2-card'));
+}
+
+function _setActiveCard(index, scroll = true) {
+  const cards = _visibleDiscoverCards();
+  if (!cards.length) {
+    _activeCardIndex = -1;
+    return;
+  }
+  if (index < 0) index = 0;
+  if (index >= cards.length) index = cards.length - 1;
+  cards.forEach(c => c.classList.remove('active'));
+  cards[index].classList.add('active');
+  if (scroll) {
+    cards[index].scrollIntoView({block: 'nearest', behavior: 'smooth'});
+  }
+  _activeCardIndex = index;
+}
+
+function _activeRelease() {
+  const cards = _visibleDiscoverCards();
+  if (_activeCardIndex < 0 || _activeCardIndex >= cards.length) return null;
+  const key = cards[_activeCardIndex].getAttribute('data-release-key');
+  return DiscoverV2.state.cardsByKey.get(key) || null;
+}
+
+function _kbdIsTextInputActive() {
+  const el = document.activeElement;
+  if (!el || el === document.body) return false;
+  const tag = (el.tagName || '').toUpperCase();
+  if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return true;
+  if (el.isContentEditable) return true;
+  return false;
+}
+
+function _kbdDialogIsOpen() {
+  // Any of: detail panel, download confirm, keyboard help.
+  return ['disc-v2-detail-panel', 'disc-v2-dl-confirm', 'disc-v2-kbd-help']
+    .some(id => document.getElementById(id)?.getAttribute('aria-hidden') === 'false');
+}
+
+function _toggleKbdHelp() {
+  const modal = document.getElementById('disc-v2-kbd-help');
+  const backdrop = document.getElementById('disc-v2-kbd-backdrop');
+  if (!modal) return;
+  const isOpen = modal.getAttribute('aria-hidden') === 'false';
+  modal.setAttribute('aria-hidden', isOpen ? 'true' : 'false');
+  if (backdrop) backdrop.setAttribute('aria-hidden', isOpen ? 'true' : 'false');
+  if (!isOpen) {
+    setTimeout(() => document.getElementById('disc-v2-kbd-help-close')?.focus(), 30);
+  }
+}
+
+function _handleDiscoverKeydown(ev) {
+  // Don't intercept while the user is typing in a search box.
+  if (_kbdIsTextInputActive()) return;
+
+  // The Discover tab must actually be visible. The simplest reliable check
+  // is "does the v2 section exist and is it not display:none". The section
+  // is hidden when the user is on a different tab.
+  const section = document.getElementById('disc-v2-section');
+  if (!section) return;
+  const visible = section.offsetParent !== null;
+  if (!visible) return;
+
+  // `?` opens / closes the help overlay regardless of any other dialog.
+  if (ev.key === '?') {
+    ev.preventDefault();
+    _toggleKbdHelp();
+    return;
+  }
+
+  // Other dialogs eat their own keys.
+  if (_kbdDialogIsOpen()) return;
+
+  switch (ev.key) {
+    case 'j': ev.preventDefault(); _setActiveCard(_activeCardIndex + 1); return;
+    case 'k': ev.preventDefault(); _setActiveCard(_activeCardIndex - 1); return;
+    case 'Enter': {
+      const rel = _activeRelease();
+      if (!rel) return;
+      ev.preventDefault();
+      _openDetailPanel(rel.release_key);
+      return;
+    }
+    case 's': {
+      const rel = _activeRelease();
+      if (!rel) return;
+      ev.preventDefault();
+      DiscoverV2.save(rel);
+      return;
+    }
+    case 'x': {
+      const rel = _activeRelease();
+      if (!rel) return;
+      ev.preventDefault();
+      DiscoverV2.dismiss(rel);
+      return;
+    }
+    case 'z': {
+      const rel = _activeRelease();
+      if (!rel) return;
+      ev.preventDefault();
+      DiscoverV2.snooze(rel, '30d');
+      return;
+    }
+    case 'D': {  // intentionally uppercase: requires Shift
+      const rel = _activeRelease();
+      if (!rel) return;
+      ev.preventDefault();
+      _openDownloadConfirm(rel);
+      return;
+    }
+  }
+}
+
 // ── Wiring (DOMContentLoaded) ────────────────────────────────────────────
 function initDiscoverV2() {
   if (!document.getElementById('disc-v2-section')) return;
@@ -5187,6 +5362,28 @@ function initDiscoverV2() {
   document.getElementById('disc-v2-dl-confirm-cancel')?.addEventListener('click', _closeDownloadConfirm);
   document.getElementById('disc-v2-dl-confirm-backdrop')?.addEventListener('click', _closeDownloadConfirm);
   document.getElementById('disc-v2-dl-confirm-go')?.addEventListener('click', _runDownloadConfirmGo);
+
+  // Keyboard help overlay close (X button + backdrop click).
+  document.getElementById('disc-v2-kbd-help-close')?.addEventListener('click', _toggleKbdHelp);
+  document.getElementById('disc-v2-kbd-backdrop')?.addEventListener('click', _toggleKbdHelp);
+
+  // Keyboard shortcuts: j/k navigate, Enter opens panel, s/x/z mutate,
+  // D triggers download confirm modal, ? toggles help overlay.
+  document.addEventListener('keydown', _handleDiscoverKeydown);
+
+  // Whenever the feed re-renders we may need to reset the cursor. The card
+  // grid is rebuilt by _renderDiscoverV2Feed — re-subscribe so we drop the
+  // active class on cards that were removed.
+  DiscoverV2.subscribe(() => {
+    const cards = _visibleDiscoverCards();
+    if (!cards.length) {
+      _activeCardIndex = -1;
+      return;
+    }
+    if (_activeCardIndex >= 0 && _activeCardIndex < cards.length) {
+      cards[_activeCardIndex].classList.add('active');
+    }
+  });
 
   // Onboarding interactions.
   document.getElementById('disc-v2-onboarding-skip')?.addEventListener('click', () => {
