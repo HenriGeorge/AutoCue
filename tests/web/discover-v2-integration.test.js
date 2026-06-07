@@ -111,8 +111,20 @@ function makeDiscoverV2(fetchImpl) {
     }
   }
 
+  // Issue #67: track in-flight AbortController so a new runScan can abort
+  // the prior fetch.
+  let _scanAbort = null
+
   async function runScan() {
-    if (state.scanRunning) return
+    // Issue #67: if a scan is in flight, abort it (closes the SSE reader and
+    // releases the server lock) before starting the new one. Preserves the
+    // existing cards across error branches.
+    if (_scanAbort) {
+      _scanAbort.autocueSuperseded = true
+      try { _scanAbort.abort() } catch (_) {}
+      _scanAbort = null
+      await Promise.resolve()
+    }
     state.scanRunning = true
     state.scanFeeder = null
     state.scanReleasesSeen = 0
@@ -122,31 +134,46 @@ function makeDiscoverV2(fetchImpl) {
     state.scanLastSummary = null
     state.scanError = null
     state.scanWarnings = []
-    state.cards = []
-    state.cardsByKey.clear()
     notify()
 
+    const abort = new AbortController()
+    _scanAbort = abort
     let res
     try {
-      res = await fetchImpl('/api/discover/feed')
+      res = await fetchImpl('/api/discover/feed', {signal: abort.signal})
     } catch (e) {
+      if (abort.autocueSuperseded || (e && e.name === 'AbortError')) {
+        if (_scanAbort === abort) _scanAbort = null
+        state.scanRunning = false
+        notify()
+        return
+      }
+      if (_scanAbort === abort) _scanAbort = null
       state.scanRunning = false
       state.scanError = {kind: 'network', message: String(e.message || e)}
       notify()
       return
     }
     if (res.status === 409) {
+      // Issue #67: do NOT clear cards on 409 — keep the prior feed visible.
+      if (_scanAbort === abort) _scanAbort = null
       state.scanRunning = false
       state.scanError = {kind: 'conflict', status: 409, message: 'busy'}
       notify()
       return
     }
     if (!res.ok) {
+      if (_scanAbort === abort) _scanAbort = null
       state.scanRunning = false
       state.scanError = {kind: 'http', status: res.status, message: 'fail'}
       notify()
       return
     }
+
+    // Fetch confirmed OK → reset the card grid (issue #67).
+    state.cards = []
+    state.cardsByKey.clear()
+    notify()
 
     const reader = res.body.getReader()
     const decoder = new TextDecoder()
@@ -161,8 +188,11 @@ function makeDiscoverV2(fetchImpl) {
         for (const chunk of chunks) _handleSSEChunk(chunk)
       }
     } catch (e) {
-      state.scanError = {kind: 'stream', message: String(e.message || e)}
+      if (!(abort.autocueSuperseded || (e && e.name === 'AbortError'))) {
+        state.scanError = {kind: 'stream', message: String(e.message || e)}
+      }
     }
+    if (_scanAbort === abort) _scanAbort = null
     state.scanRunning = false
     notify()
   }
@@ -274,6 +304,34 @@ describe('runScan — end-to-end against a stubbed SSE stream', () => {
     expect(reader).not.toHaveBeenCalled()
   })
 
+  // Issue #67 regression: a 409 response while a prior feed is already
+  // rendered must NOT clear the existing cards. Before the fix, the UI
+  // dumped the grid to the empty-state on any 409.
+  it('issue #67 — 409 preserves the previously-rendered cards', async () => {
+    // First scan: a normal, successful stream that fills the grid.
+    let phase = 'ok'
+    const fetchImpl = vi.fn(async () => {
+      if (phase === 'ok') return fakeStreamResponse([
+        'event: release\ndata: {"release_key":"k1","source":"artist","release":{"title":"T1","artist":"A"}}\n\n',
+        'event: release\ndata: {"release_key":"k2","source":"artist","release":{"title":"T2","artist":"A"}}\n\n',
+        'event: done\ndata: {"releases_surfaced":2,"releases_seen":2,"duration_ms":50}\n\n',
+      ])
+      // Second scan: 409 conflict (e.g. another client / tab holds the lock).
+      return {status: 409, ok: false, body: {getReader: () => ({read: vi.fn()})}}
+    })
+    const DV2 = makeDiscoverV2(fetchImpl)
+    await DV2.runScan()
+    expect(DV2.state.cards).toHaveLength(2)  // baseline fill
+
+    phase = 'conflict'
+    await DV2.runScan()
+    // Regression guard: cards survive the 409 (pre-fix this would be 0).
+    expect(DV2.state.cards).toHaveLength(2)
+    expect(DV2.state.cardsByKey.size).toBe(2)
+    expect(DV2.state.scanError.kind).toBe('conflict')
+    expect(DV2.state.scanRunning).toBe(false)
+  })
+
   it('a fetch throw maps to scanError.kind=network', async () => {
     const fetchImpl = vi.fn(async () => { throw new Error('DNS') })
     const DV2 = makeDiscoverV2(fetchImpl)
@@ -303,16 +361,49 @@ describe('runScan — end-to-end against a stubbed SSE stream', () => {
     expect(DV2.state.cards).toHaveLength(1)  // partial result preserved
   })
 
-  it('refuses to start a second scan while one is in flight', async () => {
-    // First runScan in-flight; second runScan returns immediately without firing fetch.
-    let resolve
-    const fetchImpl = vi.fn(() => new Promise(r => { resolve = r }))
+  // Issue #67: previously, the second concurrent runScan() was a silent
+  // no-op. That caused user-perceived "filter doesn't work" until the in-
+  // flight stream completed. After the fix, the second call ABORTS the
+  // first (via AbortController) and supersedes it.
+  it('issue #67 — a second runScan aborts the first and supersedes it', async () => {
+    let firstFetchSignal = null
+    let firstFetchReject = null
+    let secondFetchCalled = false
+    const fetchImpl = vi.fn((url, opts) => {
+      if (!firstFetchSignal) {
+        firstFetchSignal = opts?.signal
+        return new Promise((_, reject) => {
+          firstFetchReject = reject
+          // First call hangs until the abort handler fires.
+          if (opts?.signal) {
+            opts.signal.addEventListener('abort', () => {
+              const err = new Error('aborted')
+              err.name = 'AbortError'
+              reject(err)
+            })
+          }
+        })
+      }
+      secondFetchCalled = true
+      return Promise.resolve(fakeStreamResponse([
+        'event: release\ndata: {"release_key":"new","source":"artist","release":{"title":"NEW","artist":"X"}}\n\n',
+        'event: done\ndata: {"releases_surfaced":1,"releases_seen":1,"duration_ms":1}\n\n',
+      ]))
+    })
     const DV2 = makeDiscoverV2(fetchImpl)
     const p1 = DV2.runScan()
-    await DV2.runScan()  // second call must be a no-op
-    expect(fetchImpl).toHaveBeenCalledTimes(1)
-    resolve(fakeStreamResponse(['event: done\ndata: {"releases_surfaced":0,"releases_seen":0,"duration_ms":1}\n\n']))
-    await p1
+    // Microtask boundary so p1's fetch is in flight before runScan #2 starts.
+    await Promise.resolve()
+    const p2 = DV2.runScan()
+    await Promise.all([p1, p2])
+    // Both calls fired (no silent drop).
+    expect(fetchImpl).toHaveBeenCalledTimes(2)
+    expect(secondFetchCalled).toBe(true)
+    // Aborted call did NOT produce a misleading network error.
+    expect(DV2.state.scanError).toBeNull()
+    // Final state reflects the SECOND (winning) scan's results.
+    expect(DV2.state.cards.map(c => c.release_key)).toEqual(['new'])
+    expect(DV2.state.scanRunning).toBe(false)
   })
 
   it('emits a notify per state change (progress / release / done)', async () => {
@@ -325,8 +416,9 @@ describe('runScan — end-to-end against a stubbed SSE stream', () => {
     const sub = vi.fn()
     DV2.subscribe(sub)
     await DV2.runScan()
-    // 1 start + 1 progress + 1 release + 1 done + 1 finalize = 5
-    expect(sub).toHaveBeenCalledTimes(5)
+    // 1 start + 1 cards-reset (post-fetch OK, issue #67) + 1 progress + 1
+    // release + 1 done + 1 finalize = 6
+    expect(sub).toHaveBeenCalledTimes(6)
   })
 })
 
