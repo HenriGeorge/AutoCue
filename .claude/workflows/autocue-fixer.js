@@ -235,8 +235,11 @@ phase("MergePlan");
 
 const prFiles = new Map();
 for (const { num } of allFixed) {
+  // `gh pr list --head <ref>` only matches the exact ref, but the fix-agent
+  // names branches `fix/<num>-<slug>`. List open PRs and JQ-filter on the
+  // prefix `fix/<num>` or `fix/<num>-` against `headRefName`.
   const prNum = await sh(
-    `gh pr list --state open --head "fix/${num}" --json number --jq '.[0].number // empty' || gh pr list --state open --head "fix/${num}-" --json number --jq '.[0].number // empty'`,
+    `gh pr list --state open --limit 200 --json number,headRefName --jq '[.[] | select(.headRefName == "fix/${num}" or (.headRefName | startswith("fix/${num}-")))] | .[0].number // empty'`,
     `mergeplan:pr-num-${num}`,
   );
   const pr = prNum.stdout.trim();
