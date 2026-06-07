@@ -148,7 +148,7 @@ test.describe("Web UI smoke (local mode)", () => {
     await phraseToggle.uncheck();
 
     // Beat-grid-only toggle
-    const beatToggle = page.locator("#beatgrid-only-cb");
+    const beatToggle = page.locator("#beats-only-cb");
     await beatToggle.check();
     await beatToggle.uncheck();
 

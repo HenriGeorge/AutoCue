@@ -33,7 +33,7 @@ test.describe("Pages mode", () => {
       errors.push(`[pageerror] ${err.message}`);
     });
 
-    await page.goto(`http://localhost:${pagesPort}/index.html`);
+    await page.goto(`http://127.0.0.1:${pagesPort}/index.html`);
 
     // The XML upload drop zone is the Pages-mode entry point. It should
     // be present once the page settles. We accept either it being visible
