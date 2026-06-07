@@ -20,9 +20,9 @@ AutoCue places hot cues on Rekordbox 7 tracks automatically and analyses a DJ li
 ```bash
 pip install -e ".[dev]"              # install with test deps (fastapi, uvicorn, psutil, httpx, hypothesis)
 pip install -e ".[download]"         # OPTIONAL: YouTube download support (yt-dlp; also needs ffmpeg on PATH)
-pytest                               # run all 819 Python tests
+pytest                               # run all 1094 Python tests
 npm install                          # one-time: install JS test deps
-npm test                             # run 191 Vitest tests for the web app (65 + 126)
+npm test                             # run 435 Vitest tests for the web app
 
 autocue serve --no-browser           # start local server on localhost:7432
 autocue --library --dry-run          # preview CLI output without writing
@@ -39,6 +39,7 @@ autocue --library --playlist "NAME"  # restrict --library to a named playlist
 - **ANLZ parsing**: wrap `db.read_anlz_file()` / `get_tag()` in `try/except Exception` — `ConstError` / `IndexError` are common for unsupported ANLZ versions and missing tags.
 - **BPM guard**: always check `float(bpm) > 0` before using BPM in calculations — Rekordbox can store `"0.0"` (truthy string, zero float).
 - **JS fetch error handling**: always check `r.ok` before reading typed properties from `r.json()` — error bodies return `{detail: "..."}` and reading `resp.applied` etc. yields `undefined` and misleading toasts.
+- **Discover v2** lives in `autocue/analysis/discover/` (taste, style_graph, feeders/, ranker, scan_orchestrator, store) + REST surface under `/api/discover/*`. Per-scan budget is locked at **artist=20, label=15, novelty=10** (HARD_SCAN_REQUEST_CAP=60); changes need PRD §4 sync. Snooze durations are **1w / 1m / 3m** only — `'30d'` 400s the backend.
 
 ## Depth — read on demand
 
@@ -47,4 +48,5 @@ autocue --library --playlist "NAME"  # restrict --library to a named playlist
 - API design (SSE patterns, CORS, source classification, /api/tracks SQL, /api/status diagnostic, restore, youtube/search bounds, has_phrase/has_beats) → `.claude/project/api-design.md`
 - Web UI internals (AppState pub/sub, `_cardMap` diffing, RAF playhead, mini waveform, sticky bar, action bar, `_consumeSSE`) → `.claude/project/web-ui.md`
 - Analysis modules + caches + testing (energy/transitions/setbuilder/auto-tag/comment/discogs/discovery/download, similar._INDEX guard, JS test sync, Hypothesis) → `.claude/project/analysis-and-testing.md`
+- Discover v2 architecture (taste vector, style graph, feeders, ranker, scan orchestrator, store, novelty rotation, snooze popover, keyboard shortcuts, budget table) → `docs/reference/discover-v2.md`
 - End-user feature documentation → `docs/FEATURES.md`
