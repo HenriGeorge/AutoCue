@@ -1556,3 +1556,81 @@ describe('AppState pub/sub', () => {
     expect(calls.length).toBe(2)
   })
 })
+
+// ── Issue #15: #download-bar must NOT fade in on local-mode connect ──────────
+// Regression guard for the staggered fade-in loop inside loadTracksFromServer
+// (docs/index.html ~line 3608). In local mode the canonical bottom bar is
+// #action-bar; the Pages-mode #download-bar would otherwise show stale
+// default text ("Ready to import: 1 track · 8 cues") on every page load.
+//
+// The function below mirrors the production logic verbatim (the array-build
+// step only — the setTimeout side-effects are not under test here, only the
+// invariant of which sections get faded in). Keep this in sync with
+// docs/index.html if the local-mode gating ever changes.
+
+function buildFadeSections(localMode) {
+  var _fadeSections = ['settings-section', 'tracks-section']
+  if (!localMode) _fadeSections.push('download-bar')
+  return _fadeSections
+}
+
+describe('loadTracksFromServer — staggered fade-in (issue #15)', () => {
+  it('local mode: download-bar is NOT in the fade-in list (regression guard)', () => {
+    expect(buildFadeSections(true)).not.toContain('download-bar')
+  })
+
+  it('Pages mode: download-bar IS in the fade-in list (no regression)', () => {
+    expect(buildFadeSections(false)).toContain('download-bar')
+  })
+
+  it('local mode keeps settings + tracks sections (boundary: only download-bar dropped)', () => {
+    const sections = buildFadeSections(true)
+    expect(sections).toEqual(['settings-section', 'tracks-section'])
+  })
+
+  it('Pages mode preserves canonical order (settings, tracks, download)', () => {
+    const sections = buildFadeSections(false)
+    expect(sections).toEqual(['settings-section', 'tracks-section', 'download-bar'])
+  })
+
+  it('the local/Pages mode switch is the ONLY thing that toggles download-bar', () => {
+    // Property check: for both modes, the only delta is the download-bar entry.
+    const local = buildFadeSections(true)
+    const pages = buildFadeSections(false)
+    const diff = pages.filter(s => !local.includes(s))
+    expect(diff).toEqual(['download-bar'])
+  })
+})
+
+describe('loadTracksFromServer — defensive clear of #download-bar in local mode (issue #15)', () => {
+  // Mirrors the defensive removeClass step that runs before the fade-in loop:
+  //   if (localMode) { const el = document.getElementById('download-bar');
+  //                    if (el) el.classList.remove('visible'); }
+  // This guards against any prior code path adding `.visible` (e.g. legacy
+  // reload sequences) — local mode must always start with the bar hidden.
+  function maybeHideDownloadBar(localMode, doc) {
+    if (localMode) {
+      const el = doc.getElementById('download-bar')
+      if (el) el.classList.remove('visible')
+    }
+  }
+
+  beforeEach(() => {
+    document.body.innerHTML = '<div id="download-bar" class="visible"></div>'
+  })
+
+  it('local mode removes .visible from #download-bar', () => {
+    maybeHideDownloadBar(true, document)
+    expect(document.getElementById('download-bar').classList.contains('visible')).toBe(false)
+  })
+
+  it('Pages mode leaves .visible alone', () => {
+    maybeHideDownloadBar(false, document)
+    expect(document.getElementById('download-bar').classList.contains('visible')).toBe(true)
+  })
+
+  it('local mode is a no-op when #download-bar is missing (defensive)', () => {
+    document.body.innerHTML = '' // no #download-bar in DOM
+    expect(() => maybeHideDownloadBar(true, document)).not.toThrow()
+  })
+})
