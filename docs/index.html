@@ -11594,8 +11594,12 @@ let _ytModalTrack = null;
 let _ytSearchAbort = null;
 let _ytDownloadAbort = null;
 let _ytModalJob = null;        // in-flight _Download job initiated from a modal Pick
+let _ytModalJobToken = 0;      // bumped per _ytDownload call so stale onState from a cancelled job can't null the live handle
 
 function openYoutubeModal(track) {
+  // A query-modal Pick may still be in-flight; cancel before reusing the modal
+  // for a track-card flow, or its onState writes land in the freshly-reset UI.
+  if (_ytModalJob) { try { _ytModalJob.cancel(); } catch (_) {} _ytModalJob = null; }
   _ytModalTrack = track;
   const modal = document.getElementById('yt-modal');
   if (!modal) return;
@@ -11629,6 +11633,8 @@ function closeYoutubeModal() {
 function openYoutubeModalForQuery(query) {
   const modal = document.getElementById('yt-modal');
   if (!modal) return;
+  // Same in-flight-Pick concern as openYoutubeModal — cancel before re-init.
+  if (_ytModalJob) { try { _ytModalJob.cancel(); } catch (_) {} _ytModalJob = null; }
   _ytModalTrack = null;  // no track object — purely query-driven
   const trimmed = (query || '').trim();
   document.getElementById('yt-track-label').textContent = trimmed
@@ -11707,6 +11713,9 @@ document.getElementById('yt-query')?.addEventListener('keydown', (e) => {
 // errors + cancel + 410 already_consumed handling for free.
 async function _ytDownload(url) {
   if (_ytModalJob) { try { _ytModalJob.cancel(); } catch (_) {} _ytModalJob = null; }
+  // Tag this invocation so a later onState from a cancelled prior job can't
+  // null out _ytModalJob after we've already assigned a new one below.
+  const myToken = ++_ytModalJobToken;
   const progress = document.getElementById('yt-download-progress');
   const progBar = document.getElementById('yt-progress');
   const progText = document.getElementById('yt-progress-text');
@@ -11753,7 +11762,7 @@ async function _ytDownload(url) {
         } else if (ev.status === 'cancelled') {
           if (status) status.textContent = 'Cancelled';
         }
-        _ytModalJob = null;
+        if (_ytModalJobToken === myToken) _ytModalJob = null;
       }
     },
   });

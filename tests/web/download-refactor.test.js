@@ -281,4 +281,46 @@ describe('Manual panel routes bare-text search through YouTube candidate modal',
                           html.indexOf('function openYoutubeModalForQuery') + 1200)
     expect(fn).toContain('_ytSearch')
   })
+
+  // Race-condition guards on _ytModalJob ownership (review of PR #102):
+  // - Token guard prevents a stale onState from a cancelled job A from
+  //   nulling out a freshly-started job B.
+  // - Cancel-on-open in both modal-entry functions prevents an in-flight
+  //   query-modal job from writing into a reset modal opened for a
+  //   different flow.
+
+  it('_ytDownload guards _ytModalJob = null with a per-call token', () => {
+    const fn = html.slice(html.indexOf('async function _ytDownload'),
+                          html.indexOf('async function _ytDownload') + 3000)
+    // Module-level token counter must exist.
+    expect(html).toMatch(/let\s+_ytModalJobToken\s*=\s*0/)
+    // Each call snapshots the token before assigning _ytModalJob.
+    expect(fn).toMatch(/const\s+myToken\s*=\s*\+\+_ytModalJobToken/)
+    // The done branch only nulls _ytModalJob if our token is still current.
+    expect(fn).toMatch(/if\s*\(\s*_ytModalJobToken\s*===\s*myToken\s*\)\s*_ytModalJob\s*=\s*null/)
+    // Naked `_ytModalJob = null` inside the done branch would defeat the guard.
+    const doneBranch = fn.slice(fn.indexOf("ev.type === 'done'"))
+    expect(doneBranch).not.toMatch(/^\s*_ytModalJob\s*=\s*null\s*;/m)
+  })
+
+  it('openYoutubeModal cancels any in-flight _ytModalJob before resetting the modal UI', () => {
+    const fn = html.slice(html.indexOf('function openYoutubeModal(track)'),
+                          html.indexOf('function openYoutubeModal(track)') + 1200)
+    // Cancel must fire BEFORE the first DOM reset (e.g. yt-candidates clear).
+    const cancelIdx = fn.indexOf('_ytModalJob.cancel()')
+    const firstResetIdx = fn.indexOf("getElementById('yt-candidates')")
+    expect(cancelIdx).toBeGreaterThan(-1)
+    expect(firstResetIdx).toBeGreaterThan(-1)
+    expect(cancelIdx).toBeLessThan(firstResetIdx)
+  })
+
+  it('openYoutubeModalForQuery cancels any in-flight _ytModalJob before resetting the modal UI', () => {
+    const fn = html.slice(html.indexOf('function openYoutubeModalForQuery'),
+                          html.indexOf('function openYoutubeModalForQuery') + 1200)
+    const cancelIdx = fn.indexOf('_ytModalJob.cancel()')
+    const firstResetIdx = fn.indexOf("getElementById('yt-candidates')")
+    expect(cancelIdx).toBeGreaterThan(-1)
+    expect(firstResetIdx).toBeGreaterThan(-1)
+    expect(cancelIdx).toBeLessThan(firstResetIdx)
+  })
 })
