@@ -266,6 +266,14 @@ contribute to `cues_changed`.
 A single SSE endpoint dispatches all four operations based on the request
 body's `operation` field. The handler lives in `autocue/serve/routes.py:930`.
 
+> **Calling from a script and translating from the UI?** The visible form
+> labels in the Cue Library Tools panel ("Find", "Replace with",
+> "Shift by (ms)", "Keep up to slot #") are UI copy only — the JSON
+> request body uses different identifiers. See the
+> [UI label → API field mapping table](#ui-labels-vs-api-fields) below
+> before constructing a request body, or you'll get a 422
+> `{"detail":[{"type":"missing","loc":["body","<op>","<field>"]}]}`.
+
 ### Request body — `CueToolsRequest`
 
 ```python
@@ -647,6 +655,33 @@ stream via `fetch` + `ReadableStream` (not `EventSource`, because the request
 is a POST), buffers partial chunks on `\n\n`, and updates the button label
 and progress fill on each batch event. The final `{done:true,summary}` event
 populates the result panel and removes the spinner.
+
+### UI labels vs API fields
+
+The form labels in the UI panel and the JSON field names accepted by
+`POST /api/cue-tools-stream` use different vocabulary. Always cross-reference
+this table when porting a UI gesture into a script or `curl` call —
+sending the UI label as the JSON key returns HTTP 422 with a
+`{"detail":[{"type":"missing","loc":["body","<op>","<field>"]}]}` payload.
+
+| Operation       | UI label (`<label>` text)                       | `<input>` id          | API field path                |
+|-----------------|-------------------------------------------------|-----------------------|-------------------------------|
+| `rename`        | "Find (exact match)"                            | `cue-rename-from`     | `rename.from_name`            |
+| `rename`        | "Replace with"                                  | `cue-rename-to`       | `rename.to_name`              |
+| `recolor`       | "Set color per slot" — eight slot dropdowns A–H | `cue-recolor-slots`   | `recolor.slot_colors` (object keyed `"0"`–`"7"`, values 0–8) |
+| `shift`         | "Shift by (ms, use − to shift earlier)"         | `cue-shift-ms`        | `shift.delta_ms`              |
+| `delete_orphan` | "Keep up to slot # (1=A … 8=H)"                 | `cue-keep-slots`      | `delete_orphan.keep_slots`    |
+
+The recolor mapping uses **string** keys (`"0"`–`"7"`, one per hot-cue slot)
+and integer values (`0` = no color / preserve, `1`–`8` = ColorTableIndex —
+see [Color resolution](#color-resolution--colortableindex)). The UI's eight
+slot dropdowns serialise into this object when "Run on visible tracks" is
+clicked.
+
+There is no UI control for `shift.negative_policy` — the schema default
+(`"abort_track"`) is the only value the panel ever sends. Scripts may
+override it explicitly with `"skip"` or `"clamp_to_zero"` per the
+[Shift](#shift) section above.
 
 ---
 
