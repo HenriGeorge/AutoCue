@@ -7602,13 +7602,26 @@ function initDiscoverV2() {
     // either from a prior session or from a 409 that has since resolved —
     // wiping it prevents the "Couldn't finish the scan" empty state from
     // appearing on a fresh page load.
+    //
+    // Issue #121: ALSO use this status response to gate the auto-scan. If a
+    // scan is already running for this DB (e.g. another tab / a prior page
+    // load is still streaming), kicking off /api/discover/feed here would
+    // get a 409 — correctly handled in user-space (issue #67), but the
+    // browser still emits a native "Failed to load resource: 409" console
+    // error that taints every Playwright run asserting console.errors===[].
+    // Skip the auto-scan when running===true; the in-flight scan's results
+    // will surface through its existing SSE consumer, and the user can hit
+    // Refresh manually if they want a new one.
+    let status = null;
     try {
-      const status = await fetch('/api/discover/feed/status').then(r => r.json());
+      status = await fetch('/api/discover/feed/status').then(r => r.json());
       if (status && status.running === false) {
         DiscoverV2.state.scanError = null;
       }
     } catch (_) { /* ignore, fall through */ }
-    // Auto-scan on first open if labels are followed and the token is valid.
+    // Auto-scan on first open if labels are followed and the token is valid
+    // AND no scan is already in flight (issue #121).
+    if (status && status.running === true) return;
     if (DiscoverV2.state.tokenValid && DiscoverV2.state.followedLabels.length > 0) {
       DiscoverV2.runScan();
     }
