@@ -3,6 +3,9 @@
 ## TASK-024: /api/tracks SQL pattern at 10k
 
 **Status**: deferred — needs synthetic Rekordbox sandbox DB to benchmark properly.
+The rollup `passes` flag in `.agent/tasks.performance.json` is `false` to reflect
+this; flip back to `true` only after the benchmark below lands with timings recorded
+in the "TASK-024 results" section.
 
 The current `/api/tracks` SQL pattern (per `CLAUDE.md`) intentionally fetches
 all `DjmdHistory`, `DjmdSongHistory`, `DjmdSongMyTag`, and `DjmdColor` rows
