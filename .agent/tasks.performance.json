@@ -221,7 +221,7 @@
     "title": "DOM node recycling pool (~40 nodes) replaces full-render _cardMap",
     "category": "ui-ux",
     "specFilePath": ".agent/tasks/performance/TASK-032.json",
-    "passes": false
+    "passes": true
   },
   {
     "id": "TASK-033",
@@ -235,14 +235,14 @@
     "title": "filteredTracks() returns indices into parsedTracks (not full objects)",
     "category": "ui-ux",
     "specFilePath": ".agent/tasks/performance/TASK-034.json",
-    "passes": false
+    "passes": true
   },
   {
     "id": "TASK-035",
     "title": "Preserve existing UX: _cardMap fingerprint, FLIP scope, IntersectionObservers",
     "category": "ui-ux",
     "specFilePath": ".agent/tasks/performance/TASK-035.json",
-    "passes": false
+    "passes": true
   },
   {
     "id": "TASK-036",

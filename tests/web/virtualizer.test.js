@@ -13,14 +13,25 @@ function makeVirtualizer() {
   var state = null;
 
   function _computeWindow(s) {
-    var first = Math.max(0, Math.floor(s.scrollTop / s.itemHeight) - s.buffer);
-    var visible = Math.ceil(s.viewportHeight / s.itemHeight) + s.buffer * 2;
-    var last = Math.min(s.totalCount, first + visible);
-    return { first: first, last: last };
+    if (s.scrollSource === 'window') {
+      var rect = s.container.getBoundingClientRect();
+      var pastTop = Math.max(0, -rect.top);
+      var first = Math.max(0, Math.floor(pastTop / s.itemHeight) - s.buffer);
+      var visible = Math.ceil(s.viewportHeight / s.itemHeight) + s.buffer * 2;
+      var last = Math.min(s.totalCount, first + visible);
+      return { first: first, last: last };
+    }
+    var firstC = Math.max(0, Math.floor(s.scrollTop / s.itemHeight) - s.buffer);
+    var visibleC = Math.ceil(s.viewportHeight / s.itemHeight) + s.buffer * 2;
+    var lastC = Math.min(s.totalCount, firstC + visibleC);
+    return { first: firstC, last: lastC };
   }
 
   function _render() {
     if (state === null) return;
+    if (state.scrollSource === 'window') {
+      state.viewportHeight = window.innerHeight || state.viewportHeight;
+    }
     var win = _computeWindow(state);
     var needed = new Set();
     for (var i = win.first; i < win.last; i++) needed.add(i);
@@ -51,19 +62,33 @@ function makeVirtualizer() {
     }
 
     state.spacer.style.height = (state.totalCount * state.itemHeight) + 'px';
+
+    if (state.onWindowChange && (state._lastFirst !== win.first || state._lastLast !== win.last)) {
+      state._lastFirst = win.first;
+      state._lastLast = win.last;
+      try { state.onWindowChange(win.first, win.last, state.live); }
+      catch (e) { console.error('[Virtualizer] onWindowChange error', e); }
+    }
   }
 
-  function _onScroll() {
-    if (state === null) return;
-    state.scrollTop = state.container.scrollTop;
-    if (state.rafScheduled) return;
+  function _scheduleRender() {
+    if (state === null || state.rafScheduled) return;
     state.rafScheduled = true;
     var raf = window.requestAnimationFrame || function(fn) { return setTimeout(fn, 0); };
     raf(function() {
+      if (state === null) return;
       state.rafScheduled = false;
       _render();
     });
   }
+
+  function _onContainerScroll() {
+    if (state === null) return;
+    state.scrollTop = state.container.scrollTop;
+    _scheduleRender();
+  }
+  function _onWindowScroll() { _scheduleRender(); }
+  function _onWindowResize() { _scheduleRender(); }
 
   return {
     attach: function(opts) {
@@ -76,35 +101,60 @@ function makeVirtualizer() {
       spacer.style.width = '100%';
       container.appendChild(spacer);
 
+      var scrollSource = opts.scrollSource === 'window' ? 'window' : 'container';
       state = {
         container: container,
         spacer: spacer,
         itemHeight: opts.itemHeight,
         totalCount: opts.totalCount || 0,
-        viewportHeight: container.clientHeight || 800,
+        viewportHeight: scrollSource === 'window'
+          ? (window.innerHeight || 800)
+          : (container.clientHeight || 800),
         scrollTop: container.scrollTop || 0,
         buffer: opts.buffer != null ? opts.buffer : 5,
         renderItem: opts.renderItem,
+        onWindowChange: opts.onWindowChange || null,
+        scrollSource: scrollSource,
         pool: [],
         live: new Map(),
         rafScheduled: false,
-        _scrollHandler: _onScroll,
+        _lastFirst: -1,
+        _lastLast: -1,
+        _scrollHandler: scrollSource === 'window' ? _onWindowScroll : _onContainerScroll,
+        _resizeHandler: scrollSource === 'window' ? _onWindowResize : null,
       };
-      container.addEventListener('scroll', state._scrollHandler, { passive: true });
+      if (scrollSource === 'window') {
+        window.addEventListener('scroll', state._scrollHandler, { passive: true });
+        window.addEventListener('resize', state._resizeHandler, { passive: true });
+      } else {
+        container.addEventListener('scroll', state._scrollHandler, { passive: true });
+      }
       _render();
     },
     update: function(opts) {
       if (state === null) return;
       if (opts && typeof opts.totalCount === 'number') state.totalCount = opts.totalCount;
       if (opts && typeof opts.scrollToIndex === 'number') {
-        state.container.scrollTop = opts.scrollToIndex * state.itemHeight;
-        state.scrollTop = state.container.scrollTop;
+        if (state.scrollSource === 'window') {
+          var rect = state.container.getBoundingClientRect();
+          var targetTop = (window.scrollY || window.pageYOffset || 0) + rect.top + opts.scrollToIndex * state.itemHeight;
+          window.scrollTo({ top: targetTop, behavior: 'auto' });
+        } else {
+          state.container.scrollTop = opts.scrollToIndex * state.itemHeight;
+          state.scrollTop = state.container.scrollTop;
+        }
       }
+      state._lastFirst = -1; state._lastLast = -1;
       _render();
     },
     detach: function() {
       if (state === null) return;
-      state.container.removeEventListener('scroll', state._scrollHandler);
+      if (state.scrollSource === 'window') {
+        window.removeEventListener('scroll', state._scrollHandler);
+        if (state._resizeHandler) window.removeEventListener('resize', state._resizeHandler);
+      } else {
+        state.container.removeEventListener('scroll', state._scrollHandler);
+      }
       state.live.forEach(function(node) {
         if (node.parentNode) node.parentNode.removeChild(node);
       });
@@ -113,6 +163,8 @@ function makeVirtualizer() {
       }
       state = null;
     },
+    isAttached: function() { return state !== null; },
+    _visibleNodes: function() { return state ? state.live : new Map(); },
     _state: function() { return state; },
   };
 }
