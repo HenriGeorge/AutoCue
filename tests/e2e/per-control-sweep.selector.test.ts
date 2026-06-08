@@ -1,8 +1,13 @@
 import { test, expect } from "@playwright/test";
-import { buildIdSelector } from "./per-control-sweep.spec";
+import { buildIdSelector } from "./per-control-sweep.helpers";
 
 /**
- * Regression guard for issue #20.
+ * Regression guard for issue #20 (and the import-shape regression for #112).
+ *
+ * Importing from `./per-control-sweep.helpers` — NOT from
+ * `./per-control-sweep.spec` — is load-bearing: Playwright forbids one test
+ * file from importing another, and the previous shape caused `npm test` to
+ * abort during discovery before any test could run.
  *
  * `per-control-sweep.spec.ts` previously used `CSS.escape(row.id)` inside
  * the Node-side test body to build its locator. `CSS` is a browser-only
