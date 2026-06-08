@@ -87,14 +87,211 @@ def test_wait_any_empty_returns_empty_sets():
     assert pending == set()
 
 
-def test_disconnect_cancellation_event_present(tmp_path):
-    """TASK-041: poll thread + cancel event exist; setting cancel stops the loop.
+def test_disconnect_cancellation_structural_helpers_present(tmp_path):
+    """TASK-039/040/041: producer/consumer stages + cancel scaffolding exist.
 
-    Verifies the runtime path exists; full E2E disconnect is hard to mock
-    without a real client, so we check the structural pieces."""
+    Issue #107 — assert the PRD-spec'd structure (separate ``_compute_stage``
+    / ``_writer_stage`` + ``_wait_any`` helper) is in place. Full E2E
+    disconnect is hard to mock without a real client, so we check the
+    structural pieces; the integration test above exercises the SSE path
+    end-to-end."""
     import autocue.serve.routes as routes_mod
 
-    # The handler closure constructs a cancel event; we can't easily inspect
-    # it from outside, but we can verify the module exposes the cancel/wait
-    # helpers we depend on.
-    assert hasattr(routes_mod, "_wait_any")
+    # Producer/consumer (TASK-039/040): explicit, importable stages.
+    assert callable(getattr(routes_mod, "_compute_stage", None))
+    assert callable(getattr(routes_mod, "_writer_stage", None))
+    # Sentinel surfaces so tests + consumers can identify end-of-stream.
+    assert hasattr(routes_mod, "_COMPUTE_DONE")
+    assert routes_mod._COMPUTE_DONE is None
+    # Helper retained for the wait-wrapper unit tests above.
+    assert callable(getattr(routes_mod, "_wait_any", None))
+
+
+def test_compute_stage_pushes_sentinel_on_normal_completion():
+    """TASK-039 step 1: compute stage must push ``None`` after all results."""
+    import queue
+    import threading
+    from concurrent.futures import ThreadPoolExecutor
+
+    from autocue.serve.routes import _COMPUTE_DONE, _compute_stage
+
+    pool = ThreadPoolExecutor(max_workers=2)
+    try:
+        # maxsize=8 > (5 results + 1 sentinel) so the producer never blocks on
+        # the queue — keeps this test focused on sentinel semantics, not
+        # backpressure (covered by the dedicated backpressure test below).
+        q: queue.Queue = queue.Queue(maxsize=8)
+        cancel = threading.Event()
+
+        def _stub(tid):
+            return (tid, object(), [{"x": 1}], None)
+
+        _compute_stage(
+            [1, 2, 3, 4, 5],
+            compute_fn=_stub,
+            q=q,
+            cancel=cancel,
+            pool=pool,
+            in_flight_cap=2,
+        )
+
+        drained = []
+        while True:
+            item = q.get_nowait()
+            drained.append(item)
+            if item is _COMPUTE_DONE:
+                break
+        assert drained[-1] is _COMPUTE_DONE
+        ids = sorted(r[0] for r in drained[:-1])
+        assert ids == [1, 2, 3, 4, 5]
+    finally:
+        pool.shutdown()
+
+
+def test_compute_stage_pushes_sentinel_on_cancellation():
+    """TASK-041 + #107: cancel mid-stream must still push the sentinel.
+
+    Regression guard — without the ``finally: q.put(_COMPUTE_DONE)`` the
+    writer thread would hang forever waiting on ``q.get()``.
+    """
+    import queue
+    import threading
+    import time
+    from concurrent.futures import ThreadPoolExecutor
+
+    from autocue.serve.routes import _COMPUTE_DONE, _compute_stage
+
+    pool = ThreadPoolExecutor(max_workers=2)
+    try:
+        q: queue.Queue = queue.Queue(maxsize=2)
+        cancel = threading.Event()
+        cancel.set()  # Set BEFORE the call — producer should exit immediately.
+
+        def _stub(tid):
+            time.sleep(0.05)
+            return (tid, None, None, "skip")
+
+        _compute_stage(
+            list(range(20)),
+            compute_fn=_stub,
+            q=q,
+            cancel=cancel,
+            pool=pool,
+            in_flight_cap=2,
+        )
+
+        # Drain — the sentinel must be the last item.
+        last = None
+        while not q.empty():
+            last = q.get_nowait()
+        assert last is _COMPUTE_DONE
+    finally:
+        pool.shutdown()
+
+
+def test_writer_stage_drains_until_sentinel():
+    """TASK-039 step 2: writer breaks on the ``None`` sentinel."""
+    import queue
+    import threading
+    from unittest.mock import MagicMock
+
+    from autocue.serve.routes import _COMPUTE_DONE, _writer_stage
+
+    q: queue.Queue = queue.Queue()
+    event_q: queue.Queue = queue.Queue()
+    cancel = threading.Event()
+
+    db = MagicMock()
+    db.session = MagicMock()
+
+    # Three results then sentinel.
+    for tid in (1, 2, 3):
+        q.put((tid, object(), [{"slot": 0}], None))
+    q.put(_COMPUTE_DONE)
+
+    write_fn = MagicMock(return_value=1)
+    applied, skipped = _writer_stage(
+        q, db,
+        write_fn=write_fn,
+        overwrite=True,
+        dry_run=False,
+        event_q=event_q,
+        cancel=cancel,
+        total=3,
+    )
+
+    assert applied == 3
+    assert skipped == 0
+    assert write_fn.call_count == 3
+    # One SSE payload per processed item.
+    payloads = []
+    while not event_q.empty():
+        payloads.append(event_q.get_nowait())
+    assert len(payloads) == 3
+    assert payloads[-1] == {"processed": 3, "total": 3, "applied": 3, "skipped": 0}
+
+
+def test_compute_writer_backpressure_queue_never_exceeds_maxsize():
+    """TASK-040 step 3 — slow writer must NOT let the queue grow past maxsize.
+
+    Regression guard: if we ever drop the ``maxsize`` on the work queue,
+    this test fails because a fast producer would buffer all 30 results.
+    """
+    import queue
+    import threading
+    import time
+    from concurrent.futures import ThreadPoolExecutor
+
+    from autocue.serve.routes import _COMPUTE_DONE, _compute_stage
+
+    pool = ThreadPoolExecutor(max_workers=4)
+    try:
+        maxsize = 4
+        work_q: queue.Queue = queue.Queue(maxsize=maxsize)
+        cancel = threading.Event()
+        observed_sizes: list[int] = []
+        sizes_lock = threading.Lock()
+
+        def _fast_compute(tid):
+            return (tid, object(), [{"slot": 0}], None)
+
+        # Slow writer: sleeps before each get, simulating a hung DB.
+        drained_count = 0
+
+        def _slow_writer():
+            nonlocal drained_count
+            while True:
+                # Observe size BEFORE blocking — represents producer pressure.
+                with sizes_lock:
+                    observed_sizes.append(work_q.qsize())
+                try:
+                    item = work_q.get(timeout=5)
+                except Exception:
+                    break
+                if item is _COMPUTE_DONE:
+                    break
+                drained_count += 1
+                time.sleep(0.01)  # slow consumer
+
+        writer = threading.Thread(target=_slow_writer, daemon=True)
+        writer.start()
+
+        _compute_stage(
+            list(range(30)),
+            compute_fn=_fast_compute,
+            q=work_q,
+            cancel=cancel,
+            pool=pool,
+            in_flight_cap=4,
+        )
+        writer.join(timeout=10)
+
+        assert drained_count == 30, f"expected 30 results, got {drained_count}"
+        # Boundary case (PRD): qsize never exceeds maxsize even under
+        # fast-producer/slow-consumer pressure.
+        assert observed_sizes, "writer never observed queue size"
+        assert max(observed_sizes) <= maxsize, (
+            f"queue overflowed maxsize={maxsize}: observed max={max(observed_sizes)}"
+        )
+    finally:
+        pool.shutdown()
