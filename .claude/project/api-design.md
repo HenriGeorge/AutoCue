@@ -10,7 +10,7 @@
 
 - **`/api/tracks` SQL pattern**: history (`DjmdSongHistory`) and my-tags (`DjmdSongMyTag`) are loaded with `db.query(...).all()` then filtered in Python against `row_ids` — **not** with a SQLAlchemy `IN(row_ids)` clause. This is intentional: for full-library page loads (~3k rows) the `IN` filter is slower than fetch-all-then-filter against pyrekordbox's SQLCipher. Do not "optimize" this back to `.filter(...ContentID.in_(row_ids))`.
 
-- **`/api/status` diagnostic field**: `StatusResponse.db_path` is `None` by default. Callers that opt in with the header `X-AutoCue-Diagnostic: 1` get back the resolved `master.db` path. The web UI never sets it; the `autocue-qa` Playwright harness uses it (in `tests/e2e/safety.spec.ts`) to verify the server is bound to a sandbox copy of the DB and not the user's real library before any other spec runs. Do not log the field outside that one diagnostic context.
+- **`/api/status` diagnostic field**: `StatusResponse.db_path` is `None` by default. Callers that opt in with the header `X-AutoCue-Diagnostic: 1` get back the resolved `master.db` path. The web UI never sets it; the `autocue-qa` Playwright harness uses it (in `tests/e2e/0-safety.spec.ts`) to verify the server is bound to a sandbox copy of the DB and not the user's real library before any other spec runs. Do not log the field outside that one diagnostic context.
 
 - **`/api/tags` returns only used tags**: the endpoint filters `DjmdMyTag` against `distinct(DjmdSongMyTag.MyTagID)` so unused tags (created and never applied) do not appear in the UI's tag filter list. Tests must mock both queries (see `_make_tags_db()` in `test_serve_routes.py`).
 
