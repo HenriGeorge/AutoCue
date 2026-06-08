@@ -5163,6 +5163,15 @@ window._Download = (function() {
         if (typeof showToast === 'function') showToast('Enter a URL or search term');
         return;
       }
+      // Route bare-text search through the YouTube candidate picker instead
+      // of letting yt-dlp auto-pick result #1 (which often surfaces a random
+      // video for ambiguous queries). URL inputs keep the direct flow.
+      // PRP: search→modal route, prp-core/prp-implement.
+      const targetKind = _classifyDownloadTarget(q);
+      if (targetKind === 'search' && typeof openYoutubeModalForQuery === 'function') {
+        openYoutubeModalForQuery(q);
+        return;
+      }
       const fmt = _readFormat();
       const args = {
         query: q,
@@ -5170,7 +5179,7 @@ window._Download = (function() {
         normalize: normEl ? normEl.checked : false,
         embedMeta: metaEl ? metaEl.checked : true,
         dest: (typeof _dlDestDir !== 'undefined' && _dlDestDir) || undefined,
-        allowPlaylist: ['playlist', 'mixed_video_in_playlist'].includes(_classifyDownloadTarget(q)),
+        allowPlaylist: ['playlist', 'mixed_video_in_playlist'].includes(targetKind),
       };
       lastArgs = args;
       if (controls) controls.setAttribute('aria-busy', 'true');
@@ -11584,6 +11593,7 @@ document.getElementById('ti-download')?.addEventListener('click', () => {
 let _ytModalTrack = null;
 let _ytSearchAbort = null;
 let _ytDownloadAbort = null;
+let _ytModalJob = null;        // in-flight _Download job initiated from a modal Pick
 
 function openYoutubeModal(track) {
   _ytModalTrack = track;
@@ -11604,9 +11614,40 @@ function openYoutubeModal(track) {
 function closeYoutubeModal() {
   if (_ytSearchAbort) _ytSearchAbort.abort();
   if (_ytDownloadAbort) _ytDownloadAbort.abort();
+  // Cancel any in-flight Pick download initiated via _Download (PRP search→modal flow).
+  if (_ytModalJob) { try { _ytModalJob.cancel(); } catch (_) {} _ytModalJob = null; }
   const modal = document.getElementById('yt-modal');
   if (modal) { modal.classList.remove('visible'); modal.setAttribute('aria-hidden', 'true'); }
   _ytModalTrack = null;
+}
+
+// Open the YouTube candidate picker for a free-text query (no track object).
+// Used by _Download.bindManualPanel when the user types a search term in the
+// Download panel — instead of auto-picking yt-dlp's first result (which often
+// surfaces a random video for ambiguous queries like "Sampha piona"), the
+// candidate list lets the user pick the right version.
+function openYoutubeModalForQuery(query) {
+  const modal = document.getElementById('yt-modal');
+  if (!modal) return;
+  _ytModalTrack = null;  // no track object — purely query-driven
+  const trimmed = (query || '').trim();
+  document.getElementById('yt-track-label').textContent = trimmed
+    ? `Search: ${trimmed}` : 'Search YouTube';
+  const queryInput = document.getElementById('yt-query');
+  queryInput.value = trimmed;
+  document.getElementById('yt-candidates').innerHTML = '';
+  document.getElementById('yt-status').textContent = '';
+  document.getElementById('yt-download-progress').style.display = 'none';
+  document.getElementById('yt-result').style.display = 'none';
+  document.getElementById('yt-search-btn').disabled = false;
+  modal.classList.add('visible');
+  modal.setAttribute('aria-hidden', 'false');
+  // Auto-fire the search so the user lands on the candidate list immediately.
+  if (trimmed) {
+    setTimeout(() => { try { _ytSearch(); } catch (_) {} }, 0);
+  } else {
+    queryInput.focus();
+  }
 }
 document.getElementById('yt-close')?.addEventListener('click', closeYoutubeModal);
 document.getElementById('yt-modal')?.addEventListener('click', (e) => {
@@ -11661,57 +11702,61 @@ document.getElementById('yt-query')?.addEventListener('keydown', (e) => {
   if (e.key === 'Enter') _ytSearch();
 });
 
+// Routed through window._Download (PRD v1.0) so the modal Pick flow honors
+// the user's format / normalize / embed_metadata prefs and gets classified
+// errors + cancel + 410 already_consumed handling for free.
 async function _ytDownload(url) {
-  if (_ytDownloadAbort) _ytDownloadAbort.abort();
-  _ytDownloadAbort = new AbortController();
+  if (_ytModalJob) { try { _ytModalJob.cancel(); } catch (_) {} _ytModalJob = null; }
   const progress = document.getElementById('yt-download-progress');
   const progBar = document.getElementById('yt-progress');
   const progText = document.getElementById('yt-progress-text');
   const result = document.getElementById('yt-result');
+  const status = document.getElementById('yt-status');
   progress.style.display = 'flex';
   result.style.display = 'none';
   progBar.value = 0;
   progText.textContent = 'Starting…';
+  if (status) status.textContent = '';
 
-  try {
-    const resp = await fetch('/api/download', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ query: url, audio_format: 'mp3' }),
-      signal: _ytDownloadAbort.signal,
-    });
-    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-    const reader = resp.body.getReader();
-    const dec = new TextDecoder();
-    let buf = '';
-    while (true) {
-      const { value, done } = await reader.read();
-      if (done) break;
-      buf += dec.decode(value, { stream: true });
-      const lines = buf.split('\n\n');
-      buf = lines.pop();
-      for (const ln of lines) {
-        if (!ln.startsWith('data: ')) continue;
-        const ev = JSON.parse(ln.slice(6));
-        if (typeof ev.percent === 'number') progBar.value = ev.percent;
-        if (ev.status === 'downloading') progText.textContent = `Downloading… ${Math.round(ev.percent || 0)}%`;
-        if (ev.done) {
-          progress.style.display = 'none';
-          if (ev.status === 'finished' && ev.path) {
-            result.style.display = '';
-            document.getElementById('yt-result-path').textContent = ev.path;
-            document.getElementById('yt-result-path-fallback').value = ev.path;
-            document.getElementById('yt-result-path-fallback').style.display = 'none';
-          } else {
-            showToast(`Download failed: ${ev.error || 'unknown'}`, true);
-          }
+  // Read manual-panel prefs so the user's chosen format / normalize / metadata
+  // toggles drive the modal-initiated download too.
+  let fmt = 'mp3_320';
+  try { fmt = localStorage.getItem('autocue_dl_format') || 'mp3_320'; } catch (_) {}
+  const normEl = document.getElementById('dl-normalize');
+  const metaEl = document.getElementById('dl-embed-meta');
+
+  _ytModalJob = window._Download.start({
+    query: url,
+    format: fmt,
+    normalize: !!(normEl && normEl.checked),
+    embedMeta: metaEl ? metaEl.checked : true,
+    dest: (typeof _dlDestDir !== 'undefined' && _dlDestDir) || undefined,
+    onState: function(ev) {
+      if (typeof ev.percent === 'number') progBar.value = ev.percent;
+      if (ev.phase) progText.textContent = ({
+        queued: 'Queued…',
+        fetching: `Downloading… ${Math.round(ev.percent || 0)}%`,
+        converting: 'Converting…',
+        normalizing_pass1: 'Measuring loudness…',
+        normalizing_pass2: `Normalizing… ${Math.round(ev.percent || 0)}%`,
+        tagging: 'Writing metadata…',
+      })[ev.phase] || ev.phase;
+      if (ev.type === 'done') {
+        progress.style.display = 'none';
+        if (ev.status === 'success' && ev.path) {
+          result.style.display = '';
+          document.getElementById('yt-result-path').textContent = ev.path;
+          document.getElementById('yt-result-path-fallback').value = ev.path;
+          document.getElementById('yt-result-path-fallback').style.display = 'none';
+        } else if (ev.status === 'error') {
+          showToast(`Download failed: ${ev.error_message || 'unknown'}`, true);
+        } else if (ev.status === 'cancelled') {
+          if (status) status.textContent = 'Cancelled';
         }
+        _ytModalJob = null;
       }
-    }
-  } catch (err) {
-    if (err.name !== 'AbortError') showToast(`Download failed: ${err.message}`, true);
-    progress.style.display = 'none';
-  }
+    },
+  });
 }
 
 // B6: Copy path with clipboard fallback.
