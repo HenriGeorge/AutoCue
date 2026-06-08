@@ -57,5 +57,9 @@ def shutdown_pool() -> None:
     global _pool
     with _pool_lock:
         if _pool is not None:
-            _pool.shutdown(wait=True, cancel_futures=False)
+            # cancel_futures=True drops queued-but-not-started work so a
+            # backlog (or a stuck worker on a slow ANLZ read) can't hang the
+            # FastAPI lifespan teardown indefinitely. Running futures still
+            # complete because of wait=True.
+            _pool.shutdown(wait=True, cancel_futures=True)
             _pool = None
