@@ -509,6 +509,8 @@
     }
 
     /* ── Track card — unified list surface, soft hover ── */
+    /* Height locked at CARD_HEIGHT_PX (TASK-033). Virtualizer assumes uniformity;
+       inline expand is forbidden — use overlays or modals for variable content. */
     .track-card {
       position: relative;
       background: transparent;
@@ -521,6 +523,9 @@
       box-shadow: none;
       transition: background .15s, border-color .18s;
       cursor: pointer;
+      height: 160px;
+      box-sizing: border-box;
+      overflow: hidden;
     }
     .track-card:hover {
       background: var(--surface);
@@ -3425,6 +3430,179 @@ var AppState = (function() {
   return { subscribe: subscribe, signal: signal };
 })();
 
+// ── Virtualizer ───────────────────────────────────────────────────────────────
+// Window-scrolled virtualization for the flat track list. Mounts a fixed-height
+// spacer; positions a small pool of absolutely-placed nodes via translateY based
+// on window.scrollY relative to the container's offset. Album-mode keeps its
+// own DOM tree — variable-height album groups can't share this code path.
+const CARD_HEIGHT_PX = 160;
+const Virtualizer = (function() {
+  var BUFFER = 5;
+  var _container = null;
+  var _spacer = null;
+  var _itemHeight = 0;
+  var _totalCount = 0;
+  var _renderItem = null;
+  var _onWindowChange = null;
+  var _visibleIndex = new Map();   // index → node
+  var _cardPool = [];              // free-list of recycled nodes
+  var _rafId = null;
+  var _lastStart = -1;
+  var _lastEnd = -1;
+  var _onScroll = null;
+  var _onResize = null;
+  var _enabled = false;
+
+  function _computeWindow() {
+    if (!_container || !_itemHeight || !_totalCount) return { start: 0, end: 0 };
+    var rect = _container.getBoundingClientRect();
+    var viewportH = window.innerHeight || document.documentElement.clientHeight;
+    var top = -rect.top;                       // how far we've scrolled past container top
+    var visibleStart = Math.floor(top / _itemHeight);
+    var visibleEnd = Math.ceil((top + viewportH) / _itemHeight);
+    var start = Math.max(0, visibleStart - BUFFER);
+    var end = Math.min(_totalCount, visibleEnd + BUFFER);
+    if (start > end) start = end;
+    return { start: start, end: end };
+  }
+
+  function _scheduleRender() {
+    if (_rafId != null) return;
+    _rafId = requestAnimationFrame(function() {
+      _rafId = null;
+      _render();
+    });
+  }
+
+  function _render() {
+    if (!_enabled || !_container) return;
+    var win = _computeWindow();
+    var start = win.start, end = win.end;
+
+    // Recycle nodes that fell out of the window.
+    var toRecycle = [];
+    _visibleIndex.forEach(function(node, idx) {
+      if (idx < start || idx >= end) toRecycle.push(idx);
+    });
+    for (var i = 0; i < toRecycle.length; i++) {
+      var idx = toRecycle[i];
+      var node = _visibleIndex.get(idx);
+      _visibleIndex.delete(idx);
+      _cardPool.push(node);
+    }
+
+    // Render missing indices in the window using pooled nodes.
+    for (var j = start; j < end; j++) {
+      var existing = _visibleIndex.get(j);
+      if (existing) {
+        existing.style.transform = 'translateY(' + (j * _itemHeight) + 'px)';
+        continue;
+      }
+      var poolNode = _cardPool.pop() || null;
+      var rendered = _renderItem(j, poolNode);
+      if (!rendered) continue;
+      rendered.style.position = 'absolute';
+      rendered.style.left = '0';
+      rendered.style.right = '0';
+      rendered.style.top = '0';
+      rendered.style.transform = 'translateY(' + (j * _itemHeight) + 'px)';
+      if (!rendered.parentNode) _container.appendChild(rendered);
+      _visibleIndex.set(j, rendered);
+    }
+
+    if (_lastStart !== start || _lastEnd !== end) {
+      _lastStart = start; _lastEnd = end;
+      if (_onWindowChange) {
+        try { _onWindowChange(start, end, _visibleIndex); }
+        catch (e) { console.error('[Virtualizer] onWindowChange error', e); }
+      }
+    }
+  }
+
+  function attach(container, opts) {
+    if (_enabled) detach();
+    _container = container;
+    _itemHeight = opts.itemHeight;
+    _totalCount = opts.totalCount;
+    _renderItem = opts.renderItem;
+    _onWindowChange = opts.onWindowChange || null;
+    _visibleIndex = new Map();
+    _cardPool = [];
+    _lastStart = -1; _lastEnd = -1;
+
+    // Container hosts an absolutely-positioned spacer that establishes the
+    // virtual height; visible cards are siblings of the spacer.
+    _container.style.position = 'relative';
+    _spacer = document.createElement('div');
+    _spacer.className = 'virt-spacer';
+    _spacer.style.cssText = 'height:' + (_totalCount * _itemHeight) + 'px;width:1px;pointer-events:none;';
+    _container.innerHTML = '';
+    _container.appendChild(_spacer);
+
+    _onScroll = function() { _scheduleRender(); };
+    _onResize = function() { _scheduleRender(); };
+    window.addEventListener('scroll', _onScroll, { passive: true });
+    window.addEventListener('resize', _onResize, { passive: true });
+    _enabled = true;
+    _render();
+  }
+
+  function update(opts) {
+    if (!_enabled) return;
+    if (typeof opts.totalCount === 'number' && opts.totalCount !== _totalCount) {
+      _totalCount = opts.totalCount;
+      if (_spacer) _spacer.style.height = (_totalCount * _itemHeight) + 'px';
+      // Drop nodes whose index is now out of range.
+      var stale = [];
+      _visibleIndex.forEach(function(node, idx) {
+        if (idx >= _totalCount) stale.push(idx);
+      });
+      for (var i = 0; i < stale.length; i++) {
+        var n = _visibleIndex.get(stale[i]);
+        _visibleIndex.delete(stale[i]);
+        _cardPool.push(n);
+      }
+    }
+    if (typeof opts.scrollToIndex === 'number' && _container) {
+      var rect = _container.getBoundingClientRect();
+      var target = (window.scrollY || window.pageYOffset || 0) + rect.top + opts.scrollToIndex * _itemHeight;
+      window.scrollTo({ top: target, behavior: opts.smooth ? 'smooth' : 'auto' });
+    }
+    _lastStart = -1; _lastEnd = -1;   // force onWindowChange to fire even if window math is identical
+    _render();
+  }
+
+  function detach() {
+    if (_onScroll) window.removeEventListener('scroll', _onScroll);
+    if (_onResize) window.removeEventListener('resize', _onResize);
+    if (_rafId != null) { cancelAnimationFrame(_rafId); _rafId = null; }
+    _enabled = false;
+    // Detach nodes so callers can fully reset.
+    _visibleIndex.forEach(function(node) {
+      if (node && node.parentNode) node.parentNode.removeChild(node);
+    });
+    _visibleIndex.clear();
+    _cardPool.length = 0;
+    if (_container) { _container.innerHTML = ''; _container.style.position = ''; }
+    _container = null; _spacer = null;
+    _renderItem = null; _onWindowChange = null;
+    _lastStart = -1; _lastEnd = -1;
+  }
+
+  function visibleIndex() { return _visibleIndex; }
+  function poolSize() { return _cardPool.length; }
+  function isAttached() { return _enabled; }
+
+  return {
+    attach: attach,
+    update: update,
+    detach: detach,
+    visibleIndex: visibleIndex,
+    poolSize: poolSize,
+    isAttached: isAttached,
+  };
+})();
+
 // Audio state: trackId → { file, objectUrl, artworkUrl }
 let audioState   = {};
 let nowPlayingId = null;
@@ -3484,6 +3662,7 @@ async function loadTracksFromServer(playlistId = null) {
   _energyCache = {};           // D4 fix: invalidate on reload so stale curves don't persist
   _cardMap.clear();            // C: force full rebuild on library reload
   _cardSettingsFingerprint = '';
+  if (Virtualizer.isAttached()) Virtualizer.detach();
   _setParsedTracks(tracksData.map(t => ({
     id: String(t.id), name: t.title, artist: t.artist, album: t.album || '',
     bpm: t.bpm, totalTime: t.duration, tempo: null,
@@ -6470,7 +6649,7 @@ async function enrichComments() {
 
   const overwrite = document.getElementById('ce-overwrite').checked;
   const dryRun    = document.getElementById('ce-dry-run').checked;
-  const ids = filteredTracks().map(t => t.id);
+  const ids = filteredTracks().map(i => parsedTracks[i].id);
 
   if (!ids.length) { showToast('No tracks to enrich', true); return; }
 
@@ -7300,7 +7479,8 @@ function clearAllFilters() {
 
 // F7: Bulk selection — Select all / Deselect all
 document.getElementById('select-all-btn').addEventListener('click', () => {
-  for (const t of filteredTracks()) selectedTrackIds.add(t.id);
+  const idx = filteredTracks();
+  for (let i = 0; i < idx.length; i++) selectedTrackIds.add(parsedTracks[idx[i]].id);
   AppState.signal('filters');
   updateSelectionBar();
 });
@@ -7932,49 +8112,56 @@ function camelotSortKey(key) {
   return num * 2 + (letter === 'B' ? 1 : 0);
 }
 
+// Returns indices into parsedTracks for tracks that pass all active filters.
+// Indexed return decouples filter cost from render cost: filter is O(library);
+// virtualized render is O(viewport). Use parsedTracks[i] to dereference.
 function filteredTracks() {
-  let tracks = parsedTracks;
-  if (phraseOnlyFilter) tracks = tracks.filter(t => t.hasPhrase);
-  if (beatsOnlyFilter) tracks = tracks.filter(t => t.hasBeats);
-  if (_audioOnlyFilter) tracks = tracks.filter(t => {
-    // Fail-open semantics: tracks whose audio hasn't been probed yet, or whose
-    // probe came back "unverified", stay visible. Only "missing" + non-file
-    // sources are hidden.
-    if (t.source !== 'file') return false;
-    const v = _audioProbedAt[t.id];
-    return v !== 'missing';
-  });
-  if (searchQuery) {
-    const q = searchQuery.toLowerCase();
-    tracks = tracks.filter(t =>
-      (t.name || '').toLowerCase().includes(q) ||
-      (t.artist || '').toLowerCase().includes(q)
-    );
-  }
-  if (ratingFilter > 0) tracks = tracks.filter(t => t.rating >= ratingFilter);
-  if (playsFilter === 'played') tracks = tracks.filter(t => t.playCount > 0);
-  else if (playsFilter === 'unplayed') tracks = tracks.filter(t => t.playCount === 0);
-  if (lastPlayedFilter !== 'all') {
-    if (lastPlayedFilter === 'never') {
-      tracks = tracks.filter(t => !t.lastPlayed);
-    } else {
-      const days = lastPlayedFilter === '7d' ? 7 : 30;
-      const cutoff = new Date(Date.now() - days * 86400000).toISOString();
-      tracks = tracks.filter(t => t.lastPlayed && t.lastPlayed >= cutoff);
+  const cutoffISO = (lastPlayedFilter !== 'all' && lastPlayedFilter !== 'never')
+    ? new Date(Date.now() - (lastPlayedFilter === '7d' ? 7 : 30) * 86400000).toISOString()
+    : null;
+  const q = searchQuery ? searchQuery.toLowerCase() : '';
+  const out = [];
+  for (let i = 0; i < parsedTracks.length; i++) {
+    const t = parsedTracks[i];
+    if (phraseOnlyFilter && !t.hasPhrase) continue;
+    if (beatsOnlyFilter && !t.hasBeats) continue;
+    if (_audioOnlyFilter) {
+      // Fail-open: unprobed / "unverified" stay visible; only "missing" + non-file are hidden.
+      if (t.source !== 'file') continue;
+      if (_audioProbedAt[t.id] === 'missing') continue;
     }
+    if (q) {
+      if (!((t.name || '').toLowerCase().includes(q) || (t.artist || '').toLowerCase().includes(q))) continue;
+    }
+    if (ratingFilter > 0 && !(t.rating >= ratingFilter)) continue;
+    if (playsFilter === 'played' && !(t.playCount > 0)) continue;
+    else if (playsFilter === 'unplayed' && !(t.playCount === 0)) continue;
+    if (lastPlayedFilter === 'never') {
+      if (t.lastPlayed) continue;
+    } else if (cutoffISO) {
+      if (!(t.lastPlayed && t.lastPlayed >= cutoffISO)) continue;
+    }
+    if (myTagFilters.size > 0) {
+      const tags = t.myTags || [];
+      let hit = false;
+      for (let k = 0; k < tags.length; k++) { if (myTagFilters.has(tags[k])) { hit = true; break; } }
+      if (!hit) continue;
+    }
+    if (selectedKeys.size > 0 && !(t.key && selectedKeys.has(t.key))) continue;
+    if (genreFilters.size > 0 && !genreFilters.has(t.genre || '')) continue;
+    out.push(i);
   }
-  if (myTagFilters.size > 0) tracks = tracks.filter(t => (t.myTags || []).some(tag => myTagFilters.has(tag)));
-  if (selectedKeys.size > 0) tracks = tracks.filter(t => t.key && selectedKeys.has(t.key));
-  if (genreFilters.size > 0) tracks = tracks.filter(t => genreFilters.has(t.genre || ''));
-  return tracks;
+  return out;
 }
 
 // Returns the tracks that write operations (apply/color/delete) should target:
-// selected subset when any are checked, otherwise all filtered tracks.
+// selected subset when any are checked, otherwise all filtered tracks. Always
+// returns track *objects* (the public API for write ops).
 function activeTracks() {
-  const filtered = filteredTracks();
-  if (selectedTrackIds.size === 0) return filtered;
-  return filtered.filter(t => selectedTrackIds.has(t.id));
+  const filteredIdx = filteredTracks();
+  const all = filteredIdx.map(i => parsedTracks[i]);
+  if (selectedTrackIds.size === 0) return all;
+  return all.filter(t => selectedTrackIds.has(t.id));
 }
 
 function updateSelectionBar() {
@@ -8077,7 +8264,8 @@ async function showTransitionScore() {
 
 function sortedTracks() {
   const { by, order } = currentSort;
-  const sorted = [...filteredTracks()].sort((a, b) => {
+  const indices = filteredTracks();
+  const sorted = indices.map(i => parsedTracks[i]).sort((a, b) => {
     let av, bv;
     if (by === 'bpm') { av = a.bpm || 0; bv = b.bpm || 0; }
     else if (by === 'artist') { av = (a.artist || '').toLowerCase(); bv = (b.artist || '').toLowerCase(); }
@@ -8815,14 +9003,10 @@ function _computeSettingsFingerprint() {
 // render via the standard renderTracks() path (which reads phraseCueState).
 function _updateTrackCardCues(trackId) {
   const tid = String(trackId);
-  const oldCard = _cardMap.get(tid);
-  if (!oldCard || !oldCard.parentNode) return;
   const track = parsedTracksById.get(tid);
   if (!track) return;
   const skipExisting = document.getElementById('skip-existing-cues')?.checked;
   if (skipExisting && track.existingHotCues > 0) return; // skipped card; nothing to refresh
-  // Replay the cue computation from renderTracks's inner computeCues — limited to
-  // the phrase-mode branch since this entry point only fires while phrase cues land.
   let cues = [];
   if (analysisMode === 'phrase' && phraseCueState[track.id]?.length) {
     cues = phraseCueState[track.id].map(c => ({
@@ -8834,9 +9018,37 @@ function _updateTrackCardCues(trackId) {
   }
   if (!cues.length) return; // nothing to render (no phrase data yet for this track)
   const willSkip = false;
-  const newCard = buildTrackCard(track, cues, willSkip, {});
-  oldCard.parentNode.replaceChild(newCard, oldCard);
-  _cardMap.set(tid, newCard);
+  // Album mode (or any non-virtualized render): patch via _cardMap.
+  const albumCard = _cardMap.get(tid);
+  if (albumCard && albumCard.parentNode) {
+    const newCard = buildTrackCard(track, cues, willSkip, {});
+    albumCard.parentNode.replaceChild(newCard, albumCard);
+    _cardMap.set(tid, newCard);
+    return;
+  }
+  // Flat-list (virtualized): find the live node by track id in the visible
+  // index. Off-screen tracks will pick up cues on their next natural render.
+  if (Virtualizer.isAttached()) {
+    const visMap = Virtualizer.visibleIndex();
+    let target = null;
+    visMap.forEach(function(node) {
+      if (!target && node.dataset.trackId === tid) target = node;
+    });
+    if (target && target.parentNode) {
+      const baseTransform = target.style.transform || '';
+      const newCard = buildTrackCard(track, cues, willSkip, {});
+      newCard.style.position = 'absolute';
+      newCard.style.left = '0';
+      newCard.style.right = '0';
+      newCard.style.top = '0';
+      newCard.style.transform = baseTransform;
+      target.parentNode.replaceChild(newCard, target);
+      // Keep the _visibleIndex map pointing at the new node.
+      visMap.forEach(function(node, idx) {
+        if (node === target) visMap.set(idx, newCard);
+      });
+    }
+  }
 }
 
 function renderTracks() {
@@ -8844,6 +9056,7 @@ function renderTracks() {
   const skipExisting = document.getElementById('skip-existing-cues').checked;
   const list = document.getElementById('track-list');
   if (!parsedTracks.length) {
+    if (Virtualizer.isAttached()) Virtualizer.detach();
     list.innerHTML = '';
     _cardMap.clear(); _cardSettingsFingerprint = '';
     const empty = document.createElement('div');
@@ -8912,6 +9125,7 @@ function renderTracks() {
   const sorted = sortedTracks();
 
   if (!sorted.length) {
+    if (Virtualizer.isAttached()) Virtualizer.detach();
     list.innerHTML = '';
     _cardMap.clear(); _cardSettingsFingerprint = '';
     const empty = document.createElement('div');
@@ -8933,6 +9147,7 @@ function renderTracks() {
   }
 
   if (currentSort.by === 'album') {
+    if (Virtualizer.isAttached()) Virtualizer.detach();
     const newFingerprint = _computeSettingsFingerprint();
     const newSortKey = sorted.map(t => t.id).join(',');
     const settingsChanged = newFingerprint !== _cardSettingsFingerprint;
@@ -9053,110 +9268,142 @@ function renderTracks() {
       }
     }
   } else {
-    // --- Batch C: Smart Track List Diffing ---
+    // --- Virtualized flat list (TASK-031/032/035) ---
+    // The flat list uses a single recycled DOM pool managed by Virtualizer.
+    // _cardMap is the *album-mode* cache only; in flat mode we read from
+    // Virtualizer.visibleIndex() to find the live nodes by filtered-list index.
     const newFingerprint = _computeSettingsFingerprint();
     const settingsChanged = newFingerprint !== _cardSettingsFingerprint;
+
+    // Pre-tally counters across the full sorted list (cheap; doesn't touch DOM).
+    for (const track of sorted) {
+      const cues = computeCues(track);
+      if (cues.length) { tracksWithCues++; totalCues += cues.length; }
+    }
+
+    // Capture pre-update visible positions for FLIP (visible-only scope).
+    const prevVisible = Virtualizer.isAttached() ? Virtualizer.visibleIndex() : null;
+    const snapshots = new Map();
+    let exitCount = 0;
+    if (prevVisible && !settingsChanged && !_prefersReducedMotion) {
+      const newSet = new Set(sorted.map(t => String(t.id)));
+      prevVisible.forEach(function(node) {
+        const tid = node.dataset.trackId;
+        if (!tid) return;
+        if (!newSet.has(tid)) { exitCount++; return; }
+        snapshots.set(tid, node.getBoundingClientRect().top);
+      });
+    }
+    const animateTransitions = !settingsChanged && !_prefersReducedMotion && exitCount <= 30 && snapshots.size > 0;
+
+    const renderItem = function(index, recycledNode) {
+      const track = sorted[index];
+      if (!track) return null;
+      const cues = computeCues(track);
+      const willSkip = skipExisting && track.existingHotCues > 0;
+      // Build fresh — recycling here means reusing position in DOM, not
+      // mutating internals. The card subtree depends on cues + audioState +
+      // healthData + pendingCues which all vary per-track; rebuilding the
+      // node body is simpler than 20-field surgical updates and still saves
+      // the heavy cost: only ~viewport+buffer cards exist in the DOM at all.
+      const card = buildTrackCard(track, cues, willSkip, {});
+      const isSelected = selectedTrackIds.has(track.id) || selectedTrackIds.has(String(track.id));
+      card.classList.toggle('selected', isSelected);
+      if (recycledNode && recycledNode.parentNode) {
+        recycledNode.parentNode.replaceChild(card, recycledNode);
+      }
+      return card;
+    };
+
+    const onWindowChange = function(start, end, visibleMap) {
+      // Re-attach lazy observers to currently-visible nodes only. observe()
+      // is idempotent on the same target so repeated calls are safe.
+      if (!localMode) return;
+      visibleMap.forEach(function(card) {
+        const spark = card.querySelector && card.querySelector('.energy-sparkline');
+        if (spark && _sparkObserver) _sparkObserver.observe(spark);
+        if (_mixObserver) {
+          const mixEls = card.querySelectorAll('.mix-score-chip[data-track-id], .category-chip[data-track-id]');
+          for (let i = 0; i < mixEls.length; i++) _mixObserver.observe(mixEls[i]);
+        }
+      });
+    };
+
+    // Settings fingerprint change forces a full rebuild via detach + attach.
     if (settingsChanged) {
       _cardSettingsFingerprint = newFingerprint;
       _cardMap.clear();
+      if (Virtualizer.isAttached()) Virtualizer.detach();
     }
 
-    const newSet = new Set(sorted.map(t => String(t.id)));
+    // (Re)build the localMode lazy observers BEFORE attach so onWindowChange
+    // can immediately wire newly-rendered cards.
+    if (localMode) {
+      if (_sparkObserver) _sparkObserver.disconnect();
+      _sparkObserver = new IntersectionObserver((entries) => {
+        for (const entry of entries) {
+          if (entry.isIntersecting) {
+            _sparkObserver.unobserve(entry.target);
+            _renderEnergySparkline(entry.target);
+          }
+        }
+      }, { rootMargin: '200px' });
 
-    // Pre-count exits to decide whether to animate (must happen before snapshot to avoid wasted layout work)
-    const exitCount = [..._cardMap.keys()].filter(id => !newSet.has(id)).length;
-    const animateTransitions = !settingsChanged && !_prefersReducedMotion && exitCount <= 30;
+      if (_mixObserver) _mixObserver.disconnect();
+      _mixObserver = new IntersectionObserver((entries) => {
+        for (const entry of entries) {
+          if (entry.isIntersecting) {
+            _mixObserver.unobserve(entry.target);
+            if (entry.target._isCategoryChip) {
+              _renderCategoryChip(entry.target);
+            } else {
+              _renderMixabilityChip(entry.target, entry.target._breakdown);
+            }
+          }
+        }
+      }, { rootMargin: '200px' });
+    }
 
-    // Snapshot positions of staying cards (FLIP "first" step — before any DOM changes)
-    const snapshots = new Map();
+    if (!Virtualizer.isAttached()) {
+      Virtualizer.attach(list, {
+        itemHeight: CARD_HEIGHT_PX,
+        totalCount: sorted.length,
+        renderItem: renderItem,
+        onWindowChange: onWindowChange,
+      });
+    } else {
+      // Stash the renderItem closure on the virtualizer's options via a fresh
+      // attach when sorted changes substantially. Otherwise just refresh.
+      Virtualizer.detach();
+      Virtualizer.attach(list, {
+        itemHeight: CARD_HEIGHT_PX,
+        totalCount: sorted.length,
+        renderItem: renderItem,
+        onWindowChange: onWindowChange,
+      });
+    }
+
+    // FLIP for visible-only reorders: nodes that survived the re-attach and
+    // changed position get a transform animation. Composes with the inline
+    // translateY by animating from (current + delta) → current.
     if (animateTransitions) {
-      for (const [id, card] of _cardMap) {
-        if (newSet.has(id) && card.isConnected) {
-          snapshots.set(id, card.getBoundingClientRect().top);
-        }
-      }
-    }
-
-    // Identify exiting cards — skip animation for large exits (> 30 cards) to avoid DOM bloat
-    const exitingCards = [];
-    for (const [id, card] of _cardMap) {
-      if (!newSet.has(id)) {
-        _cardMap.delete(id);
-        if (animateTransitions) {
-          card.classList.add('card-exit');
-          card.addEventListener('animationend', () => card.remove(), { once: true });
-          setTimeout(() => { if (card.isConnected) card.remove(); }, 300); // fallback if animationend never fires
-          exitingCards.push(card);
-        }
-      }
-    }
-
-    // Build or reuse cards for new sorted list
-    const newCards = [];
-    const enteringCards = [];
-    for (const track of sorted) {
-      const tid = String(track.id);
-      const willSkip = skipExisting && track.existingHotCues > 0;
-      const cues = computeCues(track);
-      if (cues.length) { tracksWithCues++; totalCues += cues.length; }
-
-      let card = _cardMap.get(tid);
-      if (!card || settingsChanged) {
-        card = buildTrackCard(track, cues, willSkip, {});
-        _cardMap.set(tid, card);
-        enteringCards.push(card);
-      } else {
-        // Sync selection state for reused cards (may have changed via Select All etc.)
-        const isSelected = selectedTrackIds.has(track.id) || selectedTrackIds.has(tid);
-        const cb = card.querySelector('.track-select-cb');
-        if (cb) cb.checked = isSelected;
-        card.classList.toggle('selected', isSelected);
-      }
-      newCards.push(card);
-    }
-
-    // Commit new DOM order — exiting cards appended at end so they animate out in place
-    list.replaceChildren(...newCards, ...exitingCards);
-
-    // FLIP: batch-read all "Last" positions first, then apply animations (avoids layout thrashing)
-    if (animateTransitions && snapshots.size) {
       const flipDeltas = [];
-      for (const card of newCards) {
+      Virtualizer.visibleIndex().forEach(function(card) {
         const tid = card.dataset.trackId;
-        if (!tid || !snapshots.has(tid)) continue;
-        const newTop = card.getBoundingClientRect().top; // all reads batched before any animate()
+        if (!tid || !snapshots.has(tid)) return;
+        const newTop = card.getBoundingClientRect().top;
         const delta = snapshots.get(tid) - newTop;
-        if (Math.abs(delta) > 0.5) flipDeltas.push({ card, delta });
-      }
+        if (Math.abs(delta) > 0.5) flipDeltas.push({ card: card, delta: delta });
+      });
       for (const { card, delta } of flipDeltas) {
+        const baseTransform = card.style.transform || '';
         card.animate(
-          [{ transform: `translateY(${delta}px)` }, { transform: 'translateY(0)' }],
+          [
+            { transform: `${baseTransform} translateY(${delta}px)` },
+            { transform: `${baseTransform} translateY(0)` },
+          ],
           { duration: 250, easing: 'ease-out' }
         );
-      }
-    }
-
-    // Enter animation for new cards (staggered, max 8; rest revealed by scroll)
-    if (!_prefersReducedMotion && enteringCards.length) {
-      enteringCards.slice(0, 8).forEach(function(card, i) {
-        card.style.animationDelay = (i * 30) + 'ms';
-        card.classList.add('card-enter');
-      });
-      if (enteringCards.length > 8) {
-        if (_enterObserver) { _enterObserver.disconnect(); }
-        _enterObserver = new IntersectionObserver(function(entries) {
-          entries.forEach(function(entry) {
-            if (entry.isIntersecting) {
-              entry.target.style.opacity = '';
-              entry.target.classList.add('card-enter');
-              _enterObserver.unobserve(entry.target);
-            }
-          });
-        }, { threshold: 0.05, rootMargin: '0px 0px 100px 0px' });
-        enteringCards.slice(8).forEach(function(card) {
-          card.style.opacity = '0';
-          _enterObserver.observe(card);
-        });
       }
     }
   }
@@ -9180,7 +9427,9 @@ function renderTracks() {
     `${tracksWithCues} track${tracksWithCues !== 1 ? 's' : ''} · ${totalCues} cue${totalCues !== 1 ? 's' : ''}`;
   updateSelectionBar();
 
-  if (localMode) {
+  // Flat-list mode wires its lazy observers via Virtualizer.onWindowChange,
+  // so the post-render observer pass below only fires in album mode.
+  if (localMode && !Virtualizer.isAttached()) {
     if (_sparkObserver) { _sparkObserver.disconnect(); }
     _sparkObserver = new IntersectionObserver((entries) => {
       for (const entry of entries) {
@@ -9214,7 +9463,8 @@ function renderTracks() {
 
   // A8: prune _cardMap of trackIds whose card is no longer in the DOM. Bounds
   // memory across long sessions where filters / playlist swaps thin the list.
-  if (_cardMap.size > 0) {
+  // In flat-list mode _cardMap is unused, so this only runs for album mode.
+  if (_cardMap.size > 0 && !Virtualizer.isAttached()) {
     const visibleIds = new Set(
       Array.from(list.querySelectorAll('.track-card[data-track-id]'))
         .map(el => el.dataset.trackId)
@@ -9299,6 +9549,7 @@ function handleFile(file) {
     _energyCache = {};           // D4 fix: clear stale curves on XML reload
     _cardMap.clear();            // C: force full rebuild on XML reload
     _cardSettingsFingerprint = '';
+    if (Virtualizer.isAttached()) Virtualizer.detach();
     originalXmlText = e.target.result;
 
     const withExisting = tracks.filter(t => t.existingHotCues > 0).length;
@@ -9608,7 +9859,7 @@ document.addEventListener('click', function(e) {
       const visible = document.getElementById('track-list');
       if (visible) {
         e.preventDefault();
-        filteredTracks().forEach(t => selectedTrackIds.add(String(t.id)));
+        filteredTracks().forEach(i => selectedTrackIds.add(String(parsedTracks[i].id)));
         updateSelectionBar();
         AppState.signal('filters');
       }
@@ -9737,7 +9988,7 @@ document.getElementById('preview-cues-btn').addEventListener('click', async () =
   const btn = document.getElementById('preview-cues-btn');
   btn.textContent = 'Loading…'; btn.disabled = true;
   const { barsInterval, startBar, maxCues } = getSettings();
-  const tracks = filteredTracks();
+  const tracks = filteredTracks().map(i => parsedTracks[i]);
   try {
     const r = await fetch('/api/generate', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -9912,7 +10163,14 @@ async function loadPhraseFromServer() {
   // Off-screen tracks pick up cues on next natural render (via renderTracks
   // building cards through buildTrackCard which reads phraseCueState).
   if (_phraseLoadedEpoch === _libraryEpoch && Object.keys(phraseCueState).length > 0) {
+    // Refresh visible cards across both render paths: album mode uses _cardMap;
+    // flat-list (virtualized) uses Virtualizer.visibleIndex.
     for (const tid of _cardMap.keys()) _updateTrackCardCues(tid);
+    if (Virtualizer.isAttached()) {
+      Virtualizer.visibleIndex().forEach(function(node) {
+        if (node && node.dataset.trackId) _updateTrackCardCues(node.dataset.trackId);
+      });
+    }
     return;
   }
 

@@ -4,7 +4,7 @@
     "title": "Introduce shared ThreadPoolExecutor primitive (autocue.analysis.concurrency)",
     "category": "functional",
     "specFilePath": ".agent/tasks/performance/TASK-001.json",
-    "passes": false
+    "passes": true
   },
   {
     "id": "TASK-002",
@@ -214,35 +214,35 @@
     "title": "Introduce Virtualizer IIFE in docs/index.html",
     "category": "ui-ux",
     "specFilePath": ".agent/tasks/performance/TASK-031.json",
-    "passes": false
+    "passes": true
   },
   {
     "id": "TASK-032",
     "title": "DOM node recycling pool (~40 nodes) replaces full-render _cardMap",
     "category": "ui-ux",
     "specFilePath": ".agent/tasks/performance/TASK-032.json",
-    "passes": false
+    "passes": true
   },
   {
     "id": "TASK-033",
     "title": "Lock card height for virtualization math + document constraint",
     "category": "ui-ux",
     "specFilePath": ".agent/tasks/performance/TASK-033.json",
-    "passes": false
+    "passes": true
   },
   {
     "id": "TASK-034",
     "title": "filteredTracks() returns indices into parsedTracks (not full objects)",
     "category": "ui-ux",
     "specFilePath": ".agent/tasks/performance/TASK-034.json",
-    "passes": false
+    "passes": true
   },
   {
     "id": "TASK-035",
     "title": "Preserve existing UX: _cardMap fingerprint, FLIP scope, IntersectionObservers",
     "category": "ui-ux",
     "specFilePath": ".agent/tasks/performance/TASK-035.json",
-    "passes": false
+    "passes": true
   },
   {
     "id": "TASK-036",
