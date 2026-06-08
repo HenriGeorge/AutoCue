@@ -1,5 +1,17 @@
 # Performance v1 — Implementation Notes
 
+## §6 Budget enforcement status
+
+| Budget (PRD §6) | Enforced by | Status |
+|---|---|---|
+| `/api/tracks` warm p95 ≤ 200 ms | `tests/perf/test_tracks_endpoint.py::test_tracks_warm_p95_meets_prd_budget` | ✅ gated (RUN_PERF=1) |
+| `/api/tracks` first load p95 ≤ 800 ms | (none — needs synthetic SQLCipher fixture) | ⏳ deferred |
+| Startup → first usable UI < 1.5 s | (none — same fixture dependency) | ⏳ deferred |
+
+The cold-path + startup budgets are blocked on a synthetic Rekordbox SQLCipher
+fixture (pyrekordbox key handling + DjmdContent/DjmdHistory/DjmdSongMyTag/
+DjmdColor schema). Tracked as future work; out of scope for the warm-path gate.
+
 ## TASK-024: /api/tracks SQL pattern at 10k
 
 **Status**: deferred — needs synthetic Rekordbox sandbox DB to benchmark properly.
