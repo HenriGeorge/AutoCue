@@ -420,6 +420,12 @@ class AutoTagUndoData(BaseModel):
 class AutoTagResponse(BaseModel):
     tagged: int
     skipped_no_data: int = 0
+    # Per-reason breakdown so callers can tell PWAV-missing from
+    # low-confidence-classifier from missing-metadata. Codes:
+    # "no_energy_data" / "no_phrase_data" / "low_confidence" / "no_metadata".
+    # A single track requesting multiple tag types may contribute to multiple
+    # reasons. Default empty for backwards compat.
+    skipped_reasons: dict[str, int] = {}
     errors: int
     dry_run: bool
     undo_data: AutoTagUndoData | None = None

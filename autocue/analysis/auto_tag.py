@@ -380,45 +380,60 @@ def ensure_tag_by_name(db, name: str, attribute: int = 1) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Per-type detection functions — return list of tag *names* to apply
+# Per-type detection functions — return (list of tag *names* to apply,
+# optional skip-reason code).
+#
+# Skip-reason codes are advisory diagnostics so callers can tell PWAV-missing
+# (no_energy_data) from PSSI-missing (no_phrase_data) from sub-threshold
+# classification (low_confidence) from missing metadata. These map 1:1 to
+# the keys exposed by ``AutoTagResponse.skipped_reasons``.
+#
+# A detector returns ``(names, None)`` when at least one tag was produced OR
+# when the empty result is a documented expected outcome (e.g., intro/outro
+# both medium-length), not a data gap.
 # ---------------------------------------------------------------------------
+SKIP_NO_ENERGY   = "no_energy_data"   # PWAV missing  → energy / category blocked
+SKIP_NO_PHRASE   = "no_phrase_data"   # PSSI missing  → vocal / intro_outro / category
+SKIP_LOW_CONFID  = "low_confidence"   # classifier confidence < MIN_SCORE
+SKIP_NO_METADATA = "no_metadata"      # decade / bpm_tier / play_history
 
-def _detect_category(content, db) -> list[str]:
+
+def _detect_category(content, db) -> tuple[list[str], str | None]:
     curve = get_energy_curve(content, db)
     if not curve:
-        return []
+        return [], SKIP_NO_ENERGY
     clf = get_classification(content, db)
     if clf is None:
-        return []
+        return [], SKIP_NO_PHRASE
     top_cat = clf["primary"]
     if clf["scores"].get(top_cat, 0.0) < MIN_SCORE:
-        return []
-    return [_CATEGORIES[top_cat]["name"]]
+        return [], SKIP_LOW_CONFID
+    return [_CATEGORIES[top_cat]["name"]], None
 
 
-def _detect_vocal(content, db) -> list[str]:
+def _detect_vocal(content, db) -> tuple[list[str], str | None]:
     mix = get_mixability(content, db)
     if mix is None:
-        return []
-    return ["Vocal" if mix["vocal_proxy"] else "Instrumental"]
+        return [], SKIP_NO_PHRASE
+    return ["Vocal" if mix["vocal_proxy"] else "Instrumental"], None
 
 
-def _detect_energy_level(content, db) -> list[str]:
+def _detect_energy_level(content, db) -> tuple[list[str], str | None]:
     curve = get_energy_curve(content, db)
     if not curve:
-        return []
+        return [], SKIP_NO_ENERGY
     mean = sum(curve) / len(curve)
     if mean >= 0.65:
-        return ["High Energy"]
+        return ["High Energy"], None
     if mean >= 0.35:
-        return ["Mid Energy"]
-    return ["Low Energy"]
+        return ["Mid Energy"], None
+    return ["Low Energy"], None
 
 
-def _detect_energy_profile(content, db) -> list[str]:
+def _detect_energy_profile(content, db) -> tuple[list[str], str | None]:
     curve = get_energy_curve(content, db)
     if not curve:
-        return []
+        return [], SKIP_NO_ENERGY
     profile = classify_energy_profile(curve)
     name_map = {
         "build":          "Build Track",
@@ -427,13 +442,14 @@ def _detect_energy_profile(content, db) -> list[str]:
         "drop-then-flat": "Drop Track",
     }
     name = name_map.get(profile)
-    return [name] if name else []
+    # An unrecognised profile string is a logic gap, not a data gap.
+    return ([name], None) if name else ([], None)
 
 
-def _detect_intro_outro(content, db) -> list[str]:
+def _detect_intro_outro(content, db) -> tuple[list[str], str | None]:
     mix = get_mixability(content, db)
     if mix is None or mix.get("phrase_count", 0) == 0:
-        return []
+        return [], SKIP_NO_PHRASE
     tags = []
     intro = mix.get("intro_bars", 0)
     outro = mix.get("outro_bars", 0)
@@ -445,56 +461,58 @@ def _detect_intro_outro(content, db) -> list[str]:
         tags.append("Long Outro")
     elif 0 < outro <= SHORT_OUTRO_BARS:
         tags.append("Short Outro")
-    return tags
+    # Medium-length intro/outro is a valid "nothing to tag" outcome.
+    return tags, None
 
 
-def _detect_decade(content, db) -> list[str]:
+def _detect_decade(content, db) -> tuple[list[str], str | None]:
     year = getattr(content, "ReleaseYear", None)
     if not year:
-        return []
+        return [], SKIP_NO_METADATA
     try:
         year = int(year)
     except (ValueError, TypeError):
-        return []
+        return [], SKIP_NO_METADATA
     if year <= 0:
-        return []
+        return [], SKIP_NO_METADATA
     decade_start = (year // 10) * 10
     decade_map = {1960: "60s", 1970: "70s", 1980: "80s", 1990: "90s",
                   2000: "00s", 2010: "10s", 2020: "20s"}
-    return [decade_map[decade_start]] if decade_start in decade_map else []
+    return ([decade_map[decade_start]], None) if decade_start in decade_map else ([], None)
 
 
-def _detect_bpm_tier(content, db) -> list[str]:
+def _detect_bpm_tier(content, db) -> tuple[list[str], str | None]:
     bpm_raw = getattr(content, "BPM", None)
     if not bpm_raw:
-        return []
+        return [], SKIP_NO_METADATA
     try:
         bpm = float(bpm_raw) / 100.0
     except (ValueError, TypeError):
-        return []
+        return [], SKIP_NO_METADATA
     if bpm <= 0:
-        return []
-    if bpm < 120: return ["<120 BPM"]
-    if bpm < 125: return ["120–124 BPM"]
-    if bpm < 129: return ["125–128 BPM"]
-    if bpm < 136: return ["129–135 BPM"]
-    if bpm < 145: return ["136–144 BPM"]
-    return [">144 BPM"]
+        return [], SKIP_NO_METADATA
+    if bpm < 120: return ["<120 BPM"], None
+    if bpm < 125: return ["120–124 BPM"], None
+    if bpm < 129: return ["125–128 BPM"], None
+    if bpm < 136: return ["129–135 BPM"], None
+    if bpm < 145: return ["136–144 BPM"], None
+    return [">144 BPM"], None
 
 
-def _detect_play_history(content, db) -> list[str]:
+def _detect_play_history(content, db) -> tuple[list[str], str | None]:
     count_raw = getattr(content, "DJPlayCount", None)
     try:
         count = int(str(count_raw or 0))
     except (ValueError, TypeError):
         count = 0
     if count == 0:
-        return ["Never Played"]
+        return ["Never Played"], None
     if count <= 5:
-        return ["Rarely Played"]
+        return ["Rarely Played"], None
     if count >= 25:
-        return ["Frequently Played"]
-    return []
+        return ["Frequently Played"], None
+    # 6..24 plays — valid range with no tag; not a data gap.
+    return [], None
 
 
 _DETECTORS = {
@@ -546,24 +564,38 @@ def apply_tags(
 
     tagged = 0
     skipped_no_data = 0
+    skipped_reasons: dict[str, int] = {}
     errors = 0
     undo_data: dict[str, Any] = {"removed": [], "added": []}
 
     # TASK-005 default-on as of TASK-008 verification; set =0 to disable.
     parallel = _os.environ.get("AUTOCUE_PARALLEL_AUTO_TAG", "1") != "0"
 
+    def _bump_reasons(reasons_for_track: set[str]) -> None:
+        """Accumulate per-track skip reasons into the response counter. A track
+        with multiple requested tag types hitting the same data gap counts the
+        reason ONCE per track — using a set per track keeps the breakdown
+        meaningful as a "tracks affected by this gap" count."""
+        for code in reasons_for_track:
+            skipped_reasons[code] = skipped_reasons.get(code, 0) + 1
+
     def _eval_one(track_id):
-        """Pure-read worker: resolve content + run detectors. No writes."""
+        """Pure-read worker: resolve content + run detectors. No writes.
+        Returns (track_id, content, names, reasons_set, exc)."""
         try:
             content = db.get_content(ID=track_id)
             if content is None:
-                return (track_id, None, [], None)
+                return (track_id, None, [], set(), None)
             names: list[str] = []
+            reasons: set[str] = set()
             for ttype in active_types:
-                names.extend(_DETECTORS[ttype](content, db))
-            return (track_id, content, names, None)
+                got_names, reason = _DETECTORS[ttype](content, db)
+                names.extend(got_names)
+                if reason is not None:
+                    reasons.add(reason)
+            return (track_id, content, names, reasons, None)
         except Exception as exc:
-            return (track_id, None, [], exc)
+            return (track_id, None, [], set(), exc)
 
     def _write_one(track_id, names_to_write):
         """Writer-thread side: delete old AutoCue tags + add new ones. Mutates
@@ -609,7 +641,7 @@ def apply_tags(
         # Writer (this thread) drains completions one at a time.
         for fut in _as_completed(futures):
             try:
-                track_id, content, names_to_write, exc = fut.result()
+                track_id, content, names_to_write, reasons_set, exc = fut.result()
             except Exception as outer:
                 errors += 1
                 if errors <= 3:
@@ -625,6 +657,7 @@ def apply_tags(
                 continue
             if not names_to_write:
                 skipped_no_data += 1
+                _bump_reasons(reasons_set)
                 continue
             if dry_run:
                 tagged += 1
@@ -643,11 +676,16 @@ def apply_tags(
                     continue
 
                 names_to_write: list[str] = []
+                reasons_set: set[str] = set()
                 for ttype in active_types:
-                    names_to_write.extend(_DETECTORS[ttype](content, db))
+                    got_names, reason = _DETECTORS[ttype](content, db)
+                    names_to_write.extend(got_names)
+                    if reason is not None:
+                        reasons_set.add(reason)
 
                 if not names_to_write:
                     skipped_no_data += 1
+                    _bump_reasons(reasons_set)
                     continue
 
                 if dry_run:
@@ -671,6 +709,7 @@ def apply_tags(
     return {
         "tagged": tagged,
         "skipped_no_data": skipped_no_data,
+        "skipped_reasons": skipped_reasons,
         "errors": errors,
         "dry_run": dry_run,
         "undo_data": undo_data if not dry_run else None,

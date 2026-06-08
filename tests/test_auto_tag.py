@@ -555,3 +555,148 @@ class TestApplyTags:
         with patch(f"{MODULE}.ensure_tags", return_value={}):
             result = apply_tags(db, [999], tag_types=["vocal"])
         assert result["tagged"] == 0
+
+
+# ---------------------------------------------------------------------------
+# skipped_reasons diagnostic breakdown (issue #118)
+# ---------------------------------------------------------------------------
+
+class TestSkippedReasons:
+    """Per-detector skip-reason accounting in apply_tags.
+
+    Regression guard for issue #118: callers couldn't tell whether
+    skipped_no_data meant "PWAV missing" or "PSSI missing" or
+    "classifier confidence too low". The response now carries a
+    skipped_reasons dict with codes:
+      no_energy_data / no_phrase_data / low_confidence / no_metadata.
+    """
+
+    def _base_db(self):
+        return _make_db()
+
+    def test_skipped_reasons_default_empty_when_all_tagged(self):
+        """Boundary: zero skips → empty skipped_reasons dict."""
+        from autocue.analysis.auto_tag import apply_tags
+        db = self._base_db()
+        db.get_content.return_value = _make_content(1)
+        mix = {"vocal_proxy": True, "phrase_count": 4, "intro_bars": 8, "outro_bars": 8}
+        with patch(f"{MODULE}.get_mixability", return_value=mix):
+            with patch(f"{MODULE}.ensure_tags", return_value={"Vocal": "10", "Instrumental": "11"}):
+                result = apply_tags(db, [1], tag_types=["vocal"])
+        assert result["tagged"] == 1
+        assert result["skipped_reasons"] == {}
+
+    def test_no_phrase_data_reason_recorded_for_vocal(self):
+        """REGRESSION (issue #118): vocal tag missing PSSI → skipped_no_data
+        was the only signal. Now we report 'no_phrase_data' explicitly."""
+        from autocue.analysis.auto_tag import apply_tags, SKIP_NO_PHRASE
+        db = self._base_db()
+        db.get_content.return_value = _make_content(1)
+        with patch(f"{MODULE}.get_mixability", return_value=None):
+            with patch(f"{MODULE}.ensure_tags", return_value={"Vocal": "10", "Instrumental": "11"}):
+                result = apply_tags(db, [1], tag_types=["vocal"])
+        assert result["tagged"] == 0
+        assert result["skipped_no_data"] == 1
+        assert result["skipped_reasons"] == {SKIP_NO_PHRASE: 1}
+
+    def test_no_energy_data_reason_recorded_for_category(self):
+        """REGRESSION (issue #118): category requested but PWAV missing →
+        previous response said 'no data', conflating with low confidence."""
+        from autocue.analysis.auto_tag import apply_tags, SKIP_NO_ENERGY
+        db = self._base_db()
+        db.get_content.return_value = _make_content(1)
+        with patch(f"{MODULE}.get_energy_curve", return_value=None):
+            with patch(f"{MODULE}.ensure_tags", return_value={"Peak": "20"}):
+                result = apply_tags(db, [1], tag_types=["category"])
+        assert result["skipped_reasons"] == {SKIP_NO_ENERGY: 1}
+
+    def test_low_confidence_reason_recorded_when_classifier_under_threshold(self):
+        """BOUNDARY (issue #118): score exactly below MIN_SCORE (0.70) →
+        category skipped for 'low_confidence', NOT 'no_energy_data'.
+        This is the failure mode the QA agent mis-attributed to audio paths."""
+        from autocue.analysis.auto_tag import apply_tags, SKIP_LOW_CONFID, MIN_SCORE
+        db = self._base_db()
+        db.get_content.return_value = _make_content(1)
+        curve = [0.5] * 50
+        clf = {"primary": "peak", "scores": {"peak": MIN_SCORE - 0.01}}
+        with patch(f"{MODULE}.get_energy_curve", return_value=curve):
+            with patch(f"{MODULE}.get_classification", return_value=clf):
+                with patch(f"{MODULE}.ensure_tags", return_value={"Peak": "20"}):
+                    result = apply_tags(db, [1], tag_types=["category"])
+        assert result["skipped_reasons"] == {SKIP_LOW_CONFID: 1}
+
+    def test_low_confidence_boundary_at_exact_min_score_does_NOT_skip(self):
+        """BOUNDARY: score == MIN_SCORE is the qualifying threshold (>=), so
+        the track tags successfully. Guards against off-by-one regressions
+        in the cutoff direction."""
+        from autocue.analysis.auto_tag import apply_tags, MIN_SCORE
+        db = self._base_db()
+        db.get_content.return_value = _make_content(1)
+        curve = [0.5] * 50
+        clf = {"primary": "peak", "scores": {"peak": MIN_SCORE}}
+        with patch(f"{MODULE}.get_energy_curve", return_value=curve):
+            with patch(f"{MODULE}.get_classification", return_value=clf):
+                with patch(f"{MODULE}.ensure_tags", return_value={"Peak": "20"}):
+                    result = apply_tags(db, [1], tag_types=["category"])
+        assert result["tagged"] == 1
+        assert result["skipped_reasons"] == {}
+
+    def test_no_metadata_reason_recorded_for_bpm_tier(self):
+        """A track with no BPM at all triggers 'no_metadata' (not
+        'no_energy_data' — distinct gap category)."""
+        from autocue.analysis.auto_tag import apply_tags, SKIP_NO_METADATA
+        db = self._base_db()
+        content = _make_content(1, bpm_str=None)
+        db.get_content.return_value = content
+        with patch(f"{MODULE}.ensure_tags", return_value={"<120 BPM": "30"}):
+            result = apply_tags(db, [1], tag_types=["bpm_tier"])
+        assert result["skipped_reasons"] == {SKIP_NO_METADATA: 1}
+
+    def test_track_with_multiple_gaps_counted_once_per_reason(self):
+        """INVARIANT: A track requesting both 'category' and 'vocal' that
+        lacks PSSI hits 'no_phrase_data' from BOTH detectors — but should
+        be counted ONCE per reason per track. The dict value tracks
+        'tracks affected', not 'detector invocations'."""
+        from autocue.analysis.auto_tag import apply_tags, SKIP_NO_PHRASE
+        db = self._base_db()
+        db.get_content.return_value = _make_content(1)
+        # Energy is present (so category passes the PWAV check) but
+        # classification returns None (PSSI missing path inside _detect_category)
+        # AND vocal also hits 'no_phrase_data' via get_mixability=None.
+        curve = [0.5] * 50
+        with patch(f"{MODULE}.get_energy_curve", return_value=curve):
+            with patch(f"{MODULE}.get_classification", return_value=None):
+                with patch(f"{MODULE}.get_mixability", return_value=None):
+                    with patch(f"{MODULE}.ensure_tags", return_value={"Vocal": "10", "Instrumental": "11", "Peak": "20"}):
+                        result = apply_tags(db, [1], tag_types=["category", "vocal"])
+        assert result["skipped_no_data"] == 1
+        assert result["skipped_reasons"] == {SKIP_NO_PHRASE: 1}
+
+    def test_multiple_tracks_accumulate_reasons(self):
+        """INVARIANT: N tracks all hitting the same gap → reason counter = N."""
+        from autocue.analysis.auto_tag import apply_tags, SKIP_NO_PHRASE
+        db = self._base_db()
+        db.get_content.return_value = _make_content(1)
+        with patch(f"{MODULE}.get_mixability", return_value=None):
+            with patch(f"{MODULE}.ensure_tags", return_value={"Vocal": "10", "Instrumental": "11"}):
+                result = apply_tags(db, [1, 2, 3], tag_types=["vocal"])
+        assert result["skipped_no_data"] == 3
+        assert result["skipped_reasons"] == {SKIP_NO_PHRASE: 3}
+
+    def test_intro_outro_medium_length_does_NOT_record_skip_reason(self):
+        """INVARIANT: detector returning empty for a documented expected
+        outcome (medium-length intro/outro) is NOT a data-gap skip. The
+        track is counted in skipped_no_data (no names produced) but no
+        reason code fires — distinguishes 'nothing to tag' from
+        'missing data'."""
+        from autocue.analysis.auto_tag import apply_tags
+        db = self._base_db()
+        db.get_content.return_value = _make_content(1)
+        # Medium intro (8 bars) + medium outro (8 bars) → empty tags list,
+        # but mix data is present → no reason code.
+        mix = {"vocal_proxy": False, "phrase_count": 4, "intro_bars": 8, "outro_bars": 8}
+        with patch(f"{MODULE}.get_mixability", return_value=mix):
+            with patch(f"{MODULE}.ensure_tags", return_value={"Long Intro": "40"}):
+                result = apply_tags(db, [1], tag_types=["intro_outro"])
+        assert result["skipped_no_data"] == 1
+        assert result["skipped_reasons"] == {}
