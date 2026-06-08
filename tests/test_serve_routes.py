@@ -2927,3 +2927,297 @@ class TestSimilarQueryBounds:
         for gate in (0.0, 50.0):
             r = client.get(f"/api/tracks/1/similar?bpm_gate={gate}")
             assert r.status_code != 422, f"bpm_gate={gate} should pass validation"
+
+
+# ---------------------------------------------------------------------------
+# Issue #106 — /api/apply, /api/generate-apply, /api/generate-apply-stream
+# MUST invalidate mixability sidecar rows for every successfully-written track
+# (mixability scores depend on intro/outro cue positions).
+# ---------------------------------------------------------------------------
+
+class TestApplyInvalidatesMixability:
+    """Regression suite for issue #106.
+
+    Each test uses an in-memory ``CacheStore`` mounted on ``app.state``, seeds
+    a mixability row for two tracks, then exercises the relevant endpoint and
+    asserts that:
+      - Tracks where ``write_cues_to_db`` returned ``n>0`` had their row dropped.
+      - Tracks where the write was a no-op (``n=0``) kept their row.
+      - A ``None`` ``cache_store`` (sidecar disabled) does not raise.
+    """
+
+    @staticmethod
+    def _seed_store():
+        from autocue.cache import CacheStore
+        store = CacheStore.open_memory()
+        # mtime=100.0 is arbitrary — only used for the (mtime-matching) hit path.
+        store.put_mixability(1, 0.7, {"any": True}, anlz_mtime=100.0)
+        store.put_mixability(2, 0.4, {"any": True}, anlz_mtime=100.0)
+        return store
+
+    @staticmethod
+    def _make_track(tid: int):
+        return SimpleNamespace(ID=tid, Title=f"T{tid}", BPM=12800, Length=300, UUID=f"u{tid}")
+
+    @staticmethod
+    def _client_with_store(db, store):
+        """Build a TestClient that does NOT enter lifespan (so the store
+        we mount is not closed under us when the call returns). The route
+        only needs ``request.app.state.cache_store``; FastAPI services
+        requests fine without lifespan startup having run."""
+        from autocue.serve.app import create_app
+        from autocue.serve.deps import get_db, get_ro_db
+        app = create_app()
+        app.dependency_overrides[get_db] = lambda: db
+        app.dependency_overrides[get_ro_db] = lambda: db
+        # Mount the store BEFORE the request — Starlette's TestClient does
+        # not auto-enter the lifespan unless used as a context manager.
+        app.state.cache_store = store
+        client = TestClient(app, raise_server_exceptions=False)
+        return client, app
+
+    # ----- /api/apply ----------------------------------------------------
+
+    def test_apply_invalidates_mixability_for_written_tracks(self, tmp_path):
+        db = _make_db()
+        db._db_dir = tmp_path
+        (tmp_path / "master.db").write_bytes(b"fake")
+        # Two distinct content objects so the route loops twice.
+        db.get_content.side_effect = [self._make_track(1), self._make_track(2)]
+
+        store = self._seed_store()
+        # Sanity: rows are present BEFORE the call.
+        assert store.get_mixability(1, expected_anlz_mtime=100.0) is not None
+        assert store.get_mixability(2, expected_anlz_mtime=100.0) is not None
+
+        with patch("autocue.db_writer.rekordbox_is_running", return_value=False):
+            with patch("autocue.db_writer.write_cues_to_db", return_value=1):
+                with patch("autocue.db_writer.BACKUP_DIR", tmp_path / "backups"):
+                    client, _ = self._client_with_store(db, store)
+                    r = client.post(
+                        "/api/apply",
+                        json={
+                            "tracks": [
+                                {"id": 1, "title": "T1", "mode_used": "bar", "skipped": False, "cues": [{"position_ms": 0, "label": "intro", "slot": 0, "name": "I", "color_id": 1}]},
+                                {"id": 2, "title": "T2", "mode_used": "bar", "skipped": False, "cues": [{"position_ms": 0, "label": "intro", "slot": 0, "name": "I", "color_id": 1}]},
+                            ],
+                            "dry_run": False,
+                            "overwrite": True,
+                        },
+                    )
+
+        assert r.status_code == 200, r.text
+        assert r.json()["applied"] == 2
+        # Regression guard: without the fix, both rows would still be present.
+        assert store.get_mixability(1, expected_anlz_mtime=100.0) is None
+        assert store.get_mixability(2, expected_anlz_mtime=100.0) is None
+
+    def test_apply_does_not_invalidate_when_write_returned_zero(self, tmp_path):
+        """Boundary: ``n=0`` from write_cues_to_db means no actual write —
+        the sidecar row MUST survive."""
+        db = _make_db()
+        db._db_dir = tmp_path
+        (tmp_path / "master.db").write_bytes(b"fake")
+        db.get_content.return_value = self._make_track(1)
+
+        store = self._seed_store()
+        with patch("autocue.db_writer.rekordbox_is_running", return_value=False):
+            with patch("autocue.db_writer.write_cues_to_db", return_value=0):
+                with patch("autocue.db_writer.BACKUP_DIR", tmp_path / "backups"):
+                    client, _ = self._client_with_store(db, store)
+                    r = client.post(
+                        "/api/apply",
+                        json={
+                            "tracks": [
+                                {"id": 1, "title": "T1", "mode_used": "bar", "skipped": False, "cues": [{"position_ms": 0, "label": "intro", "slot": 0, "name": "I", "color_id": 1}]},
+                            ],
+                            "dry_run": False,
+                            "overwrite": False,
+                        },
+                    )
+        assert r.status_code == 200, r.text
+        assert r.json()["applied"] == 0
+        assert r.json()["skipped"] == 1
+        # Row must still be present.
+        assert store.get_mixability(1, expected_anlz_mtime=100.0) is not None
+
+    def test_apply_with_no_cache_store_does_not_raise(self, tmp_path):
+        """Boundary: sidecar disabled (None) must remain a no-op, not crash."""
+        db = _make_db()
+        db._db_dir = tmp_path
+        (tmp_path / "master.db").write_bytes(b"fake")
+        db.get_content.return_value = self._make_track(1)
+        with patch("autocue.db_writer.rekordbox_is_running", return_value=False):
+            with patch("autocue.db_writer.write_cues_to_db", return_value=1):
+                with patch("autocue.db_writer.BACKUP_DIR", tmp_path / "backups"):
+                    client, _ = self._client_with_store(db, None)
+                    r = client.post(
+                        "/api/apply",
+                        json={
+                            "tracks": [
+                                {"id": 1, "title": "T1", "mode_used": "bar", "skipped": False, "cues": [{"position_ms": 0, "label": "intro", "slot": 0, "name": "I", "color_id": 1}]},
+                            ],
+                            "dry_run": False,
+                            "overwrite": True,
+                        },
+                    )
+        assert r.status_code == 200, r.text
+        assert r.json()["applied"] == 1
+
+    def test_apply_dry_run_does_not_invalidate(self, tmp_path):
+        """A dry-run write doesn't touch the DB, so it must not drop cache rows."""
+        db = _make_db()
+        db._db_dir = tmp_path
+        (tmp_path / "master.db").write_bytes(b"fake")
+        db.get_content.return_value = self._make_track(1)
+        store = self._seed_store()
+        # write_cues_to_db is permitted to return n>0 even on dry_run in some
+        # paths (the route decides by req.dry_run, not by the return code).
+        with patch("autocue.db_writer.rekordbox_is_running", return_value=False):
+            with patch("autocue.db_writer.write_cues_to_db", return_value=1):
+                client, _ = self._client_with_store(db, store)
+                r = client.post(
+                    "/api/apply",
+                    json={
+                        "tracks": [
+                            {"id": 1, "title": "T1", "mode_used": "bar", "skipped": False, "cues": [{"position_ms": 0, "label": "intro", "slot": 0, "name": "I", "color_id": 1}]},
+                        ],
+                        "dry_run": True,
+                        "overwrite": True,
+                    },
+                )
+        assert r.status_code == 200, r.text
+        # Dry-run path: cache row survives.
+        assert store.get_mixability(1, expected_anlz_mtime=100.0) is not None
+
+    # ----- /api/generate-apply ------------------------------------------
+
+    def test_generate_apply_invalidates_mixability_for_written_tracks(self, tmp_path):
+        db = _make_db()
+        db._db_dir = tmp_path
+        (tmp_path / "master.db").write_bytes(b"fake")
+        db.get_content.side_effect = [self._make_track(1), self._make_track(2)]
+
+        store = self._seed_store()
+        from autocue.models import CuePoint, PhraseLabel
+        fake_cues = [CuePoint(position_ms=0, label=PhraseLabel.INTRO, slot=0, name="I", color_id=1)]
+        with patch("autocue.db_writer.rekordbox_is_running", return_value=False):
+            with patch("autocue.serve.routes.generate_cues_for_track", return_value=(fake_cues, None)):
+                with patch("autocue.db_writer.write_cues_to_db", return_value=1):
+                    with patch("autocue.db_writer.BACKUP_DIR", tmp_path / "backups"):
+                        client, _ = self._client_with_store(db, store)
+                        r = client.post(
+                            "/api/generate-apply",
+                            json={"track_ids": [1, 2], "dry_run": False, "overwrite": True},
+                        )
+        assert r.status_code == 200, r.text
+        assert r.json()["applied"] == 2
+        assert store.get_mixability(1, expected_anlz_mtime=100.0) is None
+        assert store.get_mixability(2, expected_anlz_mtime=100.0) is None
+
+    def test_generate_apply_skips_invalidation_for_no_cue_tracks(self, tmp_path):
+        """Boundary: when generate_cues_for_track yields no cues, the track is
+        skipped → its sidecar row MUST survive."""
+        db = _make_db()
+        db._db_dir = tmp_path
+        (tmp_path / "master.db").write_bytes(b"fake")
+        db.get_content.return_value = self._make_track(1)
+        store = self._seed_store()
+        with patch("autocue.db_writer.rekordbox_is_running", return_value=False):
+            # No cues generated → loop hits `continue` before write_cues_to_db.
+            with patch("autocue.serve.routes.generate_cues_for_track", return_value=([], None)):
+                with patch("autocue.db_writer.write_cues_to_db", return_value=1) as wcd:
+                    with patch("autocue.db_writer.BACKUP_DIR", tmp_path / "backups"):
+                        client, _ = self._client_with_store(db, store)
+                        r = client.post(
+                            "/api/generate-apply",
+                            json={"track_ids": [1], "dry_run": False, "overwrite": True},
+                        )
+        assert r.status_code == 200, r.text
+        assert r.json()["applied"] == 0
+        # write_cues_to_db must NOT have been called (no cues to write).
+        wcd.assert_not_called()
+        assert store.get_mixability(1, expected_anlz_mtime=100.0) is not None
+
+    # ----- /api/generate-apply-stream (parallel + serial) ----------------
+
+    def _collect_sse(self, response_text: str) -> list[dict]:
+        import json
+        events = []
+        for line in response_text.splitlines():
+            if line.startswith("data: "):
+                events.append(json.loads(line[6:]))
+        return events
+
+    def test_generate_apply_stream_serial_invalidates_mixability(self, tmp_path, monkeypatch):
+        """Force the serial path via AUTOCUE_PARALLEL_GENERATE_APPLY=0."""
+        monkeypatch.setenv("AUTOCUE_PARALLEL_GENERATE_APPLY", "0")
+        db = _make_db()
+        db._db_dir = tmp_path
+        (tmp_path / "master.db").write_bytes(b"fake")
+        db.get_content.side_effect = [self._make_track(1), self._make_track(2)]
+        store = self._seed_store()
+        from autocue.models import CuePoint, PhraseLabel
+        fake_cues = [CuePoint(position_ms=0, label=PhraseLabel.INTRO, slot=0, name="I", color_id=1)]
+        with patch("autocue.db_writer.rekordbox_is_running", return_value=False):
+            with patch("autocue.serve.routes.generate_cues_for_track", return_value=(fake_cues, None)):
+                with patch("autocue.db_writer.write_cues_to_db", return_value=1):
+                    with patch("autocue.db_writer.BACKUP_DIR", tmp_path / "backups"):
+                        client, _ = self._client_with_store(db, store)
+                        r = client.post(
+                            "/api/generate-apply-stream",
+                            json={"track_ids": [1, 2], "dry_run": False, "overwrite": True},
+                        )
+        assert r.status_code == 200, r.text
+        done = next(e for e in self._collect_sse(r.text) if e.get("done"))
+        assert done["applied"] == 2
+        assert store.get_mixability(1, expected_anlz_mtime=100.0) is None
+        assert store.get_mixability(2, expected_anlz_mtime=100.0) is None
+
+    def test_generate_apply_stream_parallel_invalidates_mixability(self, tmp_path, monkeypatch):
+        """Default path (AUTOCUE_PARALLEL_GENERATE_APPLY=1)."""
+        monkeypatch.setenv("AUTOCUE_PARALLEL_GENERATE_APPLY", "1")
+        db = _make_db()
+        db._db_dir = tmp_path
+        (tmp_path / "master.db").write_bytes(b"fake")
+        # In the parallel path, get_content is called once inside the pool
+        # worker per track id. side_effect lets us return distinct objects.
+        db.get_content.side_effect = lambda ID: self._make_track(ID)
+        store = self._seed_store()
+        from autocue.models import CuePoint, PhraseLabel
+        fake_cues = [CuePoint(position_ms=0, label=PhraseLabel.INTRO, slot=0, name="I", color_id=1)]
+        with patch("autocue.db_writer.rekordbox_is_running", return_value=False):
+            with patch("autocue.serve.routes.generate_cues_for_track", return_value=(fake_cues, None)):
+                with patch("autocue.db_writer.write_cues_to_db", return_value=1):
+                    with patch("autocue.db_writer.BACKUP_DIR", tmp_path / "backups"):
+                        client, _ = self._client_with_store(db, store)
+                        r = client.post(
+                            "/api/generate-apply-stream",
+                            json={"track_ids": [1, 2], "dry_run": False, "overwrite": True},
+                        )
+        assert r.status_code == 200, r.text
+        done = next(e for e in self._collect_sse(r.text) if e.get("done"))
+        assert done["applied"] == 2
+        assert store.get_mixability(1, expected_anlz_mtime=100.0) is None
+        assert store.get_mixability(2, expected_anlz_mtime=100.0) is None
+
+    def test_generate_apply_stream_dry_run_does_not_invalidate(self, tmp_path, monkeypatch):
+        """Dry run on the stream path must not drop cache rows (either branch)."""
+        monkeypatch.setenv("AUTOCUE_PARALLEL_GENERATE_APPLY", "0")
+        db = _make_db()
+        db._db_dir = tmp_path
+        (tmp_path / "master.db").write_bytes(b"fake")
+        db.get_content.return_value = self._make_track(1)
+        store = self._seed_store()
+        from autocue.models import CuePoint, PhraseLabel
+        fake_cues = [CuePoint(position_ms=0, label=PhraseLabel.INTRO, slot=0, name="I", color_id=1)]
+        with patch("autocue.db_writer.rekordbox_is_running", return_value=False):
+            with patch("autocue.serve.routes.generate_cues_for_track", return_value=(fake_cues, None)):
+                with patch("autocue.db_writer.write_cues_to_db", return_value=1):
+                    client, _ = self._client_with_store(db, store)
+                    r = client.post(
+                        "/api/generate-apply-stream",
+                        json={"track_ids": [1], "dry_run": True, "overwrite": True},
+                    )
+        assert r.status_code == 200, r.text
+        assert store.get_mixability(1, expected_anlz_mtime=100.0) is not None
