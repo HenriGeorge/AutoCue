@@ -420,6 +420,10 @@ class AutoTagUndoData(BaseModel):
 class AutoTagResponse(BaseModel):
     tagged: int
     skipped_no_data: int = 0
+    # Issue #118 — per-reason breakdown of the ``skipped_no_data`` total.
+    # Keys: no_anlz_energy, low_classification, no_detector_match. The sum
+    # equals ``skipped_no_data``; older clients ignoring this field still work.
+    skip_reasons: dict[str, int] = {}
     errors: int
     dry_run: bool
     undo_data: AutoTagUndoData | None = None

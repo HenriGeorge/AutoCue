@@ -555,3 +555,114 @@ class TestApplyTags:
         with patch(f"{MODULE}.ensure_tags", return_value={}):
             result = apply_tags(db, [999], tag_types=["vocal"])
         assert result["tagged"] == 0
+
+
+# ---------------------------------------------------------------------------
+# Issue #118 — skip_reasons breakdown
+#
+# These tests pin the per-bucket diagnostic so a user staring at the API
+# response can tell "ANLZ missing" apart from "low classification confidence"
+# apart from "no detector fired".  Run in serial mode for deterministic
+# detector ordering.
+# ---------------------------------------------------------------------------
+
+class TestSkipReasons:
+    def _base_db(self):
+        return _make_db()
+
+    def test_no_anlz_energy_bucket_when_category_lacks_curve(self, monkeypatch):
+        """Regression for #118 — would FAIL before the fix because the only
+        signal was the opaque ``skipped_no_data`` counter."""
+        monkeypatch.setenv("AUTOCUE_PARALLEL_AUTO_TAG", "0")
+        from autocue.analysis.auto_tag import apply_tags
+        db = self._base_db()
+        db.get_content.return_value = _make_content(1)
+        with patch(f"{MODULE}.get_energy_curve", return_value=None):
+            with patch(f"{MODULE}.ensure_tags", return_value={"Peak": "10"}):
+                result = apply_tags(db, [1], tag_types=["category"])
+        assert result["skipped_no_data"] == 1
+        assert result["skip_reasons"]["no_anlz_energy"] == 1
+        assert result["skip_reasons"]["low_classification"] == 0
+        assert result["skip_reasons"]["no_detector_match"] == 0
+
+    def test_low_classification_bucket_at_boundary(self, monkeypatch):
+        """Boundary case: a track with full energy data but classification
+        score JUST below MIN_SCORE lands in ``low_classification``, not
+        ``no_anlz_energy``."""
+        monkeypatch.setenv("AUTOCUE_PARALLEL_AUTO_TAG", "0")
+        from autocue.analysis.auto_tag import apply_tags, MIN_SCORE
+        db = self._base_db()
+        db.get_content.return_value = _make_content(1)
+        clf = {"primary": "peak", "scores": {"peak": MIN_SCORE - 0.001}}
+        with patch(f"{MODULE}.get_energy_curve", return_value=[0.5] * 50):
+            with patch(f"{MODULE}.get_classification", return_value=clf):
+                with patch(f"{MODULE}.ensure_tags", return_value={"Peak": "10"}):
+                    result = apply_tags(db, [1], tag_types=["category"])
+        assert result["tagged"] == 0
+        assert result["skipped_no_data"] == 1
+        assert result["skip_reasons"]["low_classification"] == 1
+        assert result["skip_reasons"]["no_anlz_energy"] == 0
+
+    def test_boundary_at_min_score_tags_the_track(self, monkeypatch):
+        """Complement of the boundary case — at exactly MIN_SCORE the track
+        IS tagged (the ``< MIN_SCORE`` predicate is strict)."""
+        monkeypatch.setenv("AUTOCUE_PARALLEL_AUTO_TAG", "0")
+        from autocue.analysis.auto_tag import apply_tags, MIN_SCORE
+        db = self._base_db()
+        db.get_content.return_value = _make_content(1)
+        clf = {"primary": "peak", "scores": {"peak": MIN_SCORE}}
+        with patch(f"{MODULE}.get_energy_curve", return_value=[0.5] * 50):
+            with patch(f"{MODULE}.get_classification", return_value=clf):
+                with patch(f"{MODULE}.ensure_tags", return_value={"Peak": "10"}):
+                    result = apply_tags(db, [1], tag_types=["category"])
+        assert result["tagged"] == 1
+        assert sum(result["skip_reasons"].values()) == 0
+
+    def test_no_detector_match_when_decade_unknown(self, monkeypatch):
+        """A non-ANLZ-dependent tag_type (decade) with no ReleaseYear lands
+        in ``no_detector_match`` — NOT ``no_anlz_energy``."""
+        monkeypatch.setenv("AUTOCUE_PARALLEL_AUTO_TAG", "0")
+        from autocue.analysis.auto_tag import apply_tags
+        db = self._base_db()
+        content = _make_content(1)
+        content.ReleaseYear = None
+        db.get_content.return_value = content
+        with patch(f"{MODULE}.ensure_tags", return_value={}):
+            result = apply_tags(db, [1], tag_types=["decade"])
+        assert result["skipped_no_data"] == 1
+        assert result["skip_reasons"]["no_detector_match"] == 1
+        assert result["skip_reasons"]["no_anlz_energy"] == 0
+
+    def test_skip_reasons_sum_equals_skipped_no_data_invariant(self, monkeypatch):
+        """Invariant: for any mix of skip outcomes, the buckets sum to the
+        total. Three tracks: one ANLZ-less, one low-score, one no-decade."""
+        monkeypatch.setenv("AUTOCUE_PARALLEL_AUTO_TAG", "0")
+        from autocue.analysis.auto_tag import apply_tags, MIN_SCORE
+
+        db = self._base_db()
+        # Three distinct contents, dispatched by track_id via side_effect.
+        c_no_anlz = _make_content(1)
+        c_low     = _make_content(2)
+        c_no_dec  = _make_content(3)
+        c_no_dec.ReleaseYear = None
+        contents = {1: c_no_anlz, 2: c_low, 3: c_no_dec}
+        db.get_content.side_effect = lambda ID: contents[ID]
+
+        def _curve(content, db_=None, n_points=50):
+            return None if content.ID == 1 else [0.5] * 50
+
+        def _clf(content, db_=None):
+            if content.ID == 2:
+                return {"primary": "peak", "scores": {"peak": MIN_SCORE - 0.05}}
+            return {"primary": "peak", "scores": {"peak": 0.9}}
+
+        # All three requested tag_types so we exercise no_detector_match too.
+        with patch(f"{MODULE}.get_energy_curve", side_effect=_curve):
+            with patch(f"{MODULE}.get_classification", side_effect=_clf):
+                with patch(f"{MODULE}.ensure_tags", return_value={"Peak": "10"}):
+                    result = apply_tags(
+                        db, [1, 2, 3], tag_types=["category", "decade"]
+                    )
+        # Invariant — not specific-value: the buckets always sum to the total.
+        assert sum(result["skip_reasons"].values()) == result["skipped_no_data"]
+        assert result["skipped_no_data"] + result["tagged"] == 3

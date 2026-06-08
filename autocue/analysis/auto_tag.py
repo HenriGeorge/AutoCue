@@ -547,10 +547,48 @@ def apply_tags(
     tagged = 0
     skipped_no_data = 0
     errors = 0
+    # Issue #118 — split the opaque ``skipped_no_data`` counter into named
+    # buckets so callers can tell "no ANLZ on disk" apart from "ANLZ present
+    # but classification scored below MIN_SCORE" apart from "no detector for
+    # any active tag_type produced a match". The original ``skipped_no_data``
+    # field is preserved as the sum (backward compatible).
+    skip_reasons: dict[str, int] = {
+        "no_anlz_energy":     0,  # get_energy_curve() returned None/empty
+        "low_classification": 0,  # category detector: top score < MIN_SCORE
+        "no_detector_match":  0,  # other detector returned [] (e.g. no decade,
+                                  # no phrase data, BPM==0)
+    }
     undo_data: dict[str, Any] = {"removed": [], "added": []}
 
     # TASK-005 default-on as of TASK-008 verification; set =0 to disable.
     parallel = _os.environ.get("AUTOCUE_PARALLEL_AUTO_TAG", "1") != "0"
+
+    # ANLZ-dependent detectors — if these are the only requested types and
+    # the track has no energy curve, the skip reason is ``no_anlz_energy``.
+    _ANLZ_DEPENDENT = frozenset({"category", "energy_level", "energy_profile"})
+
+    def _classify_skip(content, requested_types) -> str:
+        """Decide which skip_reasons bucket a 0-name detector run falls into.
+
+        Runs against the writer thread (so it's safe to touch the cache); on
+        any failure we fall back to ``no_detector_match`` rather than raise.
+        """
+        try:
+            anlz_ok = bool(get_energy_curve(content, db))
+        except Exception:
+            anlz_ok = True  # don't blame ANLZ for an unrelated cache error
+        if not anlz_ok and any(t in _ANLZ_DEPENDENT for t in requested_types):
+            return "no_anlz_energy"
+        if "category" in requested_types and anlz_ok:
+            try:
+                clf = get_classification(content, db)
+            except Exception:
+                clf = None
+            if clf is not None:
+                top = clf.get("primary")
+                if top and clf.get("scores", {}).get(top, 0.0) < MIN_SCORE:
+                    return "low_classification"
+        return "no_detector_match"
 
     def _eval_one(track_id):
         """Pure-read worker: resolve content + run detectors. No writes."""
@@ -625,6 +663,7 @@ def apply_tags(
                 continue
             if not names_to_write:
                 skipped_no_data += 1
+                skip_reasons[_classify_skip(content, active_types)] += 1
                 continue
             if dry_run:
                 tagged += 1
@@ -648,6 +687,7 @@ def apply_tags(
 
                 if not names_to_write:
                     skipped_no_data += 1
+                    skip_reasons[_classify_skip(content, active_types)] += 1
                     continue
 
                 if dry_run:
@@ -671,6 +711,7 @@ def apply_tags(
     return {
         "tagged": tagged,
         "skipped_no_data": skipped_no_data,
+        "skip_reasons": skip_reasons,
         "errors": errors,
         "dry_run": dry_run,
         "undo_data": undo_data if not dry_run else None,
