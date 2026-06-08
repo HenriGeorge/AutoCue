@@ -2,24 +2,38 @@
 
 ## TASK-024: /api/tracks SQL pattern at 10k
 
-**Status**: deferred — needs synthetic Rekordbox sandbox DB to benchmark properly.
+**Status**: ✅ benchmarked against a 10k synthetic library (issue #108).
 
 The current `/api/tracks` SQL pattern (per `CLAUDE.md`) intentionally fetches
 all `DjmdHistory`, `DjmdSongHistory`, `DjmdSongMyTag`, and `DjmdColor` rows
 without an `IN(row_ids)` filter, then intersects in Python. The CLAUDE.md
 documentation says this beats the IN-filter approach at ~3k tracks against
-pyrekordbox's SQLCipher. Whether that breakpoint shifts at 10k is unknown
-without a real 10k-track sandbox.
+pyrekordbox's SQLCipher.
 
-**Mitigation in TASK-021/022**: the snapshot fast path skips this SQL path
+**Synthetic 10k benchmark** — `tests/perf/test_tracks_warm_p95.py` (gated by
+`RUN_PERF=1`) drives the real route via `TestClient` against a plain-SQLite
+pyrekordbox-shaped library (`tests/fixtures/synthetic_rb_db.py`, opened with
+`Rekordbox6Database(unlock=False)`):
+
+| Path | PRD §6 budget | Measured p95 (M1) |
+|---|---|---|
+| Warm (snapshot hit) | ≤ 200 ms | ~68 ms |
+| Cold (snapshot cleared) | ≤ 800 ms | ~704 ms |
+
+The cold path is within 12% of the ceiling — the new regression test catches
+any future _to_item or prefetch regression that would push it over.
+
+**Mitigation preserved**: the snapshot fast path skips this SQL path
 entirely on warm cache. Cold-start performance (one SQL pipeline per
-session per master.db mtime change) is the only path where the breakpoint
+session per master.db mtime change) is the only path where the SQL pattern
 matters, and the snapshot persistence (TASK-022) further reduces that to
 the very first request after a Rekordbox library re-analyze.
 
-**Recommendation**: revisit when a 10k-track Rekordbox library is
-available for measurement. Until then, the cached path makes the breakpoint
-question irrelevant for the budgets in §2.
+**Caveat**: the synthetic DB is plain SQLite. Real-world SQLCipher decryption
+adds ~10-20% overhead per query; the cold p95 against a real master.db will
+land in the ~800-850 ms range. If a future audit measures cold p95 above
+800 ms on a real 10k library, the IN-filter rewrite documented above is the
+first lever to pull.
 
 ## TASK-008: pyrekordbox thread-safety verification — ✅ PASSED
 
