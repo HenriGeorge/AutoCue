@@ -161,6 +161,143 @@ def test_middleware_does_not_invalidate_on_5xx():
     assert app.state.tracks_snapshot is snapshot
 
 
+# ── issue #115 — pure-ASGI middleware survives StreamingResponse aborts ──
+
+def _asgi_middleware_app():
+    """Build a minimal app wired through the real SnapshotInvalidationMiddleware
+    (the pure-ASGI version from autocue.serve.app), so we exercise the actual
+    production middleware path, not an inline stub."""
+    from fastapi import FastAPI
+    from autocue.serve.app import SnapshotInvalidationMiddleware
+    app = FastAPI()
+    app.state.tracks_snapshot_lock = threading.Lock()
+    app.state.tracks_snapshot = {"mtime": 100.0, "payload": [_track_item(1)]}
+    app.add_middleware(SnapshotInvalidationMiddleware)
+    return app
+
+
+def test_pure_asgi_middleware_invalidates_after_successful_post():
+    """Regression coverage for the real production middleware path."""
+    app = _asgi_middleware_app()
+
+    @app.post("/api/_ok")
+    def _ep():
+        return {"ok": True}
+
+    client = TestClient(app)
+    r = client.post("/api/_ok")
+    assert r.status_code == 200
+    assert app.state.tracks_snapshot is None
+
+
+def test_pure_asgi_middleware_does_not_invalidate_on_get():
+    app = _asgi_middleware_app()
+
+    @app.get("/api/_ping")
+    def _ep():
+        return {"ok": True}
+
+    snapshot = app.state.tracks_snapshot
+    client = TestClient(app)
+    r = client.get("/api/_ping")
+    assert r.status_code == 200
+    assert app.state.tracks_snapshot is snapshot
+
+
+def test_pure_asgi_middleware_skips_non_api_path():
+    app = _asgi_middleware_app()
+
+    @app.post("/elsewhere")
+    def _ep():
+        return {"ok": True}
+
+    snapshot = app.state.tracks_snapshot
+    client = TestClient(app)
+    client.post("/elsewhere")
+    assert app.state.tracks_snapshot is snapshot
+
+
+def test_pure_asgi_middleware_skips_on_5xx():
+    from fastapi import HTTPException
+    app = _asgi_middleware_app()
+
+    @app.post("/api/_boom")
+    def _ep():
+        raise HTTPException(500, "boom")
+
+    snapshot = app.state.tracks_snapshot
+    client = TestClient(app)
+    client.post("/api/_boom")
+    assert app.state.tracks_snapshot is snapshot
+
+
+def test_pure_asgi_middleware_streaming_response_aborts_without_no_response_error():
+    """Regression for issue #115. With the old @app.middleware("http") wrapper
+    (BaseHTTPMiddleware), a StreamingResponse whose generator raises mid-stream
+    surfaces as ``RuntimeError: No response returned`` at the await of
+    ``call_next``. With the pure-ASGI middleware, the start event is forwarded
+    before the generator raises, so the client sees a normal response and the
+    error propagates as the exception that the generator raised — never as
+    "No response returned".
+    """
+    from fastapi.responses import StreamingResponse
+
+    app = _asgi_middleware_app()
+
+    def _gen():
+        yield b"first-chunk\n"
+        raise RuntimeError("body generator exploded")
+
+    @app.post("/api/_stream")
+    def _ep():
+        return StreamingResponse(_gen(), media_type="text/plain")
+
+    client = TestClient(app)
+
+    # The key invariant: whatever happens, the failure mode must NOT be the
+    # specific "No response returned" RuntimeError that BaseHTTPMiddleware
+    # raised. Either we get a normal-looking response (because the start
+    # event landed first) or we get the underlying generator error — but
+    # never the false-positive "No response returned".
+    caught = None
+    try:
+        r = client.post("/api/_stream")
+        # If we got a response, the status_code observation already happened
+        # at http.response.start (200), so invalidation runs even though the
+        # body generator later raised — that matches what a real client would
+        # see (a 200 with a truncated body).
+        assert r.status_code == 200
+    except RuntimeError as e:
+        caught = str(e)
+        assert "No response returned" not in caught, (
+            "issue #115 regressed: BaseHTTPMiddleware-style "
+            "'No response returned' surfaced from a streaming response"
+        )
+
+
+def test_pure_asgi_middleware_passes_through_non_http_scopes():
+    """Lifespan / websocket scopes must be forwarded untouched — the
+    middleware only short-circuits for scope['type'] == 'http'."""
+    from autocue.serve.app import SnapshotInvalidationMiddleware
+
+    seen = []
+
+    async def downstream(scope, receive, send):
+        seen.append(scope["type"])
+
+    mw = SnapshotInvalidationMiddleware(downstream)
+
+    async def _noop_receive():
+        return {"type": "lifespan.startup"}
+
+    async def _noop_send(_msg):
+        return None
+
+    import asyncio
+    asyncio.run(mw({"type": "lifespan"}, _noop_receive, _noop_send))
+    assert seen == ["lifespan"]
+
+
 # ── TASK-048 — perf marker gating ────────────────────────────────────────
 
 @pytest.mark.perf

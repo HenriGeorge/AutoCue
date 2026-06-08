@@ -38,6 +38,69 @@ def _is_our_server(port: int) -> bool:
         return False
 
 
+class SnapshotInvalidationMiddleware:
+    """Pure-ASGI middleware that drops the /api/tracks snapshot after any
+    successful 2xx POST/PUT/DELETE to /api/...
+
+    Pure ASGI (rather than ``@app.middleware("http")`` / BaseHTTPMiddleware)
+    because BaseHTTPMiddleware materialises the response and is incompatible
+    with StreamingResponse — when the body generator aborts mid-stream it
+    raises ``RuntimeError: No response returned.`` (issue #115). We forward
+    ASGI events untouched, observing only the status code on
+    ``http.response.start`` and triggering invalidation after the final
+    body chunk.
+    """
+
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        method = scope.get("method", "").upper()
+        path = scope.get("path", "")
+        is_candidate = (
+            method in ("POST", "PUT", "DELETE")
+            and path.startswith("/api/")
+        )
+        if not is_candidate:
+            await self.app(scope, receive, send)
+            return
+
+        status_code = 0
+        invalidated = False
+        fastapi_app = scope.get("app")
+
+        def _maybe_invalidate() -> None:
+            nonlocal invalidated
+            if invalidated:
+                return
+            if not (200 <= status_code < 300):
+                return
+            if fastapi_app is None:
+                return
+            try:
+                from .routes import _invalidate_tracks_snapshot
+                _invalidate_tracks_snapshot(fastapi_app)
+            except Exception:
+                # Never let bookkeeping break the response.
+                pass
+            invalidated = True
+
+        async def _send(message):
+            nonlocal status_code
+            mtype = message.get("type")
+            if mtype == "http.response.start":
+                status_code = int(message.get("status", 0))
+            await send(message)
+            if mtype == "http.response.body" and not message.get("more_body", False):
+                _maybe_invalidate()
+
+        await self.app(scope, receive, _send)
+
+
 def create_app(db_path: str | None = None, port: int = DEFAULT_PORT) -> FastAPI:
     app = FastAPI(title="AutoCue", lifespan=lifespan)
     app.state.db_path = db_path
@@ -56,28 +119,21 @@ def create_app(db_path: str | None = None, port: int = DEFAULT_PORT) -> FastAPI:
         allow_headers=["*"],
     )
 
-    # TASK-026 — invalidate the /api/tracks snapshot after any successful
-    # POST / DELETE / PUT to /api/*. The handler's mtime check already
-    # catches master.db changes, but this is defense-in-depth: snapshot
-    # clears immediately after the mutating call returns 2xx, even before
-    # the OS flushes the new mtime.
-    @app.middleware("http")
-    async def _invalidate_snapshot_on_mutation(request, call_next):
-        from .routes import _invalidate_tracks_snapshot
-        response = await call_next(request)
-        try:
-            method = request.method.upper()
-            path = request.url.path
-            if (
-                method in ("POST", "PUT", "DELETE")
-                and path.startswith("/api/")
-                and 200 <= response.status_code < 300
-            ):
-                _invalidate_tracks_snapshot(request.app)
-        except Exception:
-            # Never let invalidation bookkeeping break the response.
-            pass
-        return response
+    # TASK-026 / issue #115 — invalidate the /api/tracks snapshot after any
+    # successful POST / DELETE / PUT to /api/*. The handler's mtime check
+    # already catches master.db changes; this is defense-in-depth so the
+    # snapshot clears immediately after the mutating call returns 2xx, even
+    # before the OS flushes the new mtime.
+    #
+    # Implemented as a pure-ASGI middleware (NOT @app.middleware("http"),
+    # which wraps in BaseHTTPMiddleware). BaseHTTPMiddleware is incompatible
+    # with StreamingResponse: when the body generator aborts or raises
+    # mid-stream, BaseHTTPMiddleware.call_next raises "No response
+    # returned." (see encode/starlette#1925). Pure ASGI middleware
+    # sidesteps that by forwarding ASGI events as they happen — we observe
+    # the status code via the http.response.start event and run the
+    # invalidation after http.response.body (more_body=False) completes.
+    app.add_middleware(SnapshotInvalidationMiddleware)
 
     # NOTE: friendly 422 rewriting for the removed `audio_quality` field is
     # done INLINE in autocue/serve/routes.py :: _validate_download_body() so
