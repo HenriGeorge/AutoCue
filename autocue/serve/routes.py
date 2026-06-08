@@ -433,7 +433,11 @@ def track_artwork(track_id: int, db=Depends(get_ro_db)):
             if candidate.exists():
                 return FileResponse(str(candidate), media_type=ext_types.get(candidate.suffix.lower(), "image/jpeg"))
 
-    raise HTTPException(404, "No artwork")
+    # Issue #120 — track exists but no artwork available. Return 204 (not 404)
+    # so the browser does NOT log a console error for the failed <img> load.
+    # 404 is reserved for the "track ID not in the DB" case above, which is a
+    # genuine error worth surfacing in DevTools.
+    return Response(status_code=204)
 
 
 @router.get("/tracks/{track_id}/audio")
