@@ -1378,6 +1378,130 @@
       animation: progressIndeterminate 1.4s ease-in-out infinite;
       transition: none;
     }
+
+    /* ── Download component (PRD v1.0) ──────────────────────────────────── */
+    .visually-hidden {
+      position:absolute; width:1px; height:1px; padding:0; margin:-1px;
+      overflow:hidden; clip:rect(0,0,0,0); white-space:nowrap; border:0;
+    }
+    #download-section .dl-helper {
+      margin:4px 0 0; font-size:12px; color:var(--muted);
+    }
+    .dl-fieldset { border:0; padding:0; margin:0 0 8px; }
+    .dl-row { display:flex; gap:8px; align-items:flex-end; flex-wrap:wrap; }
+    .dl-row-primary { margin-bottom:10px; }
+    .dl-row-primary > .dl-field { flex:1 1 240px; min-width:0; display:flex; flex-direction:column; gap:4px; }
+    .dl-row-primary > .dl-field-format { flex:0 0 200px; }
+    .dl-row-primary > .dl-field label { font-size:12px; color:var(--muted); }
+    .dl-row-primary input[type="text"],
+    .dl-row-primary select {
+      padding:8px 10px; border:1px solid var(--border); border-radius:6px;
+      background:var(--bg); color:var(--text); font-size:13px;
+      width:100%; box-sizing:border-box; min-height:32px;
+    }
+    .dl-row-primary > #dl-go-btn { min-height:32px; padding:6px 16px; font-size:13px; font-weight:600; }
+    .dl-row-options { gap:16px; margin-bottom:8px; }
+    .dl-toggle {
+      display:inline-flex; gap:6px; align-items:center; font-size:13px;
+      cursor:pointer; min-height:24px; min-width:24px; padding:2px 4px;
+      color:var(--text);
+    }
+    .dl-target { min-height:24px; min-width:24px; }
+    .dl-dest-row {
+      display:flex; align-items:center; gap:8px; margin:8px 0;
+      font-size:11px; color:var(--muted); flex-wrap:wrap;
+    }
+    .dl-dest-row > code { background:var(--surface2); padding:2px 6px; border-radius:4px; }
+    .dl-link-btn {
+      background:none; border:none; color:var(--green); cursor:pointer;
+      padding:2px 4px; font:inherit; text-decoration:underline; min-height:24px;
+    }
+    .dl-muted-row {
+      display:flex; align-items:center; gap:8px; margin:6px 0;
+      font-size:12px; color:var(--muted);
+    }
+    .dl-inline-note {
+      background:var(--surface2); border:1px solid var(--border);
+      border-radius:6px; padding:8px 10px; margin:8px 0;
+      font-size:12px; color:var(--muted); display:flex; gap:8px; align-items:flex-start;
+    }
+    /* Honor the HTML `hidden` attribute even when a class forces a display rule.
+       Browser default sets [hidden]{display:none} but classes can win on specificity. */
+    [hidden] { display: none !important; }
+    .dl-inline-note > .dl-link-btn { margin-left:auto; color:var(--muted); }
+    #download-unavailable {
+      font-size:12px; color:var(--amber, #c98a00); background:var(--surface2);
+      border:1px solid var(--border); border-radius:6px; padding:8px 10px; margin-bottom:12px;
+    }
+    .dl-legal-disclosure { margin-top:12px; border-top:1px solid var(--border); padding-top:8px; }
+    .dl-legal-disclosure > summary {
+      font-size:11px; color:var(--muted); cursor:pointer; list-style:none;
+      padding:4px 0; min-height:24px;
+    }
+    .dl-legal-disclosure > summary::-webkit-details-marker { display:none; }
+    .dl-legal-disclosure > summary::before { content:"ⓘ "; }
+    .dl-legal-disclosure > p {
+      margin:8px 0 0; font-size:11px; color:var(--muted); line-height:1.5;
+    }
+
+    /* State cards rendered by _Download into #dl-status-region */
+    .dl-status-card {
+      padding:12px 14px; border-radius:8px; margin-top:10px;
+      background:var(--surface-card,#1e1e2e); border:1px solid var(--border);
+      font-size:13px;
+    }
+    .dl-status-card[data-state="success"] { border-color:#1f7a4955; background:rgba(31,122,73,0.08); }
+    .dl-status-card[data-state="error"]   { border-color:#e0525255; background:rgba(224,82,82,0.08); }
+    .dl-status-card[data-state="loading"] { border-color:var(--border); }
+    .dl-status-card progress {
+      width:100%; height:6px; margin:8px 0 4px;
+      -webkit-appearance:none; appearance:none; border:0;
+    }
+    .dl-status-card progress::-webkit-progress-bar { background:var(--surface); border-radius:3px; }
+    .dl-status-card progress::-webkit-progress-value { background:var(--green); border-radius:3px; transition:width .2s; }
+    .dl-status-card progress::-moz-progress-bar { background:var(--green); border-radius:3px; }
+    .dl-status-card .dl-status-line { font-size:12px; color:var(--muted); }
+    .dl-status-card .dl-status-actions { display:flex; gap:8px; margin-top:10px; flex-wrap:wrap; }
+    .dl-status-card .dl-status-actions button {
+      padding:6px 12px; border-radius:6px; border:1px solid var(--border);
+      background:var(--surface-card); color:var(--text); cursor:pointer;
+      font-size:12px; min-height:28px; min-width:24px;
+    }
+    .dl-status-card .dl-status-actions button.primary {
+      background:var(--green); color:#fff; border-color:var(--green);
+    }
+    .dl-status-card details { margin-top:8px; }
+    .dl-status-card details > summary {
+      cursor:pointer; font-size:11px; color:var(--muted); list-style:none; min-height:24px;
+    }
+    .dl-status-card details pre {
+      white-space:pre-wrap; word-break:break-all; font-size:11px;
+      background:var(--surface2); padding:8px; border-radius:4px;
+      max-height:120px; overflow:auto;
+    }
+    [aria-busy="true"] #dl-go-btn { opacity:.55; pointer-events:none; }
+
+    /* Mobile (PRD §6.9): stack the primary row + bump touch targets to 44 */
+    @media (max-width:640px) {
+      .dl-row-primary { flex-direction:column; align-items:stretch; }
+      .dl-row-primary > .dl-field,
+      .dl-row-primary > .dl-field-format,
+      .dl-row-primary > #dl-go-btn { width:100%; flex:1 1 auto; }
+      .dl-row-primary > #dl-go-btn { min-height:44px; font-size:14px; }
+      .dl-row-primary input[type="text"],
+      .dl-row-primary select { min-height:44px; font-size:14px; }
+      .dl-toggle, .dl-target { min-height:44px; }
+      .dl-dest-row > #dl-dest {
+        max-width:60vw; overflow:hidden; text-overflow:ellipsis;
+        white-space:nowrap; direction:rtl;
+      }
+      .dl-legal-disclosure > summary { font-size:11px; }
+    }
+
+    /* Honor reduced-motion preference (WCAG 2.3.3) */
+    @media (prefers-reduced-motion: reduce) {
+      .dl-status-card progress::-webkit-progress-value { transition:none; }
+    }
     .slot-color-row { display:flex; gap:6px; flex-wrap:wrap; margin-top:4px; }
     .slot-color-item { display:flex; flex-direction:column; align-items:center; gap:3px; font-size:11px; color:var(--muted); }
     .slot-color-item select { padding:2px 4px; border:1px solid var(--border); border-radius:4px; background:var(--bg); color:var(--text); font-size:11px; }
@@ -2075,7 +2199,7 @@
     <div class="step-sep"></div>
     <div class="step" id="step-3"><span class="step-num">3</span> Preview</div>
     <div class="step-sep"></div>
-    <div class="step" id="step-4"><span class="step-num">4</span> Download</div>
+    <div class="step" id="step-4"><span class="step-num">4</span> Export</div>
   </div>
 
   <div class="mode-callout">
@@ -2136,7 +2260,7 @@
       </div>
     </div>
     <div id="backup-bar" style="display:none; margin-top:10px; text-align:right;">
-      <button id="backup-btn" class="secondary-btn">💾 Download backup XML</button>
+      <button id="backup-btn" class="secondary-btn">💾 Save backup XML</button>
     </div>
   </section>
 
@@ -2161,7 +2285,7 @@
   <!-- Conflict warning (shown when existing cues will be replaced) -->
   <div id="overwrite-warning" style="display:none" class="warning-banner">
     ⚠ <strong id="overwrite-count"></strong> track(s) have existing hot cues in slots AutoCue will replace.
-    <button id="backup-inline-btn" style="background:none;border:none;color:var(--green);cursor:pointer;text-decoration:underline;padding:0;font:inherit">Download backup first →</button>
+    <button id="backup-inline-btn" style="background:none;border:none;color:var(--green);cursor:pointer;text-decoration:underline;padding:0;font:inherit">Save a backup first →</button>
   </div>
 
   <!-- Analysis mode toggle (shown after XML loaded) -->
@@ -2404,7 +2528,7 @@
       </li>
       <li><strong>Adjust settings:</strong> bars interval, starting bar, max hot cues per track, and optional memory cue at bar 1. Hover any option for a tooltip explaining what it does.</li>
       <li><strong>Preview cues:</strong> click any cue badge on a track card to audition the position. The timeline at the bottom of each card shows all cue positions at a glance.</li>
-      <li><strong>Download</strong> the updated XML, then import it back into Rekordbox: <code>File</code> → <code>Import Library</code> → select the file.</li>
+      <li><strong>Export</strong> the updated XML, then import it back into Rekordbox: <code>File</code> → <code>Import Library</code> → select the file.</li>
     </ol>
     <p style="margin-top:16px;font-size:13px;color:var(--muted)">
       Everything runs locally in your browser — no files are ever uploaded anywhere.
@@ -3136,54 +3260,95 @@ autocue --library --mode bar --bars-interval 8 --start-bar 1</pre>
   </div>
 
   <!-- Download confirm modal — Shift+click on a Discover card opens this.
-       Cancel is the default focus on purpose (per PRD §5.6): sticky-Shift +
-       accidental-Enter must NOT trigger an unintended download. -->
+       Cancel keeps default focus (sticky-Shift safety). Primary disabled for
+       250 ms after open to defeat accidental Enter. Color semantics restored
+       per DOWNLOAD_PRD §6.13: primary green = Download album; ghost = Cancel. -->
   <div id="disc-v2-dl-confirm-backdrop" class="disc-v2-detail-backdrop" aria-hidden="true"></div>
   <div id="disc-v2-dl-confirm" class="disc-v2-dl-confirm" role="dialog" aria-modal="true"
        aria-labelledby="disc-v2-dl-confirm-heading" aria-describedby="disc-v2-dl-confirm-body"
        aria-hidden="true">
     <h3 id="disc-v2-dl-confirm-heading" style="margin:0 0 8px;font-size:16px;">Download album?</h3>
-    <p id="disc-v2-dl-confirm-body" style="margin:0 0 14px;font-size:13px;color:var(--muted);">
-      This will fetch audio from YouTube via yt-dlp.
+    <p id="disc-v2-dl-confirm-body" style="margin:0 0 12px;font-size:13px;color:var(--muted);">
+      <strong id="disc-v2-dl-confirm-name">—</strong>
+      <span id="disc-v2-dl-confirm-meta"></span>
     </p>
-    <div style="display:flex;gap:8px;justify-content:flex-end;">
-      <button id="disc-v2-dl-confirm-cancel" class="disc-v2-detail-action primary">Cancel</button>
-      <button id="disc-v2-dl-confirm-go" class="disc-v2-detail-action">Download anyway</button>
+    <label class="dl-toggle dl-target" style="display:flex;font-size:12px;color:var(--muted);margin-bottom:12px;">
+      <input type="checkbox" id="disc-v2-dl-confirm-dontask"> Don't ask again this session
+    </label>
+    <div style="display:flex;gap:8px;justify-content:flex-end;align-items:center;">
+      <a href="#settings-section" id="disc-v2-dl-confirm-always-link"
+         style="font-size:11px;color:var(--muted);margin-right:auto;text-decoration:underline;">Always skip in Settings →</a>
+      <button id="disc-v2-dl-confirm-cancel" class="disc-v2-detail-action secondary-btn dl-target">Cancel</button>
+      <button id="disc-v2-dl-confirm-go" class="disc-v2-detail-action primary dl-target">Download album</button>
     </div>
   </div>
 
-  <!-- Download (local mode only, requires yt-dlp + ffmpeg) -->
+  <!-- Download (local mode only). PRD: .agent/prd/DOWNLOAD_PRD.md v1.0.
+       All behavior is owned by the _Download IIFE (see <script> block).
+       This panel is one of five surfaces; .disc-dl-btn, #ti-download,
+       #yt-modal, #disc-v2-dl-confirm are the others. -->
   <section id="download-section" class="panel-card" style="margin-top:18px;">
-    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;flex-wrap:wrap;gap:8px;">
-      <div>
-        <h2 style="margin:0;font-size:15px;font-weight:700;">Download</h2>
-        <p style="margin:4px 0 0;font-size:12px;color:var(--muted);">Fetch audio from YouTube with yt-dlp. Use the ⬇ Album button on any suggestion above, or paste a URL / search term below.</p>
-      </div>
-    </div>
-    <div id="download-unavailable" style="display:none;font-size:12px;color:var(--amber, #c98a00);background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:8px 10px;margin-bottom:12px;">
+    <header style="margin-bottom:12px;">
+      <h2 style="margin:0;font-size:15px;font-weight:700;">Download</h2>
+      <p class="dl-helper">Download a track or album from YouTube as audio.</p>
+    </header>
+
+    <div id="download-unavailable" hidden>
       Download tools are not installed. Run <code>pip install -e ".[download]"</code> and make sure <code>ffmpeg</code> is on your PATH, then restart the server.
     </div>
-    <div id="download-controls" style="display:none;">
-      <div style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap;margin-bottom:8px;">
-        <div class="cue-tools-param-group" style="flex:1;min-width:240px;">
-          <label>YouTube URL or search term</label>
-          <input type="text" id="dl-query" placeholder="e.g. https://youtu.be/… or &quot;Artist – Title&quot;"
-                 style="padding:6px 10px;border:1px solid var(--border);border-radius:6px;background:var(--bg);color:var(--text);font-size:13px;width:100%;box-sizing:border-box;">
+
+    <div id="download-controls" hidden>
+      <fieldset class="dl-fieldset">
+        <legend class="visually-hidden">Audio options</legend>
+        <div class="dl-row dl-row-primary">
+          <div class="dl-field">
+            <label for="dl-query">URL or search</label>
+            <input type="text" id="dl-query" autocomplete="off"
+                   placeholder="https://youtu.be/… or &quot;Artist – Title&quot;">
+          </div>
+          <div class="dl-field dl-field-format">
+            <label for="dl-format">Format</label>
+            <select id="dl-format">
+              <option value="mp3_320">MP3 320 kbps (default)</option>
+              <option value="wav">WAV (uncompressed)</option>
+              <option value="original">Original (AAC/Opus)</option>
+            </select>
+          </div>
+          <button id="dl-go-btn" class="primary dl-target" type="button">Download</button>
         </div>
-        <button id="dl-go-btn" class="secondary-btn" style="font-size:13px;">Download</button>
-      </div>
-      <p style="margin:0 0 8px;font-size:11px;color:var(--muted);">
-        Saving to <code id="dl-dest"></code>
-        <button id="dl-dest-switch" style="display:none;margin-left:8px;font-size:11px;background:none;border:none;color:var(--green);cursor:pointer;padding:0;text-decoration:underline;"></button>
+
+        <div class="dl-row dl-row-options">
+          <label class="dl-toggle dl-target" id="dl-normalize-label">
+            <input type="checkbox" id="dl-normalize"> Normalize loudness to -14 LUFS
+          </label>
+          <label class="dl-toggle dl-target">
+            <input type="checkbox" id="dl-embed-meta" checked> Auto-tag metadata
+          </label>
+        </div>
+      </fieldset>
+
+      <p class="dl-dest-row">
+        <span>Saving to <code id="dl-dest"></code></span>
+        <button id="dl-dest-switch" type="button" class="dl-link-btn dl-target" hidden></button>
       </p>
-      <div class="cue-tools-progress" id="dl-progress" style="display:none;">
-        <div class="cue-tools-progress-fill" id="dl-progress-fill" style="width:0%"></div>
-      </div>
-      <div id="dl-status" style="font-size:12px;color:var(--muted);margin-top:6px;"></div>
+
+      <p id="dl-wav-warning" class="dl-inline-note" hidden>
+        WAV is uncompressed but the YouTube source is lossy — file is large (~5× MP3) and not actually lossless audio. Use this only if you need PCM for downstream tools.
+        <button type="button" class="dl-link-btn" id="dl-wav-warning-dismiss" aria-label="Dismiss">✕</button>
+      </p>
+
+      <p id="dl-queue-indicator" class="dl-muted-row" hidden>
+        <span id="dl-queue-text"></span>
+        <button id="dl-queue-cancel-all" type="button" class="dl-link-btn dl-target">Cancel queued</button>
+      </p>
+
+      <div id="dl-status-region" role="status" aria-live="polite" aria-atomic="true"></div>
     </div>
-    <p style="margin:12px 0 0;font-size:11px;color:var(--muted);border-top:1px solid var(--border);padding-top:8px;">
-      Downloading copyrighted audio may violate YouTube's Terms of Service and copyright law. Only download content you are authorised to (your own uploads, Creative-Commons or licensed material). Lawful use is your responsibility.
-    </p>
+
+    <details class="dl-legal-disclosure">
+      <summary>About content rights</summary>
+      <p>Downloading copyrighted audio may violate YouTube's Terms of Service and copyright law. Only download content you are authorised to (your own uploads, Creative-Commons or licensed material). Lawful use is your responsibility.</p>
+    </details>
   </section>
 
   </div><!-- /#discover-tab-content -->
@@ -3231,7 +3396,7 @@ autocue --library --mode bar --bars-interval 8 --start-bar 1</pre>
       <button class="secondary-btn" id="delete-cancel-btn">Cancel</button>
     </div>
     <button class="secondary-btn" id="delete-cues-btn" style="display:none;color:#e74c3c;border-color:#e74c3c33;font-size:12px;" data-tip="Remove all hot cues (A–H) from visible tracks.&#10;A database backup is made first.">Delete all cues</button>
-    <button class="primary" id="download-btn" data-tip="Download a Rekordbox XML with cues for manual import — or click to write directly to Rekordbox (local server mode).">Download XML</button>
+    <button class="primary" id="download-btn" data-tip="Export a Rekordbox XML file with cues for manual import — or click to write directly to Rekordbox (local server mode).">Export XML</button>
   </div>
 </div>
 
@@ -4572,6 +4737,469 @@ async function _consumeSSE(response, onEvent, signal) {
   if (signal && signal.aborted) throw new DOMException('Aborted', 'AbortError');
 }
 
+// ── _Download IIFE (PRD .agent/prd/DOWNLOAD_PRD.md v1.0) ─────────────────────
+// Single canonical download driver consumed by every surface:
+//   - #download-section (manual panel)
+//   - .disc-dl-btn (per-Discover-card ⬇ Album)
+//   - #ti-download → #yt-modal (track-info + YouTube candidate picker)
+//   - #disc-v2-dl-confirm (Shift+click confirm)
+// State machine: idle → loading → success | error → idle.
+// Each job: enqueue (POST /api/download/enqueue) → stream (GET /api/download/
+// stream/{job_id}) → cancel via POST /api/download/cancel/{job_id} +
+// AbortController.abort(). 410 already_consumed renders from cached payload.
+window._Download = (function() {
+  const seenDoneFor = new Set();
+
+  function _classifyDownloadTarget(q) {
+    const s = (q || '').trim();
+    if (!s) return 'invalid';
+    if (s.includes('\n') || s.includes('\r')) return 'invalid';
+    const isUrl = /^https?:\/\//i.test(s);
+    if (!isUrl) return 'search';
+    let listMatch = /[?&]list=([A-Za-z0-9_-]+)/i.exec(s);
+    let vMatch    = /[?&]v=([A-Za-z0-9_-]{6,})/i.exec(s);
+    if (listMatch && vMatch) return 'mixed_video_in_playlist';
+    if (listMatch)            return 'playlist';
+    if (vMatch || /youtu\.be\/[A-Za-z0-9_-]{6,}/.test(s)) return 'single_video';
+    return 'single_video';
+  }
+
+  async function _enqueue(endpoint, body, ctrl) {
+    const resp = await fetch(endpoint, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+      signal: ctrl.signal,
+    });
+    const json = await resp.json().catch(() => ({}));
+    if (!resp.ok) {
+      const err = new Error((json && json.detail && json.detail.error_message)
+        || json.error_message || (typeof json.detail === 'string' ? json.detail : '')
+        || `HTTP ${resp.status}`);
+      err.code = (json && json.detail && json.detail.error_code) || json.error_code;
+      err.hint = (json && json.detail && json.detail.hint) || json.hint;
+      err.status = resp.status;
+      throw err;
+    }
+    return json;
+  }
+
+  function start(args) {
+    const ctrl = new AbortController();
+    const onState = args.onState || function() {};
+    let jobId = null;
+    let retriedNormalizeFlip = false;
+    let finished = false;
+
+    onState({ phase: 'queued', percent: null });
+
+    async function go(body) {
+      const endpoint = body.tracks ? '/api/download/album/enqueue' : '/api/download/enqueue';
+      let enq;
+      try {
+        enq = await _enqueue(endpoint, body, ctrl);
+      } catch (err) {
+        // Auto-retry once on normalize_unsupported_for_original (PRD §6.4 round-5 Min-2)
+        if (err.code === 'normalize_unsupported_for_original' && !retriedNormalizeFlip) {
+          retriedNormalizeFlip = true;
+          body.audio_format = 'mp3_320';
+          body.normalize = body.normalize !== false;  // keep normalize=true
+          try {
+            try { localStorage.setItem('autocue_dl_format', 'mp3_320'); } catch (_) {}
+            if (typeof showToast === 'function') {
+              showToast('Normalization requires MP3 320 or WAV — switched to MP3 320');
+            }
+            // Reflect in UI dropdown if present
+            const sel = document.getElementById('dl-format');
+            if (sel) sel.value = 'mp3_320';
+          } catch (_) {}
+          return go(body);
+        }
+        if (err.name === 'AbortError') {
+          if (!finished) { finished = true; onState({ status: 'cancelled', phase: 'done', type: 'done' }); }
+          return;
+        }
+        if (!finished) {
+          finished = true;
+          onState({ type: 'done', status: 'error',
+                    error_code: err.code || 'unknown',
+                    error_message: err.message,
+                    error_hint: err.hint });
+        }
+        return;
+      }
+      jobId = enq.job_id;
+      try { onState({ phase: 'queued', percent: null, job_id: jobId }); } catch (_) {}
+      if (typeof window._dlKickQueuePoller === 'function') window._dlKickQueuePoller();
+
+      // Open SSE stream — handle 410 already_consumed explicitly per PRD §7.3.
+      let stream;
+      try {
+        stream = await fetch(`/api/download/stream/${jobId}`, { signal: ctrl.signal });
+      } catch (err) {
+        if (err.name !== 'AbortError') {
+          finished = true;
+          onState({ type: 'done', status: 'error', error_code: 'network',
+                    error_message: err.message });
+        }
+        return;
+      }
+      if (stream.status === 410) {
+        let cached = {};
+        try { cached = await stream.json(); } catch (_) {}
+        finished = true;
+        onState({ type: 'done', status: cached.status || 'success',
+                  path: cached.path, from_cache: true, job_id: jobId });
+        return;
+      }
+      if (!stream.ok) {
+        finished = true;
+        onState({ type: 'done', status: 'error', error_code: 'http',
+                  error_message: `HTTP ${stream.status}` });
+        return;
+      }
+
+      try {
+        await _consumeSSE(stream, function(ev) {
+          if (ev.type === 'done' && seenDoneFor.has(ev.job_id || jobId)) return;
+          if (ev.type === 'done') {
+            seenDoneFor.add(ev.job_id || jobId);
+            finished = true;
+          }
+          onState(ev);
+        }, ctrl.signal);
+      } catch (err) {
+        if (err.name !== 'AbortError' && !finished) {
+          finished = true;
+          onState({ type: 'done', status: 'error', error_code: 'stream',
+                    error_message: err.message });
+        }
+      }
+    }
+
+    // Build request body from args
+    const body = args.tracks ? {
+      tracks: args.tracks,
+      dest_dir: args.dest || undefined,
+      audio_format: args.format || 'mp3_320',
+      normalize: !!args.normalize,
+      embed_metadata: args.embedMeta !== false,
+    } : {
+      query: args.query,
+      dest_dir: args.dest || undefined,
+      audio_format: args.format || 'mp3_320',
+      normalize: !!args.normalize,
+      embed_metadata: args.embedMeta !== false,
+      allow_playlist: !!args.allowPlaylist,
+    };
+
+    go(body);
+
+    return {
+      get id() { return jobId; },
+      async cancel() {
+        try {
+          if (jobId) {
+            await fetch(`/api/download/cancel/${jobId}`, { method: 'POST' }).catch(function(){});
+          }
+        } finally {
+          ctrl.abort();
+        }
+      },
+      // For tests / clients that want to know the args originally passed
+      _args: args,
+    };
+  }
+
+  // ---- View helpers ----
+  function _esc(s) {
+    return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+  }
+  function _formatBytes(b) {
+    if (b == null) return '';
+    if (b < 1024) return b + ' B';
+    if (b < 1048576) return (b / 1024).toFixed(1) + ' KB';
+    if (b < 1073741824) return (b / 1048576).toFixed(1) + ' MB';
+    return (b / 1073741824).toFixed(2) + ' GB';
+  }
+
+  function renderState(regionEl, state, ctx) {
+    if (!regionEl) return;
+    ctx = ctx || {};
+    const phase = state.phase || (state.type === 'done' ? 'done' : null);
+
+    if (state.type === 'done' && state.status === 'success') {
+      const path = state.path || (ctx.lastPath || '');
+      const folder = path ? path.replace(/[/\\][^/\\]+$/, '') : '';
+      const showReveal = ctx.osRevealSupported !== false && path;
+      regionEl.innerHTML = `
+        <div class="dl-status-card" data-state="success" role="status">
+          <div><strong>✓ Saved</strong> ${ctx.formatLabel ? '<span class="dl-status-line">as ' + _esc(ctx.formatLabel) + '</span>' : ''}</div>
+          ${path ? '<div class="dl-status-line"><code>' + _esc(path) + '</code></div>' : ''}
+          <div class="dl-status-actions">
+            ${showReveal ? '<button type="button" data-dl-action="reveal">Reveal in Finder</button>' : ''}
+            ${path ? '<button type="button" data-dl-action="copy-path">Copy path</button>' : ''}
+            <button type="button" data-dl-action="reset" class="primary">Download another</button>
+          </div>
+        </div>`;
+      regionEl.querySelectorAll('[data-dl-action]').forEach(function(btn) {
+        btn.addEventListener('click', function() {
+          const action = btn.dataset.dlAction;
+          if (action === 'reveal' && path) {
+            fetch('/api/download/reveal', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ path: path }),
+            }).then(function(r) {
+              if (!r.ok) { if (typeof showToast === 'function') showToast("Couldn't open file manager"); }
+            });
+          } else if (action === 'copy-path' && path) {
+            (navigator.clipboard ? navigator.clipboard.writeText(path) : Promise.reject())
+              .then(function() { if (typeof showToast === 'function') showToast('Path copied'); })
+              .catch(function() { if (typeof showToast === 'function') showToast("Couldn't copy"); });
+          } else if (action === 'reset' && ctx.onReset) {
+            ctx.onReset();
+          }
+        });
+      });
+    } else if (state.type === 'done' && state.status === 'error') {
+      const msg = state.error_message || 'Something went wrong.';
+      const hint = state.error_hint || '';
+      const raw = state.error_raw || '';
+      regionEl.innerHTML = `
+        <div class="dl-status-card" data-state="error" role="alert">
+          <div><strong>Couldn't download.</strong> ${_esc(msg)}</div>
+          ${hint && hint !== 'auto_switch_to_mp3_320' ? '<div class="dl-status-line">' + _esc(hint) + '</div>' : ''}
+          <div class="dl-status-actions">
+            ${ctx.onRetry ? '<button type="button" data-dl-action="retry" class="primary">Retry</button>' : ''}
+            <button type="button" data-dl-action="dismiss">Dismiss</button>
+          </div>
+          ${raw ? '<details><summary>Show technical details</summary><pre>' + _esc(raw) + '</pre></details>' : ''}
+        </div>`;
+      regionEl.querySelectorAll('[data-dl-action]').forEach(function(btn) {
+        btn.addEventListener('click', function() {
+          if (btn.dataset.dlAction === 'retry' && ctx.onRetry) ctx.onRetry();
+          if (btn.dataset.dlAction === 'dismiss' && ctx.onReset) ctx.onReset();
+        });
+      });
+    } else if (state.type === 'done' && state.status === 'cancelled') {
+      regionEl.innerHTML = `
+        <div class="dl-status-card" data-state="loading"><div class="dl-status-line">Cancelled</div></div>`;
+      setTimeout(function() { if (regionEl && ctx.onReset) ctx.onReset(); }, 1200);
+    } else if (phase) {
+      const percent = (state.percent == null) ? null : Math.max(0, Math.min(100, state.percent));
+      const totalTracks = state.total > 1 ? state.total : null;
+      const proc = state.processed || 0;
+      const title = state.current_title || state.current_query || '';
+      const phaseText = ({
+        queued: 'Queued…',
+        fetching: 'Downloading…',
+        converting: 'Converting…',
+        normalizing_pass1: 'Measuring loudness…',
+        normalizing_pass2: 'Normalizing loudness…',
+        tagging: 'Writing metadata…',
+      })[phase] || phase;
+      const batchLine = totalTracks
+        ? `<div class="dl-status-line">Track ${proc + 1} of ${totalTracks}${title ? ' · ' + _esc(title) : ''}</div>`
+        : '';
+      regionEl.innerHTML = `
+        <div class="dl-status-card" data-state="loading">
+          <div><strong>${phaseText}</strong>${percent != null ? ' <span class="dl-status-line">' + percent.toFixed(0) + '%</span>' : ''}</div>
+          <progress max="100" ${percent != null ? 'value="' + percent + '"' : ''} aria-label="Download progress"></progress>
+          ${batchLine}
+          <div class="dl-status-actions">
+            <button type="button" data-dl-action="cancel">Cancel</button>
+          </div>
+        </div>`;
+      regionEl.querySelectorAll('[data-dl-action="cancel"]').forEach(function(btn) {
+        btn.addEventListener('click', function() { if (ctx.onCancel) ctx.onCancel(); });
+      });
+    } else {
+      regionEl.innerHTML = '';
+    }
+  }
+
+  // ---- Surface bindings ----
+  function bindManualPanel(rootEl) {
+    rootEl = rootEl || document.getElementById('download-section');
+    if (!rootEl) return;
+    const region = rootEl.querySelector('#dl-status-region');
+    const queryEl = rootEl.querySelector('#dl-query');
+    const formatEl = rootEl.querySelector('#dl-format');
+    const normEl = rootEl.querySelector('#dl-normalize');
+    const metaEl = rootEl.querySelector('#dl-embed-meta');
+    const goBtn = rootEl.querySelector('#dl-go-btn');
+    const controls = rootEl.querySelector('#download-controls');
+    const wavWarning = rootEl.querySelector('#dl-wav-warning');
+    const wavDismiss = rootEl.querySelector('#dl-wav-warning-dismiss');
+    let currentJob = null;
+    let lastArgs = null;
+
+    function _readFormat() {
+      const v = formatEl ? formatEl.value : 'mp3_320';
+      try { localStorage.setItem('autocue_dl_format', v); } catch (_) {}
+      return v;
+    }
+    function _formatLabel(v) {
+      return { mp3_320: 'MP3 320', wav: 'WAV', original: 'Original' }[v] || v;
+    }
+
+    function _refreshNormalizeAvailability() {
+      const fmt = formatEl ? formatEl.value : 'mp3_320';
+      if (!normEl) return;
+      if (fmt === 'original') {
+        normEl.checked = false;
+        normEl.disabled = true;
+        normEl.setAttribute('aria-disabled', 'true');
+        if (normEl.parentElement) normEl.parentElement.title = 'Available only for WAV / MP3 320';
+      } else {
+        normEl.disabled = false;
+        normEl.removeAttribute('aria-disabled');
+        if (normEl.parentElement) normEl.parentElement.removeAttribute('title');
+      }
+    }
+
+    function _reset() {
+      if (region) region.innerHTML = '';
+      if (queryEl) { queryEl.value = ''; queryEl.focus(); }
+      if (controls) controls.removeAttribute('aria-busy');
+      currentJob = null;
+    }
+
+    function _start() {
+      if (currentJob) return;
+      const q = (queryEl ? queryEl.value : '').trim();
+      if (!q) {
+        if (typeof showToast === 'function') showToast('Enter a URL or search term');
+        return;
+      }
+      const fmt = _readFormat();
+      const args = {
+        query: q,
+        format: fmt,
+        normalize: normEl ? normEl.checked : false,
+        embedMeta: metaEl ? metaEl.checked : true,
+        dest: (typeof _dlDestDir !== 'undefined' && _dlDestDir) || undefined,
+        allowPlaylist: ['playlist', 'mixed_video_in_playlist'].includes(_classifyDownloadTarget(q)),
+      };
+      lastArgs = args;
+      if (controls) controls.setAttribute('aria-busy', 'true');
+      currentJob = start(Object.assign({}, args, {
+        onState: function(state) {
+          renderState(region, state, {
+            osRevealSupported: (window._downloadConfig || {}).os_reveal_supported,
+            formatLabel: _formatLabel(fmt),
+            onCancel: function() { if (currentJob) currentJob.cancel(); },
+            onRetry: function() { _reset(); currentJob = null; queryEl && (queryEl.value = q); _start(); },
+            onReset: function() { _reset(); },
+          });
+          if (state.type === 'done') {
+            if (controls) controls.removeAttribute('aria-busy');
+            // Job done — null currentJob so a subsequent retry/reset works.
+            currentJob = null;
+          }
+        },
+      }));
+    }
+
+    if (goBtn) goBtn.addEventListener('click', function(e) { e.preventDefault(); _start(); });
+    if (queryEl) queryEl.addEventListener('keydown', function(e) {
+      if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); _start(); }
+    });
+    if (formatEl) {
+      formatEl.addEventListener('change', function() {
+        _refreshNormalizeAvailability();
+        _readFormat();
+        if (formatEl.value === 'wav' && wavWarning) {
+          let seen = false;
+          try { seen = sessionStorage.getItem('autocue_dl_seen_wav_warning') === '1'; } catch (_) {}
+          if (!seen) wavWarning.hidden = false;
+        }
+      });
+    }
+    if (wavDismiss && wavWarning) wavDismiss.addEventListener('click', function() {
+      wavWarning.hidden = true;
+      try { sessionStorage.setItem('autocue_dl_seen_wav_warning', '1'); } catch (_) {}
+    });
+    // Restore last format from localStorage; coerce legacy values.
+    if (formatEl) {
+      let saved = null;
+      try { saved = localStorage.getItem('autocue_dl_format'); } catch (_) {}
+      const legacy = { mp3: 'mp3_320', m4a: 'original', aac: 'original',
+                       opus: 'original', flac: 'wav', alac: 'wav', vorbis: 'wav' };
+      if (saved && legacy[saved]) {
+        formatEl.value = legacy[saved];
+        try { localStorage.setItem('autocue_dl_format', legacy[saved]); } catch (_) {}
+        if (typeof showToast === 'function') {
+          showToast(`Your saved format is now ${_formatLabel(legacy[saved])}. Change in the Format dropdown.`);
+        }
+      } else if (saved && ['wav', 'mp3_320', 'original'].includes(saved)) {
+        formatEl.value = saved;
+      }
+      _refreshNormalizeAvailability();
+    }
+
+    // Public API for tests / external integration
+    return { _start: _start, _reset: _reset,
+             get currentJob() { return currentJob; },
+             get lastArgs() { return lastArgs; } };
+  }
+
+  function bindCardButton(btnEl, query, opts) {
+    if (!btnEl) return;
+    opts = opts || {};
+    let job = null;
+    const orig = btnEl.textContent;
+    let inlineStatus = btnEl.parentElement && btnEl.parentElement.querySelector('.disc-dl-status');
+    let inlineBar    = btnEl.parentElement && btnEl.parentElement.querySelector('.disc-dl-bar');
+    let inlineProg   = btnEl.parentElement && btnEl.parentElement.querySelector('.disc-dl-progress');
+    btnEl.addEventListener('click', function() {
+      if (job) { job.cancel(); return; }
+      if (inlineProg) inlineProg.style.display = '';
+      btnEl.textContent = 'Cancel';
+      job = start({
+        query: query,
+        format: opts.format || (function() { try { return localStorage.getItem('autocue_dl_format') || 'mp3_320'; } catch(_){ return 'mp3_320'; } })(),
+        normalize: !!opts.normalize,
+        embedMeta: opts.embedMeta !== false,
+        dest: opts.dest || (typeof _dlDestDir !== 'undefined' && _dlDestDir) || undefined,
+        onState: function(state) {
+          if (state.type === 'done') {
+            if (state.status === 'success') {
+              btnEl.textContent = '✓ Saved';
+              if (inlineStatus) { inlineStatus.textContent = '✓ saved'; inlineStatus.style.color = 'var(--green)'; }
+              if (inlineBar) inlineBar.style.width = '100%';
+            } else if (state.status === 'cancelled') {
+              btnEl.textContent = orig;
+              if (inlineStatus) inlineStatus.textContent = 'cancelled';
+            } else {
+              btnEl.textContent = orig;
+              if (inlineStatus) { inlineStatus.textContent = '✗ failed'; inlineStatus.style.color = 'var(--red, #e05252)'; }
+              if (typeof showToast === 'function') showToast('Download failed: ' + (state.error_message || ''));
+            }
+            job = null;
+            setTimeout(function() { if (inlineProg) inlineProg.style.display = 'none'; }, 1500);
+          } else if (typeof state.percent === 'number') {
+            if (inlineBar) inlineBar.style.width = state.percent + '%';
+            if (inlineStatus) inlineStatus.textContent = Math.round(state.percent) + '%';
+          } else if (state.phase) {
+            if (inlineStatus) inlineStatus.textContent = state.phase.replace('_', ' ');
+          }
+        },
+      });
+    });
+  }
+
+  return {
+    start: start,
+    bindManualPanel: bindManualPanel,
+    bindCardButton: bindCardButton,
+    renderState: renderState,
+    _classifyDownloadTarget: _classifyDownloadTarget,
+  };
+})();
+
 function initDiscover() {
   // Default "released since" to last year (v1 control, retained for the
   // Download panel below — Discover v2 has its own filter bar).
@@ -4582,32 +5210,81 @@ function initDiscover() {
   // DOM when the Discover tab was rewritten. Its click handler is now wired
   // up in initDiscoverV2(). The download button below still belongs to the
   // shared YouTube download panel.
-  const dlBtn = document.getElementById('dl-go-btn');
-  if (dlBtn) dlBtn.addEventListener('click', downloadManual);
+  // Wire the manual panel through the canonical _Download IIFE.
+  // (Old downloadManual / runDownload functions are kept further down but
+  // unreferenced; they are slated for deletion in a follow-up cleanup pass.)
+  if (window._Download) window._Download.bindManualPanel(document.getElementById('download-section'));
 
   // Probe download tool availability and reveal the matching UI.
   fetch('/api/download/config').then(r => r.ok ? r.json() : null).then(cfg => {
     if (!cfg) return;
     _downloadConfig = cfg;
-    // Use music folder (Rekordbox library root) as default, fall back to AutoCue dir
+    window._downloadConfig = cfg;
     _dlDestDir = cfg.music_folder || cfg.default_dir || '~/Music/AutoCue';
     const ready = cfg.available && cfg.ffmpeg;
-    document.getElementById('download-controls').style.display    = ready ? '' : 'none';
-    document.getElementById('download-unavailable').style.display = ready ? 'none' : '';
+    const controls = document.getElementById('download-controls');
+    const unavail  = document.getElementById('download-unavailable');
+    if (controls) controls.hidden = !ready;
+    if (unavail) unavail.hidden = ready;
     const dest = document.getElementById('dl-dest');
     if (dest) dest.textContent = _dlDestDir;
-    // Show folder switcher when both music folder and AutoCue default are available and differ
     if (cfg.music_folder && cfg.default_dir && cfg.music_folder !== cfg.default_dir) {
       const switcher = document.getElementById('dl-dest-switch');
       if (switcher) {
-        switcher.style.display = '';
+        switcher.hidden = false;
         switcher.dataset.primary = cfg.music_folder;
         switcher.dataset.alt = cfg.default_dir;
         switcher.textContent = 'Switch to AutoCue folder';
       }
     }
+    // Start the queue poller (paused when tab hidden)
+    _startQueuePoller();
   }).catch(() => {});
 }
+
+// Queue indicator (PRD §6.12 + round-4 m1) — polls only while ≥ 1 job in flight
+// AND tab is visible. Otherwise idles. Exposed _Download.kickQueuePoller() is
+// called by the IIFE whenever a new job is enqueued, so the poller starts
+// on demand instead of running unconditionally every 2 s.
+let _dlQueuePollId = null;
+let _dlQueueIdleTicks = 0;
+const _DL_QUEUE_IDLE_MAX = 2;  // stop after 2 consecutive empty polls
+
+function _stopQueuePoller() {
+  if (_dlQueuePollId != null) { clearInterval(_dlQueuePollId); _dlQueuePollId = null; }
+  _dlQueueIdleTicks = 0;
+}
+
+function _startQueuePoller() {
+  function tick() {
+    if (document.visibilityState !== 'visible') return;
+    fetch('/api/download/queue').then(r => r.ok ? r.json() : null).then(snap => {
+      const ind = document.getElementById('dl-queue-indicator');
+      const txt = document.getElementById('dl-queue-text');
+      if (!ind || !txt || !snap) return;
+      const total = (snap.active ? snap.active.length : 0) + (snap.queued_count || 0);
+      if (total === 0) {
+        ind.hidden = true;
+        _dlQueueIdleTicks++;
+        if (_dlQueueIdleTicks >= _DL_QUEUE_IDLE_MAX) _stopQueuePoller();
+        return;
+      }
+      _dlQueueIdleTicks = 0;
+      ind.hidden = false;
+      txt.textContent = `${snap.active.length} active · ${snap.queued_count} queued (max ${snap.max_concurrency} concurrent)`;
+    }).catch(() => {});
+  }
+  if (_dlQueuePollId == null) {
+    _dlQueuePollId = setInterval(tick, 2000);
+    document.addEventListener('visibilitychange', function() {
+      if (document.visibilityState === 'visible' && _dlQueuePollId == null) _startQueuePoller();
+    }, { once: false });
+    tick();
+  }
+}
+
+// Public hook for the _Download IIFE — call on every successful enqueue.
+window._dlKickQueuePoller = _startQueuePoller;
 
 // Toggle download destination between music folder and AutoCue default folder.
 document.addEventListener('click', e => {
@@ -6172,7 +6849,7 @@ function _openDownloadConfirm(release) {
   // Reset the Go button label (in case a prior run left it in progress).
   if (goBtn) {
     goBtn.disabled = false;
-    goBtn.textContent = 'Download anyway';
+    goBtn.textContent = 'Download album';
   }
 
   modal.setAttribute('aria-hidden', 'false');
@@ -6959,15 +7636,23 @@ function _esc(s) {
     .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 }
 
-// Delegate clicks on per-suggestion Download buttons.
+// Delegate clicks on per-suggestion Download buttons — routed through _Download.
+// Track buttons we've already bound so the second click cancels rather than
+// re-enqueueing (bindCardButton attaches an instance-level listener).
+const _disc_dl_bound = new WeakSet();
 document.addEventListener('click', (e) => {
   const btn = e.target.closest && e.target.closest('.disc-dl-btn');
   if (!btn) return;
-  const card = btn.closest('.disc-card');
-  const progressEl = card ? card.querySelector('.disc-dl-progress') : null;
-  const barEl = card ? card.querySelector('.disc-dl-bar') : null;
-  const statusEl = card ? card.querySelector('.disc-dl-status') : null;
-  runDownload(btn.dataset.query, { btn, statusEl, progressEl, barEl });
+  if (_disc_dl_bound.has(btn)) return;  // bindCardButton's listener handles future clicks
+  _disc_dl_bound.add(btn);
+  e.preventDefault();
+  if (!(window._downloadConfig && window._downloadConfig.available && window._downloadConfig.ffmpeg)) {
+    if (typeof showToast === 'function') showToast('Download tools not installed — see the Download panel');
+    return;
+  }
+  window._Download.bindCardButton(btn, btn.dataset.query, {});
+  // The first click is what triggered this listener; replay it on the bound btn.
+  btn.click();
 });
 
 // Run a single download over SSE, updating a button + optional inline progress bar.

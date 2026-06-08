@@ -1,0 +1,1503 @@
+{
+  "synth": {
+    "executive_summary": "Eight persona reports converge on the same diagnosis: AutoCue's Download surface ships functional plumbing but inverted visual hierarchy, fragmented implementations across 3 SSE drivers, and copy that leaks developer jargon (yt-dlp, ffmpeg exit codes) into the most user-facing strings. The single most damaging finding — flagged by 7 of 8 personas — is the Shift+click confirm modal painting Cancel as the brand-green primary while 'Download anyway' sits ghost-styled, inverting color semantics across the entire app. Closely behind: the manual panel's primary Download CTA is rendered as a secondary ghost button (8/8 personas), raw ffmpeg/yt-dlp error strings dead-end the user with no recovery path (8/8), three near-identical SSE drivers duplicate ~150 LOC and diverge on AbortController support (engineer + several UX), and the '⬇ Album' button silently downloads a single track because backend hardcodes noplaylist=True (4/8). Accessibility scores lowest at 4.4 — missing label-for associations, no progressbar ARIA, no aria-live status, focus not trapped in YT modal, touch targets <24px. Mobile layout (avg 3.5) buries the panel below the fold and overflows the destination path. Quick wins concentrate on copy (drop 'yt-dlp', rename 'Download XML' → 'Export XML'), CSS class swaps (primary on Download, ghost on Cancel), and trivial accessibility hooks (label for, aria-live, Enter-to-submit). Medium work consolidates the 3 SSE drivers into a single _Download module with classified errors, persistent success state, Cancel-in-flight, and a format selector. Strategic work delivers real album/playlist batching, persistent history with Reveal-in-Finder, normalize/ID3 toggles, and a portable component the panel embeds across surfaces.",
+    "top_findings": [
+      {
+        "rank": 1,
+        "title": "Confirm modal inverts color semantics: Cancel is green primary, 'Download anyway' is ghost",
+        "severity": "critical",
+        "affects": [
+          "confirm_modal",
+          "cross-app color system"
+        ],
+        "source_personas": [
+          "Senior UX Designer",
+          "Senior UI Designer",
+          "Product Designer",
+          "WCAG Specialist",
+          "Conversion Optimization",
+          "Brand-new user",
+          "Front-End Engineer",
+          "DJ power-user"
+        ],
+        "recommendation": "Keep Cancel as default keyboard focus (good for sticky-Shift safety) but restyle BOTH buttons as ghost/neutral, OR make 'Download album' the primary green and rely on focus ring + 250ms button-disabled delay for safety. Drop the word 'anyway' (loaded language). Add 'Don't ask again this session' checkbox for power users. docs/index.html:3150-3151.",
+        "complexity": "trivial"
+      },
+      {
+        "rank": 2,
+        "title": "Primary Download CTA rendered as ghost (secondary-btn) — outranked by Refresh and sticky-bar Download XML",
+        "severity": "high",
+        "affects": [
+          "manual_panel"
+        ],
+        "source_personas": [
+          "Senior UX Designer",
+          "Senior UI Designer",
+          "Product Designer",
+          "Conversion Optimization",
+          "Brand-new user",
+          "WCAG Specialist (indirectly via 1.4.11)",
+          "Front-End Engineer (indirectly)",
+          "DJ power-user (indirectly)"
+        ],
+        "recommendation": "Swap class='secondary-btn' to class='primary' on #dl-go-btn (docs/index.html:3173). Match height/style to Discover Refresh. Reserve ghost styling for 'Switch folder' and 'Cancel' actions.",
+        "complexity": "trivial"
+      },
+      {
+        "rank": 3,
+        "title": "Raw stderr / 'ffmpeg exit code 1' leaks to end users with no recovery path",
+        "severity": "critical",
+        "affects": [
+          "manual_panel",
+          "per_card_album",
+          "yt_candidate_modal"
+        ],
+        "source_personas": [
+          "Senior UX Designer",
+          "Senior UI Designer",
+          "Product Designer",
+          "WCAG Specialist",
+          "Conversion Optimization",
+          "Brand-new user",
+          "Front-End Engineer",
+          "DJ power-user"
+        ],
+        "recommendation": "Add a backend error classifier mapping yt-dlp/ffmpeg failures (403/age-gated/region, deleted, ffmpeg conv fail, disk full, no internet) to user-facing strings with a concrete next step. Always render a [Retry] button and a 'Show technical details' disclosure that keeps raw text for bug reports. Push error to aria-live=assertive + role=alert.",
+        "complexity": "medium"
+      },
+      {
+        "rank": 4,
+        "title": "'yt-dlp' jargon leaks into primary user-facing copy (helper text + confirm body)",
+        "severity": "high",
+        "affects": [
+          "manual_panel",
+          "confirm_modal"
+        ],
+        "source_personas": [
+          "Senior UX Designer",
+          "Product Designer",
+          "Conversion Optimization",
+          "Brand-new user"
+        ],
+        "recommendation": "Rewrite helper at docs/index.html:3160 to 'Download a track or album from YouTube as an audio file.' Remove 'with yt-dlp' and the context-coupling phrase 'on any suggestion above'. Confirm modal body (3147) should show actual album/track name: 'Download {album} – {artist}?'. Move 'Powered by yt-dlp + ffmpeg' to a tertiary footer line only.",
+        "complexity": "trivial"
+      },
+      {
+        "rank": 5,
+        "title": "Three near-identical SSE download drivers (runDownload, downloadManual, _ytDownload) — divergent AbortController, error UX, parsing",
+        "severity": "high",
+        "affects": [
+          "manual_panel",
+          "per_card_album",
+          "yt_candidate_modal",
+          "all"
+        ],
+        "source_personas": [
+          "Front-End Engineer",
+          "Product Designer",
+          "Senior UX Designer",
+          "DJ power-user"
+        ],
+        "recommendation": "Extract a single _Download IIFE owning one state machine (idle|loading|success|error). Surfaces are thin render-callback views. Always pass an AbortController. Reuse _consumeSSE everywhere (replace _ytDownload's hand-rolled parser at 10827-10853). Define one structured SSE event union for /api/download and /api/download/album.",
+        "complexity": "medium"
+      },
+      {
+        "rank": 6,
+        "title": "No Cancel during in-flight download on manual panel or per-card (engine supports it)",
+        "severity": "high",
+        "affects": [
+          "manual_panel",
+          "per_card_album"
+        ],
+        "source_personas": [
+          "Senior UX Designer",
+          "Product Designer",
+          "Front-End Engineer",
+          "DJ power-user",
+          "Conversion Optimization",
+          "Brand-new user"
+        ],
+        "recommendation": "Pass an AbortController.signal to fetch in runDownload/downloadManual. While running, swap the disabled 'Downloading…' label for an active Cancel button (reuse _setBtnCancellable from line 7080). Backend already supports cancel_event in autocue/download.py.",
+        "complexity": "small"
+      },
+      {
+        "rank": 7,
+        "title": "Per-card '⬇ Album' downloads exactly one track — backend hardcodes noplaylist=True; YT playlist URLs in manual panel silently grab only track 1",
+        "severity": "critical",
+        "affects": [
+          "per_card_album",
+          "manual_panel"
+        ],
+        "source_personas": [
+          "Senior UX Designer",
+          "Product Designer",
+          "Brand-new user",
+          "DJ power-user"
+        ],
+        "recommendation": "Detect playlist/album URLs client-side; for true albums switch to /api/download/album with 'Track X of Y' batch progress. Until shipped, relabel '⬇ Album' → '⬇ Match' or '⬇ Audio' with tooltip explaining single-track scope. Remove noplaylist=True at the request layer and thread it through as an option.",
+        "complexity": "large"
+      },
+      {
+        "rank": 8,
+        "title": "Progress bar lacks ARIA (role=progressbar/aria-valuenow/aria-live); status changes silent to screen readers",
+        "severity": "high",
+        "affects": [
+          "manual_panel",
+          "per_card_album",
+          "all"
+        ],
+        "source_personas": [
+          "WCAG Specialist",
+          "Senior UX Designer",
+          "Brand-new user",
+          "DJ power-user"
+        ],
+        "recommendation": "Replace #dl-progress with native <progress max=100 value=N aria-labelledby='dl-progress-label'> (YT modal already does this — copy that). Wrap #dl-status in aria-live='polite' aria-atomic='true' and promote to assertive on done/error. Set aria-busy on the panel container while running. Add role=alert on error container.",
+        "complexity": "small"
+      },
+      {
+        "rank": 9,
+        "title": "No format/quality selector — silently writes 192 kbps MP3 (deal-breaker for DJ audience)",
+        "severity": "high",
+        "affects": [
+          "manual_panel"
+        ],
+        "source_personas": [
+          "Senior UX Designer",
+          "Product Designer",
+          "Brand-new user",
+          "DJ power-user"
+        ],
+        "recommendation": "Add inline 'Format' dropdown next to the input (WAV default for DJs, MP3 320, Original). Persist in localStorage (autocue_dl_format). Echo chosen format in status string ('Saved as WAV to …'). Backend: thread audio_format/audio_quality through /api/download request body.",
+        "complexity": "small"
+      },
+      {
+        "rank": 10,
+        "title": "Naming collision — 4 'Download' buttons mean 4 different things (audio, Rekordbox XML, backup XML, album); XML button is the only green primary",
+        "severity": "high",
+        "affects": [
+          "xml_button_collision",
+          "all"
+        ],
+        "source_personas": [
+          "Senior UX Designer",
+          "Senior UI Designer",
+          "Product Designer",
+          "WCAG Specialist",
+          "Conversion Optimization",
+          "Brand-new user",
+          "Front-End Engineer",
+          "DJ power-user"
+        ],
+        "recommendation": "Rename: #download-btn → 'Export Rekordbox XML'; #backup-btn → 'Save backup XML'; reserve verb 'Download' for audio fetch only. Audio CTA becomes the sole primary green 'Download' on the page. Give per-card emoji button aria-label='Download album: {artist} – {album}'. Also rename internal IDs (#dl-* prefix to differentiate from XML #download-*) to prevent code-review confusion.",
+        "complexity": "small"
+      }
+    ],
+    "quick_wins": [
+      "Promote #dl-go-btn from .secondary-btn to .primary (brand green) — docs/index.html:3173 [trivial, fixes #2]",
+      "Restyle confirm modal: Cancel as ghost/neutral, 'Download album' as primary green; drop the word 'anyway'; keep default focus on Cancel — docs/index.html:3150-3151 [trivial, fixes #1]",
+      "Drop 'yt-dlp' and 'ffmpeg' from all user-facing copy (helper at 3160, confirm body at 3147); show actual album/track name in confirm body [trivial, fixes #4]",
+      "Rename: #download-btn → 'Export Rekordbox XML'; #backup-btn → 'Save backup XML' — docs/index.html:3234, 2139 [trivial, fixes #10]",
+      "Add for='dl-query' on the label at docs/index.html:3169 and aria-label='YouTube search query' on #yt-query (3270) [trivial, WCAG 1.3.1/4.1.2]",
+      "Wire Enter-to-submit on #dl-query: input.addEventListener('keydown', e => e.key==='Enter' && downloadManual()) [trivial, DJ power-user pain]",
+      "Set role='progressbar' aria-valuenow/min/max on #dl-progress and aria-live='polite' aria-atomic='true' on #dl-status [trivial, WCAG 4.1.3]",
+      "Add aria-busy='true' on the panel container while downloading; mirror state into the live region ('Download started', 'Download saved to <folder>') [trivial, WCAG 4.1.3]",
+      "Collapse legal disclaimer behind a small '(?) About content rights' disclosure; show full text only on first session via localStorage flag [small, finding #9 from UX]",
+      "Set min-height/min-width 24px on .secondary-btn, .disc-dl-btn, .disc-v2-detail-action, 'Switch folder' link [trivial, WCAG 2.5.8]",
+      "Add @media (prefers-reduced-motion: reduce) block disabling progressIndeterminate animation and hover transforms [trivial, WCAG 2.3.3]",
+      "Replace _ytDownload's hand-rolled SSE parser (10827-10853) with await _consumeSSE(resp, cb, signal) — already proven in runDownload/downloadManual [trivial, deletes ~25 LOC]",
+      "Capture original button label at handler entry instead of hardcoding '⬇ Album' / 'Download' in finally blocks (7014, 7058) [trivial, removes regression vector]",
+      "Use event delegation for #dl-go-btn click handler to survive future panel re-render [trivial]",
+      "Drop the contextual 'Use the ⬇ Album button on any suggestion above' phrase — makes the component reusable [trivial, finding #1 from Product Designer]",
+      "Set initial autofocus on #dl-query when the Download section comes into view [trivial]"
+    ],
+    "medium_improvements": [
+      "Build error-classifier mapping known yt-dlp/ffmpeg failures (403/region, deleted, conversion fail, disk full, no internet, ffmpeg missing) to user-facing messages + [Retry] button; keep raw stderr behind 'Show technical details' (fixes #3)",
+      "Extract a single _Download IIFE owning {state, percent, message, path, error} with one AbortController; refactor runDownload, downloadManual, _ytDownload to thin views; standardize Cancel UX via _setBtnCancellable (fixes #5, #6)",
+      "Add Cancel button during in-flight downloads on manual panel + per-card (backend cancel_event already exists in autocue/download.py); on Abort show idle state + toast (fixes #6)",
+      "Add format/quality dropdown (WAV default / MP3 320 / Original) persisted to localStorage; thread audio_format/audio_quality through /api/download body (fixes #9)",
+      "Add 'Reveal in Finder' / 'Open folder' / 'Copy path' / 'Download another' actions on success state; render as a persistent success card (no auto-hide via setTimeout) — backend hook subprocess.run(['open','-R',path]) for macOS",
+      "Replace single progress % with rich SSE event: resolved title + phase (Fetching → Converting → Tagging) + 'X.X MB / Y.Y MB · speed · ETA' (yt-dlp already exposes downloaded_bytes/total_bytes/speed/eta)",
+      "Mobile @media (max-width:520px): stack input above full-width button, middle-truncate destination path, collapse legal to single line, force status/error chips full width with 8px gap, make 'Switch folder' a 44x44 touch target",
+      "Confirm modal: add 'Don't ask again this session' checkbox (sessionStorage) so power-user batch shift-click doesn't stutter per album",
+      "Add focus trap + Escape handler + focus-return on YT candidate modal (currently has none — copy the trap pattern from disc-v2-dl-confirm at lines 6097-6100/6185); apply `inert` to siblings while modals open",
+      "Add aria-busy / aria-disabled on Download button during loading (not just `disabled` which removes from a11y nav)",
+      "YT candidate modal: move progress bar inline under the selected candidate row, dim non-selected rows, disable other Pick buttons during download; rename 'Pick' → 'Download this version'",
+      "Per-card download UX consolidation: replace 3px×90px clipped bar with either (a) circular spinner+% inside the button or (b) move all in-flight downloads into the canonical Download panel as a queue",
+      "Add structured SSE event union {type:'progress', percent, phase, processed, total, currentTitle} | {type:'done', status, path?, error?} and lock with a jsonschema test; eliminates ad-hoc key drift across endpoints",
+      "Add client-side URL classification (URL vs search vs invalid) with inline 'URL detected'/'Will search YouTube' hint chip; reject multi-line input client-side",
+      "Replace mutable global var _dlDestDir with per-job captured destination; always render path from server-emitted ev.path on success",
+      "Add input history datalist bound to #dl-query (last 20 queries with ✓/✗ icons) persisted in localStorage; ↑/↓ cycles entries (DJ power-user retry workflow)",
+      "Add 'Recently downloaded' list below controls (last 5, localStorage) with filename + path + Reveal + Re-download + age; survives session"
+    ],
+    "strategic_improvements": [
+      "Real album/playlist batching: detect YouTube playlist URLs and Discogs LP cards; switch to /api/download/album with collective 'Track X of Y · <title> — N%' progress and a queue panel; remove noplaylist=True at the request layer; surface a 'Download all (N)' button at the Discover header (fixes #7)",
+      "Auto-tag (ID3 + artwork) toggle backed by FFmpegMetadata + EmbedThumbnail postprocessors; show 'Artist: X · Title: Y · ID3 written' in success state so the user trusts it landed",
+      "Loudness normalization to -14 LUFS toggle (ffmpeg loudnorm filter); persist user pref",
+      "Portable Download component: extract HTML template + CSS partial that can be embedded on Library, Discover, future Watchlist pages; helper copy becomes context-free with optional helperSlot prop",
+      "Folder picker UI: dropdown of last 5 destinations (localStorage) + 'Pick folder…' using showDirectoryPicker File System API + 'New subfolder…' inline create; replaces single 'Switch to AutoCue folder' link",
+      "YT-ID-based dedupe manifest: before download, check a small JSON manifest for the YouTube ID; on duplicate show 'Already downloaded on <date> — Re-download / Skip / Open file'; on success append (id → path, date)",
+      "Pre-flight file-size + bitrate per YT candidate (yt-dlp info_dict.formats); show expected MB and codec on each Pick row so DJs aren't blind to quality",
+      "Global keyboard shortcut (e.g. Shift+D) that switches to Discover, scrolls Download panel into view, and focuses #dl-query; advertise in the keybindings help dialog",
+      "Bulk paste: textarea or auto-detect newlines on paste — 'Detected 12 URLs, queue all?' wired to /api/download/album",
+      "Mobile-first redesign: on small viewports float a 'Download a track' FAB at the bottom action bar, or surface the Download panel above Discover results so it's not below-the-fold",
+      "System Notifications API on download finish so users who tab away get a desktop ping",
+      "Pre-add format/quality controls with full ARIA spec (<fieldset><legend>, <label for>, role=switch + aria-checked, aria-describedby) — prevents shipping new controls with permanent a11y debt"
+    ],
+    "a11y_violations": [
+      "WCAG 1.3.1 / 4.1.2 — Label at docs/index.html:3169 is a bare text node with no `for` attribute and #dl-query has no aria-label. #yt-query (3270) has zero label at all.",
+      "WCAG 4.1.3 — #dl-progress is a plain <div> with no role='progressbar'/aria-valuenow; #dl-status has no aria-live; per-card status (.disc-dl-status) is a plain span. Screen-reader users get no feedback during multi-minute downloads.",
+      "WCAG 2.4.3 / 2.1.2 / 2.1.1 — YT candidate modal (3264-3289, openYoutubeModal 10731-10746) has no focus trap, no initial focus, no Escape handler, no focus return on close. Keyboard users get stranded.",
+      "WCAG 1.3.2 / 2.4.3 — Modals don't apply `inert` or aria-hidden to siblings; underlying page remains in the a11y tree behind the dialog.",
+      "WCAG 3.2.4 (Consistent Identification) — Confirm modal Cancel is the brand-green primary while Download is ghost; inverts the green-means-go convention used everywhere else in the app.",
+      "WCAG 2.5.8 (AA) — 'Switch to AutoCue folder' link ~14px tall; .disc-dl-btn ~22px tall (padding:4px 10px;font-size:12px). Both fail the 24×24 CSS px minimum. .disc-v2-detail-action borderline at ~24px.",
+      "WCAG 1.4.3 / 1.4.11 — var(--muted) text on white likely ~3.5-4:1 (under 4.5:1 small-text threshold); ghost Download button 1px var(--border) ~1.5:1 against panel-card background (fails 3:1 UI component contrast).",
+      "WCAG 3.3.1 / 3.3.3 — Error state '✗ ERROR: ffmpeg returned exit code 1: Conversion failed!' is not described to the user in plain text and offers no recovery suggestion.",
+      "WCAG 4.1.3 — Button text change 'Download' → 'Downloading…' → 'Download' is not announced; no aria-busy; native `disabled` removes the button from a11y nav (use aria-disabled instead).",
+      "WCAG 1.3.1 — Legal disclaimer paragraph (3184-3186) is rendered as smallest, palest text with no role='note'/heading/<strong>, despite being a critical decision aid.",
+      "WCAG 2.5.3 (Label in Name, spirit) — Multiple buttons share leading word 'Download' (Download, Download XML, Download backup XML, Download via YouTube, ⬇ Album); voice-control users get ambiguous targets.",
+      "WCAG 2.3.3 — Continuous progressIndeterminate keyframe animation has no @media (prefers-reduced-motion: reduce) fallback; vestibular trigger."
+    ],
+    "cross_surface_consistency_issues": [
+      "Three different progress visualisations for the same operation: manual panel uses a custom .cue-tools-progress div, per-card uses a 3px×90px green bar (6947), YT modal uses native <progress> (3276). No 'this is what a download looks like in AutoCue' mental model.",
+      "Three near-identical SSE drivers (runDownload 6974-7016, downloadManual 7018-7061, _ytDownload 10807-10858) — _ytDownload uniquely has AbortController; runDownload/downloadManual don't. Only _ytDownload re-implements SSE parsing instead of using _consumeSSE.",
+      "Confirm modal exists only for Discover-card Shift+click; manual panel #dl-go-btn, track-info #ti-download, and plain-click per-card all download instantly with no confirm — asymmetric safety model that teaches users 'Shift = caution' when plain click triggers the same side effect.",
+      "Word 'Download' refers to 4 different concepts on the same page (YouTube audio fetch, Rekordbox XML export, DB backup XML, album); only the XML export is rendered as the brand-primary green button — the actual audio Download CTA is ghost.",
+      "Brand color (--green) overloaded on Discover cards: Discogs link (link color), in-flight progress bar (100% saturated), success state, and primary CTAs all use the same green; no semantic discipline.",
+      "yt-modal offers Copy path on success (3284); manual panel offers nothing on success — same operation, different post-completion affordances.",
+      "Per-card success uses var(--green) text-color shift on status (line 7000); manual panel sets plain muted text with no color shift (line 7048) — success looks like a generic body line on the larger surface.",
+      "Backend SSE event keys differ between /api/download single (processed/total/query/status/percent) and /api/download/album (processed/total/title/query/status/path/downloaded); no shared schema; client handlers branch on inconsistent key presence.",
+      "Hardcoded button-label resets in finally blocks ('⬇ Album', 'Download') couple controller to view and break under copy or layout changes.",
+      "Some surfaces show resolved track title mid-download (album batch), others show only raw input — same SSE backend, different surface UX.",
+      "Helper copy in the manual panel ('Use the ⬇ Album button on any suggestion above') hard-codes a sibling component's existence — fails the moment the panel is embedded on another page."
+    ],
+    "mobile_issues": [
+      "Download panel sits below the fold on 390px viewports (below Discover scan + suggestion cards + watchlist) — first-time mobile users never see it; conversion ≈ 0.",
+      "Destination path '/Users/henrigeorge/Projects/Music/source' overflows or wraps mid-token at 390px; 'Switch to AutoCue folder' link wraps onto a new line, breaking the destination/switch relationship.",
+      "Legal disclaimer fills ~25-40% of the mobile viewport, dominating the panel and pushing controls off-screen.",
+      "Input and Download button stay side-by-side at small widths; the button shrinks awkwardly instead of stacking full-width below the input.",
+      "Per-card '⬇ Album' button measures ~22px tall (padding:4px 10px;font-size:12px) — fails WCAG 2.5.5 AAA (44×44) and the 2.5.8 AA minimum (24×24).",
+      "'Switch to AutoCue folder' link is 11px underlined text adjacent to a similarly-styled path link — high mis-tap risk on touch.",
+      "Error string '✗ ERROR: ffmpeg returned exit code 1: Conversion failed!' is wider than the readable viewport and wraps awkwardly into the legal disclaimer below.",
+      "No floating/sticky CTA to surface the Download feature on mobile; user must scroll through Discover content to find it.",
+      "Per-card 90px progress bar is too narrow to be perceptible at typical phone reading distance; '55%' label floats with no spatial binding to the bar.",
+      "No mobile-specific layout block in the CSS for the Download panel — entire panel was clearly desktop-first."
+    ],
+    "final_score": {
+      "discoverability": 4.6,
+      "clarity": 3.9,
+      "accessibility": 4.3,
+      "efficiency": 4.3,
+      "consistency": 3.5,
+      "user_confidence": 3.5,
+      "mobile": 3.5,
+      "overall": 3.9
+    }
+  },
+  "raw": [
+    {
+      "persona": "Senior UX Designer (15y B2B tools)",
+      "score": {
+        "discoverability": 4,
+        "clarity": 4,
+        "accessibility": 5,
+        "efficiency": 4,
+        "consistency": 3,
+        "user_confidence": 3,
+        "mobile": 3
+      },
+      "findings": [
+        {
+          "title": "Match between system and the real world — 'yt-dlp' jargon leaks into primary product copy",
+          "severity": "high",
+          "surface": "manual_panel",
+          "evidence": "docs/index.html:3160 (\"Fetch audio from YouTube with yt-dlp...\") and 3147 (confirm modal: \"This will fetch audio from YouTube via yt-dlp.\") plus dl_02_section_default.png and dl_07_confirm_modal.png",
+          "why_it_matters": "Nielsen #2 violation. DJs are the audience, not developers. 'yt-dlp' is the name of an internal library — it leaks implementation into the surface the user reads first. It also conflates the tool with the action: users wonder if they need to install something. Portability is broken too: when the backend grows beyond YT (Bandcamp, SoundCloud), every copy string is wrong.",
+          "recommendation": "Replace with neutral, user-mental-model language: panel intro 'Download tracks from the web' / 'Paste a link or search for a track or album.' Confirm modal: 'Download this album?' body 'AutoCue will fetch the audio and save it to your music folder.' Move 'Powered by yt-dlp + ffmpeg' to a small tertiary line at the bottom of the panel only.",
+          "impact": "Removes cognitive friction for non-technical users; makes the component reusable across future backends without copy churn.",
+          "complexity": "trivial"
+        },
+        {
+          "title": "Visibility of system status — primary 'Download' button is a ghost button, the same weight as Refresh/Switch/links around it",
+          "severity": "high",
+          "surface": "manual_panel",
+          "evidence": "docs/index.html:3173 (<button id=\"dl-go-btn\" class=\"secondary-btn\">Download</button>) — screenshot dl_02_section_default.png shows it visually identical to other ghost controls on the page",
+          "why_it_matters": "Nielsen #4 (Consistency & Standards) + #1 (Visibility): on a screen with multiple ghost buttons and one primary green 'Refresh', the user's eye skips the actual call-to-action. Discover scan's Refresh looks MORE important than the Download CTA in the panel literally titled Download. Conversion intent is unclear; first-time users won't know which control completes the task.",
+          "recommendation": "Promote dl-go-btn to class=\"primary\" (solid brand-green). Keep secondary-btn for 'Switch to AutoCue folder' and per-card '⬇ Album'. Reserve primary green for exactly one button per panel.",
+          "impact": "Restores hierarchy; halves time-to-first-download for new users; aligns Download surface with rest of app (Apply, Refresh use primary green).",
+          "complexity": "trivial"
+        },
+        {
+          "title": "Consistency & Standards — Shift+click confirm modal has its color hierarchy INVERTED (Cancel is green/primary, Download anyway is ghost)",
+          "severity": "critical",
+          "surface": "confirm_modal",
+          "evidence": "docs/index.html:3150-3151 (Cancel uses class=\"disc-v2-detail-action primary\" and Download anyway uses no primary class) and dl_07_confirm_modal.png clearly shows green Cancel, gray Download anyway",
+          "why_it_matters": "Nielsen #4 + #5 (Error Prevention). The code comment at line 3138-3140 says Cancel is default-focused on PURPOSE to prevent sticky-Shift accidents — that is correct UX. But making Cancel the visually PRIMARY (brand-color) button is a separate, harmful choice. It teaches users that the green button cancels actions, breaking the global convention across the rest of the app where green = confirm / proceed. Users with sticky-shift habits will hit Enter and HIT CANCEL accidentally, then re-shift-click thinking it failed. It also creates color-by-meaning ambiguity site-wide.",
+          "recommendation": "Keep Cancel as the default-focused button (good!) but style it as the secondary/ghost button. Style 'Download anyway' as a neutral outlined button — NOT primary green, because it IS the destructive/external action, but neutral. Use color only as a meaning channel, not a focus channel. Add an aria-describedby line under the modal explaining 'You'll hear nothing else from us — file lands in your downloads folder when done.'",
+          "impact": "Eliminates a color-meaning regression that confuses every other green button in the app; reduces accidental cancels.",
+          "complexity": "trivial"
+        },
+        {
+          "title": "User control & freedom — no Cancel button during an in-flight download",
+          "severity": "high",
+          "surface": "manual_panel",
+          "evidence": "docs/index.html:7032 sets btn.disabled = true; btn.textContent = 'Downloading…' (dl_03_loading.png) — the button is the only control and it's disabled. No abort control exists. Compare to enrichComments at 7080-7087 which DOES wire an AbortController and a cancel-confirm.",
+          "why_it_matters": "Nielsen #3. A long-running download (multi-MB, slow connection, wrong video picked) traps the user. The only escape is a tab close or backend timeout. The same code base proves a pattern exists (_setBtnCancellable), but it wasn't applied here. For album batches this becomes punishing — user picks the wrong album, watches 8 tracks crawl in.",
+          "recommendation": "While running, swap the disabled 'Downloading…' for an active 'Cancel' button using the same _setBtnCancellable helper. Wire backend cancel_event (already present in autocue/download.py download_audio signature) via an abort endpoint or by aborting the SSE fetch.",
+          "impact": "Eliminates user-trapped state; aligns Download with the established cancel UX of comment-enrichment / classify / generate-apply.",
+          "complexity": "medium"
+        },
+        {
+          "title": "Help users recognize, diagnose, and recover from errors — raw stack traces shown to the user",
+          "severity": "critical",
+          "surface": "manual_panel",
+          "evidence": "dl_05_error.png shows '✗ ERROR: ffmpeg returned exit code 1: Conversion failed!' verbatim in the status row. autocue/download.py raises the raw subprocess exception; routes.py forwards it; runDownload at docs/index.html:6996-6998 and downloadManual at 7047 print d.error directly.",
+          "why_it_matters": "Nielsen #9. Three distinct failures (private/region-locked video, no internet, ffmpeg crashed on a malformed download) all surface as one nearly-identical error. The user has NO recovery path — they don't know whether to retry, paste a different URL, install something, or report a bug. Errors say what failed internally, not what to do.",
+          "recommendation": "Map known yt-dlp/ffmpeg exit codes + stderr substrings to user-facing errors on the backend (e.g. 'Video is private or unavailable. Try another link.', 'No internet connection — check your network.', 'Couldn't convert this file. The source may be corrupted — try a different link.'). Append: a 'Retry' button next to the error, and a small 'Show technical details' disclosure with the raw stderr for power users / bug reports.",
+          "impact": "Converts dead-end errors into recoverable flows; massively reduces support burden.",
+          "complexity": "medium"
+        },
+        {
+          "title": "Visibility of system status — '38%' with no ETA, no filename, no speed, and status that contradicts confidence in the chosen video",
+          "severity": "high",
+          "surface": "manual_panel",
+          "evidence": "dl_03_loading.png: button reads 'Downloading…', status reads '38%' and nothing else — no track title, no size, no speed, no time-remaining. The download is for 'Aphex Twin - Avril 14th' (visible in the input) but on a search query the user has nothing confirming the right video was selected.",
+          "why_it_matters": "Nielsen #1. A bar plus percentage is the bare minimum of feedback. For a 30-second 5MB track and a 90-minute 800MB Boiler Room set, the UI is identical. A search query like 'Aphex Twin - Avril 14th' might land on the wrong upload, and the user has no way to verify mid-stream. Confidence: 'Did it pick the right video?'",
+          "recommendation": "During download, render under the bar: line 1 = resolved title (yt-dlp emits the title before fmt selection — surface it via SSE: { status:'resolved', title:'…', duration:'2:05', uploader:'…', thumbnail:'…' }), line 2 = '38% · 2.1 MB / 5.4 MB · 12s remaining'. For album batches show 'Track 3 of 12 · Avril 14th — 38%'.",
+          "impact": "Confirms the right pick mid-flight; users can cancel earlier when the wrong video resolved; builds trust.",
+          "complexity": "medium"
+        },
+        {
+          "title": "Discoverability / Information scent — multiple Download entry points with no signposting between them, plus name collisions",
+          "severity": "high",
+          "surface": "all",
+          "evidence": "Manual panel (3155), per-card ⬇ Album (6924), confirm modal (3138), track-info modal ti-download (3258), YT modal (3263), and namesake-but-unrelated 'Download XML' (3234) / 'Download backup XML' (2139). The manual panel copy at 3160 only mentions per-card; it doesn't mention the track-info → YT-modal flow at all.",
+          "why_it_matters": "Nielsen #4 + #7 (Flexibility / Recognition not recall). Each surface is its own little app. A user who learned to download via per-card ⬇ Album doesn't know they can target a specific Library track via track-info → 'Download via YouTube'. The word 'Download' appears 4+ times across the app referring to 3 different concepts (track audio, Rekordbox XML, backup XML, album). New users actively get LOST.",
+          "recommendation": "(a) Rename 'Download XML' → 'Export Rekordbox XML' (it's an export, not a download). Same for backup. (b) Unify the track-info YT modal and the manual panel into one component the manual panel embeds — and document the entry points in the manual panel's help copy: 'Three ways in: paste a link below · click ⬇ on a Discover card · use Download in any track's info menu.' (c) Add a kbd shortcut hint (currently D per line 3132 is Discover-card download only).",
+          "impact": "Builds a coherent mental model of 'Download' across the app; removes name collision.",
+          "complexity": "medium"
+        },
+        {
+          "title": "Recognition rather than recall — destination path is shown but unintelligible and unactionable",
+          "severity": "medium",
+          "surface": "manual_panel",
+          "evidence": "dl_02_section_default.png: 'Saving to /Users/henrigeorge/Projects/Music/source  Switch to AutoCue folder'. Path rendered as a code-styled raw string. After success (dl_04_success.png), the second line shows '/Users/henrigeorge/Music/AutoCue/Aphex Twin - Avril 14th.mp3' — also unselectable, unclickable, just text. yt-modal at line 3284 has Copy path; manual panel does not.",
+          "why_it_matters": "Nielsen #6. The user just downloaded a file; the #1 next action is 'where did it go / play it'. They get a raw path with no actions. Power-users want to copy it; beginners want a 'Reveal in Finder' button.",
+          "recommendation": "Both 'Saving to' row and the success line should: render path with head…tail truncation, add a copy-icon button (reuse yt-modal copy logic), and on success expose 'Reveal in Finder' / 'Open folder' (backend shells out to open <dir> on macOS via a localhost-only endpoint). Make the success row a persistent banner so it doesn't vanish when the user starts another download.",
+          "impact": "Closes the download loop with the obvious next action; matches macOS conventions.",
+          "complexity": "medium"
+        },
+        {
+          "title": "Aesthetic & minimalist design — legal disclaimer is 3 lines of dense gray body text dominating ~30% of the panel",
+          "severity": "medium",
+          "surface": "manual_panel",
+          "evidence": "docs/index.html:3184-3186 + dl_02_section_default.png — 'Downloading copyrighted audio may violate YouTube's Terms of Service and copyright law. Only download content you are authorised to (your own uploads, Creative-Commons or licensed material). Lawful use is your responsibility.'",
+          "why_it_matters": "Nielsen #8. The legal copy tunes out as visual noise on every visit. It takes equal vertical space to the actual controls. On mobile (dl_09_mobile.png) it dominates the viewport. By repetition it loses signal and trains the user to ignore all small gray text in the panel — including future important warnings.",
+          "recommendation": "Collapse to a single line ('You are responsible for the lawful use of downloaded content.') with a small (?) link that expands the full disclaimer. Show the full text only on first use (track in localStorage 'autocue_dl_legal_ack_v1') with an 'I understand' button — then never again. Standard B2B pattern.",
+          "impact": "Reclaims ~80px of vertical space; restores focus to the controls.",
+          "complexity": "small"
+        },
+        {
+          "title": "Error prevention — Shift+click confirm only protects ONE entry point, creating an asymmetric safety model",
+          "severity": "medium",
+          "surface": "confirm_modal",
+          "evidence": "docs/index.html:3138-3153 confirm wraps Discover-card SHIFT+click downloads. The manual panel dl-go-btn (3173) downloads instantly with no confirm; track-info ti-download (3258) has no confirm; per-card ⬇ Album BARE click (delegate at 6963-6971) also has no confirm.",
+          "why_it_matters": "Nielsen #5. The asymmetry teaches users that Shift = caution, plain click = nothing-to-worry-about — but the per-card plain click triggers the EXACT SAME side effect (writes a file to disk, may be large, may be wrong video). Users will fire dozens of plain-click downloads thinking 'Shift was the dangerous one'.",
+          "recommendation": "Either drop the confirm modal entirely and rely on strong cancel-during-flight, OR apply confirmation uniformly to all download triggers. Recommended: drop confirm, add (a) explicit Cancel control during run, (b) 'Skip' on current track in album-batch, (c) per-track success/failure rollup with 'Undo last download' (move file to Trash).",
+          "impact": "Coherent safety model; eliminates the trap that Shift+click is somehow safer than plain click for the same destructive operation.",
+          "complexity": "medium"
+        },
+        {
+          "title": "Flexibility & efficiency — no format/quality choice, no metadata toggle, no playlist support",
+          "severity": "medium",
+          "surface": "manual_panel",
+          "evidence": "autocue/download.py hardcodes audio_format='mp3', audio_quality='192' and 'noplaylist': True. Single FFmpegExtractAudio postprocessor. No FFmpegMetadata, no loudnorm, no thumbnail embed. UI in dl_02_section_default.png has zero format/quality controls.",
+          "why_it_matters": "Nielsen #7. DJs are the audience: 192 kbps MP3 is a deal-breaker for many — they want WAV or 320 MP3 minimum for set use. Lossy 192 silently degrades the library. Album downloads are crippled (album = playlist on YT); the per-card button labelled '⬇ Album' is misleading because the backend can only fetch one URL. No ID3 metadata means tracks land as 'video-title.mp3' and require manual rename inside Rekordbox.",
+          "recommendation": "Add inline 'Format' dropdown next to the input — WAV (default for DJs) · MP3 320 · Original. Add two quality toggles in collapsible Advanced section: [x] Auto-tag (Artist/Title from upload metadata) · [ ] Normalize loudness to -14 LUFS. Album batch: detect YT playlist URLs OR Discogs album track-count, switch SSE to /api/download/album collective-progress mode, show 'Track 3 of 12 · Avril 14th — 38%'.",
+          "impact": "Closes the gap between the product's audience (DJs) and its capability; turns the panel from a toy into a real tool.",
+          "complexity": "large"
+        },
+        {
+          "title": "Aesthetic & mobile — manual panel barely usable on 390px viewport",
+          "severity": "medium",
+          "surface": "manual_panel",
+          "evidence": "dl_09_mobile.png shows: input full-width OK, Download button OK, 'Saving to' path overflows behind 'Switch to AutoCue folder', error text wraps awkwardly, legal disclaimer fills the lower half of the viewport",
+          "why_it_matters": "Nielsen #8 + responsive accessibility. The panel was clearly desktop-first. On phone-size viewports the long absolute path becomes a horizontal scroll target adjacent to a tappable underlined link with the same color treatment — easy mis-tap. Legal text occupies ~40% of viewport on mobile.",
+          "recommendation": "On <600px: truncate path with ellipsis from the middle (/Users/.../Music/source), stack 'Saving to' label above the path block, make 'Switch folder' a proper button (44px tap target), collapse legal to single-line + (?) per Finding 9. Per-card ⬇ Album button currently 4px×10px font padding — bump to 44×44 minimum on touch.",
+          "impact": "Mobile becomes usable; meets WCAG 2.5.5 (Target Size) on touch.",
+          "complexity": "small"
+        },
+        {
+          "title": "Accessibility — progress bar has no aria, no live region announcements; inconsistent across surfaces",
+          "severity": "high",
+          "surface": "manual_panel",
+          "evidence": "docs/index.html:3179-3182 — <div class=\"cue-tools-progress\"> + <div id=\"dl-progress-fill\"> are plain divs (no role=\"progressbar\", aria-valuenow/min/max, aria-label). #dl-status has no aria-live. YT modal uses semantic <progress> at 3276 — inconsistent across surfaces.",
+          "why_it_matters": "Screen-reader users hear NOTHING during a 5-minute download. Status changes ('38%', '✓ Saved', '✗ ERROR') don't announce. The progress visual exists but is invisible to assistive tech. Inconsistency between YT modal (semantic) and manual panel (div-based) means two implementations and twice the bug surface.",
+          "recommendation": "Replace dl-progress/dl-progress-fill with <progress max=\"100\" id=\"dl-progress\" value=\"0\" aria-labelledby=\"dl-query-label\"> (matching YT modal). Add aria-live=\"polite\" aria-atomic=\"true\" to #dl-status. On final state (done), promote to aria-live=\"assertive\" momentarily so success/error is announced. Apply same to per-card inline status (.disc-dl-status is currently a plain span).",
+          "impact": "Restores feedback for screen-reader users on a long-running task where silence = abandonment.",
+          "complexity": "small"
+        },
+        {
+          "title": "Visibility of system status — success state is ephemeral, gets overwritten on next download, no session history",
+          "severity": "medium",
+          "surface": "manual_panel",
+          "evidence": "dl_04_success.png shows '✓ Saved to /Users/henrigeorge/Music/AutoCue/Aphex Twin - Avril 14th.mp3' inline below the bar. Code at docs/index.html:7048 writes it to statusEl.textContent — next download (line 7033) overwrites it with 'starting…'. No list/history. showToast at 7048 fires but toasts are fleeting.",
+          "why_it_matters": "Nielsen #1. User downloads three tracks in a row, only sees the last filename. If they walked away during track 2, no idea which tracks completed. No history = no trust that anything worked when checking later.",
+          "recommendation": "Add 'Recently downloaded' list below controls (last 5, persisted in localStorage), each row = filename + path + 'Reveal' + 'Re-download' + age ('2m ago'). Append on success, never overwrite. When empty (first session) show friendly empty state — 'No downloads yet. Paste a link or use the ⬇ button on any suggestion.'",
+          "impact": "Provides session memory; turns a transient bar into a reusable surface.",
+          "complexity": "medium"
+        },
+        {
+          "title": "Match with real world — '⬇ Album' button does NOT download albums",
+          "severity": "medium",
+          "surface": "per_card_album",
+          "evidence": "docs/index.html:6924 renders button text '⬇ Album' with data-query=\"${d.query || (d.artist + ' ' + d.album)}\". autocue/download.py hardcodes 'noplaylist': True. Result: one click, one YT match → one file. Discogs format-badge at 6928-6931 can say 'LP' (=10+ tracks), but the click downloads a single best-match video.",
+          "why_it_matters": "Nielsen #2 (Match with real world) + #10 (Help/Documentation). The label is a promise the product cannot keep. For an LP card, the user reasonably expects N tracks; they get one (possibly a 60-min album-rip video, possibly a single, possibly the wrong thing). 'Success' state is wildly misaligned with user expectation.",
+          "recommendation": "Until album-batch is wired (per Finding 11), label the button '⬇ Audio' or '⬇ Match' with tooltip 'Downloads one best-match YouTube result. For full albums, paste a YT playlist link in the Download panel.' Once /api/download/album is wired through this surface, switch to '⬇ Album (12 tracks)' with the count, and surface collective progress in a sticky bar.",
+          "impact": "Stops the silent expectation gap; sets up the legitimate album-batch experience.",
+          "complexity": "small"
+        }
+      ]
+    },
+    {
+      "persona": "Senior UI Designer",
+      "score": {
+        "discoverability": 4,
+        "clarity": 4,
+        "accessibility": 5,
+        "efficiency": 5,
+        "consistency": 3,
+        "user_confidence": 4,
+        "mobile": 3
+      },
+      "findings": [
+        {
+          "title": "Primary Download CTA is rendered as a ghost button — no brand color, no affordance hierarchy",
+          "severity": "high",
+          "surface": "manual_panel",
+          "evidence": "docs/index.html:3173 `<button id=\"dl-go-btn\" class=\"secondary-btn\" ...>Download</button>`; screenshot dl_02_section_default.png shows a thin outlined pill that visually competes with the URL input border and reads as a tertiary control. Refresh in the Discover card directly above uses solid black `.primary` — the page's most important download action is visually weaker than a refresh button.",
+          "why_it_matters": "The Download panel's entire purpose is the single Download action. Using `.secondary-btn` flattens the visual hierarchy: a first-time user scanning the panel sees disclaimer copy + a folder path + a thin button and has no anchor for where to act. Primary affordance is the cheapest, highest-leverage fix in this audit.",
+          "recommendation": "Swap `class=\"secondary-btn\"` to `class=\"primary\"` (already brand green per AutoCue tokens) and bump min-width to ~120px so it reads as a discrete CTA, not an input addon. Mirror the visual weight of `#refresh-btn` in the Discover card above so the two cards have parallel action emphasis.",
+          "impact": "Increases task initiation rate and reduces 'where do I click' eye-scan time; aligns the panel with the rest of AutoCue's primary/secondary convention.",
+          "complexity": "trivial"
+        },
+        {
+          "title": "Confirm modal inverts destructive-action convention: Cancel is the green PRIMARY, Download is the ghost SECONDARY",
+          "severity": "high",
+          "surface": "confirm_modal",
+          "evidence": "docs/index.html:3150-3151 — `#disc-v2-dl-confirm-cancel` has `class=\"... primary\"` (solid green) and `#disc-v2-dl-confirm-go` 'Download anyway' has the ghost variant. Screenshot dl_07_confirm_modal.png shows a vivid green Cancel pill next to a muted Download anyway pill.",
+          "why_it_matters": "Users read color before text. A solid green button labelled 'Cancel' next to a faint button labelled 'Download anyway' is a Fitts-law trap and a visual lie — the eye is pulled to the wrong action, and re-targeting costs a beat. The PRD §5.6 intent (default focus on Cancel for sticky-Shift safety) is correct, but should be expressed via keyboard focus ring + tabindex, NOT by giving Cancel the brand color. Today the brand color is being used to defuse a UX problem that focus-state should solve.",
+          "recommendation": "Restyle: Cancel = secondary/ghost (neutral), Download = primary brand green, BUT keep default keyboard focus on Cancel and add a 2px focus ring so it still 'wins' on Enter. If the intent is actively-discouraging the download path, use a desaturated outlined treatment for both — never use brand color to label the dismissive action.",
+          "impact": "Restores conventional dialog semantics; reduces misclick risk for users who do want to download (the green pulls them to Cancel instead).",
+          "complexity": "trivial"
+        },
+        {
+          "title": "No visible Success state — the green check 'Saved to…' line is the same 12px muted-color body text as 'starting…' and '38%'",
+          "severity": "high",
+          "surface": "manual_panel",
+          "evidence": "dl_04_success.png — '✓ Saved to /Users/henrigeorge/Music/AutoCue/Aphex Twin - Avril 14th.mp3' renders as plain muted-grey body text indistinguishable from the prior loading line. Source: docs/index.html:7048 sets `statusEl.textContent = '✓ Saved to ...'` with no class change; the per-card path at line 7000 does color-shift the status to `var(--green)` but the manual panel never does.",
+          "why_it_matters": "Success is the user's reward. Today the only confirmation is a checkmark glyph and a long file path that wraps below the input — there is no contrast change, no surface change, no animation, no toast persistence. Users who look away during the download return to a screen that looks identical to the loading state. They re-click Download and trigger a duplicate fetch.",
+          "recommendation": "Introduce an explicit `.dl-status--success` class with green text + green-tinted background pill, an inline 'Open folder' link, and a 'Download another' reset. Mirror the per-card treatment which already uses `var(--green)`. Persist for ~6s, then fade.",
+          "impact": "Eliminates 'did it work?' uncertainty and prevents accidental re-downloads.",
+          "complexity": "small"
+        },
+        {
+          "title": "Error state leaks raw stderr at body-text weight with no recovery affordance",
+          "severity": "high",
+          "surface": "manual_panel",
+          "evidence": "dl_05_error.png shows '✗ ERROR: ffmpeg returned exit code 1: Conversion failed!' rendered as 12px muted-grey body text below the input. autocue/download.py raises the raw subprocess message and the frontend at docs/index.html:7055 inlines it verbatim into `#dl-status`.",
+          "why_it_matters": "Visually the error is indistinguishable from a status line — no red color, no red icon background, no border, no surface card. The message is also useless to a DJ ('exit code 1' is not actionable) and provides no Retry button. Users typically scroll up looking for the real error, find nothing, and abandon.",
+          "recommendation": "Add a `.dl-status--error` treatment: red icon chip + red 1px border + light-red surface + bold first line ('Couldn't convert audio') + collapsed 'Show technical details' disclosure for the stderr + explicit Retry button reusing the last query. Match the visual weight AutoCue already uses for the #download-unavailable amber banner pattern (docs/index.html:3163).",
+          "impact": "Turns a dead-end into a recoverable state; reduces support questions about 'exit code 1'.",
+          "complexity": "small"
+        },
+        {
+          "title": "Type scale collapses inside the panel — h2 Download, body, helper, disclaimer all hover at 11–13px",
+          "severity": "medium",
+          "surface": "manual_panel",
+          "evidence": "docs/index.html:3159-3186 — h2 is `font-size:15px`, subhead 12px, 'Saving to' is 11px, disclaimer 11px, input 13px, button 13px. Screenshot dl_02 shows a wall of near-identical sizes with weak rhythm; the h2 'Download' barely stands out from its 12px subhead.",
+          "why_it_matters": "Without scale, the eye has no anchor and must read every line at the same priority. The disclaimer (lowest priority) sits at the same 11px as the actively-useful 'Saving to <path>' line. Type hierarchy is doing none of its job.",
+          "recommendation": "Adopt a 3-tier scale inside the panel: section title 16/600, body+input 14/400, helper 12/400. Push disclaimer to 11/400 muted with reduced line-height to clearly demote it. Increase the gap between the h2 row and the controls from 10px to 16px to signal section boundary.",
+          "impact": "Restores readable hierarchy and lets the eye triage in under a second.",
+          "complexity": "trivial"
+        },
+        {
+          "title": "Per-card mini progress bar and label have no aligned baseline; status text overlaps the bar area visually",
+          "severity": "medium",
+          "surface": "per_card_album",
+          "evidence": "dl_06_per_card.png — the 'Loveless' card's right column stacks: gray 'Downloading…' chip, 'Discogs ↗' link, then a 90px 3px-tall thin progress bar with '55%' under it. The chip looks like a button still, the percentage floats alone, and the bar is so thin (3px per docs/index.html:6947) it reads as a divider rather than progress.",
+          "why_it_matters": "Inline progress is the user's only feedback for an in-flight track. A 3px bar at 90px wide is barely perceptible at arm's length and lacks color contrast on the surface2 background. The 'Downloading…' chip retains its button-like styling (rounded border + grey fill from the disabled `.secondary-btn`), confusing whether it's still clickable.",
+          "recommendation": "Raise progress bar height to 6px, increase contrast (use --green at 100%, not 80%), align the percentage inline-right of the bar instead of below, and visually replace the disabled button with a determinate spinner + label so it stops reading as an action. Reserve vertical space so the Discogs link doesn't shift during state changes.",
+          "impact": "Makes per-card downloads legible and removes the misleading button affordance during loading.",
+          "complexity": "small"
+        },
+        {
+          "title": "YouTube candidate modal shares one progress bar at the bottom — visually disconnected from which row is downloading",
+          "severity": "medium",
+          "surface": "yt_candidate_modal",
+          "evidence": "docs/index.html:3275-3278 — single `<progress id=\"yt-progress\">` lives outside the candidate list. dl_08_yt_modal.png shows two candidate rows each with a Pick button, both at full opacity, and a bar at the very bottom labelled 'Downloading… 25%' with no link back to which row was chosen.",
+          "why_it_matters": "If the user picked the first candidate, they look at the bar and have to mentally map it back. Worse, both Pick buttons stay enabled — the user could re-pick mid-download. Visually nothing tells you 'we're working on row 1'.",
+          "recommendation": "Dim non-selected rows during download, show inline progress under the selected candidate row (replacing its Pick button), and disable other Pick buttons. Remove the bottom-of-modal bar entirely. Add a subtle 'Downloading: <title>' caption above the candidate list.",
+          "impact": "Tightens the visual link between action and feedback; prevents mid-download re-pick.",
+          "complexity": "medium"
+        },
+        {
+          "title": "URL input and Download button have mismatched heights — button sits below input baseline",
+          "severity": "medium",
+          "surface": "manual_panel",
+          "evidence": "docs/index.html:3170-3173 — input has `padding:6px 10px` (computed ~30px high) inside a `.cue-tools-param-group` with a label above; button is naked `secondary-btn` aligned via `align-items:flex-end`. Screenshot dl_02 confirms a subtle vertical misalignment: the button's top edge sits ~2px below the input's top edge, and they are different heights.",
+          "why_it_matters": "Input + adjacent button is the most common form pattern; a mismatch reads as low-craft. Together with the ghost-button issue it makes the panel feel auto-generated.",
+          "recommendation": "Set both to `height:36px` explicitly (or use `flex` + `align-self:stretch` on the button) and remove `align-items:flex-end` since the label-above-input pattern already lifts the input. Group as a single segmented control: input with right-flush button (shared border-radius on outer corners, none on shared edge) for a 'paste + go' feel.",
+          "impact": "Tightens visual craft; signals 'one action' instead of two separate widgets.",
+          "complexity": "trivial"
+        },
+        {
+          "title": "Folder path metadata is presented as inline code at 11px — wraps awkwardly on mobile and reads as debug output",
+          "severity": "medium",
+          "surface": "manual_panel",
+          "evidence": "docs/index.html:3175-3178 — `Saving to <code id=\"dl-dest\">` in 11px muted with a Switch link styled as small green underlined text. dl_09_mobile.png shows the path wrapping mid-token onto a second line at 390px viewport; on desktop dl_02 the long absolute path consumes ~60% of the line width.",
+          "why_it_matters": "Destination is the most important persistent setting for trust — 'where will this file land?' If the user can't read it at a glance or it wraps mid-path, they hesitate. Inline code + 11px also signals 'developer plumbing' rather than 'your music folder'.",
+          "recommendation": "Promote to a small destination chip: folder icon + truncated path (middle-ellipsis, monospace 12px) + 'Change…' button. Tooltip on hover for the full path. On mobile, stack the chip above the input full-width.",
+          "impact": "Builds user confidence in where the file lands and removes a layout pain point at small widths.",
+          "complexity": "small"
+        },
+        {
+          "title": "Mobile layout: panel padding, progress feedback, and folder chip all degrade at 390px",
+          "severity": "high",
+          "surface": "manual_panel",
+          "evidence": "dl_09_mobile.png — heading 'Download' and the 'Fetch audio…' subhead wrap to 3 lines; the input + Download button still sit side-by-side and the button shrinks visually; 'Saving to <very long path>' wraps mid-token; the error ribbon spills below the disclaimer.",
+          "why_it_matters": "AutoCue is a local-mode tool but DJs frequently use phones/tablets to monitor a download. Today the panel is laid out for ≥720px only — no responsive collapse, no full-width button below 480px, no path truncation.",
+          "recommendation": "Add a single `@media (max-width:520px)` block: stack input + button (button becomes full width primary), middle-truncate the path chip, reduce panel padding from default ~20px to 14px, and force status/error chips full width with explicit 8px gap so they don't merge with the disclaimer.",
+          "impact": "Makes the panel usable on the small screens many DJs carry at gigs and on couches.",
+          "complexity": "medium"
+        },
+        {
+          "title": "Per-card 'Downloading…' chip and Discogs link have inconsistent green — brand color is being overloaded",
+          "severity": "low",
+          "surface": "per_card_album",
+          "evidence": "dl_06_per_card.png — Discogs link is var(--green) at link weight; the progress bar fill is var(--green) at 100% saturation; the disabled button's outline is var(--border). Three different visual roles use either green or a near-green, with no semantic discipline.",
+          "why_it_matters": "Brand color should mean 'primary action' OR 'success' — not both at the same time across the same card. Today the eye sees three green things and doesn't know which is interactive.",
+          "recommendation": "Reserve --green for primary CTAs and success states only. Use a neutral link blue (or muted text) for the Discogs deep-link, and use a slightly desaturated 'progress green' (e.g. `color-mix(in srgb, var(--green) 70%, var(--text) 30%)`) for in-flight bars so completed = full-saturation green and in-flight = a clearly distinct tone.",
+          "impact": "Restores semantic color clarity; primary actions stand out again.",
+          "complexity": "small"
+        },
+        {
+          "title": "Naming collision: three different 'Download' words on the same page with no visual differentiation",
+          "severity": "medium",
+          "surface": "xml_button_collision",
+          "evidence": "docs/index.html:3234 sticky `<button class=\"primary\" id=\"download-btn\">Download XML</button>`, line 2139 `#backup-btn` 'Download backup XML', line 2164 'Download backup first →' link, and the new audio Download section header at 3159. The sticky XML button is the ONLY one in solid green primary — the audio Download CTA, which is the actually-novel feature, is the ghost.",
+          "why_it_matters": "When a user reads 'Download' three times in three visual treatments, the brain ranks the most prominent as the canonical Download. Right now that's XML export — a Rekordbox-power-user feature — not the audio fetch. The visual hierarchy is actively miseducating new users about what AutoCue does.",
+          "recommendation": "1) Rename the sticky button to 'Export XML' (verb-noun matches Apple's HIG and removes the 'download' overload). 2) Make the audio Download CTA the only primary green 'Download' on the page. 3) Reserve 'Download' (verb) for audio fetch globally; 'Export' for file write-outs.",
+          "impact": "Eliminates word-collision; makes the audio Download surface the unambiguous Download.",
+          "complexity": "small"
+        }
+      ]
+    },
+    {
+      "persona": "Product Designer (UX + Reuse)",
+      "score": {
+        "discoverability": 5,
+        "clarity": 4,
+        "accessibility": 4,
+        "efficiency": 4,
+        "consistency": 3,
+        "user_confidence": 3,
+        "mobile": 3
+      },
+      "findings": [
+        {
+          "title": "Helper copy hard-codes page context ('suggestion above') — blocks reuse",
+          "severity": "high",
+          "surface": "manual_panel",
+          "evidence": "docs/index.html:3160 — 'Use the down-arrow Album button on any suggestion above, or paste a URL / search term below.'",
+          "why_it_matters": "PRD explicitly asks for this component to be portable across pages. The current subhead references a sibling section that only exists on the Discover tab. Drop it into Library or a future Watchlist page and the sentence becomes a lie. Single biggest reuse blocker in the component.",
+          "recommendation": "Replace with context-free copy: 'Paste a YouTube URL or search Artist – Title.' Move the 'use Album button' affordance to a one-liner rendered ONLY by the Discover page wrapper. Component should accept an optional helperSlot prop for hosts to inject contextual hints.",
+          "impact": "Component becomes drop-in reusable; eliminates contradictory copy when shown standalone.",
+          "complexity": "trivial"
+        },
+        {
+          "title": "Primary action is ghost-styled; visual hierarchy puts no weight on the verb",
+          "severity": "high",
+          "surface": "manual_panel",
+          "evidence": "docs/index.html:3173 — class='secondary-btn' on #dl-go-btn. Screenshot dl_02_section_default.png shows a low-contrast outlined 'Download' button.",
+          "why_it_matters": "The Download button is THE single primary action of this panel — yet it reads as a secondary affordance, weaker than 'Refresh' in the Discover panel above. Eye lands on the input border, not the action. Users expecting a green CTA have nothing to anchor to.",
+          "recommendation": "Promote to class='primary' with brand green fill, matching the Refresh button in Discover and 'Download XML' in the sticky bar. Reserve ghost styling for the destination 'Switch to AutoCue folder' link.",
+          "impact": "Primary action becomes instantly findable; reduces time-to-first-click.",
+          "complexity": "trivial"
+        },
+        {
+          "title": "Confirm modal: destructive-looking 'Cancel' is the brand-primary green button",
+          "severity": "high",
+          "surface": "confirm_modal",
+          "evidence": "docs/index.html:3150-3151 — Cancel uses 'disc-v2-detail-action primary' (green fill), 'Download anyway' uses ghost. Screenshot dl_07_confirm_modal.png confirms green Cancel sits left of grey 'Download anyway'.",
+          "why_it_matters": "I understand the intent (Shift+Enter accident protection per code comment line 3139). But making Cancel the BRAND color violates user expectation everywhere else in the app where green = go/confirm. Users will read green as 'this is the action I want' and click Cancel by mistake, the opposite of the intent.",
+          "recommendation": "Keep Cancel as default-focused (good), but style BOTH buttons as ghost/secondary so neither competes. Or use neutral grey for Cancel and a muted green for 'Download anyway'. Color-as-affordance must remain consistent across the app.",
+          "impact": "Removes a 'why is the wrong button green' moment that erodes trust in the whole color system.",
+          "complexity": "trivial"
+        },
+        {
+          "title": "Three distinct download flows with no shared visual language",
+          "severity": "high",
+          "surface": "all",
+          "evidence": "Manual panel uses .cue-tools-progress div (3179), per-card uses 3px green bar (6947), yt-modal uses native <progress> element (3276). Three different progress visualisations for the same operation.",
+          "why_it_matters": "A user who triggers a download via the Album button, then the URL field, then the track-info YT modal sees three completely different progress affordances — different heights, colors, status text positions. No 'this is what a download looks like in AutoCue' mental model. Kills the user's ability to learn the system once.",
+          "recommendation": "Extract a single DownloadProgress partial (HTML template + CSS) used by all 5 surfaces: same fill bar, same status text position, same Idle/Loading/Success/Error class hooks. The yt-modal native <progress> should be replaced with the .cue-tools-progress div.",
+          "impact": "One mental model across all surfaces; future a11y/animation fixes flow to all flows at once.",
+          "complexity": "medium"
+        },
+        {
+          "title": "Defaults betray the user's most likely action: no format selector + MP3 as silent default",
+          "severity": "high",
+          "surface": "manual_panel",
+          "evidence": "autocue/download.py — audio_format='mp3', audio_quality='192' hardcoded. Screenshot dl_04_success.png shows 'Saved to … Aphex Twin - Avril 14th.mp3' with no UI indication MP3 was chosen.",
+          "why_it_matters": "PRD calls for WAV default (DJ workflow — Rekordbox indexes WAV instantly with no decode loss). Today the system silently writes 192kbps MP3, the worst possible default for a DJ tool. First-run users end up with lossy files in their library without knowing.",
+          "recommendation": "Add format selector dropdown inline next to the input (WAV default, MP3 320, Original AAC/Opus) per PRD. Show the selected format in the status string ('Saved as WAV to …') so the choice is reinforced after each download.",
+          "impact": "Aligns defaults with the actual DJ persona; eliminates silent quality loss.",
+          "complexity": "small"
+        },
+        {
+          "title": "Success state has no progressive disclosure — the saved file is not actionable",
+          "severity": "medium",
+          "surface": "manual_panel",
+          "evidence": "docs/index.html:7048 — statusEl.textContent = 'Saved to ' + d.path. Screenshot dl_04_success.png shows a thin grey line of text with no way to reveal, copy, or play the file.",
+          "why_it_matters": "After a 60-second download the only feedback is one greyed-out line. No 'Reveal in Finder', no 'Copy path', no 'Play preview', no 'Download another'. The yt-modal at least offers Copy path (line 3284) — the main panel doesn't. Success state is a dead end and is hidden after 1s (line 7059).",
+          "recommendation": "Render an explicit Success card after completion: filename + format + size, Reveal in Finder, Copy path, Download another (clears input). Keep visible until dismissed — don't auto-hide after 1s.",
+          "impact": "Turns a passive notification into the start of the next task; gives the operation a terminal state.",
+          "complexity": "small"
+        },
+        {
+          "title": "Error state leaks raw stack-trace strings to end users",
+          "severity": "high",
+          "surface": "manual_panel",
+          "evidence": "Screenshot dl_05_error.png — 'ERROR: ffmpeg returned exit code 1: Conversion failed!'. autocue/download.py raises raw exception, docs/index.html:7047 prints d.error verbatim.",
+          "why_it_matters": "Shell-script-tier error UX in a polished product. The user is told 'exit code 1' (meaningless), given no remediation, no retry button. For a non-technical DJ this is a brick wall. For ANY user it breaks the perception of polish.",
+          "recommendation": "Map known failures to friendly messages: 'YouTube blocked this video — try a different result' (HTTP 403/410), 'Audio conversion failed — verify ffmpeg' (ffmpeg exit), 'Couldn't find a match' (no results). Provide a 'Try again' button and 'Show technical details' disclosure for the raw text.",
+          "impact": "Errors stop feeling like crashes; users have a next action instead of a wall.",
+          "complexity": "small"
+        },
+        {
+          "title": "Per-card 90px inline progress is too small to be readable; label truncates",
+          "severity": "medium",
+          "surface": "per_card_album",
+          "evidence": "docs/index.html:6946 — width:90px. Screenshot dl_06_per_card.png shows 'Downloading…' text clipped to 'Download…' inside the 90px column, and a 3px-tall bar.",
+          "why_it_matters": "On the Loveless card mid-download, the right column reads 'Download…' (looks like a static button label) above an almost-invisible 55% bar. User can't tell if it's progressing, stalled, or finished. Disparity vs. the manual panel's full-width bar is jarring.",
+          "recommendation": "Either (a) collapse the right column during download and replace it with a single full-width thin progress strip below the card title, or (b) use a circular spinner with % label inside instead of a clipped horizontal bar. Never truncate 'Downloading' to 'Download' — collides with the resting-state label.",
+          "impact": "Per-card downloads become legible; eliminates 'is it broken?' confusion.",
+          "complexity": "small"
+        },
+        {
+          "title": "Naming collision: 4 different 'Download' UI elements mean different things",
+          "severity": "medium",
+          "surface": "xml_button_collision",
+          "evidence": "docs/index.html:3234 (#download-btn 'Download XML'), 2139 (#backup-btn 'Download backup XML'), 2164 ('Download backup first'), 3173 (#dl-go-btn 'Download' for YouTube audio).",
+          "why_it_matters": "'Download' currently means four different things: fetch YouTube audio, export Rekordbox XML, download a DB backup, link to do the backup first. A user paying attention to the audio Download panel then seeing 'Download XML' in the sticky bar is confused about what they're getting.",
+          "recommendation": "Reserve 'Download' the verb for fetching audio (the new component). Rename XML actions: 'Export XML', 'Export backup XML', 'Export backup first'. Semantic shift (fetch-from-outside vs. write-to-disk) deserves different verbs.",
+          "impact": "Lexical clarity across the whole app; reduces cognitive load of distinguishing flows.",
+          "complexity": "trivial"
+        },
+        {
+          "title": "Idle state visually outweighed by legalese — disclaimer dominates the action",
+          "severity": "medium",
+          "surface": "manual_panel",
+          "evidence": "Screenshot dl_02_section_default.png — visual stack: title, helper, input, ghost button, 'Saving to …' line, then a 3-line legal disclaimer occupying more vertical space than the action.",
+          "why_it_matters": "Progressive disclosure is inverted. On first paint the eye is drawn to the long grey legal paragraph instead of the action. Once seen, the disclaimer doesn't need to be re-read every visit — it deserves to live behind a 'Legal notice' toggle or as a footnote-sized link.",
+          "recommendation": "Collapse legal disclaimer behind a small 'About content rights' link, or render as a single 10px sentence. Show full text only on first visit (localStorage flag) or on hover. Promote the destination + format controls into the primary visual frame.",
+          "impact": "Action no longer outweighed by legalese; daily-use UX gets faster while legal coverage is retained.",
+          "complexity": "small"
+        },
+        {
+          "title": "Mobile (390px): destination path overflows and disclaimer dominates the viewport",
+          "severity": "medium",
+          "surface": "manual_panel",
+          "evidence": "Screenshot dl_09_mobile.png — at 390px the path '/Users/henrigeorge/Projects/Music/source' pushes 'Switch to AutoCue folder' onto its own line, breaking the destination/switch relationship. Disclaimer becomes 4 lines (~25% of viewport).",
+          "why_it_matters": "AutoCue is Mac-native but DJs verify on iPad/iPhone when laptop is at the gig. The component should degrade gracefully. Today on mobile the path is overwhelming and the action is still ghost-styled.",
+          "recommendation": "On viewports <600px: truncate destination path to '…/Music/source' with tap-to-show-full, make 'Switch' an icon button, collapse disclaimer behind a link, stack format selector under the input rather than beside.",
+          "impact": "Component usable on tablets/phones; supports the trend toward mobile-as-monitor.",
+          "complexity": "small"
+        },
+        {
+          "title": "No 'cancel in-flight download' affordance on the manual panel",
+          "severity": "medium",
+          "surface": "manual_panel",
+          "evidence": "docs/index.html:7018-7061 — downloadManual() disables the button and changes label to 'Downloading…'. No AbortController, no Cancel button. Compare to enrichComments (line 7080) which uses _setBtnCancellable.",
+          "why_it_matters": "Long YouTube downloads (5-min sets, 1-hour mixes) tie up the UI with no escape. A user who pasted the wrong URL must wait or reload. The Enrich flow has a great cancel pattern — Download doesn't reuse it.",
+          "recommendation": "While in-flight, swap the primary 'Downloading…' button to a 'Cancel' button (same slot, danger-ghost style). Wire an AbortController and pass cancel_event to backend (autocue/download.py already accepts cancel_event). Reuse _setBtnCancellable for consistency.",
+          "impact": "User stays in control of long-running operations; matches the pattern set by Enrich Comments.",
+          "complexity": "medium"
+        }
+      ]
+    },
+    {
+      "persona": "WCAG 2.2 AA Accessibility Specialist",
+      "score": {
+        "discoverability": 5,
+        "clarity": 4,
+        "accessibility": 3,
+        "efficiency": 5,
+        "consistency": 4,
+        "user_confidence": 4,
+        "mobile": 4
+      },
+      "findings": [
+        {
+          "title": "Label is not programmatically associated with the URL input (WCAG 1.3.1, 4.1.2)",
+          "severity": "high",
+          "surface": "manual_panel",
+          "evidence": "docs/index.html:3169-3171 — <label>YouTube URL or search term</label> with no `for` attribute, and input #dl-query has no `aria-labelledby`/`aria-label`. The label is a bare text node wrapping nothing.",
+          "why_it_matters": "Screen readers (NVDA, JAWS, VoiceOver) read an unlabeled text field as 'edit, blank' with no purpose. Clicking the label does not focus the input — fails WCAG 1.3.1 Info and Relationships and 4.1.2 Name/Role/Value. Same defect appears in yt-modal #yt-query (line 3270) which has zero label at all.",
+          "recommendation": "Add `for=\"dl-query\"` to the label and matching `id` is already present; for yt-query add a visible label or `aria-label=\"YouTube search query\"`. When the format selector / quality toggles get added per PRD, give each a real <label for>.",
+          "impact": "Screen-reader users cannot identify the field's purpose; voice-control users (Dragon, Voice Control) cannot say 'click YouTube URL' to focus it.",
+          "complexity": "trivial"
+        },
+        {
+          "title": "Progress percentage and status are not announced to assistive tech (WCAG 4.1.3)",
+          "severity": "high",
+          "surface": "all",
+          "evidence": "docs/index.html:3179-3182 — #dl-progress is a plain div with no role=\"progressbar\" or aria-valuenow; #dl-status has no aria-live region. JS at 7007/7051 writes `statusEl.textContent = d.percent + '%'` and `'✓ Saved to …'` with no announcement. Per-card status at 6997-7008 same defect. The only aria-live in the file is #app-status (2056) — unrelated.",
+          "why_it_matters": "A blind user starts a download and gets zero feedback that anything is happening, progressing, or completed. They cannot tell success from failure. Fails 4.1.3 Status Messages — the single most common a11y failure for async UI.",
+          "recommendation": "Wrap #dl-status in aria-live=\"polite\" aria-atomic=\"true\". Convert #dl-progress to <progress max=100 value=N aria-labelledby=\"dl-progress-label\"> OR add role=\"progressbar\" aria-valuenow aria-valuemin aria-valuemax aria-label=\"Download progress\". The yt-modal at 3276 already correctly uses <progress> — copy that pattern. Also add aria-busy=\"true\" on the download container while running.",
+          "impact": "Blind users cannot use the download feature without sighted help.",
+          "complexity": "small"
+        },
+        {
+          "title": "Confirm modal opens without trapped focus or Escape handling (WCAG 2.4.3, 2.1.2)",
+          "severity": "high",
+          "surface": "confirm_modal",
+          "evidence": "docs/index.html:6185 sets `cancelBtn?.focus()` after 30ms (good) and 6097/6100/6204/6207 implement a trap with first/last refs — verify scope. However yt-modal (3264-3289) has NO focus management at all: openYoutubeModal (10731-10746) only toggles `visible` class and aria-hidden; no initial focus, no trap, no Escape listener, no focus return on close (closeYoutubeModal 10747-10752 just hides). track-info-modal #ti-download (line 3258) opens yt-modal with the same defect.",
+          "why_it_matters": "Keyboard-only users open the YT modal, their focus stays on the underlying ⓘ button behind the dialog. Tab navigates page content under the dialog, not the dialog. There is no Escape handler — they cannot dismiss without mousing to the ✕. Violates 2.4.3 Focus Order, 2.1.2 No Keyboard Trap (in the inverse sense — content behind is reachable when it shouldn't be), and 2.1.1 Keyboard.",
+          "recommendation": "For yt-modal: on open, store document.activeElement, focus #yt-close (or #yt-query), add a keydown listener for Escape→closeYoutubeModal and Tab→cycle within modal (clone the disc-v2-dl-confirm trap at 6097-6100). On close, restore stored element via .focus().",
+          "impact": "Keyboard and screen-reader users get stranded — many will abandon the feature.",
+          "complexity": "small"
+        },
+        {
+          "title": "Underlying page is not inert while modals are open (WCAG 1.3.2, 2.4.3)",
+          "severity": "medium",
+          "surface": "confirm_modal",
+          "evidence": "docs/index.html:3141-3153 + 3264-3289 — neither dialog uses the `inert` attribute or aria-hidden=\"true\" on siblings. The backdrop #disc-v2-dl-confirm-backdrop exists but background content remains in the accessibility tree.",
+          "why_it_matters": "Screen readers can still navigate to and announce content behind the dialog (Discover cards, the Download panel). Users get confused about what's actionable. Violates the modal contract implied by role=\"dialog\" aria-modal=\"true\".",
+          "recommendation": "When opening any modal, set `inert` on <main> and other top-level siblings (or use the `<dialog>` element). Modern browsers support `inert` natively; it auto-hides from a11y tree AND blocks keyboard/mouse — replaces the home-grown trap.",
+          "impact": "Screen-reader users hear duplicate / phantom content; keyboard users tab outside the dialog.",
+          "complexity": "small"
+        },
+        {
+          "title": "Confirm-modal color choice inverts the meaning of primary (WCAG 3.2.4, cognitive)",
+          "severity": "medium",
+          "surface": "confirm_modal",
+          "evidence": "Screenshot dl_07_confirm_modal.png — green solid 'Cancel' is the primary visual treatment; 'Download anyway' is ghost. docs/index.html:3150-3151 confirm: Cancel uses `.disc-v2-detail-action.primary` (background:var(--green) per 1843-1845) while Download anyway is the neutral ghost.",
+          "why_it_matters": "Throughout the rest of the app (Refresh, Apply, Download XML) the solid green is the affirmative action. Inverting it in just this dialog violates 3.2.4 Consistent Identification. Users with cognitive disabilities, low vision, or who scan by color alone will press the prominent green button thinking it confirms — the opposite of intent. The comment at line 3138-3140 admits this is deliberate to prevent sticky-Shift accidents but the price is misidentification across the whole app.",
+          "recommendation": "Keep Cancel as default focus (good) but render it as the ghost/neutral style and render 'Download anyway' as a non-destructive secondary (e.g. outline). Better: replace 'Download anyway' with an explicit verb ('Yes, download') and add a 250ms button-disabled delay on the affirmative to defeat sticky-Shift, instead of inverting color semantics.",
+          "impact": "Cognitive load + accidental cancellation; users with low vision may not read text and just click the green button.",
+          "complexity": "small"
+        },
+        {
+          "title": "Touch targets below 24x24 CSS px minimum (WCAG 2.5.8 AA / 2.5.5 AAA)",
+          "severity": "medium",
+          "surface": "manual_panel",
+          "evidence": "docs/index.html:3177 'Switch to AutoCue folder' button uses font-size:11px, padding:0, background:none — measures ~14px tall in dl_02. docs/index.html:3175 the same row 'Saving to <code>' click target tiny. Per-card disc-dl-btn (6924) is `padding:4px 10px;font-size:12px` — roughly 22px tall, also fails 2.5.8 (24x24 min). disc-v2-detail-action (1838-1842) padding 6px 12px font 12px ~24px borderline. Mobile screenshot dl_09 shows the underlined Switch link looking like body text.",
+          "why_it_matters": "WCAG 2.2 introduced 2.5.8 Target Size (Minimum) at AA = 24x24 CSS px. Users with tremors, motor impairments, or touch-screen use mis-tap small controls. The 'Switch' link is the only way to change destination — a core flow.",
+          "recommendation": "Set `min-height: 24px; min-width: 24px` (or 44x44 to meet 2.5.5 AAA) on `.secondary-btn`, `.disc-dl-btn`, `.disc-v2-detail-action`, and the inline 'Switch' folder button. Re-style the Switch control as a real button with min-height: 32px.",
+          "impact": "Users with motor impairments or on mobile cannot reliably hit Switch / Album / Cancel.",
+          "complexity": "trivial"
+        },
+        {
+          "title": "Color contrast on muted text and ghost-button border likely fails 4.5:1 (WCAG 1.4.3)",
+          "severity": "medium",
+          "surface": "all",
+          "evidence": "Screenshots dl_02..dl_05: 'Fetch audio from YouTube with yt-dlp…', 'Saving to', '55%', 'YouTube URL or search term' label, and the legal disclaimer paragraph all render in var(--muted) light-grey on white. Likely contrast ~3.5-4:1 (not measured but visually pale). Status text '38%' and '55%' (dl_03, dl_06) at 12px on white = small text needing 4.5:1. Ghost 'Download' button border (dl_02) — 1px var(--border) — at ~1.5:1 against the panel-card background fails 1.4.11 Non-text Contrast (3:1 min for UI components).",
+          "why_it_matters": "Low-vision users cannot read progress %, destination path, format selector labels (when added), or legal disclaimer. The ghost Download button is the primary CTA and its boundary is nearly invisible — users may not perceive it as interactive.",
+          "recommendation": "Measure --muted and --border tokens against white and dark backgrounds. Bump --muted to at least #595959 on white (#fff) for 4.5:1. Per PRD, the new solid-green Download button fixes the border-contrast issue automatically. For status text, use a slightly darker grey (text not muted) or bump font-size to 16px+ to qualify as 'large text' (3:1).",
+          "impact": "~5-8% of users (low vision, age-related) can't read progress or destination.",
+          "complexity": "small"
+        },
+        {
+          "title": "Error state is the raw exception, not a human-readable message (WCAG 3.3.1, 3.3.3)",
+          "severity": "high",
+          "surface": "manual_panel",
+          "evidence": "Screenshot dl_05_error.png + docs/index.html:7055 `statusEl.textContent = '✗ ' + err.message;` plus backend leak 'ffmpeg returned exit code 1: Conversion failed!' (autocue/download.py via FFmpegExtractAudio). The audit-context note 'ERROR FORMAT TODAY' confirms.",
+          "why_it_matters": "WCAG 3.3.1 Error Identification requires errors be 'described to the user in text' — not implementation jargon. 3.3.3 Error Suggestion requires a recovery suggestion when known. 'ffmpeg returned exit code 1' tells a screen-reader user nothing about what to do. Also fails 3.1.5 Reading Level guidance.",
+          "recommendation": "Map common errors at the backend (network, video unavailable, format unsupported, ffmpeg missing, geo-blocked) to plain-English messages with a next step: 'Could not download — this video is unavailable or region-restricted. Try a different URL.' Push to aria-live region so it announces. Add role=\"alert\" on the error container for high-severity failures.",
+          "impact": "Users abandon downloads they could have salvaged by pasting a different URL.",
+          "complexity": "medium"
+        },
+        {
+          "title": "Loading button text change is not announced; visible-only state (WCAG 4.1.3)",
+          "severity": "medium",
+          "surface": "all",
+          "evidence": "docs/index.html:7032 `btn.textContent = 'Downloading…'` and 7058 reset to 'Download'. The button's accessible name silently changes; screen readers may re-announce it on next focus but not at the moment of change. No aria-busy, no aria-live narration of state transition.",
+          "why_it_matters": "After pressing Download a screen-reader user hears nothing — they don't know the click registered, they don't know the format selector / dest dir were accepted. They may double-tap. Same issue when text returns to 'Download' on completion. Fails 4.1.3.",
+          "recommendation": "Set `btn.setAttribute('aria-busy','true')` while running, `aria-disabled` (not just disabled — disabled removes from a11y nav). Mirror state change to the live region: live.textContent = 'Download started'. On success: 'Download saved to <folder>'. On error: live.setAttribute('role','alert'); live.textContent = friendlyError.",
+          "impact": "Confusing state for AT users; double-submission risk.",
+          "complexity": "trivial"
+        },
+        {
+          "title": "Disclaimer paragraph is decorative-only — no programmatic emphasis (WCAG 1.3.1)",
+          "severity": "low",
+          "surface": "manual_panel",
+          "evidence": "docs/index.html:3184-3186 — 'Downloading copyrighted audio may violate…' is a <p> at font-size 11px var(--muted), separated only by border-top. No <strong>, no role=\"note\", no heading.",
+          "why_it_matters": "Legal warning text is critical to user decision but rendered as the smallest, palest text on the page. Sighted skim-readers and AT users alike will miss it. Fails 1.3.1 Info and Relationships and 2.4.10 Section Headings.",
+          "recommendation": "Wrap in <aside role=\"note\" aria-label=\"Legal notice\"> with a small icon or heading. Bump contrast to AA-passing.",
+          "impact": "Users may not realize they're personally liable for copyright violations.",
+          "complexity": "trivial"
+        },
+        {
+          "title": "Format selector / quality toggles (planned) need full ARIA spec up front (WCAG 4.1.2, 1.3.1)",
+          "severity": "medium",
+          "surface": "manual_panel",
+          "evidence": "PRD adds: format dropdown (WAV/MP3 320/Original), 'Normalize Loudness to -14 LUFS' toggle, 'Auto-tag ID3 metadata' toggle. Current download panel (3166-3183) has none — easy to ship them with the same `<label>` bare-text antipattern (#3169).",
+          "why_it_matters": "If shipped as raw <select> without <label for>, custom div-toggles without role=\"switch\" aria-checked, or stacked without <fieldset><legend>, the new controls will replicate every existing defect. Fails 4.1.2 Name/Role/Value and 1.3.1.",
+          "recommendation": "Spec now: (a) <label for=\"dl-format\">Audio format</label><select id=\"dl-format\">…; (b) toggles as <button role=\"switch\" aria-checked=\"false\" aria-label=\"Normalize loudness to -14 LUFS\"> OR native <input type=\"checkbox\" id=\"dl-loudnorm\"><label for=\"dl-loudnorm\">…</label>; (c) group toggles in <fieldset><legend>Audio processing</legend>; (d) help text linked via aria-describedby.",
+          "impact": "Prevents shipping new controls with permanent a11y debt.",
+          "complexity": "small"
+        },
+        {
+          "title": "No prefers-reduced-motion fallback for progress animation (WCAG 2.3.3)",
+          "severity": "low",
+          "surface": "all",
+          "evidence": "docs/index.html:1372-1380 `@keyframes progressIndeterminate` with continuous translateX animation; .cue-tools-progress-fill `transition: width .15s`; .secondary-btn has `transform: translateY(-1px)` on hover (1263). No @media (prefers-reduced-motion: reduce) anywhere in the file (verified by absence in grep).",
+          "why_it_matters": "Users with vestibular disorders set OS reduce-motion; current animations ignore the preference. The indeterminate bar slides continuously — a known migraine/vestibular trigger. Fails 2.3.3 Animation from Interactions (AAA — but trivial to honor).",
+          "recommendation": "Add at top of <style>: `@media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; } .cue-tools-progress.indeterminate .cue-tools-progress-fill { animation: none; width: 100%; opacity: 0.5; } }`",
+          "impact": "Users with vestibular sensitivities; AAA but free win.",
+          "complexity": "trivial"
+        },
+        {
+          "title": "Duplicate 'Download' accessible names create voice-control ambiguity (WCAG 2.5.3, 4.1.2)",
+          "severity": "medium",
+          "surface": "xml_button_collision",
+          "evidence": "docs/index.html:3173 #dl-go-btn 'Download' + 3234 #download-btn 'Download XML' + 2139 #backup-btn '💾 Download backup XML' + 6924 disc-dl-btn '⬇ Album' (visually but accessible name '⬇ Album' includes the symbol char) + 3258 #ti-download 'Download via YouTube' + per-card status overrides to 'Downloading…' on multiple buttons simultaneously.",
+          "why_it_matters": "Voice-control users saying 'click Download' get a disambiguation prompt or wrong activation — fails 2.5.3 Label in Name in spirit (multiple controls share leading word). Screen-reader users navigating by 'b' (buttons) hear 'Download… Download XML… Download backup XML… Download via YouTube…' with no spatial cue.",
+          "recommendation": "Give each a unique accessible name: 'Download audio' (#dl-go-btn), 'Export Rekordbox XML' (#download-btn — also fix visible label), 'Download backup XML' is already unique. Add aria-label or visible suffix. For the per-card emoji button, set aria-label=\"Download album: {artistName} – {albumName}\".",
+          "impact": "Voice-control users cannot reliably activate the right button; screen-reader scan is confusing.",
+          "complexity": "trivial"
+        }
+      ]
+    },
+    {
+      "persona": "Conversion Optimization Specialist",
+      "score": {
+        "discoverability": 5,
+        "clarity": 4,
+        "accessibility": 6,
+        "efficiency": 5,
+        "consistency": 4,
+        "user_confidence": 3,
+        "mobile": 4
+      },
+      "findings": [
+        {
+          "title": "Primary CTA is a ghost button — visually outranked by every other action on screen",
+          "severity": "high",
+          "surface": "manual_panel",
+          "evidence": "docs/index.html:3173 — `<button id=\"dl-go-btn\" class=\"secondary-btn\">Download</button>`; screenshot dl_02_section_default.png shows white outline button while Discover Refresh + sticky-bar Download XML buttons are solid black/green.",
+          "why_it_matters": "On the default state the eye lands on Discover's solid Refresh button, not the actual conversion target. A ghost CTA reads as 'optional/cancel' next to two solid buttons in the same viewport. Conversion-event (a started download) is the entire purpose of this panel — it must be the strongest visual anchor.",
+          "recommendation": "Promote to solid brand-green primary (same treatment as Discover Refresh). Disable-state stays gray. Mirror at confirm-modal level (see finding #3).",
+          "impact": "Large lift on first-time and casual users. Manual-panel downloads should jump materially once the CTA stops competing with secondary controls.",
+          "complexity": "trivial"
+        },
+        {
+          "title": "FUD-heavy legal disclaimer sits directly under the CTA with no trust-balancing copy",
+          "severity": "high",
+          "surface": "manual_panel",
+          "evidence": "docs/index.html:3184-3186 — 'Downloading copyrighted audio may violate YouTube's Terms of Service and copyright law…'; screenshot dl_02_section_default.png shows this is the last thing the user reads before clicking.",
+          "why_it_matters": "Loss-aversion research is consistent: a legal warning placed adjacent to a conversion button reduces click-through. Phrasing implies the *tool itself* is risky ('may violate') rather than framing the user's own license to the content. There is zero counter-balance (no 'your library, your machine, no telemetry').",
+          "recommendation": "Move the disclaimer behind a 'Legal & licensing' disclosure link, OR rewrite as a neutral factual line: 'Audio is saved locally to your machine. Make sure you have the rights to the content you download.' Add a small trust signal: 'Local-only · no telemetry · no account required'.",
+          "impact": "Moderate-to-large lift. First-download abandonment is the single biggest drop-off point and this copy actively triggers it.",
+          "complexity": "small"
+        },
+        {
+          "title": "Confirm modal's default focus + primary color is on Cancel — the *non-conversion* path",
+          "severity": "high",
+          "surface": "confirm_modal",
+          "evidence": "docs/index.html:3150-3151 — `<button id=\"disc-v2-dl-confirm-cancel\" class=\"… primary\">Cancel</button>` then `Download anyway`; screenshot dl_07_confirm_modal.png confirms Cancel is solid green, 'Download anyway' is ghost.",
+          "why_it_matters": "I understand the PRD §5.6 rationale (sticky-Shift + accidental-Enter). But once a user has explicitly Shift-clicked, they have already opted in. The button copy 'Download anyway' (note 'anyway' — implies bad idea) plus inverted color hierarchy plus default focus on Cancel will measurably suppress legitimate album downloads. The label currently *discourages* the action.",
+          "recommendation": "Keep Cancel as default focus for safety, but (a) make BOTH buttons same visual weight (ghost) OR make 'Download' the solid primary, (b) rename 'Download anyway' → 'Download album' (drop the loaded word), (c) add 'Don't ask again for this session' checkbox so power users who Shift-click 3 albums in a row don't friction-out.",
+          "impact": "Moderate lift on per-card album conversions; near-zero risk increase because Shift+click is already an intentional gesture.",
+          "complexity": "small"
+        },
+        {
+          "title": "No post-success affordances — 'Saved to…' is a dead text line, not actionable",
+          "severity": "high",
+          "surface": "manual_panel",
+          "evidence": "docs/index.html:7048 — `statusEl.textContent = '✓ Saved to ' + (d.path …)`; screenshot dl_04_success.png shows a plain text success line with no buttons.",
+          "why_it_matters": "Conversion funnels do not end at the click — they end at file-in-hand confirmation. Today the user has to (1) trust the text path, (2) open Finder, (3) navigate manually. No 'Reveal in Finder', no 'Play preview', no 'Add to library', no 'Download another' nudge, no 'Copy path'. Each missing affordance is a chance for the user to lose confidence or fail to verify, and they won't return to the panel as often.",
+          "recommendation": "On success render an inline success card: filename + duration + size, plus buttons: [Reveal in Finder] [Play preview] [Download another] [Copy path]. 'Reveal in Finder' uses a backend POST /api/reveal endpoint (`subprocess.run(['open','-R',path])` on macOS). Keep the success card visible until user dismisses or starts a new download — do NOT auto-hide.",
+          "impact": "Large lift on repeat-download rate (the most valuable conversion metric — one user downloading 20 albums beats 20 users downloading 1).",
+          "complexity": "medium"
+        },
+        {
+          "title": "Error state is a raw stack-trace string with no recovery path",
+          "severity": "high",
+          "surface": "manual_panel",
+          "evidence": "Screenshot dl_05_error.png — '✗ ERROR: ffmpeg returned exit code 1: Conversion failed!'; docs/index.html:7055 surfaces `err.message` verbatim; autocue/download.py leaks raw subprocess output to the SSE stream.",
+          "why_it_matters": "Error copy is the highest-stakes conversion surface — it determines whether a user retries or abandons forever. Today: (1) ffmpeg is a brand the user does not know and cannot fix, (2) 'exit code 1' is unactionable, (3) no Retry button, (4) no 'Try a different source' affordance, (5) no link to docs or 'Copy error report'. A user who hits this will not click Download again today.",
+          "recommendation": "Map known errors to human messages: yt-dlp 403/410 → 'YouTube blocked this video — try a different result'; ffmpeg failure → 'Audio conversion failed — the source file may be corrupted. [Retry] [Try a different source]'; network → 'Connection lost. [Retry]'. Always render a [Retry] button and a [Report issue] link. Keep raw error behind 'Show details'.",
+          "impact": "Large lift on retry rate; this is the single biggest conversion-killer in the current funnel.",
+          "complexity": "medium"
+        },
+        {
+          "title": "CTA copy 'Download' is ambiguous — competes with 3 unrelated 'Download' buttons on the same page",
+          "severity": "medium",
+          "surface": "xml_button_collision",
+          "evidence": "docs/index.html:3173 '#dl-go-btn Download'; line 3234 '#download-btn Download XML'; line 2139 '#backup-btn 💾 Download backup XML'; line 2164 'Download backup first →'. All visible/reachable on the same screen.",
+          "why_it_matters": "Users skim — when 'Download' means four different things, the user pauses to figure out which one is which. This pause is where they sometimes click the wrong one (XML export) and walk away confused or, worse, file a 'broken' bug.",
+          "recommendation": "Rename: panel CTA → 'Download audio' or 'Get track'. Sticky-bar 'Download XML' → 'Export to Rekordbox'. '⬇ Album' per-card → 'Get album'. Reserve the unqualified verb 'Download' for at most one button on screen.",
+          "impact": "Moderate lift via reduced misclick + faster scan-and-act.",
+          "complexity": "trivial"
+        },
+        {
+          "title": "Loading state doesn't tell the user what's happening or how long it will take",
+          "severity": "medium",
+          "surface": "manual_panel",
+          "evidence": "Screenshot dl_03_loading.png shows just '38%' and 'Downloading…'; docs/index.html:7051 — `statusEl.textContent = d.percent + '%'` overwrites any descriptive status text.",
+          "why_it_matters": "A bare percent number with no track name, no phase ('fetching → converting → writing tags'), no ETA, leaves the user unsure if it's progressing or stuck. Worse — once `d.percent` arrives, it overwrites the human-readable `d.status` line, so the user sees less context than before progress started. Drop-offs spike when users abandon a 'stuck-looking' download and never come back.",
+          "recommendation": "Show: track name being downloaded (echo the resolved title from yt-dlp), current phase ('Fetching audio… / Converting to WAV… / Tagging…'), percent, and ETA (mm:ss). Keep ALL of these visible simultaneously — don't replace the phase line with raw percent.",
+          "impact": "Moderate lift on completion rate (fewer mid-download abandons / tab-closes).",
+          "complexity": "small"
+        },
+        {
+          "title": "Per-card 'Downloading…' label truncates inside an 80px button — user can't see status",
+          "severity": "medium",
+          "surface": "per_card_album",
+          "evidence": "Screenshot dl_06_per_card.png shows '⬇ Downloading...' clipped/wrapped in a small green pill; docs/index.html:7014 `btn.textContent = '⬇ Album'` then 6979 `btn.textContent = 'Downloading…'`. 90px progress bar (line 6946) is too narrow to be a confidence signal.",
+          "why_it_matters": "Per-card downloads are the *primary* conversion path (the manual panel is the fallback). Yet the in-progress state is visually weaker than the manual panel. Users can't tell if 'Downloading…' is real progress or hung. 90px progress bar reads as decoration, not status.",
+          "recommendation": "Replace per-card inline progress with an expanded row state that shows: thumbnail dim + 'Downloading X of Y · 38% · 1:23 remaining' inline at the card's full width, with a [Cancel] button. Keep the [⬇ Album] button replaced with [Cancel] for the duration. Identical pattern to the manual-panel for consistency.",
+          "impact": "Moderate-to-large lift on Discover-driven downloads (highest-intent users).",
+          "complexity": "medium"
+        },
+        {
+          "title": "No file-output preview before commit — user can't see what they're going to get",
+          "severity": "medium",
+          "surface": "yt_candidate_modal",
+          "evidence": "Screenshot dl_08_yt_modal.png — candidates show only title + duration + uploader + view count; docs/index.html:3263-3289. No bitrate, no codec, no file-size estimate, no 'best vs all formats' chooser.",
+          "why_it_matters": "DJs care about audio quality. Today the user picks a YouTube candidate blind to the resulting audio quality. After download they may discover it's a 96kbps mono upload from 2009 and they wasted 4 minutes. This kills trust in the feature.",
+          "recommendation": "Per-candidate show: best-available audio bitrate (yt-dlp exposes this in info_dict.formats), estimated file size, codec. Add a global quality dropdown in the modal: 'Best available (default) / 320 kbps / Original'. Pre-flight the file size so users know what they're committing to.",
+          "impact": "Moderate lift on YT-modal conversion + higher post-download satisfaction.",
+          "complexity": "medium"
+        },
+        {
+          "title": "Inline status text is the *only* indicator the file landed — no toast persistence, no badge",
+          "severity": "medium",
+          "surface": "all",
+          "evidence": "docs/index.html:7048 `showToast('Download complete')` is the only persistent signal; toast auto-dismisses in ~3s. Per-card success: line 7000 `statusEl.textContent = '✓ saved'` — 6-char string, no path.",
+          "why_it_matters": "If the user tabbed away during a download (very common — downloads take 30s-3min), they come back to NO indication a download succeeded except the small text line. Conversion isn't just clicking the button — it's the user *knowing* they got the file. Right now the success signal is too quiet to register.",
+          "recommendation": "Add a persistent 'Recent downloads' list to the panel (last 5 sessions): filename, timestamp, [Reveal] [Play]. Survives until manual clear. Also fire a system Notification API ping (with permission) when downloads finish in a background tab.",
+          "impact": "Large lift on perceived reliability + repeat-download rate.",
+          "complexity": "medium"
+        },
+        {
+          "title": "Destination path is a non-clickable code block — user can't verify, change, or open the folder",
+          "severity": "low",
+          "surface": "manual_panel",
+          "evidence": "docs/index.html:3176-3178 — `<code id=\"dl-dest\"></code>` is text-only; 'Switch to AutoCue folder' is a tiny underline link easy to miss; no 'Open folder' button.",
+          "why_it_matters": "Trust-signal failure: power users want to verify destination *before* clicking. The 'Switch' link only toggles between two preset paths — there's no folder picker. Many DJs have a specific 'incoming' folder for new music that isn't either default.",
+          "recommendation": "Render destination as: [folder icon] /Users/…/source [Change…] [Open folder]. 'Change…' opens a backend-driven folder picker (or input + remembered list). 'Open folder' reveals current path. Click the path itself to copy.",
+          "impact": "Small-to-moderate lift via increased pre-click confidence.",
+          "complexity": "small"
+        },
+        {
+          "title": "Mobile layout buries the CTA below 600px of unrelated Discover content",
+          "severity": "medium",
+          "surface": "manual_panel",
+          "evidence": "Screenshot dl_09_mobile.png at 390x844 — Download section is below the fold, requires scroll past Discover panel + suggestion cards + watchlist. CTA itself appears at ~70% scroll depth.",
+          "why_it_matters": "Mobile-first DJs (more common than you'd think — phone for crate research, laptop for sets) hit Discover tab and never see the Download panel. Discoverability of the conversion surface = 0 on first session.",
+          "recommendation": "On mobile, sticky a compact 'Download' button to the bottom action bar (next to the existing player controls) that scrolls to or opens the Download panel as a sheet. Alternatively, move the Download panel above the suggestion list on mobile widths only.",
+          "impact": "Moderate lift on mobile conversion (currently near-zero).",
+          "complexity": "medium"
+        },
+        {
+          "title": "Help text leaks implementation detail and self-references — kills portability and confidence",
+          "severity": "low",
+          "surface": "manual_panel",
+          "evidence": "docs/index.html:3160 'Fetch audio from YouTube with yt-dlp. Use the ⬇ Album button on any suggestion above…'; line 3147 confirm modal 'This will fetch audio from YouTube via yt-dlp.'",
+          "why_it_matters": "(1) 'yt-dlp' is a developer term — non-technical users see jargon and lose confidence the product is for them. (2) 'on any suggestion above' breaks the moment this component is reused elsewhere (PRD goal). (3) References to internal architecture signal 'this is a hobby tool', not a polished product.",
+          "recommendation": "Help text: 'Get audio from a YouTube link or search. Saved as WAV to your music folder.' Confirm modal body: 'Save \"{album_name}\" to {folder}?' (use actual values). Drop every yt-dlp / ffmpeg mention from user-facing strings — keep them in error-details and the install banner only.",
+          "impact": "Small-to-moderate lift via perceived professionalism + portability.",
+          "complexity": "trivial"
+        }
+      ]
+    },
+    {
+      "persona": "Senior Front-End Engineer (vanilla JS)",
+      "score": {
+        "discoverability": 5,
+        "clarity": 4,
+        "accessibility": 4,
+        "efficiency": 4,
+        "consistency": 3,
+        "user_confidence": 4,
+        "mobile": 5
+      },
+      "findings": [
+        {
+          "title": "Three near-identical download SSE drivers — no shared module",
+          "severity": "high",
+          "surface": "all",
+          "evidence": "docs/index.html runDownload() lines 6974-7016, downloadManual() lines 7018-7061, _ytDownload() lines 10807-10858. Each re-implements fetch('/api/download'), SSE consumption, progress mapping, error toast, finally-cleanup. _ytDownload even bypasses the shared _consumeSSE helper and re-parses 'data: ' frames inline.",
+          "why_it_matters": "Three sources of truth for the same state machine. A bug fix (better error formatting, AbortController, cancel button, format selector) has to be made in 3 places and history shows that doesn't happen — _ytDownload has its own AbortController while runDownload/downloadManual have none. PRD adds format dropdown, normalize toggle, ID3 toggle — each one will fork further if not consolidated first.",
+          "recommendation": "Extract a single `_Download` IIFE that owns one state machine: `_Download.start({query, opts, ui})` where `ui` is a render-callback receiving `{state:'idle|loading|success|error', percent, message, path, error}`. All 6 surfaces become thin views. Internally hold one AbortController, one current job id, expose `_Download.cancel(jobId)`. Mirrors the pattern already proven by `_setBtnCancellable` + enrichComments() at line 7080.",
+          "impact": "Removes ~150 lines of duplication, makes new PRD features one-place changes, eliminates divergent error UX between surfaces.",
+          "complexity": "medium"
+        },
+        {
+          "title": "Raw backend exception text leaks into status UI",
+          "severity": "high",
+          "surface": "manual_panel",
+          "evidence": "Screenshot dl_05_error.png shows: `× ERROR: ffmpeg returned exit code 1: Conversion failed!`. Source: downloadManual() line 7047 (`statusEl.textContent = '✗ ' + (d.error || 'failed')`) and runDownload() line 7011. Backend forwards `str(exc)` verbatim — routes.py line 2732 `result['error'] = str(exc)` emitted at line 2754.",
+          "why_it_matters": "Users see unparsed yt-dlp/ffmpeg internals (`exit code 1`, `403 Forbidden`, `Sign in to confirm you're not a bot`, `ERROR: Unsupported URL`). They can't act on this and lose confidence. PRD explicitly calls out an Error state — it must be classified, not pasted.",
+          "recommendation": "Add `_Download._classifyError(rawMsg)` mapper returning `{kind, userMessage, hint, technicalDetails}`. Map: /403|sign in|bot/i → 'YouTube blocked this video. Try a different URL.'; /ffmpeg|exit code/i → 'Audio conversion failed — check that ffmpeg is up to date.'; /unsupported url|no video/i → 'Not a YouTube URL or supported source.'; default → 'Download failed.' Render userMessage in status, hide technicalDetails behind a `Show details` toggle.",
+          "impact": "Users get actionable copy in the same pixel space; raw stack-trace strings stay accessible for bug reports but don't dominate the panel.",
+          "complexity": "small"
+        },
+        {
+          "title": "No AbortController on runDownload/downloadManual — no cancel possible",
+          "severity": "high",
+          "surface": "manual_panel",
+          "evidence": "runDownload() lines 6974-7016 and downloadManual() lines 7018-7061: no `signal:` passed to fetch. Compare _ytDownload() lines 10809-10824 which does use `_ytDownloadAbort = new AbortController()`. Compare enrichComments line 7080 — same pattern that should be standard.",
+          "why_it_matters": "A user who pastes the wrong URL or kicks off a 1-hour mix has no way out except closing the tab; the backend keeps yt-dlp running until completion. Server already supports cancel (routes.py line 2748 sets `cancel_event` on client disconnect, download.py line 137 raises `DownloadCancelled`) — the frontend just never disconnects.",
+          "recommendation": "In the unified `_Download.start`, always create an `AbortController`, pass `signal:` to fetch, and during loading state swap the primary button to `Cancel` (reuse `_setBtnCancellable` from line 7080-7087). On Abort, render an `idle` state with toast 'Download cancelled'.",
+          "impact": "Users regain control; backend resource leaks (long yt-dlp processes after tab nav) stop. Required for the new batch flow.",
+          "complexity": "small"
+        },
+        {
+          "title": "setTimeout(1000) clears success state before the user reads it",
+          "severity": "medium",
+          "surface": "manual_panel",
+          "evidence": "downloadManual() line 7059: `setTimeout(() => { progress.style.display = 'none'; }, 1000);`. The progress bar is hidden but `statusEl.textContent = '✓ Saved to /path/…'` (line 7048) remains — and a second download will overwrite it instantly. No explicit Success state lifecycle.",
+          "why_it_matters": "PRD requires explicit Idle/Loading/Success/Error states. Today the bar disappears in 1s while the success text lingers ambiguously; on the next attempt the prior outcome is silently overwritten. Users cannot tell whether `✓ Saved to /…` is from this attempt or the previous one.",
+          "recommendation": "Replace setTimeout-driven cleanup with an explicit state machine: `idle → loading → success | error`. Success persists with a 'Saved to <folder> — Open in Finder | Download another' affordance until the user starts a new job or clicks dismiss. No automatic clear.",
+          "impact": "Confidence rises; the success path becomes the obvious place to chain the next action (open folder, copy path, download another).",
+          "complexity": "small"
+        },
+        {
+          "title": "Two concurrent downloads have no mutual-exclusion guard",
+          "severity": "medium",
+          "surface": "all",
+          "evidence": "Per-card runDownload (line 6974) and manual downloadManual (line 7018) both POST `/api/download` and can be invoked back-to-back. There is no shared in-flight flag. Click ⬇ Album on a card while the manual panel is mid-download → two parallel SSE streams write into different DOM nodes but both yt-dlp processes hammer the same `dest_dir`.",
+          "why_it_matters": "Two yt-dlp workers writing into the same folder can collide on `outtmpl '%(title)s.%(ext)s'` (download.py line 151) if searches resolve to the same title, and they share an ffmpeg saturation budget. The user thinks they queued, but the UI shows only one bar — the other is orphaned.",
+          "recommendation": "In `_Download`, hold one global `currentJob` ref. If a second start arrives, either (a) reject with toast 'A download is already in progress — Cancel it or wait', or (b) move to an explicit queue with 'Download X of Y' UI (also what PRD requires for albums). Reuse the album backend's processed/total events for both single and batch paths.",
+          "impact": "Eliminates a real race; provides a free upgrade path to the PRD's batch progress UI.",
+          "complexity": "medium"
+        },
+        {
+          "title": "No debounce / Enter handler / URL validation on #dl-query",
+          "severity": "medium",
+          "surface": "manual_panel",
+          "evidence": "docs/index.html line 3170 defines `#dl-query` input and line 4586 wires only the button click — `dlBtn.addEventListener('click', downloadManual)`. No `keydown` Enter handler (compare yt-query line 10803 which has one). No client-side URL sniff before POST.",
+          "why_it_matters": "Enter is the standard submit gesture on a single-input form; not wiring it is a paper cut every keyboard user notices. The backend wastes time + bandwidth on obvious garbage (empty paste, `http:/typo.com`, multi-line clipboard contents) that a 50-line client check would reject.",
+          "recommendation": "Add `dl-query.addEventListener('keydown', e => { if (e.key === 'Enter') downloadManual(); })`. Add a lightweight client validator `_Download._classifyQuery(s)` → `{type:'url'|'search'|'invalid', normalized}` that trims, strips control chars, rejects multi-line input, and shows an inline hint chip `URL detected` or `Will search YouTube` so the user knows what's about to happen.",
+          "impact": "Better keyboard ergonomics and instant validation feedback; avoids round-trip for trivially wrong input.",
+          "complexity": "trivial"
+        },
+        {
+          "title": "Inconsistent button copy after completion tied to surface — fragile when refactoring",
+          "severity": "medium",
+          "surface": "all",
+          "evidence": "runDownload() line 7014 hardcodes `btn.textContent = '⬇ Album'` in the finally. downloadManual() line 7058 hardcodes `btn.textContent = 'Download'`. Each function assumes its caller's button label. Move a button or change copy → silent regression.",
+          "why_it_matters": "Today's per-card card might tomorrow be reused in a tracklist row, in a modal, or in a different language; resetting the label inside the handler couples view + controller. Also breaks i18n later.",
+          "recommendation": "Capture the original label at handler entry (`const original = btn.textContent`) and restore that; or — preferable — let the new `_Download` module not touch button text at all and instead emit state events the caller renders. Caller owns labels.",
+          "impact": "Removes a known regression vector when copy or layout changes.",
+          "complexity": "trivial"
+        },
+        {
+          "title": "_ytDownload re-implements SSE parsing instead of using _consumeSSE",
+          "severity": "medium",
+          "surface": "yt_candidate_modal",
+          "evidence": "_ytDownload lines 10827-10853 manually loops `reader.read()`, decodes, splits on `\\n\\n`, slices `data: `, and JSON.parses. The shared helper `_consumeSSE` is used by runDownload (line 6993), downloadManual (line 7044), enrichComments (line 7105), and many other surfaces.",
+          "why_it_matters": "Duplicated SSE parsing means duplicated bugs: _consumeSSE handles partial frames and disconnect; _ytDownload does not. Any future improvement to _consumeSSE (backoff, structured event types, telemetry) skips this surface.",
+          "recommendation": "Replace the inline loop with `await _consumeSSE(resp, ev => { … }, _ytDownloadAbort.signal)` — same as runDownload. Delete ~25 lines.",
+          "impact": "Quietly fixes any future parser edge case across all surfaces and reduces engineering surface area.",
+          "complexity": "trivial"
+        },
+        {
+          "title": "Listener wired before component lifecycle — couples to initial DOM render",
+          "severity": "low",
+          "surface": "manual_panel",
+          "evidence": "Line 4586: `if (dlBtn) dlBtn.addEventListener('click', downloadManual)` runs at init. Line 4595: `document.getElementById('download-controls').style.display = ready ? '' : 'none'`. Works today because the button exists in DOM regardless of capability — but a future re-render of the panel HTML will silently lose the listener.",
+          "why_it_matters": "Future-proofing matters once the component is extracted. Today wiring is OK; when `<download-component>` is templated, the direct getElementById wiring will break without errors.",
+          "recommendation": "Use event delegation: `document.addEventListener('click', e => { if (e.target.closest('#dl-go-btn')) downloadManual(); })`. Mirrors the pattern at line 6963-6971 for `.disc-dl-btn`. Survives any future re-mount.",
+          "impact": "Robust against panel re-renders (likely once the PRD's component refactor lands).",
+          "complexity": "trivial"
+        },
+        {
+          "title": "Naming collision — `#download-btn`, `#download-section`, `#download-bar`, `#backup-btn` mix unrelated XML feature with YouTube audio",
+          "severity": "low",
+          "surface": "xml_button_collision",
+          "evidence": "Line 3234 `#download-btn` = 'Download XML' (Rekordbox export); line 3193 `#download-bar` = sticky XML import bar; line 2139 `#backup-btn` = 'Download backup XML'; line 3156 `#download-section` = YouTube audio download. Code at line 10347 attaches an XML blob handler to `#download-btn`.",
+          "why_it_matters": "Code review and grep for 'download' returns mixed results across two completely unrelated features. Higher chance of cross-wiring when refactoring (e.g. accidentally rebinding `#download-btn` to YouTube flow). Already a maintenance hazard, will worsen when the new component lands.",
+          "recommendation": "Rename the YouTube surface tokens with an explicit prefix while in flight: `#yt-dl-section`, `#yt-dl-go-btn`, `#yt-dl-query`, `#yt-dl-progress`, `#yt-dl-status`, `#yt-dl-dest`. Keep XML IDs untouched. Single search/replace PR before the bigger refactor.",
+          "impact": "Eliminates an entire class of cross-feature regressions; greps become useful.",
+          "complexity": "small"
+        },
+        {
+          "title": "`_dlDestDir` is free-standing `var` global — mutated from two places, no pub/sub",
+          "severity": "low",
+          "surface": "manual_panel",
+          "evidence": "Line 4545 `var _dlDestDir = '';`. Mutated at init (line 4593) and in switch handler (line 4619). Read in runDownload (line 6987), downloadManual (lines 7038, 7048), success path (line 7001). No `AppState` pub/sub entry (CLAUDE.md web-ui.md describes that pattern).",
+          "why_it_matters": "If a download is in-flight and the user clicks 'Switch to AutoCue folder', the in-flight request keeps the original dest_dir on the server, but `_dlDestDir` mutates before the success line `'✓ Saved to ' + _dlDestDir` reads — so the displayed path can disagree with the actual saved path. Subtle bug, no test.",
+          "recommendation": "Either freeze dest_dir into the in-flight job (capture at start, reference from job state on success) or expose `_Download.subscribe('destChange', cb)` via the new module and have the panel re-render. Always render the path from server-emitted `ev.path` (some branches already do but fall back to `_dlDestDir`).",
+          "impact": "Eliminates a stale display bug and makes the dest source-of-truth explicit.",
+          "complexity": "trivial"
+        },
+        {
+          "title": "No structured download event schema — server emits ad-hoc keys per endpoint",
+          "severity": "low",
+          "surface": "all",
+          "evidence": "routes.py line 2744 emits `{processed, total, query, status, percent}` for single; line 2788 emits `{processed, total, title, query, status, path, downloaded}` for album; line 2754 emits `{done, status:'error', error, failed}`; line 2756 emits `{done, status:'finished', path, downloaded}`. Frontend handlers check different combinations of these keys in different surfaces.",
+          "why_it_matters": "Once PRD adds normalize/ID3/format opts, the event surface will sprout more ad-hoc keys (e.g. `phase:'extract'|'normalize'|'tag'`). With no schema or types, drift between server and 6 client call sites is inevitable.",
+          "recommendation": "Define one event union: `{type:'progress', percent, phase, processed, total, currentTitle} | {type:'done', status:'finished'|'error'|'cancelled', path?, error?, totals:{downloaded, failed, total}}`. Update both endpoints to emit it; update `_Download` to consume only that. Document in autocue/download.py docstring. Lock with a single jsonschema test in pytest.",
+          "impact": "Stable contract for future features; one place to evolve; trivially testable from Python and JS.",
+          "complexity": "medium"
+        }
+      ]
+    },
+    {
+      "persona": "Brand-new user who has never used AutoCue, just clicked into the Discover tab for the first time. I'm a hobbyist DJ. I know what YouTube is. I don't know what \"yt-dlp\" is, I don't know what an \"Album button\" is, and I don't know what AutoCue does to the file after it downloads. I'm narrating aloud.",
+      "score": {
+        "discoverability": 4,
+        "clarity": 3,
+        "accessibility": 4,
+        "efficiency": 5,
+        "consistency": 4,
+        "user_confidence": 3,
+        "mobile": 4
+      },
+      "findings": [
+        {
+          "title": "First-look narrative: 'What is yt-dlp? I have no idea what this thing does'",
+          "severity": "critical",
+          "surface": "manual_panel",
+          "evidence": "docs/index.html:3160 — 'Fetch audio from YouTube with yt-dlp. Use the ⬇ Album button on any suggestion above, or paste a URL / search term below.' Screenshot dl_02_section_default.png.",
+          "why_it_matters": "Reading aloud: 'Fetch audio from YouTube with yt-dlp.' I stop. 'yt-dlp' — is that a file format? A service? A virus? It feels like a stranger handed me a CLI flag. The very first sentence of the Download panel uses a developer term that no music-listener knows. I lose trust before I even type anything. Then '⬇ Album button on any suggestion above' — there are NO suggestions visible above me (scan failed banner). That sentence is broken in my current context, which makes me think the whole panel is broken.",
+          "recommendation": "Drop the 'with yt-dlp' clause entirely. Replace with: 'Download a track or album from YouTube as an audio file.' Remove the 'Use the ⬇ Album button on any suggestion above' sentence — it is contextual coupling to a sibling component that may not be present. Component should be self-explanatory standalone.",
+          "impact": "Restores trust in the first 3 seconds, removes the only piece of jargon, and makes the panel portable.",
+          "complexity": "trivial"
+        },
+        {
+          "title": "'Where does the file go?' is whispered in 11px gray instead of being the headline",
+          "severity": "high",
+          "surface": "manual_panel",
+          "evidence": "docs/index.html:3175-3178 — `<p style='font-size:11px;color:var(--muted)'>Saving to <code id='dl-dest'>` and `dl-dest-switch` link. Screenshot dl_02_section_default.png shows it as a near-invisible secondary line below the button.",
+          "why_it_matters": "My #1 question as a new user is 'where will this file go on my computer?' The answer is buried at 11px in the muted color, below the action. I read it AFTER I'd already mentally hit Download — too late if it was wrong. And the path `/Users/henrigeorge/Projects/Music/source` means nothing to me — is that a default? Did AutoCue pick that? Can I change it? The 'Switch to AutoCue folder' link is the same 11px and only appears conditionally, so I miss it entirely.",
+          "recommendation": "Promote destination to a labelled field with its own line: 'Save to: [folder path] [Choose…]'. Make it 12-13px, not 11px. Always show the 'Choose folder' control, even when the default is already the AutoCue folder. Bonus: show a tiny disk icon and folder name (e.g. 'source/') in larger type with the full path as a tooltip.",
+          "impact": "Removes a top-3 confidence-killing question. Users will not download to surprise locations.",
+          "complexity": "small"
+        },
+        {
+          "title": "'What format will I get?' — there is no answer anywhere on the screen",
+          "severity": "high",
+          "surface": "manual_panel",
+          "evidence": "docs/index.html:3166-3183 contains no format selector or format hint. autocue/download.py defaults to `audio_format='mp3', audio_quality='192'`. The success line in dl_04_success.png reveals '.mp3' only AFTER the download.",
+          "why_it_matters": "I'm a DJ. Format matters. I don't know if I'm getting WAV, FLAC, MP3 320, or a 96kbps brick. The UI tells me nothing until the file is already on disk with an .mp3 extension. If I wanted FLAC for mixing, I just wasted bandwidth and have to redo it from CLI somehow. This is a silent-default trap.",
+          "recommendation": "Add a visible format selector next to the URL input — dropdown labelled 'Format' with WAV / MP3 320 / Original (M4A/Opus). Persist user choice in localStorage. Show the chosen format inline in the status text ('Downloading as WAV…').",
+          "impact": "Removes silent surprise, gives DJs the quality they actually want without leaving the UI.",
+          "complexity": "small"
+        },
+        {
+          "title": "Legal disclaimer is well-meaning but reads like a lawsuit warning — scary, not reassuring",
+          "severity": "medium",
+          "surface": "manual_panel",
+          "evidence": "docs/index.html:3185 — 'Downloading copyrighted audio may violate YouTube's Terms of Service and copyright law. Only download content you are authorised to (your own uploads, Creative-Commons or licensed material). Lawful use is your responsibility.' Screenshot dl_02_section_default.png.",
+          "why_it_matters": "Reading aloud: 'may violate copyright law'. I freeze. 'Lawful use is your responsibility'. The tone is defensive-lawyer, not 'we trust you, here's the tool'. As a new user I now wonder: is this app sketchy? Is it going to get me in trouble? I almost close the tab. I understand the legal need, but the wording lands closer to 'beware' than 'play responsibly'.",
+          "recommendation": "Soften and shorten: 'Only download tracks you own or have rights to (your uploads, Creative Commons, or licensed material). [Learn more]' — link to a longer policy page. Move it to a small info icon next to the button rather than always-visible block text. Keeps the legal cover, drops the scary vibe.",
+          "impact": "Higher conversion from intent to first download. Less first-impression damage.",
+          "complexity": "trivial"
+        },
+        {
+          "title": "Idle state is indistinguishable from 'unavailable' — button is ghost-styled like a tertiary action",
+          "severity": "high",
+          "surface": "manual_panel",
+          "evidence": "docs/index.html:3173 — `<button id='dl-go-btn' class='secondary-btn'>Download</button>`. Screenshot dl_02_section_default.png shows it as a thin-bordered ghost button identical to 'Switch to AutoCue folder' style language.",
+          "why_it_matters": "This is the PRIMARY call to action of an entire panel and it is rendered with the same visual weight as 'Cancel' on the confirm modal. As a new user I scan the page looking for the green AutoCue brand button (I see it on 'Refresh' above). Its absence here makes me think this is an experimental/beta feature. I am less likely to click. Compare to the confirm modal where Cancel is the green primary (screenshot dl_07) — totally inverted intent.",
+          "recommendation": "Make 'Download' the brand-green primary button. Ghost button reserves for secondary actions like 'Switch folder' or 'Cancel queued download'.",
+          "impact": "Visual hierarchy matches intent. New users find the action immediately.",
+          "complexity": "trivial"
+        },
+        {
+          "title": "Confirm modal: Cancel is the bright-green primary, Download is the ghost — green means 'go' to me",
+          "severity": "critical",
+          "surface": "confirm_modal",
+          "evidence": "docs/index.html:3150-3151 — `<button id='disc-v2-dl-confirm-cancel' class='disc-v2-detail-action primary'>Cancel</button> <button id='disc-v2-dl-confirm-go' class='disc-v2-detail-action'>Download anyway</button>`. Screenshot dl_07_confirm_modal.png clearly shows green Cancel left, ghost 'Download anyway' right.",
+          "why_it_matters": "I shift-clicked Album by accident (didn't even realize Shift was modifying the click). Modal pops up. My eye lands on the GREEN button and I expect that to be 'continue' — green = go in every traffic light, every UI convention I've ever seen. I click it. It cancels. I lose my action and have to redo. OR worse: as muscle memory, users who DO want to download keep clicking green and keep cancelling, then assume the feature is broken. The phrase 'Download anyway' on the ghost button also reads adversarial — 'anyway' implies I'm doing something wrong.",
+          "recommendation": "Invert: 'Download album' = green primary; 'Cancel' = ghost/secondary. Drop the word 'anyway'. Set default focus on Cancel (which it already does) but visually elevate Download. Standard pattern: destructive/dangerous = red primary, neutral confirmations = brand primary, dismiss = ghost.",
+          "impact": "Removes the worst single mis-click trap in the whole download surface set.",
+          "complexity": "trivial"
+        },
+        {
+          "title": "Error state leaks raw ffmpeg exit codes — meaningless to me, terrifying to a beginner",
+          "severity": "high",
+          "surface": "manual_panel",
+          "evidence": "Screenshot dl_05_error.png: '✗ ERROR: ffmpeg returned exit code 1: Conversion failed!'. autocue/download.py raises raw subprocess errors that propagate through the SSE stream into the UI status.",
+          "why_it_matters": "I have no idea what ffmpeg is. 'exit code 1' could mean 'no internet', 'wrong URL', 'file already exists', 'YouTube blocked us', or 'your disk is full'. I have no path to recovery. There is no 'Try again' button, no 'See log', nothing. The toast also just says 'Download failed' which I missed in the corner. I will assume the app is broken and stop using the feature.",
+          "recommendation": "Map known yt-dlp/ffmpeg errors to user language: network errors → 'Could not reach YouTube. Check your connection.'; 403/age-gated → 'This video requires sign-in or is unavailable.'; disk full → 'Not enough space in [folder].'. Always show a 'Try again' affordance and a 'Copy error details' link for support. Never display 'exit code N' to end users.",
+          "impact": "Turns dead-end failures into recoverable ones. Cuts support burden.",
+          "complexity": "medium"
+        },
+        {
+          "title": "Per-card ⬇ Album button: no idea what 'Album' means — single track? Whole album? Both?",
+          "severity": "high",
+          "surface": "per_card_album",
+          "evidence": "docs/index.html:6920-7016 per-card download. Screenshot dl_06_per_card.png shows '⬇ Album' on a Selected Ambient Works II card (which is an LP) — but the label is the same word AutoCue uses for the metadata field.",
+          "why_it_matters": "I'm looking at a card for 'Selected Ambient Works II' tagged LP. The button says '⬇ Album'. Does this download the whole album? Or just this one card representing the album? The backend has `noplaylist: True` so it's actually NOT downloading the album — just one track. The label lies. As a new user I'd expect to get all 12 tracks. When I get one file I'm confused and disappointed.",
+          "recommendation": "Be honest about scope. Either: (a) label the button '⬇ Download' (singular) and let the modal explain what's being fetched; or (b) actually implement playlist/album download (remove `noplaylist: True`) and show 'Downloading 1 of 12…' progress. The PRD explicitly asks for the batch case — implement it.",
+          "impact": "Removes a class of trust-destroying surprises ('I asked for an album, got one track').",
+          "complexity": "medium"
+        },
+        {
+          "title": "Per-card 90px mini progress bar is too thin to read and has no track-name context",
+          "severity": "medium",
+          "surface": "per_card_album",
+          "evidence": "Screenshot dl_06_per_card.png — 'Loveless' card shows 'Downloading…' text and '55%' below a 90px-wide hair-thin progress bar inside the right-edge action area.",
+          "why_it_matters": "I have to squint. The percent is in micro-type. There is no 'Downloading: my bloody valentine — Loveless' label — I have to glance back at the card to remember what I clicked. If I scroll the list, my downloading card scrolls out of view and I lose all progress visibility. The manual panel below has its own progress bar in another place, so progress for the same feature is fragmented across two areas.",
+          "recommendation": "Use the same canonical Download panel below to show ALL in-flight downloads with track names. Per-card button just flips to 'Downloading…' state with a small spinner. Eliminates the duplicated mini progress UI and gives one place to look.",
+          "impact": "Consolidates progress visibility. Reduces visual noise on cards.",
+          "complexity": "medium"
+        },
+        {
+          "title": "Naming collision: 'Download XML' in sticky bar reads as 'Download' to a new user",
+          "severity": "high",
+          "surface": "xml_button_collision",
+          "evidence": "docs/index.html:3234 `<button class='primary' id='download-btn'>Download XML</button>` in #download-bar; docs/index.html:2139 #backup-btn '💾 Download backup XML'; docs/index.html:2164 'Download backup first →' link.",
+          "why_it_matters": "There are now FOUR things on screen with the word 'Download': the panel labelled 'Download', the per-card '⬇ Album' (downloads), the sticky-bar 'Download XML' (totally different — exports Rekordbox XML), and 'Download backup XML' in another corner. As a brand-new user my eye is drawn to the most prominent GREEN button which is 'Download XML' in the sticky bar. I click it expecting to download a track. I get an XML file. I have no idea what to do with that. The naming collision actively misleads.",
+          "recommendation": "Rename the sticky-bar button to 'Export Rekordbox XML' or 'Apply / Export'. Rename '💾 Download backup XML' to 'Save backup XML'. Reserve the word 'Download' (in user-facing labels) for the audio-fetch feature, since that's how 99% of users think about that word.",
+          "impact": "Disambiguates the entire app's primary verb. Eliminates a mis-click trap that wastes a backup-XML download.",
+          "complexity": "trivial"
+        },
+        {
+          "title": "Mobile layout shoves the Download panel below a dead 'Refresh' card — feature is hidden",
+          "severity": "high",
+          "surface": "manual_panel",
+          "evidence": "Screenshot dl_09_mobile.png 390x844: I have to scroll past the failed Discover scan area, then past mock cards, then I finally see Download. The folder switcher link wraps to a new line under '/Users/.../source' which I can barely read.",
+          "why_it_matters": "On a 390px phone screen, the Download panel is below-the-fold by 2 swipes. The path `/Users/henrigeorge/Projects/Music/source` truncates oddly. The 'Switch to AutoCue folder' link wraps. The input is full-width but the button is to the right at full-text length, leaving an awkward two-line layout. I'd assume the app isn't designed for mobile and either bounce or pretend it's desktop-only.",
+          "recommendation": "On <600px: stack input above button (button full-width). Truncate path with middle-ellipsis and full path on tap. Surface a Download CTA earlier — maybe a floating 'Download a track' button. Consider hiding the entire Discover panel by default on mobile if scans don't work well there.",
+          "impact": "Makes feature usable on phones. Today it is effectively desktop-only by accident.",
+          "complexity": "small"
+        },
+        {
+          "title": "No feedback that download started — button text changes to 'Downloading…' but progress bar jumps to 38% instantly with no track name",
+          "severity": "medium",
+          "surface": "manual_panel",
+          "evidence": "docs/index.html:7026 `fill.style.width = '5%'` initial, then jumps to whatever yt-dlp percent reports. Screenshot dl_03_loading.png shows '38%' with no current-stage label.",
+          "why_it_matters": "I clicked Download. The bar is at 38%. 38% of what? Downloading? Converting? Postprocessing? It just says '38%'. The track I asked for ('Aphex Twin - Avril 14th') doesn't appear anywhere in the status — only in the input box that I'm now mentally disconnected from. I have no way to know if I should wait 5 seconds or 5 minutes.",
+          "recommendation": "Status template: 'Downloading [Aphex Twin – Avril 14th] · 38% · ~12s left'. Always include the title and ETA (yt-dlp provides it). After download, show 'Converting to MP3…' while ffmpeg runs (separate sub-stage). Phase the progress bar in two colors or with sub-labels.",
+          "impact": "Users know what's happening at every moment. Reduces 'is it stuck?' aborts.",
+          "complexity": "small"
+        },
+        {
+          "title": "Success state has no 'Play' or 'Reveal in Finder' action — file vanishes into the folder",
+          "severity": "medium",
+          "surface": "manual_panel",
+          "evidence": "docs/index.html:7048 — on success the status shows '✓ Saved to /Users/.../Avril 14th.mp3' and that's it. Screenshot dl_04_success.png.",
+          "why_it_matters": "I just downloaded a file. I want to verify it (play it), or open the folder to drag it into Rekordbox. Neither is offered. I have to manually open Finder, navigate to the path, find the file. As a new user I now have to learn 'how do I get from this success message to actually using the file' — a friction point that feels like the workflow ended mid-sentence.",
+          "recommendation": "Success state shows three actions: 'Play preview' (in-app), 'Reveal in Finder' (opens enclosing folder via a backend hook or copies path), 'Download another'. Persist the most-recent download path in a small history list (last 3).",
+          "impact": "Closes the loop. User actually uses what they downloaded.",
+          "complexity": "small"
+        },
+        {
+          "title": "Input has no aria-label, no autofocus, no Enter-to-submit feedback announcement",
+          "severity": "medium",
+          "surface": "manual_panel",
+          "evidence": "docs/index.html:3170-3171 — `<input type='text' id='dl-query' placeholder='e.g. https://youtu.be/… or \"Artist – Title\"'>`. No aria-label, no aria-describedby pointing to the legal disclaimer or destination, no live region for the status `#dl-status`.",
+          "why_it_matters": "Screen reader users hear 'edit, blank' — they have no idea what this input is for unless they navigate up to the visual label. The status text changes during download but is not in an aria-live region, so SR users get no progress announcements. The button doesn't expose a busy state via aria-busy. Pressing Enter in the input does not submit (no keydown handler), so I have to mouse to the Download button every time.",
+          "recommendation": "Add aria-labelledby pointing to the visible label, aria-describedby pointing to the destination/legal text. Wrap #dl-status and #dl-progress in role='status' aria-live='polite'. Add aria-busy on the panel during download. Wire Enter on #dl-query → click #dl-go-btn.",
+          "impact": "Makes the feature usable for screen readers and keyboard-only DJs (not rare in this community).",
+          "complexity": "small"
+        },
+        {
+          "title": "Confirm modal body ('This will fetch audio from YouTube via yt-dlp.') is the same jargon problem in a higher-stakes context",
+          "severity": "medium",
+          "surface": "confirm_modal",
+          "evidence": "docs/index.html:3146-3148. Screenshot dl_07_confirm_modal.png.",
+          "why_it_matters": "I shift-clicked. A modal blocks the page. The body explains the action using the exact term ('yt-dlp') I don't understand. The modal is a teachable moment — instead the copy adds friction. There is also no information about WHAT I'm about to download (which album?), so I can't even verify intent before confirming.",
+          "recommendation": "Body should show the actual album/track: 'Download Loveless – my bloody valentine from YouTube as audio?'. Drop the 'via yt-dlp' phrase entirely.",
+          "impact": "User can confirm by recognising the title, not by guessing what they triggered.",
+          "complexity": "trivial"
+        },
+        {
+          "title": "YouTube candidate modal: ambiguous 'Pick' verb and only one progress bar shared across all candidates",
+          "severity": "medium",
+          "surface": "yt_candidate_modal",
+          "evidence": "docs/index.html:3263-3289. Screenshot dl_08_yt_modal.png shows two candidates each with 'Pick' button and a single progress bar/'Downloading… 25%' below the second candidate.",
+          "why_it_matters": "'Pick' is unusual — 'Download', 'Use this', or 'Select' would be clearer. While download is in flight, the other 'Pick' button is still enabled-looking — can I queue a second one? What happens if I click? The shared progress bar floats under the candidates with no clear visual binding to which one is in progress. I can't see what's playing or even visually confirm 'this is the 1986 version, not the 2017 reissue'.",
+          "recommendation": "Rename 'Pick' to 'Download this version'. Disable other candidate buttons while one is in flight. Move the progress bar INTO the row of the candidate being downloaded (inline), with a clear ✕ to cancel.",
+          "impact": "Confidence that the right version is being grabbed. No accidental double-downloads.",
+          "complexity": "small"
+        }
+      ]
+    },
+    {
+      "persona": "DJ power-user with 5,000+ tracks, downloads daily in batches from playlists. Lives in the keyboard, hates clicking, retries failures often.",
+      "score": {
+        "discoverability": 5,
+        "clarity": 4,
+        "accessibility": 4,
+        "efficiency": 2,
+        "consistency": 4,
+        "user_confidence": 4,
+        "mobile": 3
+      },
+      "findings": [
+        {
+          "title": "No Enter-to-submit on URL field — paste-and-go workflow is broken",
+          "severity": "critical",
+          "evidence": "docs/index.html:3170-3173 (<input id=\"dl-query\"> has no keydown handler) and 7018-7061 (downloadManual is wired only to btn click, no form/keydown listener registered).",
+          "why_it_matters": "The single most common power-user flow is Cmd+V then Enter. I have to paste a URL then mouse over to the Download button 50+ times a day. Every other URL input on the web (browser omnibox, Spotify search, YouTube search) submits on Enter. Forcing mouse travel here is a 1-2 second tax per download that compounds enormously over a typical 30-track playlist session.",
+          "recommendation": "Wrap the input + button in a <form> and listen for submit (preventDefault then downloadManual()), OR add input.addEventListener('keydown', e => { if (e.key === 'Enter') downloadManual(); }). Also surface the affordance: change the placeholder to 'Paste URL or type \"Artist – Title\" — Enter to download'.",
+          "impact": "Cuts ~1.5s + one full mouse-move per download. Over a 30-track batch that's roughly a minute of friction and several missed-click context switches.",
+          "complexity": "trivial"
+        },
+        {
+          "title": "No global keyboard shortcut to focus the Download input",
+          "severity": "high",
+          "evidence": "Grep of docs/index.html shows no keybinding pointing at 'dl-query'. The Discover tab has shortcuts (per docs/reference/discover-v2.md) but none route to Download. The download section is below-the-fold (see dl_02_section_default.png — it scrolls off on a normal viewport).",
+          "why_it_matters": "I'm typically working in Library or Cues, find a hole, want to grab the track. Today I have to: switch to Discover tab → scroll to the bottom → click the input → paste. A '/' or 'd' shortcut from anywhere ('focus download') would collapse that to one keystroke. Power users live on shortcuts; the rest of the app teaches that habit (refresh, etc.) and then this surface drops it.",
+          "recommendation": "Register a global keybinding (e.g. Shift+D or Cmd+Shift+Y) that switches to Discover tab, scrolls #download-section into view, and focuses #dl-query. Show it in the placeholder and in the keyboard-shortcut help dialog.",
+          "impact": "Reduces a 3-action cross-tab workflow to a single keystroke. For 30 downloads/day that's ~90 fewer clicks.",
+          "complexity": "small"
+        },
+        {
+          "title": "yt-dlp is hardcoded to noplaylist=True — pasting a YouTube playlist URL silently downloads only the first track",
+          "severity": "critical",
+          "evidence": "autocue/download.py:154 'noplaylist': True. The manual input accepts any URL but downloadManual() (docs/index.html:7035) routes everything through /api/download which uses this fixed option. There is no batch/playlist code path on the manual surface.",
+          "why_it_matters": "This is THE flagship power-user use case: 'I found a great Boiler Room set on YouTube, grab the tracklist'. Today I paste the playlist URL, the system silently grabs track 1 and reports '✓ Saved'. There's no warning, no 'this is a playlist of 24 tracks, download all?' prompt. The PRD calls out playlist/album batch but the manual panel today actively misleads users into thinking they got what they asked for.",
+          "recommendation": "Detect playlist URLs client-side (list=, /playlist?) and either (a) auto-flip to a batch flow with 'Downloading track X of Y' or (b) prompt 'This URL is a playlist with N tracks — download all, or just the first video?' Default to all. Backend: drop noplaylist or thread it through a request option.",
+          "impact": "Unlocks batch download of any YouTube playlist or album. For a DJ this is 10-30 tracks per paste vs. 1 today.",
+          "complexity": "medium"
+        },
+        {
+          "title": "No recent-history / paste-history dropdown — every failed retry requires re-pasting",
+          "severity": "high",
+          "evidence": "docs/index.html:3170-3171 — the input is a plain <input type=\"text\">; no autocomplete suggestions, no localStorage history, no datalist. downloadManual() never persists the query.",
+          "why_it_matters": "When yt-dlp fails (which happens regularly — geo-blocks, deleted videos, format errors), I have to re-find the URL in my browser history and paste again. With history I'd hit ↓ to re-pick the last query, or pick #3 from the dropdown if I want to retry the third-most-recent.",
+          "recommendation": "Persist last 20 successful + failed queries in localStorage. Render as a <datalist> bound to the input (zero JS, native browser dropdown), or as a styled dropdown that shows status icons (✓/✗) next to each entry. Bonus: ↑/↓ cycles through history without opening the dropdown.",
+          "impact": "Eliminates the 'where did I paste that URL' tax on retries. ~5-10 second savings per failed download, and most batch sessions have 2-5 failures.",
+          "complexity": "small"
+        },
+        {
+          "title": "No per-card retry on a failed batch item — and the per-card failure state is lossy",
+          "severity": "high",
+          "evidence": "docs/index.html:6993-7012 runDownload() — on error it sets statusEl to '✗ failed' and re-enables the button with textContent '⬇ Album' (line 7014), losing the failure context. There is no retry button, no error tooltip, and no way to see which card failed once another card is clicked.",
+          "why_it_matters": "I shift-click 10 Discover albums. Three fail. I have no list of which three, no one-click retry, and the failure detail ('geo-blocked', 'video unavailable') flashes by in a toast that's already gone. To retry, I have to remember which album failed and click ⬇ Album again. This is the heart of batch workflow and it's currently a manual eyeball exercise.",
+          "recommendation": "Persist per-card download state (idle / downloading / done / error{message}) on the card data and re-render it. On error, replace ⬇ Album with '↻ Retry' showing the error in a tooltip. Add a batch summary at the top of the panel: '8/10 done, 2 failed — Retry failed'.",
+          "impact": "Turns batch downloads from manual triage into a recoverable queue. Saves several minutes per multi-track session.",
+          "complexity": "medium"
+        },
+        {
+          "title": "Manual panel has no bulk-paste / queue interface — only single-shot input",
+          "severity": "high",
+          "evidence": "docs/index.html:3170 is a single <input type=\"text\"> (not textarea). downloadManual() at 7018 processes exactly one query and awaits SSE completion before unlocking the button.",
+          "why_it_matters": "Common workflow: I have a list of 12 URLs in a notes app or chat thread. Today I have to paste, wait ~30s, paste next, wait, paste next… 12 times. A textarea that accepts newline-separated URLs and queues them through /api/download/album would let me paste once and walk away.",
+          "recommendation": "Add a small 'Paste list' toggle that expands the input to a textarea. Detect line breaks in the regular input on paste and offer 'Detected 12 URLs — queue all?'. Wire to existing /api/download/album SSE which already does sequential progress events.",
+          "impact": "Converts 12 paste-and-wait cycles into one paste. For a DJ pulling a tracklist from a chat or notes file, this is the highest-leverage single change.",
+          "complexity": "medium"
+        },
+        {
+          "title": "No format/quality selector — and no memory of last choice across sessions",
+          "severity": "high",
+          "evidence": "autocue/download.py:99-104 hardcodes audio_format='mp3', audio_quality='192' in the function signature. /api/download body (docs/index.html:7038) only sends {query, dest_dir} — no format pass-through. The PRD lists this as a gap.",
+          "why_it_matters": "192 kbps MP3 is unacceptable for DJ playback — a 5,000-track library at this quality is audibly compressed on a club PA. I want WAV by default. Worse, even if a selector ships, if it forgets my choice every page load I'll re-set it 30 times a day. The auto-tag and loudnorm toggles have the same memory requirement.",
+          "recommendation": "Add format/quality dropdown next to the input (WAV / MP3 320 / Original AAC). Persist last selection in localStorage (autocue_dl_format, autocue_dl_normalize, autocue_dl_autotag). Backend: thread audio_format/audio_quality through the SSE request body.",
+          "impact": "Removes per-download configuration tax and the quality regret of finding 192k MP3s in the library months later.",
+          "complexity": "small"
+        },
+        {
+          "title": "Destination switcher is buried and offers no quick-switch between favorite folders",
+          "severity": "medium",
+          "evidence": "docs/index.html:3176-3177 — destination is a <code> readout plus a single 'Switch to AutoCue folder' link (id='dl-dest-switch'). There is no folder picker UI, no list of recent destinations, no per-genre subfolder shortcut.",
+          "why_it_matters": "I organize by genre: ~/Music/AutoCue/house, /AutoCue/techno, /AutoCue/edits. Today the destination is a single toggle between two paths. I have to drop to a terminal or Finder to move files into the right subfolder after every download — defeating the point of a destination at all.",
+          "recommendation": "Replace the single switch link with a small dropdown of last 5 destinations (localStorage), a 'Pick folder…' option that uses the showDirectoryPicker File System API where available, and a 'New subfolder…' inline input that creates dest_dir + '/' + name.",
+          "impact": "Removes manual file-moving after batch sessions. ~10s per download saved, plus tidier library.",
+          "complexity": "medium"
+        },
+        {
+          "title": "Success state silently overwrites — no collision warning, no 'already downloaded' indicator",
+          "severity": "high",
+          "evidence": "autocue/download.py:149-165 — yt-dlp outtmpl is '%(title)s.%(ext)s' with no conflict handling; postprocessor will overwrite or append numbers depending on yt-dlp internals. The frontend success path (docs/index.html:7048) shows '✓ Saved to <path>' with no hint that this was a re-download or overwrote a previous file.",
+          "why_it_matters": "I download the same track twice by accident regularly — pull a playlist, then later pull a single I forgot was on it. Today both attempts succeed silently and I get a duplicate or an overwritten file. A 'Already in library — re-download?' check would save disk space and confusion.",
+          "recommendation": "Before download, check dest_dir for matching basename (or hash the YouTube ID into a sidecar manifest). On match, show 'Already downloaded as <file> on <date> — Re-download / Skip / Open file'. On success, log YouTube ID → file path in a small JSON manifest for future dedupe.",
+          "impact": "Prevents accidental duplicates, exposes the historical record of what's already in my library.",
+          "complexity": "medium"
+        },
+        {
+          "title": "No metadata-write feedback — I can't tell if ID3 tags landed",
+          "severity": "high",
+          "evidence": "autocue/download.py:156-160 — only postprocessor is FFmpegExtractAudio. No FFmpegMetadata, no EmbedThumbnail. Success event from /api/download has no fields beyond {path, status}. dl_04_success.png shows '✓ Saved to /Users/.../Aphex Twin - Avril 14th.mp3' but the file itself has no Artist/Title tags written.",
+          "why_it_matters": "When I drag the downloaded file into Rekordbox, it shows up with no metadata — the title is parsed from filename and Artist is blank. I have to manually tag every download, defeating the purpose of an automated pipeline. The PRD calls for an auto-tag toggle; the bigger issue is the UI must SHOW what was tagged ('Artist: Aphex Twin · Title: Avril 14th · ID3 written') so I trust it.",
+          "recommendation": "Add FFmpegMetadata + (optional) EmbedThumbnail postprocessors. After download, parse the resulting tags and display them in the success line: '✓ Saved: Aphex Twin — Avril 14th · 192kbps MP3 · ID3 + artwork written'. Surface in the SSE done event.",
+          "impact": "Cuts manual tagging time to zero. Confidence that the file is library-ready before I move it.",
+          "complexity": "medium"
+        },
+        {
+          "title": "Error state leaks raw stack/ffmpeg output and offers no recovery action",
+          "severity": "high",
+          "evidence": "dl_05_error.png: '✗ ERROR: ffmpeg returned exit code 1: Conversion failed!' Backend bubbles raw exception text via the SSE 'error' field (autocue/download.py raises RuntimeError; routes pass exception text through). docs/index.html:7047 shows '✗ ' + (d.error || 'failed') with no parsing.",
+          "why_it_matters": "'ffmpeg returned exit code 1' is meaningless to me. I need to know: is this a geo-block? A deleted video? Out of disk? A codec issue? And what's my action — retry, try a different URL, switch format? The current error UX dead-ends.",
+          "recommendation": "Classify common yt-dlp/ffmpeg errors into user-facing categories: 'Video unavailable in your region — try a VPN', 'Video deleted by uploader', 'Disk full', 'Audio format not supported — try MP3 instead'. Always end with a one-click [Retry] button and [Copy error details] for support. Keep raw text behind a 'Details ▾' disclosure.",
+          "impact": "Turns dead-end errors into actionable recovery. Major confidence + ergonomics win.",
+          "complexity": "small"
+        },
+        {
+          "title": "Confirm modal makes batch shift-click slower than single-click — and Cancel is the green primary",
+          "severity": "medium",
+          "evidence": "docs/index.html:3138-3153. dl_07_confirm_modal.png shows Cancel as primary green and 'Download anyway' as ghost. Every shift-click adds a confirm step.",
+          "why_it_matters": "I get the safety rationale (sticky Shift + accidental Enter), but for a power user who knows what they're doing, this is a per-download speed bump on the workflow that ALREADY indicated intent via Shift. And the inverted color treatment (green Cancel) is so unusual I sometimes hit Cancel thinking it's the action button. If the goal is opt-out for trained users, give me a 'Don't ask again this session' checkbox.",
+          "recommendation": "Add a 'Don't ask again this session' checkbox to the modal. Persist in sessionStorage. Optionally swap to a one-time-per-session 'You used Shift — confirm batch downloads bypass the per-card click?' onboarding, then never re-ask. Keep Cancel as default focus but neutralize its color (ghost) — primary action should look primary.",
+          "impact": "Stops a per-track modal stutter once a session. Reduces miscolor confusion.",
+          "complexity": "trivial"
+        },
+        {
+          "title": "No 'Download all suggestions' affordance on the Discover panel",
+          "severity": "medium",
+          "evidence": "docs/index.html:6920-7016 — every Discover card has its own ⬇ Album button but there is no panel-level 'Download all visible suggestions' or 'Download top N' action. I count ~10-30 cards per Discover scan.",
+          "why_it_matters": "When Discover surfaces a great scan, I usually want everything. Today I have to shift-click each card individually, dismissing the confirm modal each time. A 'Download all (24 albums)' button that uses /api/download/album with a collective progress bar would be the workflow.",
+          "recommendation": "Add a 'Download all (N)' or 'Download top 10' button next to the Refresh/Settings buttons in the Discover header when results are present. Hook to /api/download/album with the array of queries. Show collective 'Downloading album X of Y: <name>' progress.",
+          "impact": "Converts a 24-click + 24-confirm session into one click. Massive batch leverage.",
+          "complexity": "medium"
+        },
+        {
+          "title": "No ETA, no transfer speed, no cancel — single progress bar is information-poor",
+          "severity": "medium",
+          "evidence": "docs/index.html:3179-3182 — single .cue-tools-progress bar + status text. dl_03_loading.png shows '38%' with no MB/s, no ETA, no track-name confirmation that this is the right video. No cancel button is rendered.",
+          "why_it_matters": "On a 320kbps download from YouTube, ETA + speed tell me if the network is healthy or if yt-dlp picked a throttled endpoint. More importantly: I have NO way to cancel a running download from the manual panel. If I paste the wrong URL, I either wait or close the tab — both bad.",
+          "recommendation": "SSE already emits progress dicts; expose downloaded_bytes/total_bytes/speed/eta in the event. Render '12.4 MB / 38 MB · 1.8 MB/s · ETA 14s' and the resolved YouTube title under the bar. Add a [Cancel] button — backend already supports cancel_event (download.py:23-27, 137-138).",
+          "impact": "Builds trust mid-download and recovers from wrong-URL mistakes.",
+          "complexity": "small"
+        },
+        {
+          "title": "Per-card progress bar (90px) is too narrow to read percentage and has no track-name label",
+          "severity": "low",
+          "evidence": "docs/index.html:6946 width:90px. dl_06_per_card.png: 'Downloading…' label is ellipsized at 55% with no MB/s readout. The status text fits next to a 90px bar.",
+          "why_it_matters": "In batch downloads I'm watching multiple cards. If one stalls at 12% I can't tell because the bar is too short to differentiate 12% from 18%. The status text 'Downloading…' is truncated and offers no info beyond the bar.",
+          "recommendation": "Widen the inline mini-progress to 140-160px when card width permits, OR move per-card progress into a docked queue panel (sticky at top of Discover) that shows all in-flight downloads as rows with name + bar + percent + cancel. The queue panel scales to bulk workflows much better than per-card chrome.",
+          "impact": "Mid — more visible per-track state during batch.",
+          "complexity": "medium"
+        },
+        {
+          "title": "Mobile layout pushes Download below the fold and shrinks input — paste-and-go fails on phone",
+          "severity": "medium",
+          "evidence": "dl_09_mobile.png (390x844) — Download section sits below the Discover suggestions; the URL input wraps to full width but the button stays small/right-aligned. Status text '✗ ERROR: ffmpeg returned exit code 1' is wider than viewport readable.",
+          "why_it_matters": "I often save tracks from my phone on the train. The Download section being last-in-DOM means heavy scroll past Discover. The input field works but the success/error text overflows.",
+          "recommendation": "On mobile (matchMedia max-width:520px), move Download to the top of the Discover tab, OR add a floating action button that scrolls to it. Make status/error text wrap and use a smaller code block for paths. Big-thumb-target the Download button (min 44x44).",
+          "impact": "Makes phone workflow viable.",
+          "complexity": "small"
+        },
+        {
+          "title": "Naming collision with #download-btn (Rekordbox XML) — same word, different feature, on the same screen",
+          "severity": "low",
+          "evidence": "docs/index.html:3234 #download-btn 'Download XML' (Rekordbox export) is visible in the sticky bar at the same time as the Discover Download panel. Audit note also flags #backup-btn 'Download backup XML' at 2139.",
+          "why_it_matters": "First time I used this I clicked the wrong Download. Rekordbox XML export and YouTube audio download share a word but nothing else. A power user learns the difference; new users won't, and a DJ context-switching late at night will mis-click.",
+          "recommendation": "Rename #download-btn to 'Export XML' or 'Save Rekordbox XML' (it's an export, not a download). Or visually differentiate (icon + color). 'Download' should be reserved for the audio-fetch surface.",
+          "impact": "Low for power users (we learn it) but raises consistency / clarity score significantly.",
+          "complexity": "trivial"
+        },
+        {
+          "title": "Disclaimer occupies more vertical real estate than the action — and shows up every session",
+          "severity": "low",
+          "evidence": "docs/index.html:3184-3186 — the legal disclaimer is ~140px of muted text below the action. Visible in every screenshot. There is no 'Acknowledged' dismiss.",
+          "why_it_matters": "On a daily-use surface, repeated legal text becomes blind-spot noise — and pushes useful state (progress, status) further off-screen. I read it once; show it once.",
+          "recommendation": "Collapse to a single-line 'Lawful use — your responsibility (?)' link that expands the full text on hover/click. After first dismiss (localStorage flag), keep it collapsed. Keep the wording itself — just compress the visual weight.",
+          "impact": "Reclaims ~100px of vertical space on every Discover tab visit.",
+          "complexity": "trivial"
+        }
+      ]
+    }
+  ]
+}

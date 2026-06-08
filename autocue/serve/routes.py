@@ -69,6 +69,12 @@ from .schemas import (
     DownloadRequest,
     DownloadAlbumRequest,
     DownloadEvent,
+    DownloadEnqueueResponse,
+    DownloadCancelResponse,
+    DownloadProgressEvent,
+    DownloadQueueResponse,
+    DownloadQueueActive,
+    RevealPathRequest,
     SetBuilderTrackItem,
     SimilarTrackItem,
     SimilarTracksResponse,
@@ -2668,136 +2674,402 @@ def _detect_music_folder(db) -> str | None:
         return None
 
 
+# ===========================================================================
+# Download — PRD v1.0 unified API
+# ===========================================================================
+#
+# Architecture (see .agent/prd/DOWNLOAD_PRD.md §6.12 + §7.3):
+#
+#   POST /api/download/enqueue          → returns {job_id, phase:'queued', position}
+#   POST /api/download/album/enqueue    → same shape
+#   GET  /api/download/stream/{job_id}  → SSE; single-consumption cache + 410
+#   POST /api/download/cancel/{job_id}  → sync; idempotent
+#   GET  /api/download/queue            → {active, queued_count, max_concurrency}
+#   POST /api/download/reveal           → opens file manager at path
+#   GET  /api/download/config           → existing + os_reveal_supported + max_concurrency
+#
+# Back-compat aliases for one release (removed in v0.3.0):
+#   POST /api/download                  → enqueue + stream in one shot
+#   POST /api/download/album            → same
+# ===========================================================================
+
 @router.get("/download/config", response_model=DownloadConfigResponse)
 def download_config(db=Depends(get_ro_db)):
-    """Report whether yt-dlp + ffmpeg are available, the default download dir, and the detected music folder."""
+    """Report capability + queue config. Used by the frontend to gate UI."""
     from .. import download as dl
     return DownloadConfigResponse(
         available=dl.ytdlp_available(),
         ffmpeg=dl.ffmpeg_available(),
         default_dir=dl.default_download_dir(),
         music_folder=_detect_music_folder(db),
+        os_reveal_supported=dl.reveal_supported(),
+        max_concurrency=dl.get_download_queue().max_concurrency if dl.ytdlp_available() else 1,
     )
 
 
-def _percent_from_hook(d: dict) -> float | None:
-    """Derive a 0–100 percent from a yt-dlp progress dict, if possible."""
-    total = d.get("total_bytes") or d.get("total_bytes_estimate")
-    got = d.get("downloaded_bytes")
-    if total and got is not None:
-        try:
-            return round(min(100.0, got / total * 100.0), 1)
-        except (TypeError, ZeroDivisionError):
-            return None
-    return None
+def _coerce_legacy_format_in_body(body: dict) -> dict:
+    """Apply legacy audio_format coercion before pydantic Literal validation.
 
-
-@router.post("/download")
-def download_single(req: DownloadRequest):
-    """Download one track's audio from YouTube via SSE progress events."""
-    import json as _json
-    import queue
-    import threading
-    from fastapi.responses import StreamingResponse
+    Mutates `body` in place and returns it. Logs WARNING once per (process,
+    legacy_value), DEBUG thereafter. Unknown strings pass through unchanged
+    and let pydantic 422 with the unknown_format error.
+    """
     from .. import download as dl
+    fmt = body.get("audio_format")
+    if fmt and fmt not in dl.ALLOWED_FORMATS:
+        try:
+            body["audio_format"] = dl.normalize_audio_format(fmt)
+        except ValueError:
+            pass  # let pydantic Literal validator emit 422
+    return body
 
+
+def _validate_download_body(model_cls, raw: dict):
+    """Validate body via pydantic; on ValidationError, raise a friendly 422
+    for known migrations (audio_quality removed, audio_format invalid)."""
+    from pydantic import ValidationError as _PVE
+    from .. import download as dl
+    try:
+        return model_cls.model_validate(raw)
+    except _PVE as exc:
+        for err in exc.errors():
+            loc = err.get("loc") or ()
+            etype = err.get("type") or ""
+            if etype == "extra_forbidden" and loc and loc[-1] == "audio_quality":
+                raise HTTPException(status_code=422, detail={
+                    "error_code": "audio_quality_removed",
+                    "error_message": (
+                        "audio_quality removed; use audio_format='mp3_320' for 320 kbps "
+                        "MP3 or 'wav' for uncompressed."
+                    ),
+                    "hint": "Update your client to set audio_format instead.",
+                })
+            if loc and loc[-1] == "audio_format":
+                bad = err.get("input") or raw.get("audio_format")
+                raise HTTPException(status_code=422, detail={
+                    "error_code": "unknown_format",
+                    "error_message": (
+                        f"Unknown audio_format {bad!r}. "
+                        f"Pick one of {', '.join(dl.ALLOWED_FORMATS)}."
+                    ),
+                    "hint": "WAV is uncompressed; MP3 320 is the default; "
+                            "Original keeps the source container.",
+                })
+        # Fallback — surface the first error verbatim
+        raise HTTPException(status_code=422, detail=exc.errors())
+
+
+def _check_download_available() -> None:
+    """Raise HTTPException if yt-dlp/ffmpeg missing — used by every enqueue endpoint."""
+    from .. import download as dl
     if not dl.ytdlp_available():
-        raise HTTPException(503, "yt-dlp is not installed. Install with: pip install -e \".[download]\"")
+        raise HTTPException(503, 'yt-dlp is not installed. Install with: pip install -e ".[download]"')
     if not dl.ffmpeg_available():
         raise HTTPException(503, "ffmpeg not found on PATH — required to extract audio.")
 
+
+@router.post("/download/enqueue", response_model=DownloadEnqueueResponse)
+async def download_enqueue(request: Request):
+    """Enqueue a single-track download. Returns {job_id, phase:'queued', position}
+    synchronously (≤200 ms; no yt-dlp work). Client then opens
+    GET /api/download/stream/{job_id} for SSE progress."""
+    from .. import download as dl
+    raw = await request.json()
+    raw = _coerce_legacy_format_in_body(raw)
+    # Pydantic validation — Literal enforces audio_format ∈ ALLOWED_FORMATS;
+    # extra='forbid' raises 422 for stale `audio_quality` field (middleware
+    # below rewrites that specific error into a friendlier shape).
+    req = _validate_download_body(DownloadRequest, raw)
+    _check_download_available()
+
+    if req.allow_playlist:
+        # Pre-flight expand. If yt-dlp says it's a playlist, fan out via 'album'.
+        entries = dl.expand_playlist(req.query)
+        if len(entries) > 1:
+            payload = {
+                "tracks": [{"query": e["query"], "title": e["title"]} for e in entries],
+                "dest_dir": req.dest_dir,
+                "audio_format": req.audio_format,
+                "normalize": req.normalize,
+                "embed_metadata": req.embed_metadata,
+            }
+            job_id, position = dl.get_download_queue().enqueue("album", payload)
+            return DownloadEnqueueResponse(job_id=job_id, position=position)
+
+    payload = {
+        "query": req.query,
+        "dest_dir": req.dest_dir,
+        "audio_format": req.audio_format,
+        "normalize": req.normalize,
+        "embed_metadata": req.embed_metadata,
+        "allow_playlist": req.allow_playlist,
+    }
+    job_id, position = dl.get_download_queue().enqueue("single", payload)
+    return DownloadEnqueueResponse(job_id=job_id, position=position)
+
+
+@router.post("/download/album/enqueue", response_model=DownloadEnqueueResponse)
+async def download_album_enqueue(request: Request):
+    """Enqueue an explicit-track-list album download. Used by Discover per-card."""
+    from .. import download as dl
+    raw = await request.json()
+    raw = _coerce_legacy_format_in_body(raw)
+    req = _validate_download_body(DownloadAlbumRequest, raw)
+    _check_download_available()
+    payload = {
+        "tracks": [{"query": s.query, "title": s.title} for s in req.tracks],
+        "dest_dir": req.dest_dir,
+        "audio_format": req.audio_format,
+        "normalize": req.normalize,
+        "embed_metadata": req.embed_metadata,
+    }
+    job_id, position = dl.get_download_queue().enqueue("album", payload)
+    return DownloadEnqueueResponse(job_id=job_id, position=position)
+
+
+@router.get("/download/stream/{job_id}")
+def download_stream(job_id: str):
+    """SSE stream of DownloadProgressEvent for a job.
+
+    - Yields heartbeat comment-line `: keepalive\\n\\n` every 15s (handled by the
+      queue's stream() method yielding {type:"_keepalive"} sentinel which we
+      convert here). Frontend `_consumeSSE` ignores any line not starting with
+      `data:`, so heartbeats are invisible to onEvent handlers.
+    - On second connect after `done` (within 60s cache TTL): returns 410 Gone
+      with cached final body — frontend renders success/error from cache
+      without re-emitting a done event.
+    - On unknown job_id: 404.
+    """
+    import json as _json
+    from fastapi.responses import StreamingResponse
+    from .. import download as dl
+
+    try:
+        gen = dl.get_download_queue().stream(job_id)
+    except KeyError:
+        raise HTTPException(404, f"unknown job_id {job_id!r}")
+
+    first = next(gen, None)
+    if first is None:
+        raise HTTPException(404, f"unknown job_id {job_id!r}")
+
+    # Handle the "already_consumed" sentinel by returning 410 with the cached
+    # final body. Frontend uses this to render success-from-cache.
+    if isinstance(first, dict) and first.get("http_status") == 410:
+        body = {
+            "error_code": "already_consumed",
+            "status": first.get("cached_status"),
+            "path": first.get("path"),
+            "job_id": job_id,
+        }
+        return Response(content=_json.dumps(body), status_code=410, media_type="application/json")
+
     def event_stream():
-        events: "queue.Queue[dict]" = queue.Queue()
-        cancel_event = threading.Event()
-
-        def progress(d: dict) -> None:
-            events.put({
-                "status": d.get("status"),
-                "percent": _percent_from_hook(d),
-            })
-
-        result: dict = {}
-
-        def worker() -> None:
-            try:
-                path = dl.download_audio(
-                    req.query, dest_dir=req.dest_dir,
-                    audio_format=req.audio_format, progress_cb=progress,
-                    cancel_event=cancel_event,
-                )
-                result["path"] = path
-            except dl.DownloadCancelled:
-                result["cancelled"] = True
-            except Exception as exc:  # noqa: BLE001
-                result["error"] = str(exc)
-            finally:
-                events.put({"_end": True})
-
-        t = threading.Thread(target=worker, daemon=True)
-        t.start()
-
-        try:
-            while True:
-                ev = events.get()
-                if ev.get("_end"):
-                    break
-                yield f"data: {_json.dumps({'processed': 0, 'total': 1, 'query': req.query, **ev})}\n\n"
-        except BaseException:  # includes GeneratorExit (client disconnect)
-            # Signal the worker; it'll abort at the next yt-dlp progress tick.
-            # No yield can run here — Starlette has closed the stream.
-            cancel_event.set()
-            raise
-
-        if result.get("cancelled"):
-            yield f"data: {_json.dumps({'done': True, 'status': 'cancelled', 'failed': 1})}\n\n"
-        elif "error" in result:
-            yield f"data: {_json.dumps({'done': True, 'status': 'error', 'error': result['error'], 'failed': 1})}\n\n"
-        else:
-            yield f"data: {_json.dumps({'done': True, 'status': 'finished', 'path': result.get('path'), 'downloaded': 1})}\n\n"
+        # Re-yield the first event we already consumed.
+        ev = first
+        while True:
+            if ev.get("type") == "_keepalive":
+                yield ": keepalive\n\n"
+            else:
+                yield f"data: {_json.dumps(ev)}\n\n"
+                if ev.get("type") == "done":
+                    return
+            ev = next(gen, None)
+            if ev is None:
+                return
 
     return StreamingResponse(event_stream(), media_type="text/event-stream")
 
 
-@router.post("/download/album")
-def download_album(req: DownloadAlbumRequest):
-    """Download multiple tracks (an album) sequentially via SSE progress events."""
+@router.post("/download/cancel/{job_id}", response_model=DownloadCancelResponse)
+def download_cancel(job_id: str):
+    """Synchronously cancel a job. Idempotent. 200 {cancelled:bool}.
+
+    Decoupled from SSE stream lifecycle so HTTP/2 buffering or ffmpeg-pass-1
+    silence doesn't strand a cancel.
+    """
+    from .. import download as dl
+    ok = dl.get_download_queue().cancel(job_id)
+    if not ok:
+        return DownloadCancelResponse(cancelled=False, reason="unknown_or_completed_job")
+    return DownloadCancelResponse(cancelled=True)
+
+
+@router.get("/download/queue", response_model=DownloadQueueResponse)
+def download_queue():
+    """Snapshot of in-flight + queued jobs. Polled by the frontend queue indicator."""
+    from .. import download as dl
+    snap = dl.get_download_queue().status()
+    return DownloadQueueResponse(
+        active=[DownloadQueueActive(**a) for a in snap["active"]],
+        queued_count=snap["queued_count"],
+        max_concurrency=snap["max_concurrency"],
+    )
+
+
+@router.post("/download/reveal", status_code=204)
+def download_reveal(req: RevealPathRequest, db=Depends(get_ro_db)):
+    """Open the host's file manager at the given path.
+
+    Path-validation gate (PRD §6.10 + round-4 M4):
+    1. Path must exist on disk (Path.resolve(strict=True) → 404 if not).
+    2. Path must be under default_download_dir() / detected music_folder /
+       AUTOCUE_DOWNLOAD_DIR env (whichever is set). Otherwise 403.
+    3. On platforms without a reveal binary → 501.
+    """
+    from pathlib import Path as _Path
+    from .. import download as dl
+
+    if not dl.reveal_supported():
+        raise HTTPException(501, "reveal_unsupported_platform")
+
+    try:
+        resolved = _Path(req.path).resolve(strict=True)
+    except (FileNotFoundError, OSError):
+        raise HTTPException(404, "path not found")
+
+    allowed_roots: list[_Path] = []
+    try:
+        allowed_roots.append(_Path(dl.default_download_dir()).resolve())
+    except OSError:
+        pass
+    mf = _detect_music_folder(db)
+    if mf:
+        try:
+            allowed_roots.append(_Path(mf).resolve())
+        except OSError:
+            pass
+    env_root = os.environ.get("AUTOCUE_DOWNLOAD_DIR")
+    if env_root:
+        try:
+            allowed_roots.append(_Path(env_root).resolve())
+        except OSError:
+            pass
+
+    def _is_under(p: _Path, roots: list[_Path]) -> bool:
+        for r in roots:
+            try:
+                p.relative_to(r)
+                return True
+            except ValueError:
+                continue
+        return False
+
+    if not _is_under(resolved, allowed_roots):
+        raise HTTPException(403, "forbidden_path")
+
+    try:
+        dl.reveal_path(str(resolved))
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("reveal_path failed for %r: %s", str(resolved), exc)
+        raise HTTPException(500, f"reveal failed: {exc}")
+    return Response(status_code=204)
+
+
+# ---------------------------------------------------------------------------
+# Back-compat aliases (removed in v0.3.0).
+# These open-and-stream in one shot. First SSE event is the queued/job_id pair.
+# ---------------------------------------------------------------------------
+
+def _legacy_event_shape(ev: dict) -> dict:
+    """Translate the new DownloadProgressEvent shape into the legacy SSE event
+    keys (`done: true`, `failed: N`, `status: 'finished'`) so existing callers
+    of the deprecated POST /api/download endpoints don't break in v0.2.0.
+
+    Legacy keys preserved for one release; removed in v0.3.0 alongside the
+    deprecated alias endpoints themselves.
+    """
+    out = dict(ev)
+    if ev.get("type") == "done":
+        out["done"] = True
+        status = ev.get("status")
+        if status == "success":
+            out["status"] = "finished"
+            out.setdefault("downloaded", 1)
+        elif status in ("error", "cancelled"):
+            out.setdefault("failed", 1)
+        if ev.get("error_message") and "error" not in out:
+            out["error"] = ev.get("error_message")
+    return out
+
+
+@router.post("/download")
+async def download_single_legacy(request: Request):
+    """[DEPRECATED — removed in v0.3.0] One-shot enqueue + stream.
+
+    Migrate to: POST /api/download/enqueue → GET /api/download/stream/{job_id}.
+    """
     import json as _json
     from fastapi.responses import StreamingResponse
     from .. import download as dl
 
-    if not dl.ytdlp_available():
-        raise HTTPException(503, "yt-dlp is not installed. Install with: pip install -e \".[download]\"")
-    if not dl.ffmpeg_available():
-        raise HTTPException(503, "ffmpeg not found on PATH — required to extract audio.")
+    raw = await request.json()
+    raw = _coerce_legacy_format_in_body(raw)
+    # Quietly drop audio_quality for back-compat alias (no 422 on legacy field).
+    raw.pop("audio_quality", None)
+    req = _validate_download_body(DownloadRequest, raw)
+    _check_download_available()
+
+    q = dl.get_download_queue()
+    if req.allow_playlist:
+        entries = dl.expand_playlist(req.query)
+        if len(entries) > 1:
+            job_id, _ = q.enqueue("album", {
+                "tracks": [{"query": e["query"], "title": e["title"]} for e in entries],
+                "dest_dir": req.dest_dir,
+                "audio_format": req.audio_format,
+                "normalize": req.normalize,
+                "embed_metadata": req.embed_metadata,
+            })
+        else:
+            job_id, _ = q.enqueue("single", req.model_dump())
+    else:
+        job_id, _ = q.enqueue("single", req.model_dump())
 
     def event_stream():
-        import threading as _threading
-        total = len(req.tracks)
-        downloaded = 0
-        failed = 0
-        cancel_event = _threading.Event()
-        try:
-            for i, spec in enumerate(req.tracks):
-                label = spec.title or spec.query
-                try:
-                    path = dl.download_audio(
-                        spec.query, dest_dir=req.dest_dir, audio_format=req.audio_format,
-                        cancel_event=cancel_event,
-                    )
-                    downloaded += 1
-                    yield f"data: {_json.dumps({'processed': i+1, 'total': total, 'title': label, 'query': spec.query, 'status': 'finished', 'path': path, 'downloaded': downloaded})}\n\n"
-                except dl.DownloadCancelled:
-                    # Client disconnected mid-track — bubble out of the loop.
-                    raise
-                except Exception as exc:  # noqa: BLE001
-                    failed += 1
-                    logger.warning("album download failed for %r: %s", spec.query, exc)
-                    yield f"data: {_json.dumps({'processed': i+1, 'total': total, 'title': label, 'query': spec.query, 'status': 'error', 'error': str(exc), 'failed': failed})}\n\n"
-            yield f"data: {_json.dumps({'done': True, 'downloaded': downloaded, 'failed': failed, 'total': total})}\n\n"
-        except (BaseException, dl.DownloadCancelled):
-            cancel_event.set()
-            raise
+        for ev in q.stream(job_id):
+            if ev.get("type") == "_keepalive":
+                yield ": keepalive\n\n"
+            else:
+                yield f"data: {_json.dumps(_legacy_event_shape(ev))}\n\n"
+                if ev.get("type") == "done":
+                    return
+    return StreamingResponse(event_stream(), media_type="text/event-stream")
 
+
+@router.post("/download/album")
+async def download_album_legacy(request: Request):
+    """[DEPRECATED — removed in v0.3.0] One-shot album enqueue + stream.
+
+    Migrate to: POST /api/download/album/enqueue → GET /api/download/stream/{job_id}.
+    """
+    import json as _json
+    from fastapi.responses import StreamingResponse
+    from .. import download as dl
+
+    raw = await request.json()
+    raw = _coerce_legacy_format_in_body(raw)
+    raw.pop("audio_quality", None)
+    req = _validate_download_body(DownloadAlbumRequest, raw)
+    _check_download_available()
+
+    q = dl.get_download_queue()
+    job_id, _ = q.enqueue("album", {
+        "tracks": [{"query": s.query, "title": s.title} for s in req.tracks],
+        "dest_dir": req.dest_dir,
+        "audio_format": req.audio_format,
+        "normalize": req.normalize,
+        "embed_metadata": req.embed_metadata,
+    })
+
+    def event_stream():
+        for ev in q.stream(job_id):
+            if ev.get("type") == "_keepalive":
+                yield ": keepalive\n\n"
+            else:
+                yield f"data: {_json.dumps(_legacy_event_shape(ev))}\n\n"
+                if ev.get("type") == "done":
+                    return
     return StreamingResponse(event_stream(), media_type="text/event-stream")
 
 
