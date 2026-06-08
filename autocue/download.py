@@ -153,13 +153,26 @@ def _metadata_postprocessors() -> list[dict[str, Any]]:
     """yt-dlp postprocessors that write Artist/Title tags from the video title.
 
     Falls through cleanly when the "Artist - Title" regex doesn't match.
+
+    The ``action`` MUST be an enum value from
+    ``yt_dlp.postprocessor.MetadataParserPP.Actions``, NOT a string. Passing
+    a string raises ``AssertionError`` inside ``MetadataParserPP.__init__``
+    with an empty message — surfacing as a useless 'AssertionError' to the
+    user. Importing lazily so the module still loads when yt-dlp is missing.
     """
+    try:
+        from yt_dlp.postprocessor import MetadataParserPP
+        interpretter = MetadataParserPP.interpretter
+    except Exception:
+        # If yt-dlp is missing the MetadataParser postprocessor is unusable;
+        # return only FFmpegMetadata which writes the raw video title as Title.
+        return [{"key": "FFmpegMetadata", "add_metadata": True}]
     return [
         {"key": "FFmpegMetadata", "add_metadata": True},
         {
             "key": "MetadataParser",
             "actions": [(
-                "interpretter",
+                interpretter,
                 "title",
                 r"(?P<artist>.+?) ?[-–—] ?(?P<title>.+)",
             )],
@@ -697,8 +710,26 @@ def classify_download_error(exc: BaseException) -> dict[str, str]:
         if pat.search(raw):
             return {"code": code, "user_message": msg, "hint": hint, "raw": raw}
 
-    return {"code": "unknown", "user_message": "Something went wrong.",
-            "hint": "Try again, or open Show details for the raw error.", "raw": raw}
+    # If raw is just the class name (str(exc) was empty — common for
+    # AssertionError and TypeError raised without a message), include the
+    # class name explicitly in user_message so the user can file a useful
+    # bug report. Also include the traceback's last frame in `raw` if one
+    # is currently set on the exception, so Show technical details isn't
+    # also empty.
+    tb_tail = ""
+    if exc.__traceback__ is not None:
+        import traceback as _tb
+        frames = _tb.extract_tb(exc.__traceback__)
+        if frames:
+            f = frames[-1]
+            tb_tail = f"\n  at {f.filename}:{f.lineno} in {f.name}\n    {f.line or ''}"
+    raw_with_tb = raw + tb_tail if tb_tail else raw
+    return {
+        "code": "unknown",
+        "user_message": f"Something went wrong ({exc.__class__.__name__}).",
+        "hint": "Try again, or open Show details for the raw error.",
+        "raw": raw_with_tb,
+    }
 
 
 # --------------------------------------------------------------------------- #
