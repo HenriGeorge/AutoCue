@@ -240,3 +240,45 @@ describe('Old function definitions are removed (PRD §12 acceptance #2)', () => 
     expect(html).toMatch(/bindCardButton:\s*bindCardButton/)
   })
 })
+
+/* ────────────── search→modal routing (PRP search→modal) ────────────── */
+
+describe('Manual panel routes bare-text search through YouTube candidate modal', () => {
+  const html = readFileSync(resolve(__dirname, '..', '..', 'docs', 'index.html'), 'utf8')
+
+  it('openYoutubeModalForQuery helper exists', () => {
+    expect(html).toMatch(/function openYoutubeModalForQuery\(query\)/)
+  })
+
+  it('bindManualPanel._start dispatches to the modal for "search" targets', () => {
+    // The control-flow check: if classifier returns 'search', call
+    // openYoutubeModalForQuery and bail out before enqueueing directly.
+    expect(html).toMatch(/openYoutubeModalForQuery\(q\)/)
+    expect(html).toMatch(/targetKind\s*===?\s*['"]search['"]/)
+  })
+
+  it('URL targets still take the direct enqueue path (no modal)', () => {
+    // The classifier branch must allow URL kinds to fall through to the
+    // existing _Download.start() call rather than opening the modal.
+    expect(html).toMatch(/allowPlaylist:\s*\['playlist',\s*'mixed_video_in_playlist'\]\.includes\(targetKind\)/)
+  })
+
+  it('Modal Pick handler routes through _Download.start (not legacy POST /api/download)', () => {
+    // After PRP search→modal, _ytDownload should call window._Download.start
+    // with the user's format / normalize / metadata prefs — NOT a fetch with
+    // hardcoded audio_format:'mp3' against the deprecated alias.
+    const ytDl = html.slice(html.indexOf('async function _ytDownload'),
+                            html.indexOf('async function _ytDownload') + 2200)
+    expect(ytDl).toContain('window._Download.start')
+    expect(ytDl).not.toMatch(/audio_format:\s*['"]mp3['"]/)
+  })
+
+  it('openYoutubeModalForQuery auto-fires the search', () => {
+    // UX: when opened with a non-empty query, the modal should kick the
+    // candidate search itself so the user lands on the list, not on an
+    // empty modal that demands they re-type and click Search.
+    const fn = html.slice(html.indexOf('function openYoutubeModalForQuery'),
+                          html.indexOf('function openYoutubeModalForQuery') + 1200)
+    expect(fn).toContain('_ytSearch')
+  })
+})
