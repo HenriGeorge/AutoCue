@@ -158,6 +158,9 @@ function makeVirtualizer() {
       state.live.forEach(function(node) {
         if (node.parentNode) node.parentNode.removeChild(node);
       });
+      state.pool.forEach(function(node) {
+        if (node && node.parentNode) node.parentNode.removeChild(node);
+      });
       if (state.spacer && state.spacer.parentNode) {
         state.spacer.parentNode.removeChild(state.spacer);
       }

@@ -3555,6 +3555,13 @@ var Virtualizer = (function() {
       state.live.forEach(function(node) {
         if (node.parentNode) node.parentNode.removeChild(node);
       });
+      // Pool nodes stay attached to the container during in-session recycling
+      // (their translateY just moves off-screen); detach must purge them too,
+      // or the next attach()+renderItem run leaves ghost cards stacked at old
+      // positions over the fresh content.
+      state.pool.forEach(function(node) {
+        if (node && node.parentNode) node.parentNode.removeChild(node);
+      });
       if (state.spacer && state.spacer.parentNode) {
         state.spacer.parentNode.removeChild(state.spacer);
       }

@@ -158,6 +158,9 @@ function makeVirtualizer() {
       state.live.forEach(function(node) {
         if (node.parentNode) node.parentNode.removeChild(node);
       });
+      state.pool.forEach(function(node) {
+        if (node && node.parentNode) node.parentNode.removeChild(node);
+      });
       if (state.spacer && state.spacer.parentNode) {
         state.spacer.parentNode.removeChild(state.spacer);
       }
@@ -387,6 +390,33 @@ describe('Virtualizer window-mode wiring (TASK-032 / TASK-037)', () => {
     expect(removeSpy).toHaveBeenCalledWith('scroll', expect.any(Function));
     expect(V.isAttached()).toBe(false);
     expect(V._visibleNodes().size).toBe(0);
+  });
+
+  it('detach purges pool nodes from the container so the next attach() does not stack ghost cards', () => {
+    // Force a state where pool ends up non-empty: scroll near the end of a
+    // 10k-row list so the new window is smaller than the old one (the live
+    // → pool transfer is large; the pool → live drain is small; leftover
+    // pool nodes would orphan into the DOM unless detach() cleans them).
+    V.attach({
+      container, itemHeight: CARD_HEIGHT_PX, totalCount: 10000, buffer: 5,
+      renderItem: (i, node) => node || buildSampleCard(i),
+      scrollSource: 'window',
+    });
+    const initialLive = V._visibleNodes().size;
+    expect(initialLive).toBeGreaterThan(0);
+
+    // Scroll to within itemHeight*2 of the end so window shrinks to ~2 items.
+    stubRect(container, { top: -(10000 * CARD_HEIGHT_PX - CARD_HEIGHT_PX * 2) });
+    window.dispatchEvent(new Event('scroll'));
+
+    // Pool should now hold the surplus.
+    expect(V._state().pool.length).toBeGreaterThan(0);
+    const totalCardsInDom = container.querySelectorAll('.track-card').length;
+    expect(totalCardsInDom).toBe(V._visibleNodes().size + V._state().pool.length);
+
+    V.detach();
+    // Container must be empty: no orphan pool nodes left behind.
+    expect(container.querySelectorAll('.track-card').length).toBe(0);
   });
 
   it('isAttached() reflects attach/detach lifecycle', () => {
