@@ -1,0 +1,1704 @@
+{
+  "project": "AutoCue — Download Component Refactor",
+  "prd": ".agent/prd/DOWNLOAD_PRD.md",
+  "summary": ".agent/prd/DOWNLOAD_SUMMARY.md",
+  "iteration_log": ".agent/prd/DOWNLOAD_PRD_iteration-log.md",
+  "ux_audit": ".agent/ux-audit/download-audit-synthesis.json",
+  "generated_at": "2026-06-08",
+  "prd_version": "1.0",
+  "ships_in": "AutoCue v0.2.0",
+  "deprecated_aliases_removed_in": "AutoCue v0.3.0",
+  "tiers": {
+    "tier_1": "MVP — every PRD §6 feature + WCAG 2.2 AA + tests + Chrome DevTools verification",
+    "tier_2": "Deferred per PRD §10 (recent-downloads list, FLAC/ALAC formats, bulk-paste queue, mobile FAB, etc.)"
+  },
+  "critical_path_note": "Backend foundation (DL-001 → DL-045) must precede frontend integration (DL-050 → DL-105). A11y (DL-110 → DL-118) overlaps frontend. Tests (DL-120 → DL-140) run alongside. Verification (DL-153) is the final gate.",
+  "buckets": {
+    "A": "Foundation / Setup (DL-001 to DL-005)",
+    "B": "Backend — download.py core (DL-010 to DL-025)",
+    "C": "Backend — schemas + routes (DL-030 to DL-045)",
+    "D": "Frontend — _Download IIFE (DL-050 to DL-070)",
+    "E": "Frontend — HTML / CSS (DL-080 to DL-095)",
+    "F": "Frontend — Reveal + Success actions (DL-100 to DL-105)",
+    "G": "A11y (DL-110 to DL-118)",
+    "H": "Tests (DL-120 to DL-140)",
+    "I": "Docs + verification (DL-150 to DL-153)"
+  },
+  "tasks": [
+    {
+      "id": "DL-001",
+      "bucket": "A",
+      "tier": "tier_1",
+      "category": "infra",
+      "title": "Create CHANGELOG.md and bump pyproject 0.1.0 → 0.2.0",
+      "description": "Create /CHANGELOG.md with v0.2.0 entry listing the Download refactor. Add pre-emptive '[BREAKING — planned for 0.3.0]' entry covering: removal of POST /api/download legacy alias, removal of POST /api/download/album legacy alias, removal of legacy format coercion table. Bump pyproject.toml version field.",
+      "files": ["CHANGELOG.md", "pyproject.toml"],
+      "passes": false,
+      "hours_estimate": 0.15,
+      "pass_criteria": [
+        "grep -q '0.2.0' pyproject.toml",
+        "grep -q 'BREAKING — planned for 0.3.0' CHANGELOG.md"
+      ]
+    },
+    {
+      "id": "DL-002",
+      "bucket": "A",
+      "tier": "tier_1",
+      "category": "infra",
+      "title": "Create tests/fixtures/download_errors/ skeleton",
+      "description": "Create directory with empty placeholder .txt files for each error code listed in PRD §6.7: unavailable_video, age_gated, region_blocked, private_video, network_offline, network_timeout, disk_full, ffmpeg_conversion, ffmpeg_missing, unknown. README.md in the directory explaining the fixture format + how to capture new ones.",
+      "files": [
+        "tests/fixtures/download_errors/README.md",
+        "tests/fixtures/download_errors/unavailable_video.txt",
+        "tests/fixtures/download_errors/age_gated.txt",
+        "tests/fixtures/download_errors/region_blocked.txt",
+        "tests/fixtures/download_errors/private_video.txt",
+        "tests/fixtures/download_errors/network_offline.txt",
+        "tests/fixtures/download_errors/network_timeout.txt",
+        "tests/fixtures/download_errors/disk_full.txt",
+        "tests/fixtures/download_errors/ffmpeg_conversion.txt",
+        "tests/fixtures/download_errors/ffmpeg_missing.txt"
+      ],
+      "passes": false,
+      "hours_estimate": 0.25,
+      "pass_criteria": [
+        "ls tests/fixtures/download_errors/*.txt | wc -l == 10",
+        "tests/fixtures/download_errors/README.md exists with capture instructions"
+      ]
+    },
+    {
+      "id": "DL-003",
+      "bucket": "A",
+      "tier": "tier_1",
+      "category": "docs",
+      "title": "Create docs/reference/youtube-download.md scaffold",
+      "description": "Create the reference doc with sections: '# YouTube Download', '## Format migration' (legacy → new mapping table, audio_quality removal), '## yt-dlp upgrade' (4-step checklist + canonical fixture URLs), '## Browser support' (Safari 15.4 / Firefox 121 / Chromium 105 baseline, Firefox <121 fallback caveat).",
+      "files": ["docs/reference/youtube-download.md"],
+      "passes": false,
+      "hours_estimate": 0.5,
+      "pass_criteria": [
+        "grep -c '^## ' docs/reference/youtube-download.md >= 3"
+      ]
+    },
+    {
+      "id": "DL-004",
+      "bucket": "A",
+      "tier": "tier_1",
+      "category": "docs",
+      "title": "Add Download must-know constraint to CLAUDE.md",
+      "description": "Append one bullet under 'Must-know constraints (read every session)' covering: AUTOCUE_DOWNLOAD_CONCURRENCY env (default 1, max 4); job queue + cancel endpoint architecture; ffmpeg subprocess.Popen.terminate() path for mid-loudnorm cancel; output_artifacts cleanup with mtime gate.",
+      "files": ["CLAUDE.md"],
+      "passes": false,
+      "hours_estimate": 0.15,
+      "pass_criteria": [
+        "grep -q 'AUTOCUE_DOWNLOAD_CONCURRENCY' CLAUDE.md"
+      ]
+    },
+    {
+      "id": "DL-005",
+      "bucket": "A",
+      "tier": "tier_1",
+      "category": "infra",
+      "title": "Add jsonschema dev dep for DownloadProgressEvent test",
+      "description": "Ensure pydantic v2 model_validate is wired in tests; no new runtime dep needed (pydantic already installed). Just confirm pyproject.toml [project.optional-dependencies] dev section includes httpx for SSE consumption in pytest.",
+      "files": ["pyproject.toml"],
+      "passes": false,
+      "hours_estimate": 0.1,
+      "pass_criteria": [
+        "grep -A 8 'optional-dependencies' pyproject.toml | grep -q httpx"
+      ]
+    },
+    {
+      "id": "DL-010",
+      "bucket": "B",
+      "tier": "tier_1",
+      "category": "backend",
+      "title": "Add _ytdlp_format_opts(audio_format) mapping",
+      "description": "Pure function returning dict that callers merge into yt-dlp opts. 'wav' → FFmpegExtractAudio postprocessor preferredcodec=wav. 'mp3_320' → preferredcodec=mp3, preferredquality=320. 'original' → no postprocessor (yt-dlp keeps bestaudio/best container).",
+      "files": ["autocue/download.py"],
+      "passes": false,
+      "hours_estimate": 0.2,
+      "pass_criteria": [
+        "callable(autocue.download._ytdlp_format_opts)",
+        "_ytdlp_format_opts('wav')['postprocessors'][0]['preferredcodec'] == 'wav'",
+        "_ytdlp_format_opts('mp3_320')['postprocessors'][0]['preferredquality'] == '320'",
+        "_ytdlp_format_opts('original') == {} or has no postprocessors"
+      ]
+    },
+    {
+      "id": "DL-011",
+      "bucket": "B",
+      "tier": "tier_1",
+      "category": "backend",
+      "title": "Refactor download_audio() signature",
+      "description": "Drop audio_quality positional/keyword arg. Add audio_format='mp3_320' default, allow_playlist=False, embed_metadata=True, normalize_lufs: float|None=None. Preserve progress_cb + cancel_event params. Internal: use _ytdlp_format_opts() for codec; if normalize_lufs is not None call normalize_loudness_to_lufs() post-download; if allow_playlist=True remove noplaylist key from opts.",
+      "files": ["autocue/download.py"],
+      "passes": false,
+      "hours_estimate": 0.4,
+      "pass_criteria": [
+        "import inspect; 'audio_quality' not in inspect.signature(download_audio).parameters",
+        "inspect.signature(download_audio).parameters['audio_format'].default == 'mp3_320'",
+        "inspect.signature(download_audio).parameters['embed_metadata'].default == True"
+      ]
+    },
+    {
+      "id": "DL-012",
+      "bucket": "B",
+      "tier": "tier_1",
+      "category": "backend",
+      "title": "Drop hardcoded noplaylist=True; gate on allow_playlist",
+      "description": "Inside download_audio(), build the opts dict conditionally: opts['noplaylist'] = not allow_playlist. Tests fail if noplaylist is still always True.",
+      "files": ["autocue/download.py"],
+      "passes": false,
+      "hours_estimate": 0.1,
+      "pass_criteria": [
+        "grep -c 'noplaylist.*True' autocue/download.py == 0",
+        "grep -q 'not allow_playlist' autocue/download.py"
+      ]
+    },
+    {
+      "id": "DL-013",
+      "bucket": "B",
+      "tier": "tier_1",
+      "category": "backend",
+      "title": "Add expand_playlist(url) helper",
+      "description": "yt-dlp extract_info(download=False, extract_flat=True). Returns list[{query: webpage_url, title}] for each entry. Empty list if not a playlist URL or extract fails. Catches yt-dlp.utils.DownloadError + general Exception.",
+      "files": ["autocue/download.py"],
+      "passes": false,
+      "hours_estimate": 0.3,
+      "pass_criteria": [
+        "callable(autocue.download.expand_playlist)",
+        "expand_playlist('not-a-url') == []",
+        "test_expand_playlist returns ≥ 2 entries for a known playlist (vcr or mocked)"
+      ]
+    },
+    {
+      "id": "DL-014",
+      "bucket": "B",
+      "tier": "tier_1",
+      "category": "backend",
+      "title": "Add embed_metadata postprocessors (FFmpegMetadata + MetadataParser)",
+      "description": "When embed_metadata=True, append to opts['postprocessors']: {'key': 'FFmpegMetadata', 'add_metadata': True} and {'key': 'MetadataParser', 'actions': [(MetadataParserPP.interpretter, 'title', regex_for_artist_title)]}. Regex: (?P<artist>.+?) ?[-–—] ?(?P<title>.+). Falls through cleanly when separator absent.",
+      "files": ["autocue/download.py"],
+      "passes": false,
+      "hours_estimate": 0.35,
+      "pass_criteria": [
+        "with embed_metadata=True, opts['postprocessors'] contains FFmpegMetadata + MetadataParser keys",
+        "with embed_metadata=False, neither postprocessor present"
+      ]
+    },
+    {
+      "id": "DL-015",
+      "bucket": "B",
+      "tier": "tier_1",
+      "category": "backend",
+      "title": "Add normalize_loudness_to_lufs() two-pass",
+      "description": "Pass 1: ffmpeg -i src -af loudnorm=I=-14:LRA=11:TP=-1:print_format=json -f null -. Parse measured_I/TP/LRA/thresh/offset from stderr. Pass 2: ffmpeg -i src -af loudnorm=...:measured_*=...:linear=true:print_format=summary -c:a <codec> dst -progress pipe:1. Codec by extension: .wav → pcm_s16le, .mp3 → libmp3lame -b:a 320k. Returns dst path; raises RuntimeError on ffmpeg non-zero exit. Takes optional progress_cb(percent).",
+      "files": ["autocue/download.py"],
+      "passes": false,
+      "hours_estimate": 0.7,
+      "pass_criteria": [
+        "callable(autocue.download.normalize_loudness_to_lufs)",
+        "test_normalize_loudness_to_lufs on a 5-second sine wav returns a new file ≤ -14 LUFS ± 1 (measured by re-running ffmpeg loudnorm pass-1)"
+      ]
+    },
+    {
+      "id": "DL-016",
+      "bucket": "B",
+      "tier": "tier_1",
+      "category": "backend",
+      "title": "Parse ffmpeg -progress pipe:1 output for pass-2 percent",
+      "description": "Helper _parse_ffmpeg_progress(line) returns float|None percent from 'out_time_ms=...' lines, given known total_duration_ms. Used inside normalize_loudness_to_lufs() pass-2.",
+      "files": ["autocue/download.py"],
+      "passes": false,
+      "hours_estimate": 0.25,
+      "pass_criteria": [
+        "_parse_ffmpeg_progress('out_time_ms=5000000', total_ms=10000000) == 50.0",
+        "_parse_ffmpeg_progress('frame=42', total_ms=10000000) is None"
+      ]
+    },
+    {
+      "id": "DL-017",
+      "bucket": "B",
+      "tier": "tier_1",
+      "category": "backend",
+      "title": "Add subprocess.Popen handle for cancel-mid-ffmpeg",
+      "description": "Wrap ffmpeg invocations in a context that registers the Popen handle and spawns a watcher thread checking cancel_event every 100ms; on set, proc.terminate() + 2s grace + proc.kill(). Used by normalize_loudness_to_lufs() pass-1 and pass-2.",
+      "files": ["autocue/download.py"],
+      "passes": false,
+      "hours_estimate": 0.45,
+      "pass_criteria": [
+        "test_normalize_cancel: set cancel_event mid-pass-1, assert proc exits within 3s, no orphan process"
+      ]
+    },
+    {
+      "id": "DL-018",
+      "bucket": "B",
+      "tier": "tier_1",
+      "category": "backend",
+      "title": "Add output_artifacts tracking + mtime-gated cleanup",
+      "description": "Each job creates output_artifacts: set[Path]. Populated via yt-dlp progress hook (status='finished' → add file path) and ffmpeg subprocess wrapper (add output path). In job worker's finally:, iterate output_artifacts; if path != success_path AND path exists AND path.stat().st_mtime >= job.started_at → unlink. No glob sweeps.",
+      "files": ["autocue/download.py"],
+      "passes": false,
+      "hours_estimate": 0.4,
+      "pass_criteria": [
+        "test_cleanup_on_cancel: cancel mid-download, assert .part file deleted",
+        "test_cleanup_preserves_preexisting: pre-create dest file with mtime < job.started_at, cancel job, assert pre-existing file untouched"
+      ]
+    },
+    {
+      "id": "DL-019",
+      "bucket": "B",
+      "tier": "tier_1",
+      "category": "backend",
+      "title": "Add classify_download_error(exc) taxonomy",
+      "description": "Map exceptions to {code, user_message, hint, raw}. 10 codes per PRD §6.7. Pattern matching via regex on str(exc) + isinstance checks (OSError errno for disk_full/network_offline, socket.timeout for network_timeout, yt_dlp.utils.DownloadError + message regex for the YouTube-side codes).",
+      "files": ["autocue/download.py"],
+      "passes": false,
+      "hours_estimate": 0.4,
+      "pass_criteria": [
+        "callable(autocue.download.classify_download_error)",
+        "classify_download_error(yt_dlp.utils.DownloadError('Video unavailable'))['code'] == 'unavailable_video'",
+        "classify_download_error(OSError(28, 'No space left'))['code'] == 'disk_full'",
+        "classify_download_error(RuntimeError('whatever'))['code'] == 'unknown'"
+      ]
+    },
+    {
+      "id": "DL-020",
+      "bucket": "B",
+      "tier": "tier_1",
+      "category": "backend",
+      "title": "Populate the 10 error fixtures with real yt-dlp output",
+      "description": "Capture real stderr/exception strings from yt-dlp against known-bad URLs. Sources: yt-dlp test suite, manual capture against private video / age-gated / region-blocked / deleted URLs. Each fixture file contains ONE exemplar string. Document the source URL in a comment header.",
+      "files": ["tests/fixtures/download_errors/*.txt"],
+      "passes": false,
+      "hours_estimate": 0.6,
+      "pass_criteria": [
+        "Each fixture is non-empty and has a # source: comment",
+        "test_classify_download_error parametrized over fixtures passes"
+      ]
+    },
+    {
+      "id": "DL-021",
+      "bucket": "B",
+      "tier": "tier_1",
+      "category": "backend",
+      "title": "Add DownloadQueue class skeleton",
+      "description": "queue.Queue + worker thread + cancel_registry: dict[str, Event] + cancel_pending: set[str] + job event-bus (per-job queue.Queue for SSE events). Worker loop: dequeue → check cancel_pending → register active → run job → emit done → unregister. Concurrency from AUTOCUE_DOWNLOAD_CONCURRENCY env (default 1, clamp ≤ 4). ThreadPoolExecutor when > 1.",
+      "files": ["autocue/download.py"],
+      "passes": false,
+      "hours_estimate": 0.7,
+      "pass_criteria": [
+        "DownloadQueue exposes enqueue(req) → job_id, cancel(job_id) → bool, event_stream(job_id) → generator",
+        "test_concurrent_enqueue: enqueue 5 jobs with concurrency=1, assert only 1 active at any time"
+      ]
+    },
+    {
+      "id": "DL-022",
+      "bucket": "B",
+      "tier": "tier_1",
+      "category": "backend",
+      "title": "Add queue_lock + cancel race discipline",
+      "description": "Single threading.Lock wraps {dequeue → mark active → install cancel_event in registry}. cancel(job_id) acquires the lock: if job_id is active → registry[id].set(); else → cancel_pending.add(id). Worker's first action under the lock is: if job_id in cancel_pending → emit cancelled, skip. Defends round-3 B2 race.",
+      "files": ["autocue/download.py"],
+      "passes": false,
+      "hours_estimate": 0.35,
+      "pass_criteria": [
+        "test_cancel_before_active: enqueue with concurrency=1, fill slot, enqueue 2nd, immediately cancel 2nd before worker picks up, assert 2nd emits status='cancelled' and is never processed"
+      ]
+    },
+    {
+      "id": "DL-023",
+      "bucket": "B",
+      "tier": "tier_1",
+      "category": "backend",
+      "title": "Add tiered watchdog (60s pulse, 30min stuck-phase)",
+      "description": "Single watchdog thread per DownloadQueue ticks every 30s: if time.monotonic() - worker_pulse_at > 60: kill worker, emit done(error_code='worker_crash'). If time.monotonic() - last_event_at > 1800 AND phase in {fetching, normalizing}: kill, emit error_code='stuck_phase'. Otherwise: leave alone.",
+      "files": ["autocue/download.py"],
+      "passes": false,
+      "hours_estimate": 0.4,
+      "pass_criteria": [
+        "test_watchdog_pulse: simulate worker silence > 60s, assert kill + done(worker_crash) event",
+        "test_watchdog_legitimate_long_job: legitimate phase events every 10min, watchdog never fires"
+      ]
+    },
+    {
+      "id": "DL-024",
+      "bucket": "B",
+      "tier": "tier_1",
+      "category": "backend",
+      "title": "Add worker-pulse sidecar thread",
+      "description": "While inside subprocess wait (yt-dlp extract_info, ffmpeg pass-1/pass-2), spawn a sidecar daemon thread that touches worker_pulse_at = time.monotonic() every 5s as long as proc.poll() is None. Joins on subprocess completion.",
+      "files": ["autocue/download.py"],
+      "passes": false,
+      "hours_estimate": 0.3,
+      "pass_criteria": [
+        "test_pulse_during_silence: run a long ffmpeg (slow filter on a long file), assert worker_pulse_at updates every ~5s with no SSE events emitted"
+      ]
+    },
+    {
+      "id": "DL-025",
+      "bucket": "B",
+      "tier": "tier_1",
+      "category": "backend",
+      "title": "Add AUTOCUE_DOWNLOAD_CONCURRENCY env reading",
+      "description": "Read env once at DownloadQueue init: int(os.environ.get('AUTOCUE_DOWNLOAD_CONCURRENCY', '1')). Clamp to range [1, 4]. Log INFO line at startup with chosen value.",
+      "files": ["autocue/download.py"],
+      "passes": false,
+      "hours_estimate": 0.15,
+      "pass_criteria": [
+        "AUTOCUE_DOWNLOAD_CONCURRENCY=8 autocue serve → log line shows max_concurrency=4",
+        "AUTOCUE_DOWNLOAD_CONCURRENCY=0 autocue serve → log line shows max_concurrency=1"
+      ]
+    },
+    {
+      "id": "DL-030",
+      "bucket": "C",
+      "tier": "tier_1",
+      "category": "backend",
+      "title": "Update DownloadRequest schema",
+      "description": "audio_format: Literal['wav','mp3_320','original']='mp3_320'. normalize: bool=False. embed_metadata: bool=True. allow_playlist: bool=False. Remove audio_quality. model_config = ConfigDict(extra='forbid').",
+      "files": ["autocue/serve/schemas.py"],
+      "passes": false,
+      "hours_estimate": 0.2,
+      "pass_criteria": [
+        "DownloadRequest.model_fields['audio_format'].default == 'mp3_320'",
+        "'audio_quality' not in DownloadRequest.model_fields",
+        "DownloadRequest(query='x', audio_quality='192') raises ValidationError"
+      ]
+    },
+    {
+      "id": "DL-031",
+      "bucket": "C",
+      "tier": "tier_1",
+      "category": "backend",
+      "title": "Update DownloadAlbumRequest schema",
+      "description": "Same shape changes as DownloadRequest: audio_format default 'mp3_320', add normalize + embed_metadata, drop audio_quality, extra='forbid'.",
+      "files": ["autocue/serve/schemas.py"],
+      "passes": false,
+      "hours_estimate": 0.15,
+      "pass_criteria": [
+        "DownloadAlbumRequest.model_fields['audio_format'].default == 'mp3_320'",
+        "DownloadAlbumRequest(tracks=[], audio_quality='192') raises ValidationError"
+      ]
+    },
+    {
+      "id": "DL-032",
+      "bucket": "C",
+      "tier": "tier_1",
+      "category": "backend",
+      "title": "Add DownloadProgressEvent model",
+      "description": "Per PRD §7.2: type Literal[progress|done], phase Literal[queued|fetching|converting|normalizing|tagging]|None, percent float|None, processed int, total int, current_title str|None, current_query str|None, status Literal[success|error|cancelled]|None, path str|None, error_code str|None, error_message str|None, error_hint str|None, error_raw str|None, downloaded int, failed int, job_id str.",
+      "files": ["autocue/serve/schemas.py"],
+      "passes": false,
+      "hours_estimate": 0.25,
+      "pass_criteria": [
+        "DownloadProgressEvent.model_validate({'type':'progress','phase':'fetching','percent':50.0,'job_id':'x'}) succeeds",
+        "DownloadProgressEvent.model_validate({'type':'progress','phase':'invalid'}) raises ValidationError"
+      ]
+    },
+    {
+      "id": "DL-033",
+      "bucket": "C",
+      "tier": "tier_1",
+      "category": "backend",
+      "title": "Add RevealPathRequest with path validation",
+      "description": "Pydantic model with `path: str`. Custom validator: Path(path).resolve(strict=True); compute allowed_roots from default_download_dir() + _detect_music_folder(db) + AUTOCUE_DOWNLOAD_DIR env; assert any(resolved.is_relative_to(r) for r in allowed_roots); else raise ValueError with error_code='forbidden_path'.",
+      "files": ["autocue/serve/schemas.py"],
+      "passes": false,
+      "hours_estimate": 0.3,
+      "pass_criteria": [
+        "RevealPathRequest(path='/etc/passwd') raises ValidationError with forbidden_path",
+        "RevealPathRequest(path=os.path.expanduser('~/Music/AutoCue')) succeeds when dir exists"
+      ]
+    },
+    {
+      "id": "DL-034",
+      "bucket": "C",
+      "tier": "tier_1",
+      "category": "backend",
+      "title": "Add 422 middleware for audio_quality_removed",
+      "description": "FastAPI exception handler for RequestValidationError on download endpoints. If any error.type == 'extra_forbidden' AND error.loc[-1] == 'audio_quality': replace response body with {error_code:'audio_quality_removed', error_message:'audio_quality removed; use audio_format=mp3_320 for 320 kbps MP3 or wav for uncompressed.', hint:'Update your client to set audio_format instead.'}. Else pass through default.",
+      "files": ["autocue/serve/routes.py"],
+      "passes": false,
+      "hours_estimate": 0.4,
+      "pass_criteria": [
+        "POST /api/download/enqueue {query:'x', audio_quality:'192'} returns 422 with error_code='audio_quality_removed'"
+      ]
+    },
+    {
+      "id": "DL-035",
+      "bucket": "C",
+      "tier": "tier_1",
+      "category": "backend",
+      "title": "Add legacy-format pre-validator coercion",
+      "description": "Before pydantic validation, intercept the JSON body: if audio_format in legacy values, map per PRD §6.2 table (mp3 → mp3_320, m4a/aac/opus → original, flac/alac/vorbis/wav case-insensitive → wav). Re-inject into validated dict. Unknown values: let pydantic Literal validator 422 with friendly error_code='unknown_format'.",
+      "files": ["autocue/serve/routes.py"],
+      "passes": false,
+      "hours_estimate": 0.4,
+      "pass_criteria": [
+        "POST /api/download/enqueue {query:'x', audio_format:'mp3'} returns 200 (coerced internally to mp3_320)",
+        "POST /api/download/enqueue {query:'x', audio_format:'gibberish'} returns 422 with error_code='unknown_format'"
+      ]
+    },
+    {
+      "id": "DL-036",
+      "bucket": "C",
+      "tier": "tier_1",
+      "category": "backend",
+      "title": "Log-once-per-(process, legacy_value) at WARNING",
+      "description": "Module-level _legacy_format_seen: set[str]. On first occurrence of a legacy value, log WARNING with the mapping; subsequent occurrences log DEBUG. Resets only at process restart.",
+      "files": ["autocue/serve/routes.py"],
+      "passes": false,
+      "hours_estimate": 0.2,
+      "pass_criteria": [
+        "test_log_once: caplog captures exactly 1 WARNING for 5 requests with audio_format='mp3'; 4 DEBUG entries"
+      ]
+    },
+    {
+      "id": "DL-037",
+      "bucket": "C",
+      "tier": "tier_1",
+      "category": "backend",
+      "title": "POST /api/download/enqueue",
+      "description": "Accepts DownloadRequest; calls DownloadQueue.enqueue(req); returns {job_id: str, phase: 'queued', position: int} synchronously. ≤200ms; no yt-dlp work. 503 if yt-dlp/ffmpeg missing.",
+      "files": ["autocue/serve/routes.py"],
+      "passes": false,
+      "hours_estimate": 0.3,
+      "pass_criteria": [
+        "POST /api/download/enqueue {query:'http://...'} returns 200 with {job_id, phase:'queued', position}",
+        "Response time ≤ 200ms (asserted in pytest)"
+      ]
+    },
+    {
+      "id": "DL-038",
+      "bucket": "C",
+      "tier": "tier_1",
+      "category": "backend",
+      "title": "POST /api/download/album/enqueue",
+      "description": "Same shape: accepts DownloadAlbumRequest, returns {job_id, phase: 'queued', position}.",
+      "files": ["autocue/serve/routes.py"],
+      "passes": false,
+      "hours_estimate": 0.15,
+      "pass_criteria": [
+        "POST /api/download/album/enqueue {tracks:[...]} returns 200 with {job_id}"
+      ]
+    },
+    {
+      "id": "DL-039",
+      "bucket": "C",
+      "tier": "tier_1",
+      "category": "backend",
+      "title": "GET /api/download/stream/{job_id} SSE",
+      "description": "StreamingResponse text/event-stream. Subscribe to DownloadQueue.event_stream(job_id). Emit `: keepalive\\n\\n` every 15s as comment-line. Each event from worker → `data: <json>\\n\\n`. On worker `done`, mark cache[job_id].consumed=True, close stream. If job_id unknown OR consumed: 410 Gone with {error_code:'already_consumed', path, status} for cached jobs / 404 unknown.",
+      "files": ["autocue/serve/routes.py"],
+      "passes": false,
+      "hours_estimate": 0.6,
+      "pass_criteria": [
+        "GET /api/download/stream/bad-id returns 404",
+        "After done, second GET returns 410 with cached path",
+        "Stream emits `: keepalive` every 15s in absence of events"
+      ]
+    },
+    {
+      "id": "DL-040",
+      "bucket": "C",
+      "tier": "tier_1",
+      "category": "backend",
+      "title": "POST /api/download/cancel/{job_id}",
+      "description": "Sync + idempotent. Calls DownloadQueue.cancel(job_id) (sets cancel_event OR adds to cancel_pending). Returns 200 {cancelled:true} or 404 {cancelled:false, reason:'unknown_job'}.",
+      "files": ["autocue/serve/routes.py"],
+      "passes": false,
+      "hours_estimate": 0.15,
+      "pass_criteria": [
+        "POST /api/download/cancel/{active_id} returns 200 + worker emits cancelled within 5s",
+        "POST /api/download/cancel/bad-id returns 404"
+      ]
+    },
+    {
+      "id": "DL-041",
+      "bucket": "C",
+      "tier": "tier_1",
+      "category": "backend",
+      "title": "GET /api/download/queue",
+      "description": "Returns {active: {id,title,percent,phase,started_at,last_event_at}|null, queued: [{id,title,enqueued_at}], max_concurrency: int, downloads_per_minute_cap: int|null}.",
+      "files": ["autocue/serve/routes.py"],
+      "passes": false,
+      "hours_estimate": 0.2,
+      "pass_criteria": [
+        "GET /api/download/queue with no jobs returns {active:null, queued:[], max_concurrency:1}",
+        "After enqueue, GET returns active populated with started_at"
+      ]
+    },
+    {
+      "id": "DL-042",
+      "bucket": "C",
+      "tier": "tier_1",
+      "category": "backend",
+      "title": "POST /api/download/reveal",
+      "description": "Accepts RevealPathRequest (DL-033 handles validation). Branches by sys.platform: darwin → subprocess.run(['open','-R',path]); win32 → subprocess.run(['explorer.exe','/select,',path]); linux → subprocess.run(['xdg-open', os.path.dirname(path)]). Returns 204. If _reveal_supported() returns False → 501 reveal_unsupported_platform.",
+      "files": ["autocue/serve/routes.py"],
+      "passes": false,
+      "hours_estimate": 0.35,
+      "pass_criteria": [
+        "POST /api/download/reveal {path: valid} returns 204",
+        "POST /api/download/reveal {path:'/etc/passwd'} returns 422 forbidden_path",
+        "POST /api/download/reveal {path: non-existent} returns 422/404"
+      ]
+    },
+    {
+      "id": "DL-043",
+      "bucket": "C",
+      "tier": "tier_1",
+      "category": "backend",
+      "title": "Extend GET /api/download/config",
+      "description": "Add os_reveal_supported: bool (from _reveal_supported() probe) and max_concurrency: int (from DownloadQueue) to the existing response.",
+      "files": ["autocue/serve/routes.py", "autocue/serve/schemas.py"],
+      "passes": false,
+      "hours_estimate": 0.15,
+      "pass_criteria": [
+        "GET /api/download/config response includes both new fields",
+        "DownloadConfigResponse model has the new fields"
+      ]
+    },
+    {
+      "id": "DL-044",
+      "bucket": "C",
+      "tier": "tier_1",
+      "category": "backend",
+      "title": "Add _reveal_supported() shutil.which probe",
+      "description": "Per PRD §6.10: darwin → shutil.which('open'); win32 → shutil.which('explorer.exe'); linux → shutil.which('xdg-open'); else False. Module-level memoization (compute once).",
+      "files": ["autocue/serve/routes.py"],
+      "passes": false,
+      "hours_estimate": 0.15,
+      "pass_criteria": [
+        "_reveal_supported() returns True on macOS dev box",
+        "monkeypatch shutil.which to None on Linux → returns False"
+      ]
+    },
+    {
+      "id": "DL-045",
+      "bucket": "C",
+      "tier": "tier_1",
+      "category": "backend",
+      "title": "Keep deprecated POST /api/download + /album back-compat",
+      "description": "Maintain existing POST /api/download and POST /api/download/album as one-shot aliases: internally enqueue + open stream + emit. First SSE event is `{type:'queued', job_id, ...}` instead of starting with `progress`. Add @deprecated header in OpenAPI docstring; log INFO once per process.",
+      "files": ["autocue/serve/routes.py"],
+      "passes": false,
+      "hours_estimate": 0.4,
+      "pass_criteria": [
+        "Existing E2E test for POST /api/download (single track) still passes",
+        "First SSE event from the legacy alias contains job_id"
+      ]
+    },
+    {
+      "id": "DL-050",
+      "bucket": "D",
+      "tier": "tier_1",
+      "category": "frontend",
+      "title": "Add _Download IIFE skeleton",
+      "description": "New IIFE near _consumeSSE def (~line 4550). Owns: state machine ({idle, loading, success, error}), AbortController per job, classified-error renderer, view-bind helpers. Exposed as window._Download for surface attachment. Stub bind methods; real implementations in DL-058+.",
+      "files": ["docs/index.html"],
+      "passes": false,
+      "hours_estimate": 0.4,
+      "pass_criteria": [
+        "grep -q 'window._Download = ' docs/index.html",
+        "_Download.start, _Download.bindManualPanel, _Download.bindCardButton callable"
+      ]
+    },
+    {
+      "id": "DL-051",
+      "bucket": "D",
+      "tier": "tier_1",
+      "category": "frontend",
+      "title": "_Download.start() public API",
+      "description": "POST /api/download/enqueue → get job_id → GET /api/download/stream/{job_id} → _consumeSSE → call onState({phase,percent,processed,total,currentTitle,path,classifiedError,raw}). Returns {id, cancel}. AbortController passed to both fetches.",
+      "files": ["docs/index.html"],
+      "passes": false,
+      "hours_estimate": 0.6,
+      "pass_criteria": [
+        "vitest: mock fetch, assert enqueue called THEN stream called THEN onState called with phase events",
+        "vitest: cancel() calls fetch /api/download/cancel/{id} AND aborts the stream"
+      ]
+    },
+    {
+      "id": "DL-052",
+      "bucket": "D",
+      "tier": "tier_1",
+      "category": "frontend",
+      "title": "job.cancel() implementation",
+      "description": "async () => { try { await fetch(`/api/download/cancel/${job_id}`, {method:'POST'}); } finally { ctrl.abort(); } }. Idempotent (multiple calls safe).",
+      "files": ["docs/index.html"],
+      "passes": false,
+      "hours_estimate": 0.15,
+      "pass_criteria": [
+        "vitest: calling cancel twice does not throw"
+      ]
+    },
+    {
+      "id": "DL-053",
+      "bucket": "D",
+      "tier": "tier_1",
+      "category": "frontend",
+      "title": "Handle 410 already_consumed in stream",
+      "description": "Per PRD §7.3: if stream.status === 410, read JSON body, render success/error/idle from cached payload WITHOUT toast. Goes before generic !stream.ok throw.",
+      "files": ["docs/index.html"],
+      "passes": false,
+      "hours_estimate": 0.2,
+      "pass_criteria": [
+        "vitest: mock GET /stream returning 410 with cached path → onState({phase:'done', status:'success', path, fromCache:true}); no toast call"
+      ]
+    },
+    {
+      "id": "DL-054",
+      "bucket": "D",
+      "tier": "tier_1",
+      "category": "frontend",
+      "title": "Classified-error renderer with [Retry] and details",
+      "description": "Renders error_code + error_message + error_hint as primary text, [Retry] button calling _Download.start(originalArgs), <details><summary>Show technical details</summary><pre>{error_raw}</pre></details>. role=alert + aria-live=assertive on container.",
+      "files": ["docs/index.html"],
+      "passes": false,
+      "hours_estimate": 0.35,
+      "pass_criteria": [
+        "vitest: render error → query [data-action=retry]; click → start called again with same args",
+        "vitest: error container has role='alert'"
+      ]
+    },
+    {
+      "id": "DL-055",
+      "bucket": "D",
+      "tier": "tier_1",
+      "category": "frontend",
+      "title": "Disable Normalize toggle when format=original",
+      "description": "On #dl-format change: if value === 'original' → set #dl-normalize.disabled=true, uncheck it, set aria-disabled=true, show tooltip 'Available only for WAV / MP3 320'. Else re-enable.",
+      "files": ["docs/index.html"],
+      "passes": false,
+      "hours_estimate": 0.15,
+      "pass_criteria": [
+        "vitest: change format to 'original' → normalize disabled + unchecked",
+        "vitest: change format back to 'mp3_320' → normalize re-enabled"
+      ]
+    },
+    {
+      "id": "DL-056",
+      "bucket": "D",
+      "tier": "tier_1",
+      "category": "frontend",
+      "title": "Auto-retry on normalize_unsupported_for_original (capped at 1)",
+      "description": "On enqueue 422 with error_code='normalize_unsupported_for_original': if !job._retriedNormalizeFlip → set format='mp3_320' (UI + localStorage), toast 'Normalization requires MP3 320 or WAV — switched to MP3 320', job._retriedNormalizeFlip=true, retry. Else surface error normally.",
+      "files": ["docs/index.html"],
+      "passes": false,
+      "hours_estimate": 0.3,
+      "pass_criteria": [
+        "vitest: mock 422 → retry called once with format=mp3_320; second 422 on retry → error rendered, no third call"
+      ]
+    },
+    {
+      "id": "DL-057",
+      "bucket": "D",
+      "tier": "tier_1",
+      "category": "frontend",
+      "title": "_classifyDownloadTarget(q) URL classifier",
+      "description": "Returns 'single_video' | 'playlist' | 'mixed_video_in_playlist' | 'search' | 'invalid'. Regex-based: ?v= without list → single_video; ?list= without v= → playlist; both → mixed; bare term → search; empty/multi-line/garbage → invalid.",
+      "files": ["docs/index.html"],
+      "passes": false,
+      "hours_estimate": 0.25,
+      "pass_criteria": [
+        "vitest: 5 fixtures cover each return value"
+      ]
+    },
+    {
+      "id": "DL-058",
+      "bucket": "D",
+      "tier": "tier_1",
+      "category": "frontend",
+      "title": "_Download.bindManualPanel(rootEl)",
+      "description": "Wires #dl-go-btn click + Enter submit → _Download.start({query: #dl-query.value, format: #dl-format.value, normalize: #dl-normalize.checked, embedMeta: #dl-embed-meta.checked, dest: _dlDestDir, allow_playlist: detected from classifier}). onState renders into #dl-status-region. Probes /api/download/config to show/hide #download-unavailable.",
+      "files": ["docs/index.html"],
+      "passes": false,
+      "hours_estimate": 0.5,
+      "pass_criteria": [
+        "vitest with JSDOM: render manual panel, type URL, click Download → enqueue fetch called",
+        "vitest: config response with available:false → #download-unavailable visible, controls hidden"
+      ]
+    },
+    {
+      "id": "DL-059",
+      "bucket": "D",
+      "tier": "tier_1",
+      "category": "frontend",
+      "title": "_Download.bindCardButton(btnEl, query, opts)",
+      "description": "Replaces existing .disc-dl-btn delegated handler at line 6963. Click → _Download.start({query, ...opts}). onState updates inline 90px progress bar + button label ('Downloading…' → '✓ saved' → 'Download again').",
+      "files": ["docs/index.html"],
+      "passes": false,
+      "hours_estimate": 0.4,
+      "pass_criteria": [
+        "vitest: click .disc-dl-btn → enqueue called; progress events update bar width"
+      ]
+    },
+    {
+      "id": "DL-060",
+      "bucket": "D",
+      "tier": "tier_1",
+      "category": "frontend",
+      "title": "_Download.bindTrackInfoFlow(btnEl, query)",
+      "description": "Wires #ti-download click → opens #yt-modal pre-populated with the track query. Modal then uses _Download.bindYoutubeModal for the actual fetch.",
+      "files": ["docs/index.html"],
+      "passes": false,
+      "hours_estimate": 0.25,
+      "pass_criteria": [
+        "vitest: click #ti-download → #yt-modal opens with #yt-query pre-filled"
+      ]
+    },
+    {
+      "id": "DL-061",
+      "bucket": "D",
+      "tier": "tier_1",
+      "category": "frontend",
+      "title": "_Download.bindYoutubeModal(modalEl)",
+      "description": "Replaces the existing _ytDownload hand-rolled SSE parser (~line 10807-10858). Pick button calls _Download.start({query: candidate.url}). Per-candidate inline progress; non-selected rows dim; Pick buttons disable during download. Rename 'Pick' → 'Download this version'.",
+      "files": ["docs/index.html"],
+      "passes": false,
+      "hours_estimate": 0.6,
+      "pass_criteria": [
+        "vitest: click Pick → enqueue called with candidate URL",
+        "grep -c 'function _ytDownload' docs/index.html == 0"
+      ]
+    },
+    {
+      "id": "DL-062",
+      "bucket": "D",
+      "tier": "tier_1",
+      "category": "frontend",
+      "title": "_Download.bindConfirmModal(modalEl, payload)",
+      "description": "Opens #disc-v2-dl-confirm with name/meta from payload. Cancel keeps default focus. Primary disabled 250ms after open. Don't-ask checkbox writes sessionStorage. On confirm → _Download.start(payload).",
+      "files": ["docs/index.html"],
+      "passes": false,
+      "hours_estimate": 0.4,
+      "pass_criteria": [
+        "vitest: open modal → primary disabled at t=0, enabled at t=250+",
+        "vitest: check don't-ask → next Shift+click skips modal (sessionStorage set)"
+      ]
+    },
+    {
+      "id": "DL-063",
+      "bucket": "D",
+      "tier": "tier_1",
+      "category": "frontend",
+      "title": "Delete runDownload, downloadManual, _ytDownload",
+      "description": "Remove the three old functions and their wirings. All call sites now go through _Download.",
+      "files": ["docs/index.html"],
+      "passes": false,
+      "hours_estimate": 0.2,
+      "pass_criteria": [
+        "grep -c 'function runDownload\\|function downloadManual\\|function _ytDownload' docs/index.html == 0"
+      ]
+    },
+    {
+      "id": "DL-064",
+      "bucket": "D",
+      "tier": "tier_1",
+      "category": "frontend",
+      "title": "WAV-first-time inline explainer",
+      "description": "On first WAV selection in a session, render a dismissible inline note under the format dropdown: 'WAV is uncompressed but the YouTube source is lossy — file is large (~5× MP3) and not actually lossless audio. Use this only if you need PCM for downstream tools.' Persisted in sessionStorage (autocue_dl_seen_wav_warning).",
+      "files": ["docs/index.html"],
+      "passes": false,
+      "hours_estimate": 0.2,
+      "pass_criteria": [
+        "vitest: change format to wav first time → note visible; dismiss → sessionStorage set; reload session → second wav selection shows note again"
+      ]
+    },
+    {
+      "id": "DL-065",
+      "bucket": "D",
+      "tier": "tier_1",
+      "category": "frontend",
+      "title": "localStorage autocue_dl_format persistence + 192-coerce-toast",
+      "description": "Read localStorage.autocue_dl_format on load; default 'mp3_320' if absent. On change, write. If stored value is legacy ('mp3', 'm4a', etc.), coerce per backend map AND show one-time toast 'Your saved format is now MP3 320 kbps. Change in the Format dropdown.'",
+      "files": ["docs/index.html"],
+      "passes": false,
+      "hours_estimate": 0.2,
+      "pass_criteria": [
+        "vitest: localStorage='mp3' on load → format = mp3_320, toast called once"
+      ]
+    },
+    {
+      "id": "DL-066",
+      "bucket": "D",
+      "tier": "tier_1",
+      "category": "frontend",
+      "title": "seen_done_for_job: Set defense-in-depth",
+      "description": "Module-level Set<job_id>. On every 'done' event from onState, check membership; if present, ignore. Add. Defense against duplicate done events that slip past server idempotency.",
+      "files": ["docs/index.html"],
+      "passes": false,
+      "hours_estimate": 0.15,
+      "pass_criteria": [
+        "vitest: emit two consecutive done events for same job_id → onState called once with done"
+      ]
+    },
+    {
+      "id": "DL-067",
+      "bucket": "D",
+      "tier": "tier_1",
+      "category": "frontend",
+      "title": "#dl-queue-cancel-all + per-job cancel-queued",
+      "description": "#dl-queue-cancel-all click → for each queued job_id in last GET /api/download/queue response, fire POST /api/download/cancel/{id}. Per-card 'Cancel queued' (when btn label shows 'Queued (N)') calls cancel for that job_id only.",
+      "files": ["docs/index.html"],
+      "passes": false,
+      "hours_estimate": 0.25,
+      "pass_criteria": [
+        "vitest: with 3 queued jobs, click cancel-all → 3 POST /cancel calls"
+      ]
+    },
+    {
+      "id": "DL-068",
+      "bucket": "D",
+      "tier": "tier_1",
+      "category": "frontend",
+      "title": "visibilitychange pauses queue poll",
+      "description": "document.addEventListener('visibilitychange', ...) toggles the 2s poll interval. document.hidden → clearInterval; visible → fire one immediate fetch + restart interval.",
+      "files": ["docs/index.html"],
+      "passes": false,
+      "hours_estimate": 0.15,
+      "pass_criteria": [
+        "vitest: dispatch visibilitychange with hidden=true → no further fetch /queue; hidden=false → one immediate fetch"
+      ]
+    },
+    {
+      "id": "DL-069",
+      "bucket": "D",
+      "tier": "tier_1",
+      "category": "frontend",
+      "title": "Enter-to-submit on #dl-query",
+      "description": "#dl-query.addEventListener('keydown', e => { if (e.key==='Enter' && !e.shiftKey) { e.preventDefault(); document.getElementById('dl-go-btn').click(); } }).",
+      "files": ["docs/index.html"],
+      "passes": false,
+      "hours_estimate": 0.1,
+      "pass_criteria": [
+        "vitest: type URL + dispatch Enter keydown → enqueue called"
+      ]
+    },
+    {
+      "id": "DL-070",
+      "bucket": "D",
+      "tier": "tier_1",
+      "category": "frontend",
+      "title": "Esc precedence logic",
+      "description": "Document keydown listener: (1) if topmost modal is open → close it (existing handlers); (2) else if activeElement is inside #download-section OR is <body> AND in-flight job exists on manual panel → show toast 'Press Esc again to cancel download'; second Esc within 1.5s → job.cancel(). Esc inside #dl-query alone preserves native blur.",
+      "files": ["docs/index.html"],
+      "passes": false,
+      "hours_estimate": 0.35,
+      "pass_criteria": [
+        "vitest: focus on #dl-query, no job → Esc does NOT call cancel",
+        "vitest: focus on body, job in flight → 1st Esc toast, 2nd Esc within 1.5s cancels",
+        "vitest: 2nd Esc after 1.5s does NOT cancel"
+      ]
+    },
+    {
+      "id": "DL-080",
+      "bucket": "E",
+      "tier": "tier_1",
+      "category": "frontend",
+      "title": "Replace #download-section markup per PRD §8.2",
+      "description": "Full HTML rewrite preserving #download-unavailable, #dl-dest-switch, adding #dl-format select, #dl-normalize / #dl-embed-meta toggles, #dl-queue-indicator, #dl-status-region (role=status aria-live=polite), <details> legal disclosure.",
+      "files": ["docs/index.html"],
+      "passes": false,
+      "hours_estimate": 0.45,
+      "pass_criteria": [
+        "grep -q 'id=\"dl-format\"' docs/index.html",
+        "grep -q 'id=\"dl-normalize\"' docs/index.html",
+        "grep -q 'id=\"dl-embed-meta\"' docs/index.html",
+        "grep -q 'id=\"dl-queue-indicator\"' docs/index.html",
+        "grep -q 'id=\"download-unavailable\"' docs/index.html"
+      ]
+    },
+    {
+      "id": "DL-081",
+      "bucket": "E",
+      "tier": "tier_1",
+      "category": "frontend",
+      "title": "Add .dl-row/.dl-toggle/.dl-target CSS",
+      "description": "Per PRD §8.5. .dl-row flex+gap. .dl-toggle inline-flex + min-height/min-width:24px + padding 2px 4px. #dl-format/#dl-go-btn/#dl-dest-switch min-height/min-width:24px. .dl-status-card padding+border+state-driven border-color (data-state=error|success).",
+      "files": ["docs/index.html"],
+      "passes": false,
+      "hours_estimate": 0.3,
+      "pass_criteria": [
+        "Playwright: getBoundingClientRect for every download interactive control returns width≥24 height≥24"
+      ]
+    },
+    {
+      "id": "DL-082",
+      "bucket": "E",
+      "tier": "tier_1",
+      "category": "frontend",
+      "title": "Mobile @media (max-width:640px) Download layout",
+      "description": "Stack input + format + button + toggles full-width; 44px min-height on each. Destination path RTL ellipsis. #download-section.collapsed becomes 48px strip. Touch targets 44x44.",
+      "files": ["docs/index.html"],
+      "passes": false,
+      "hours_estimate": 0.4,
+      "pass_criteria": [
+        "Playwright at 390x844: #dl-go-btn has full row width + ≥44px height",
+        "Playwright at 390: collapsed strip is visible at bottom; tap expands"
+      ]
+    },
+    {
+      "id": "DL-083",
+      "bucket": "E",
+      "tier": "tier_1",
+      "category": "frontend",
+      "title": "@supports selector(:has(*)) guard + class-toggle fallback",
+      "description": "Wrap the body:has(...) selectors in @supports. Inside @supports not (selector(:has(*))) { /* fallback: JS toggles body classes ds-strip-collapsed, db-visible, ab-visible on the matching state changes */ }. Add the JS toggles (one-liners on the relevant DOM mutations).",
+      "files": ["docs/index.html"],
+      "passes": false,
+      "hours_estimate": 0.35,
+      "pass_criteria": [
+        "Playwright in non-:has browser (or simulated) → fallback class-based selectors work"
+      ]
+    },
+    {
+      "id": "DL-084",
+      "bucket": "E",
+      "tier": "tier_1",
+      "category": "frontend",
+      "title": ":root CSS vars + body:has selectors for bottom stack",
+      "description": "Define --ds-strip-h, --db-h, --ab-h, --safe-bottom. body:has(#download-section.collapsed), body:has(#download-bar.visible), body:has(#action-bar[aria-hidden=false]) set bottom: calc(...) per PRD §6.9 ladder.",
+      "files": ["docs/index.html"],
+      "passes": false,
+      "hours_estimate": 0.3,
+      "pass_criteria": [
+        "Playwright mobile: #action-bar visible AND #download-bar.visible AND #download-section.collapsed all reachable; no overlap"
+      ]
+    },
+    {
+      "id": "DL-085",
+      "bucket": "E",
+      "tier": "tier_1",
+      "category": "frontend",
+      "title": "Replace existing --ab-rest-y math with var-driven model",
+      "description": "Delete the body:has(#download-bar.visible) #action-bar { --ab-rest-y: -66px; } block at ~line 906; replaced by DL-084's var system. Verify mobile stacking unchanged with no Download section visible.",
+      "files": ["docs/index.html"],
+      "passes": false,
+      "hours_estimate": 0.2,
+      "pass_criteria": [
+        "grep -c 'ab-rest-y: -66px' docs/index.html == 0",
+        "Existing E2E for action-bar layout still passes"
+      ]
+    },
+    {
+      "id": "DL-086",
+      "bucket": "E",
+      "tier": "tier_1",
+      "category": "frontend",
+      "title": "@media (prefers-reduced-motion: reduce) block",
+      "description": ".dl-progress-fill { transition:none; } and any hover transforms disabled.",
+      "files": ["docs/index.html"],
+      "passes": false,
+      "hours_estimate": 0.1,
+      "pass_criteria": [
+        "grep -q 'prefers-reduced-motion: reduce' docs/index.html"
+      ]
+    },
+    {
+      "id": "DL-087",
+      "bucket": "E",
+      "tier": "tier_1",
+      "category": "frontend",
+      "title": "Restyle #disc-v2-dl-confirm",
+      "description": "Per PRD §8.3. Body shows name + meta from payload. Buttons reversed: Cancel ghost (secondary-btn), Download album primary (green). Cancel keeps default focus. Primary disabled 250ms post-open. Don't-ask checkbox + 'Always skip in Settings →' tertiary link.",
+      "files": ["docs/index.html"],
+      "passes": false,
+      "hours_estimate": 0.4,
+      "pass_criteria": [
+        "Playwright: Shift+click card → modal shows 'Download album <name>?'; Cancel focused; primary disabled briefly"
+      ]
+    },
+    {
+      "id": "DL-088",
+      "bucket": "E",
+      "tier": "tier_1",
+      "category": "frontend",
+      "title": "Settings 'Download' block + persistent skip-confirm checkbox",
+      "description": "Append to #settings-section: <div class='settings-divider'>Download</div> + <label><input type=checkbox id='dl-skip-confirm-persistent'> Always skip Shift-click download confirmation</label>. Two-way mirror: checking writes localStorage AND sessionStorage; unchecking clears both.",
+      "files": ["docs/index.html"],
+      "passes": false,
+      "hours_estimate": 0.25,
+      "pass_criteria": [
+        "vitest: check persistent → both storages set; uncheck → both cleared"
+      ]
+    },
+    {
+      "id": "DL-089",
+      "bucket": "E",
+      "tier": "tier_1",
+      "category": "frontend",
+      "title": "Focus trap + Escape + focus-return on #yt-modal",
+      "description": "Reuse pattern from #disc-v2-dl-confirm (cyclic Tab among focusable elements within modal, Escape closes + cancels in-flight, focus returns to invoker btn).",
+      "files": ["docs/index.html"],
+      "passes": false,
+      "hours_estimate": 0.3,
+      "pass_criteria": [
+        "Playwright: open YT modal, Tab cycles within; Escape closes; focus returns to invoker"
+      ]
+    },
+    {
+      "id": "DL-090",
+      "bucket": "E",
+      "tier": "tier_1",
+      "category": "frontend",
+      "title": "Replace _ytDownload SSE parser with _consumeSSE",
+      "description": "Covered by DL-061 bind helper; this task is the cleanup: remove the ad-hoc parser at lines 10827-10853.",
+      "files": ["docs/index.html"],
+      "passes": false,
+      "hours_estimate": 0.1,
+      "pass_criteria": [
+        "grep -c 'function _ytDownload' docs/index.html == 0",
+        "grep -c '_consumeSSE' docs/index.html ≥ 3 (manual, card, yt-modal)"
+      ]
+    },
+    {
+      "id": "DL-091",
+      "bucket": "E",
+      "tier": "tier_1",
+      "category": "frontend",
+      "title": "Rename 'Pick' → 'Download this version'",
+      "description": "In #yt-candidates render template (~line 10800), change button text from 'Pick' to 'Download this version'.",
+      "files": ["docs/index.html"],
+      "passes": false,
+      "hours_estimate": 0.05,
+      "pass_criteria": [
+        "grep -c '>Pick<' docs/index.html == 0 (in yt-modal context)",
+        "grep -q 'Download this version' docs/index.html"
+      ]
+    },
+    {
+      "id": "DL-092",
+      "bucket": "E",
+      "tier": "tier_1",
+      "category": "frontend",
+      "title": "Rename #download-btn → 'Export XML'",
+      "description": "Button text + tooltip + any user-visible references. Line 3234 + downstream.",
+      "files": ["docs/index.html"],
+      "passes": false,
+      "hours_estimate": 0.1,
+      "pass_criteria": [
+        "grep -c '>Download XML<' docs/index.html == 0",
+        "grep -q '>Export XML<' docs/index.html"
+      ]
+    },
+    {
+      "id": "DL-093",
+      "bucket": "E",
+      "tier": "tier_1",
+      "category": "frontend",
+      "title": "Rename #backup-btn → '💾 Save backup XML'",
+      "description": "Line 2139. Also update 'Download backup first →' link (line 2164) to 'Save a backup first →'.",
+      "files": ["docs/index.html"],
+      "passes": false,
+      "hours_estimate": 0.1,
+      "pass_criteria": [
+        "grep -q '💾 Save backup XML' docs/index.html",
+        "grep -c 'Download backup XML' docs/index.html == 0"
+      ]
+    },
+    {
+      "id": "DL-094",
+      "bucket": "E",
+      "tier": "tier_1",
+      "category": "frontend",
+      "title": "Step-4 wizard label + downstream copy",
+      "description": "Step 4 of the wizard (line 2078): 'Download' → 'Export'. Line 2407 copy: '<strong>Download</strong> the updated XML…' → '<strong>Export</strong> the updated XML…'.",
+      "files": ["docs/index.html"],
+      "passes": false,
+      "hours_estimate": 0.1,
+      "pass_criteria": [
+        "grep -c '<span class=\"step-num\">4</span> Download' docs/index.html == 0",
+        "grep -q 'step-num\">4</span> Export' docs/index.html"
+      ]
+    },
+    {
+      "id": "DL-095",
+      "bucket": "E",
+      "tier": "tier_1",
+      "category": "frontend",
+      "title": "Shift+D shortcut + #kbd-overlay entry",
+      "description": "Global keydown: e.shiftKey && e.key==='D' && !inInput → switch to Discover tab + scroll #download-section into view + focus #dl-query. Add row to #kbd-overlay: '⇧+D — Focus download'.",
+      "files": ["docs/index.html"],
+      "passes": false,
+      "hours_estimate": 0.15,
+      "pass_criteria": [
+        "Playwright: from Cues tab press Shift+D → URL hash becomes #discover, #dl-query.focus()"
+      ]
+    },
+    {
+      "id": "DL-100",
+      "bucket": "F",
+      "tier": "tier_1",
+      "category": "frontend",
+      "title": "Reveal in Finder action",
+      "description": "Success card [Reveal in Finder] button → fetch POST /api/download/reveal {path}. On 204 → no-op (Finder opens). On 403/501 → toast 'Couldn't open Finder'. Hidden when os_reveal_supported=false from /api/download/config.",
+      "files": ["docs/index.html"],
+      "passes": false,
+      "hours_estimate": 0.2,
+      "pass_criteria": [
+        "vitest: click Reveal → POST /api/download/reveal called with path",
+        "vitest: config os_reveal_supported=false → button hidden"
+      ]
+    },
+    {
+      "id": "DL-101",
+      "bucket": "F",
+      "tier": "tier_1",
+      "category": "frontend",
+      "title": "Copy path action",
+      "description": "navigator.clipboard.writeText(path) → toast 'Path copied'. Fallback to old execCommand on browsers without clipboard API (none in supported baseline, but defensive).",
+      "files": ["docs/index.html"],
+      "passes": false,
+      "hours_estimate": 0.1,
+      "pass_criteria": [
+        "vitest: mock clipboard → click Copy → writeText called with path"
+      ]
+    },
+    {
+      "id": "DL-102",
+      "bucket": "F",
+      "tier": "tier_1",
+      "category": "frontend",
+      "title": "Download another action",
+      "description": "Per PRD §6.6: clear #dl-query.value, refocus input. Preserve format/normalize/embed_metadata (sticky prefs). Replace success card with idle state.",
+      "files": ["docs/index.html"],
+      "passes": false,
+      "hours_estimate": 0.1,
+      "pass_criteria": [
+        "vitest: render success → click Download another → query cleared, focus on input, format unchanged"
+      ]
+    },
+    {
+      "id": "DL-103",
+      "bucket": "F",
+      "tier": "tier_1",
+      "category": "frontend",
+      "title": "Hide Reveal when os_reveal_supported=false",
+      "description": "Read _downloadConfig.os_reveal_supported (set during config probe). When false, success-card renderer omits the Reveal button.",
+      "files": ["docs/index.html"],
+      "passes": false,
+      "hours_estimate": 0.05,
+      "pass_criteria": [
+        "vitest: config response with os_reveal_supported:false → success card has no Reveal button"
+      ]
+    },
+    {
+      "id": "DL-104",
+      "bucket": "F",
+      "tier": "tier_1",
+      "category": "frontend",
+      "title": "#dl-queue-indicator polling /api/download/queue",
+      "description": "Interval ID stored on module. Start when first job enqueued, stop when queue empty. Renders 'N active · M queued (max C concurrent)' from response. Polling gated by document.visibilityState (handled in DL-068).",
+      "files": ["docs/index.html"],
+      "passes": false,
+      "hours_estimate": 0.25,
+      "pass_criteria": [
+        "vitest: enqueue → poll starts; queue empty response → poll stops"
+      ]
+    },
+    {
+      "id": "DL-105",
+      "bucket": "F",
+      "tier": "tier_1",
+      "category": "frontend",
+      "title": "#dl-queue-cancel-all wiring",
+      "description": "Covered by DL-067 (separate task tracks cancel-all button vs per-job cancel-queued).",
+      "files": ["docs/index.html"],
+      "passes": false,
+      "hours_estimate": 0.05,
+      "pass_criteria": [
+        "Already validated in DL-067"
+      ]
+    },
+    {
+      "id": "DL-110",
+      "bucket": "G",
+      "tier": "tier_1",
+      "category": "a11y",
+      "title": "Add label-for on all download inputs",
+      "description": "<label for=dl-query>, <label for=dl-format>, .dl-toggle wraps the checkbox AND text (implicit association). #yt-query needs an aria-label='YouTube search query' (no visible label in design).",
+      "files": ["docs/index.html"],
+      "passes": false,
+      "hours_estimate": 0.1,
+      "pass_criteria": [
+        "axe-core: 0 label-for violations on download surfaces"
+      ]
+    },
+    {
+      "id": "DL-111",
+      "bucket": "G",
+      "tier": "tier_1",
+      "category": "a11y",
+      "title": "Replace #dl-progress div with <progress> element",
+      "description": "<progress id=dl-progress max=100 value=0 aria-labelledby=dl-progress-label></progress> + a visually-hidden <span id=dl-progress-label>Download progress</span>. Replaces the .cue-tools-progress div wrapping.",
+      "files": ["docs/index.html"],
+      "passes": false,
+      "hours_estimate": 0.2,
+      "pass_criteria": [
+        "axe-core: 0 progressbar role violations",
+        "Playwright: VoiceOver announces 'Download progress 45%'"
+      ]
+    },
+    {
+      "id": "DL-112",
+      "bucket": "G",
+      "tier": "tier_1",
+      "category": "a11y",
+      "title": "aria-live=polite on #dl-status-region",
+      "description": "Container that hosts loading/success/error UI gets aria-live=polite + aria-atomic=true. Progress percent updates throttled to ≥ 500ms to avoid spam.",
+      "files": ["docs/index.html"],
+      "passes": false,
+      "hours_estimate": 0.15,
+      "pass_criteria": [
+        "grep -q 'aria-live=\"polite\"' docs/index.html",
+        "vitest: rapid percent updates → live region innerText changes ≤ 2× per second"
+      ]
+    },
+    {
+      "id": "DL-113",
+      "bucket": "G",
+      "tier": "tier_1",
+      "category": "a11y",
+      "title": "role=alert + aria-live=assertive on error sub-region",
+      "description": "The error renderer's outer container gets role=alert + aria-live=assertive so VoiceOver interrupts to read it. Focus also moves to the error container on render.",
+      "files": ["docs/index.html"],
+      "passes": false,
+      "hours_estimate": 0.15,
+      "pass_criteria": [
+        "vitest: render error → container has role=alert; document.activeElement is the container",
+        "axe-core: 0 violations"
+      ]
+    },
+    {
+      "id": "DL-114",
+      "bucket": "G",
+      "tier": "tier_1",
+      "category": "a11y",
+      "title": "aria-busy=true on container during loading",
+      "description": "#download-controls.setAttribute('aria-busy', 'true') on phase=fetching/converting/normalizing/tagging; remove on done.",
+      "files": ["docs/index.html"],
+      "passes": false,
+      "hours_estimate": 0.1,
+      "pass_criteria": [
+        "vitest: state=loading → aria-busy='true'; state=idle → aria-busy absent"
+      ]
+    },
+    {
+      "id": "DL-115",
+      "bucket": "G",
+      "tier": "tier_1",
+      "category": "a11y",
+      "title": "aria-disabled instead of disabled on Download btn during loading",
+      "description": "Native `disabled` removes the button from a11y nav. Use aria-disabled='true' + a CSS rule [aria-disabled=true] { pointer-events:none; opacity:.5 } to disable interaction while keeping focusability.",
+      "files": ["docs/index.html"],
+      "passes": false,
+      "hours_estimate": 0.15,
+      "pass_criteria": [
+        "vitest: state=loading → #dl-go-btn.aria-disabled='true', no `disabled` attribute"
+      ]
+    },
+    {
+      "id": "DL-116",
+      "bucket": "G",
+      "tier": "tier_1",
+      "category": "a11y",
+      "title": "Focus trap on #disc-v2-dl-confirm",
+      "description": "Reuse trap pattern from existing modal code (the file already has one). Verify initial focus on Cancel; Escape closes + focus returns to invoker; Tab cycles within modal.",
+      "files": ["docs/index.html"],
+      "passes": false,
+      "hours_estimate": 0.25,
+      "pass_criteria": [
+        "Playwright: Shift+click card → Tab → focus on primary → Tab → focus on Cancel (cycle)"
+      ]
+    },
+    {
+      "id": "DL-117",
+      "bucket": "G",
+      "tier": "tier_1",
+      "category": "a11y",
+      "title": "<fieldset><legend>Audio options</legend>… around format + toggles",
+      "description": "Wrap #dl-format + #dl-normalize + #dl-embed-meta in a <fieldset> with visually-hidden <legend>Audio options</legend>. Groups the controls for SR users.",
+      "files": ["docs/index.html"],
+      "passes": false,
+      "hours_estimate": 0.1,
+      "pass_criteria": [
+        "grep -A 1 '<fieldset' docs/index.html | grep -q 'Audio options'"
+      ]
+    },
+    {
+      "id": "DL-118",
+      "bucket": "G",
+      "tier": "tier_1",
+      "category": "a11y",
+      "title": "axe-core CI fixture + script",
+      "description": "Add tests/e2e/test_axe_download_states.spec.ts running axe-core against /discover Download surfaces in 4 states (idle, loading, success, error). 0 violations required. Use @axe-core/playwright.",
+      "files": ["tests/e2e/test_axe_download_states.spec.ts", "tests/e2e/package.json"],
+      "passes": false,
+      "hours_estimate": 0.4,
+      "pass_criteria": [
+        "npx playwright test tests/e2e/test_axe_download_states.spec.ts → 0 violations × 4 states"
+      ]
+    },
+    {
+      "id": "DL-120",
+      "bucket": "H",
+      "tier": "tier_1",
+      "category": "test",
+      "title": "tests/test_classify_download_error.py — parametrized",
+      "description": "@pytest.mark.parametrize over files in tests/fixtures/download_errors/. For each fixture: build an Exception (DownloadError(text) or matching OSError), call classify_download_error, assert ['code'] matches the fixture filename.",
+      "files": ["tests/test_classify_download_error.py"],
+      "passes": false,
+      "hours_estimate": 0.3,
+      "pass_criteria": [
+        "pytest tests/test_classify_download_error.py passes for all 10 fixtures"
+      ]
+    },
+    {
+      "id": "DL-121",
+      "bucket": "H",
+      "tier": "tier_1",
+      "category": "test",
+      "title": "Populate the 10 fixtures (real strings)",
+      "description": "Already covered by DL-020. This task is the dedicated test-side responsibility line: ensure fixtures are non-empty + cite source URLs.",
+      "files": ["tests/fixtures/download_errors/*.txt"],
+      "passes": false,
+      "hours_estimate": 0.1,
+      "pass_criteria": [
+        "for f in tests/fixtures/download_errors/*.txt; do [ -s $f ] && grep -q '^#' $f; done"
+      ]
+    },
+    {
+      "id": "DL-122",
+      "bucket": "H",
+      "tier": "tier_1",
+      "category": "test",
+      "title": "tests/test_download_queue.py",
+      "description": "Tests: concurrent enqueue with cap=1; cancel-before-pickup race; worker crash → emits done(worker_crash) + queue advances; watchdog kill after worker_pulse silence > 60s; legitimate long-job (mock pulse every 5s) survives watchdog.",
+      "files": ["tests/test_download_queue.py"],
+      "passes": false,
+      "hours_estimate": 0.7,
+      "pass_criteria": [
+        "pytest tests/test_download_queue.py passes; 5 named tests; total runtime < 30s with sped-up timers"
+      ]
+    },
+    {
+      "id": "DL-123",
+      "bucket": "H",
+      "tier": "tier_1",
+      "category": "test",
+      "title": "tests/test_download_format_coercion.py",
+      "description": "Tests: POST enqueue {audio_format:'mp3'} → 200 + log WARNING (first time) + DEBUG (second); 'm4a' → coerced to 'original'; 'gibberish' → 422 unknown_format; 'audio_quality':'192' → 422 audio_quality_removed.",
+      "files": ["tests/test_download_format_coercion.py"],
+      "passes": false,
+      "hours_estimate": 0.4,
+      "pass_criteria": [
+        "pytest tests/test_download_format_coercion.py passes"
+      ]
+    },
+    {
+      "id": "DL-124",
+      "bucket": "H",
+      "tier": "tier_1",
+      "category": "test",
+      "title": "tests/test_download_normalize_lufs.py",
+      "description": "Tests: synthesize a 5s sine wav at -23 LUFS using ffmpeg; run normalize_loudness_to_lufs; re-measure with ffmpeg loudnorm pass-1; assert ≤ -14 LUFS ± 1. Cancel test: set cancel_event after pass-1 starts, assert proc exits within 3s.",
+      "files": ["tests/test_download_normalize_lufs.py"],
+      "passes": false,
+      "hours_estimate": 0.5,
+      "pass_criteria": [
+        "pytest tests/test_download_normalize_lufs.py passes (requires ffmpeg)"
+      ]
+    },
+    {
+      "id": "DL-125",
+      "bucket": "H",
+      "tier": "tier_1",
+      "category": "test",
+      "title": "tests/test_download_reveal.py",
+      "description": "Tests: POST /reveal {path: tmp_dir under default_download_dir} → 204; {path: '/etc/passwd'} → 422 forbidden_path; {path: non-existent} → 422/404; mock _reveal_supported=False → 501. Don't actually open Finder in test (mock subprocess.run).",
+      "files": ["tests/test_download_reveal.py"],
+      "passes": false,
+      "hours_estimate": 0.3,
+      "pass_criteria": [
+        "pytest tests/test_download_reveal.py passes"
+      ]
+    },
+    {
+      "id": "DL-126",
+      "bucket": "H",
+      "tier": "tier_1",
+      "category": "test",
+      "title": "tests/test_download_jargon.py",
+      "description": "Greps user-visible strings in docs/index.html (heuristic: text inside elements that aren't <code>/<pre>/<!-- --> blocks) for 'yt-dlp', 'ffmpeg', 'exit code'. Whitelist: #download-unavailable banner (allowed to mention the install command). Test fails if jargon leaks elsewhere.",
+      "files": ["tests/test_download_jargon.py"],
+      "passes": false,
+      "hours_estimate": 0.4,
+      "pass_criteria": [
+        "pytest tests/test_download_jargon.py passes after refactor"
+      ]
+    },
+    {
+      "id": "DL-127",
+      "bucket": "H",
+      "tier": "tier_1",
+      "category": "test",
+      "title": "tests/test_download_sse_schema.py",
+      "description": "Captures every SSE event emitted by /api/download/stream + /api/download/album/enqueue path. For each, DownloadProgressEvent.model_validate(json) must succeed. Catches drift between server emitter and schema.",
+      "files": ["tests/test_download_sse_schema.py"],
+      "passes": false,
+      "hours_estimate": 0.4,
+      "pass_criteria": [
+        "pytest tests/test_download_sse_schema.py passes with ≥ 5 distinct event shapes"
+      ]
+    },
+    {
+      "id": "DL-128",
+      "bucket": "H",
+      "tier": "tier_1",
+      "category": "test",
+      "title": "tests/test_download_playlist.py",
+      "description": "Mock expand_playlist to return [{query: 'http://a'}, {query: 'http://b'}]. POST /api/download/enqueue {query: '<playlist URL>', allow_playlist:True} → SSE includes events with processed in {1,2} and total=2.",
+      "files": ["tests/test_download_playlist.py"],
+      "passes": false,
+      "hours_estimate": 0.3,
+      "pass_criteria": [
+        "pytest tests/test_download_playlist.py passes"
+      ]
+    },
+    {
+      "id": "DL-129",
+      "bucket": "H",
+      "tier": "tier_1",
+      "category": "test",
+      "title": "tests/integration/test_download_classify_live.py",
+      "description": "Gated by RUN_LIVE_YTDLP=1. For each canonical fixture URL listed in docs/reference/youtube-download.md#yt-dlp-upgrade, run yt-dlp.YoutubeDL().extract_info, catch the DownloadError, call classify_download_error, assert code matches expected. Also meta-test: assert codes are distinct across the suite.",
+      "files": ["tests/integration/test_download_classify_live.py"],
+      "passes": false,
+      "hours_estimate": 0.4,
+      "pass_criteria": [
+        "RUN_LIVE_YTDLP=1 pytest tests/integration/test_download_classify_live.py passes (one-time human run)"
+      ]
+    },
+    {
+      "id": "DL-130",
+      "bucket": "H",
+      "tier": "tier_1",
+      "category": "test",
+      "title": "tests/web/test_download_component.spec.js",
+      "description": "Vitest: mock fetch; drive _Download.start through all 4 states (idle→loading→success); assert onState called with expected payloads at each transition.",
+      "files": ["tests/web/test_download_component.spec.js"],
+      "passes": false,
+      "hours_estimate": 0.5,
+      "pass_criteria": [
+        "npm test -- tests/web/test_download_component.spec.js passes"
+      ]
+    },
+    {
+      "id": "DL-131",
+      "bucket": "H",
+      "tier": "tier_1",
+      "category": "test",
+      "title": "tests/web/test_download_format_persistence.spec.js",
+      "description": "Vitest: localStorage='wav' on load → #dl-format.value=='wav'. Change to 'mp3_320' → localStorage updated. Legacy value 'mp3' on load → coerced + toast called.",
+      "files": ["tests/web/test_download_format_persistence.spec.js"],
+      "passes": false,
+      "hours_estimate": 0.3,
+      "pass_criteria": [
+        "npm test -- tests/web/test_download_format_persistence.spec.js passes"
+      ]
+    },
+    {
+      "id": "DL-132",
+      "bucket": "H",
+      "tier": "tier_1",
+      "category": "test",
+      "title": "tests/web/test_download_410_already_consumed.spec.js",
+      "description": "Vitest: mock GET /stream returning {status:410, json:()=>{path:'/x', status:'success'}}. _Download.start → onState called with {status:'success', path:'/x', fromCache:true}; no toast invoked.",
+      "files": ["tests/web/test_download_410_already_consumed.spec.js"],
+      "passes": false,
+      "hours_estimate": 0.25,
+      "pass_criteria": [
+        "npm test -- tests/web/test_download_410_already_consumed.spec.js passes"
+      ]
+    },
+    {
+      "id": "DL-133",
+      "bucket": "H",
+      "tier": "tier_1",
+      "category": "test",
+      "title": "tests/web/test_consume_sse_keepalive.spec.js",
+      "description": "Vitest: feed _consumeSSE a Response stream containing ': keepalive\\n\\n' between two data: events. Assert onEvent called exactly twice (heartbeats ignored).",
+      "files": ["tests/web/test_consume_sse_keepalive.spec.js"],
+      "passes": false,
+      "hours_estimate": 0.25,
+      "pass_criteria": [
+        "npm test -- tests/web/test_consume_sse_keepalive.spec.js passes"
+      ]
+    },
+    {
+      "id": "DL-134",
+      "bucket": "H",
+      "tier": "tier_1",
+      "category": "test",
+      "title": "tests/e2e/test_download_e2e.spec.ts — single track happy path",
+      "description": "Playwright: navigate to /discover, type valid URL, click Download, await success state, assert path visible. Mock the backend with a short fake audio URL or use a real Creative Commons URL.",
+      "files": ["tests/e2e/test_download_e2e.spec.ts"],
+      "passes": false,
+      "hours_estimate": 0.5,
+      "pass_criteria": [
+        "npx playwright test tests/e2e/test_download_e2e.spec.ts passes"
+      ]
+    },
+    {
+      "id": "DL-135",
+      "bucket": "H",
+      "tier": "tier_1",
+      "category": "test",
+      "title": "tests/e2e/test_download_cancel.spec.ts",
+      "description": "Playwright: start download, wait for progress > 5%, click Cancel, assert state returns to idle within 5s. Verify backend log shows DownloadCancelled. Verify partial file removed.",
+      "files": ["tests/e2e/test_download_cancel.spec.ts"],
+      "passes": false,
+      "hours_estimate": 0.5,
+      "pass_criteria": [
+        "npx playwright test tests/e2e/test_download_cancel.spec.ts passes"
+      ]
+    },
+    {
+      "id": "DL-136",
+      "bucket": "H",
+      "tier": "tier_1",
+      "category": "test",
+      "title": "tests/e2e/test_download_per_card.spec.ts",
+      "description": "Playwright: navigate to /discover, wait for ≥ 1 card with .disc-dl-btn, click it, assert inline progress bar appears + button label flips to 'Downloading…'. (May need to seed discover.db with a test card.)",
+      "files": ["tests/e2e/test_download_per_card.spec.ts"],
+      "passes": false,
+      "hours_estimate": 0.5,
+      "pass_criteria": [
+        "npx playwright test tests/e2e/test_download_per_card.spec.ts passes"
+      ]
+    },
+    {
+      "id": "DL-137",
+      "bucket": "H",
+      "tier": "tier_1",
+      "category": "test",
+      "title": "tests/e2e/test_download_mobile.spec.ts",
+      "description": "Playwright at 390x844: navigate to /discover, assert collapsed Download strip is visible without scroll. Tap strip → full panel appears. Assert all touch targets ≥ 44x44.",
+      "files": ["tests/e2e/test_download_mobile.spec.ts"],
+      "passes": false,
+      "hours_estimate": 0.4,
+      "pass_criteria": [
+        "npx playwright test tests/e2e/test_download_mobile.spec.ts passes"
+      ]
+    },
+    {
+      "id": "DL-138",
+      "bucket": "H",
+      "tier": "tier_1",
+      "category": "test",
+      "title": "tests/e2e/test_download_confirm_modal.spec.ts",
+      "description": "Playwright: Shift+click a Discover card. Assert modal opens with name + meta. Cancel has default focus. Primary disabled at t=0, enabled by t=300. Check dontask → next Shift+click skips modal. Settings persistent checkbox → next session also skips.",
+      "files": ["tests/e2e/test_download_confirm_modal.spec.ts"],
+      "passes": false,
+      "hours_estimate": 0.5,
+      "pass_criteria": [
+        "npx playwright test tests/e2e/test_download_confirm_modal.spec.ts passes"
+      ]
+    },
+    {
+      "id": "DL-139",
+      "bucket": "H",
+      "tier": "tier_1",
+      "category": "test",
+      "title": "tests/e2e/test_axe_download_states.spec.ts",
+      "description": "Covered by DL-118; this row tracks the test-suite side. Run axe-core against /discover in 4 simulated states; assert 0 violations each.",
+      "files": ["tests/e2e/test_axe_download_states.spec.ts"],
+      "passes": false,
+      "hours_estimate": 0.1,
+      "pass_criteria": [
+        "Same as DL-118"
+      ]
+    },
+    {
+      "id": "DL-140",
+      "bucket": "H",
+      "tier": "tier_1",
+      "category": "test",
+      "title": "tests/e2e/test_download_queue_concurrency.spec.ts",
+      "description": "Playwright: enqueue 20 jobs (e.g. via 20 .disc-dl-btn clicks in rapid succession). Assert /api/download/queue shows 1 active + 19 queued. Cancel-all → all jobs return cancelled within 5s.",
+      "files": ["tests/e2e/test_download_queue_concurrency.spec.ts"],
+      "passes": false,
+      "hours_estimate": 0.4,
+      "pass_criteria": [
+        "npx playwright test tests/e2e/test_download_queue_concurrency.spec.ts passes"
+      ]
+    },
+    {
+      "id": "DL-150",
+      "bucket": "I",
+      "tier": "tier_1",
+      "category": "docs",
+      "title": "Update CLAUDE.md must-know constraints",
+      "description": "Add a Download row to 'Must-know constraints' covering: AUTOCUE_DOWNLOAD_CONCURRENCY env, job-queue + cancel-endpoint architecture, ffmpeg subprocess.Popen.terminate(), output_artifacts mtime gate, 410 already_consumed semantics, format coercion mapping. Also add to 'Depth — read on demand' a row pointing to docs/reference/youtube-download.md.",
+      "files": ["CLAUDE.md"],
+      "passes": false,
+      "hours_estimate": 0.2,
+      "pass_criteria": [
+        "grep -q 'AUTOCUE_DOWNLOAD_CONCURRENCY' CLAUDE.md",
+        "grep -q 'youtube-download.md' CLAUDE.md"
+      ]
+    },
+    {
+      "id": "DL-151",
+      "bucket": "I",
+      "tier": "tier_1",
+      "category": "docs",
+      "title": "Update docs/FEATURES.md Download section",
+      "description": "Rewrite the Download section to describe the new flow: format selector, loudness normalize, ID3/RIFF tagging, playlist batching, classified errors, Reveal in Finder. Match copy with PRD.",
+      "files": ["docs/FEATURES.md"],
+      "passes": false,
+      "hours_estimate": 0.3,
+      "pass_criteria": [
+        "grep -q 'Normalize loudness' docs/FEATURES.md",
+        "grep -q 'playlist' docs/FEATURES.md"
+      ]
+    },
+    {
+      "id": "DL-152",
+      "bucket": "I",
+      "tier": "tier_1",
+      "category": "docs",
+      "title": "Flesh out docs/reference/youtube-download.md",
+      "description": "Beyond the scaffold from DL-003: write the format-migration table, the 4-step yt-dlp upgrade checklist, browser support details, canonical fixture URLs with capture-date, troubleshooting for stuck jobs / disk-full / age-gated.",
+      "files": ["docs/reference/youtube-download.md"],
+      "passes": false,
+      "hours_estimate": 0.6,
+      "pass_criteria": [
+        "wc -l docs/reference/youtube-download.md ≥ 150",
+        "grep -q '## Format migration' docs/reference/youtube-download.md",
+        "grep -q '## yt-dlp upgrade' docs/reference/youtube-download.md",
+        "grep -q '## Browser support' docs/reference/youtube-download.md"
+      ]
+    },
+    {
+      "id": "DL-153",
+      "bucket": "I",
+      "tier": "tier_1",
+      "category": "verify",
+      "title": "Chrome DevTools end-to-end verification",
+      "description": "Boot autocue serve. Drive Chrome DevTools through every Download state across all 5 surfaces (manual panel idle/loading/success/error/unavailable, per-card, Shift+click confirm, track-info, YT modal) on desktop (1280x900) AND mobile (390x844). Save screenshots to allowed temp dir. SendUserFile each. Verify 0 console errors. Final acceptance.",
+      "files": [],
+      "passes": false,
+      "hours_estimate": 1.0,
+      "pass_criteria": [
+        "Screenshots cover all 5 surfaces × 4-5 states × 2 viewports",
+        "console.error count = 0 across all states",
+        "Every §12 acceptance gate verified manually or with cited test"
+      ]
+    }
+  ]
+}

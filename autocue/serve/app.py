@@ -79,6 +79,9 @@ def create_app(db_path: str | None = None, port: int = DEFAULT_PORT) -> FastAPI:
             pass
         return response
 
+    # NOTE: friendly 422 rewriting for the removed `audio_quality` field is
+    # done INLINE in autocue/serve/routes.py :: _validate_download_body() so
+    # the rest of the API keeps the stock FastAPI 422 behavior unchanged.
     app.include_router(router)
     if DOCS_DIR.exists():
         app.mount("/", StaticFiles(directory=str(DOCS_DIR), html=True), name="ui")

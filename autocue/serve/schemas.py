@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from typing import Literal
+from typing import Any, Literal
 
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
 class StatusResponse(BaseModel):
@@ -567,38 +567,103 @@ class DownloadConfigResponse(BaseModel):
     ffmpeg: bool             # ffmpeg on PATH (needed for audio extraction)
     default_dir: str
     music_folder: str | None = None  # detected Rekordbox music root (common ancestor of FolderPath)
+    # PRD v1.0 additions:
+    os_reveal_supported: bool = False   # 'open -R' / 'explorer /select,' / 'xdg-open' available
+    max_concurrency: int = 1            # DownloadQueue concurrency cap from AUTOCUE_DOWNLOAD_CONCURRENCY
+
+
+# PRD v1.0 audio_format values. Legacy strings ("mp3", "m4a", …) are coerced
+# server-side in routes.py BEFORE pydantic validation; see autocue/download.py
+# :: normalize_audio_format(). The Literal enforces the contract at the wire.
+AudioFormat = Literal["wav", "mp3_320", "original"]
 
 
 class DownloadRequest(BaseModel):
     query: str               # a YouTube URL or a search term ("artist - title")
     dest_dir: str | None = None
-    audio_format: str = "mp3"
+    audio_format: AudioFormat = "mp3_320"
+    normalize: bool = False
+    embed_metadata: bool = True
+    allow_playlist: bool = False
+    # NOTE: `audio_quality` is intentionally absent. Stale clients sending
+    # `audio_quality: "192"` get a 422 — middleware in routes.py rewrites it
+    # into a friendly `audio_quality_removed` error per PRD §6.2 round-3 M3.
+    model_config = ConfigDict(extra='forbid')
 
 
 class DownloadTrackSpec(BaseModel):
     query: str
     title: str | None = None
+    model_config = ConfigDict(extra='forbid')
 
 
 class DownloadAlbumRequest(BaseModel):
     tracks: list[DownloadTrackSpec]
     dest_dir: str | None = None
-    audio_format: str = "mp3"
+    audio_format: AudioFormat = "mp3_320"
+    normalize: bool = False
+    embed_metadata: bool = True
+    model_config = ConfigDict(extra='forbid')
 
 
-class DownloadEvent(BaseModel):
-    """SSE event for a download in progress."""
+class DownloadEnqueueResponse(BaseModel):
+    job_id: str
+    phase: Literal["queued"] = "queued"
+    position: int
+
+
+class DownloadCancelResponse(BaseModel):
+    cancelled: bool
+    reason: str | None = None
+
+
+class DownloadProgressEvent(BaseModel):
+    """Standardized SSE event — single shared shape across /api/download/stream
+    for both single and album jobs. Schema-driven pytest catches drift between
+    server emitter and contract.
+    """
+    type: Literal["progress", "done"] = "progress"
+    job_id: str
+    phase: Literal["queued", "fetching", "converting", "normalizing_pass1",
+                   "normalizing_pass2", "tagging"] | None = None
+    percent: float | None = None
     processed: int = 0
     total: int = 1
-    query: str | None = None
-    title: str | None = None
-    percent: float | None = None
-    status: str | None = None     # "downloading" | "extracting" | "finished" | "error"
+    current_title: str | None = None
+    current_query: str | None = None
+    # done only:
+    status: Literal["success", "error", "cancelled", "already_consumed"] | None = None
     path: str | None = None
-    error: str | None = None
-    done: bool = False
+    error_code: str | None = None
+    error_message: str | None = None
+    error_hint: str | None = None
+    error_raw: str | None = None
     downloaded: int = 0
     failed: int = 0
+
+
+class DownloadQueueActive(BaseModel):
+    id: str
+    title: str | None = None
+    percent: float | None = None
+    phase: str | None = None
+    started_at: float | None = None
+    last_event_at: float | None = None
+
+
+class DownloadQueueResponse(BaseModel):
+    active: list[DownloadQueueActive]
+    queued_count: int
+    max_concurrency: int
+
+
+class RevealPathRequest(BaseModel):
+    path: str
+    model_config = ConfigDict(extra='forbid')
+
+
+# Back-compat alias for any external imports of the old name.
+DownloadEvent = DownloadProgressEvent
 
 
 # ---------------------------------------------------------------------------
