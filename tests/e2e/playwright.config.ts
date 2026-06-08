@@ -13,10 +13,13 @@ import * as path from "node:path";
  * `globalSetup` (a separate file) is too late: by then the webServer
  * command string has already been frozen with empty env values.
  *
- * SAFETY: `safety.spec.ts` runs first in the project order and verifies
- * via `/api/status` + `X-AutoCue-Diagnostic: 1` that the server is bound
- * to the sandbox copy. That spec is the load-bearing safety check — this
- * file is only responsible for putting the right files / ports in place.
+ * SAFETY: `0-safety.spec.ts` is named with a `0-` prefix so Playwright's
+ * alphabetical spec discovery picks it up first, ahead of every other
+ * spec in this directory (including `per-control-sweep.spec.ts`, which is
+ * long-running). It verifies via `/api/status` + `X-AutoCue-Diagnostic: 1`
+ * that the server is bound to the sandbox copy. That spec is the
+ * load-bearing safety check — this file is only responsible for putting
+ * the right files / ports in place.
  */
 
 async function findFreePort(): Promise<number> {
@@ -118,7 +121,13 @@ if (
 export default defineConfig({
   testDir: ".",
   globalTeardown: "./globalTeardown.ts",
-  globalTimeout: 300_000,
+  // 30 min — the per-control sweep alone runs ~116 row-tests at ~10-15s
+  // each (20-29 min). With the old 5 min budget the sweep aborted the run
+  // before `0-safety.spec.ts` and the smoke specs got a chance to execute,
+  // silently nullifying the harness's load-bearing sandbox-DB guard
+  // (issue #119). If a future sweep grows past 30 min, split it into its
+  // own Playwright project rather than bumping this further.
+  globalTimeout: 1_800_000,
   fullyParallel: false,
   forbidOnly: !!process.env.CI,
   retries: 0,

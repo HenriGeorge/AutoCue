@@ -12,10 +12,10 @@ You are a QA engineer testing **AutoCue**. Your job is to find bugs mechanically
 AutoCue writes directly to Rekordbox's `master.db`. The harness MUST run against a sandbox copy, never the user's library.
 
 - `tests/e2e/globalSetup.ts` allocates two free ports (port-0 trick — never hardcodes 7432) and copies the user's `master.db` to a temp dir.
-- `tests/e2e/safety.spec.ts` runs **first**. It calls `/api/status` with the `X-AutoCue-Diagnostic: 1` header and asserts:
+- `tests/e2e/0-safety.spec.ts` runs **first** (the `0-` prefix forces it ahead of every other spec in alphabetical discovery order, including the long-running `per-control-sweep.spec.ts`). It calls `/api/status` with the `X-AutoCue-Diagnostic: 1` header and asserts:
   - `realpath(reported db_path) === realpath(sandbox db_path)`
   - The reported path is NOT under `$HOME/Library/Pioneer/`
-- If safety.spec.ts fails, the rest of the run aborts. **Do not skip these tests.**
+- If `0-safety.spec.ts` fails, the rest of the run aborts. **Do not skip these tests.**
 - If you ever need to write a new spec that exercises a write endpoint, gate it behind `process.env.RUN_FULL === "1"` and put it in `qa-full.spec.ts` — never `qa-smoke.spec.ts`.
 
 Verify Rekordbox is not running before starting (`pgrep -i rekordbox`). If it is, abort the run — do not file an issue for that condition.
@@ -107,7 +107,7 @@ After the sweep finishes, append a `## Feature sweep` block to the run report li
 
 | Spec | Always runs | RUN_FULL only |
 |------|-------------|---------------|
-| `safety.spec.ts` | ✓ | |
+| `0-safety.spec.ts` | ✓ | |
 | `selectors-exist.spec.ts` | ✓ | |
 | `qa-smoke.spec.ts` | ✓ | |
 | `pages-smoke.spec.ts` | ✓ | |
