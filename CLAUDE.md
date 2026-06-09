@@ -20,9 +20,9 @@ AutoCue places hot cues on Rekordbox 7 tracks automatically and analyses a DJ li
 ```bash
 pip install -e ".[dev]"              # install with test deps (fastapi, uvicorn, psutil, httpx, hypothesis)
 pip install -e ".[download]"         # OPTIONAL: YouTube download support (yt-dlp; also needs ffmpeg on PATH)
-pytest                               # run all 1109 Python tests
+pytest                               # run all 1378 Python tests
 npm install                          # one-time: install JS test deps
-npm test                             # run 435 Vitest tests for the web app
+npm test                             # run 579 Vitest tests for the web app
 
 AUTOCUE_POOL_SIZE=8 autocue serve    # override the shared analysis pool size (default min(8, cpu_count))
 AUTOCUE_PERF=1 autocue serve         # enable /api/perf/recent + perf_span ring buffer

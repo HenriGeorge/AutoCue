@@ -171,31 +171,85 @@ pyproject.toml    — hatchling build; runtime + [dev] extras (pytest, httpx, hy
 
 ## REST API endpoints (`serve/routes.py`)
 
+Verified against `grep -oE '@router\.(get|post|delete)\("[^"]+"' autocue/serve/routes.py | sort -u`.
+
+### Core / config
 ```
-GET  /api/status                          GET  /api/playlists
-GET  /api/tracks (?playlist_id=N)         GET  /api/tracks/{id}/artwork
-GET  /api/tracks/{id}/audio               GET  /api/tags
+GET  /api/status                          GET  /api/config
+GET  /api/warmup (TASK-028)               GET  /api/perf/recent (TASK-045, dev-only — 404 unless AUTOCUE_PERF=1)
+GET  /api/tags
+GET  /api/playlists                       POST /api/playlists (create)
+POST /api/playlists/suggest
+```
+
+### Tracks
+```
+GET  /api/tracks (?playlist_id=N, ETag/304, optional NDJSON)
+GET  /api/tracks/{id}/artwork             GET  /api/tracks/{id}/audio
+GET  /api/tracks/{id}/energy              GET  /api/tracks/{id}/mixability
+GET  /api/tracks/{id}/classification      GET  /api/tracks/{id}/similar
+GET  /api/tracks/{id}/health
+POST /api/tracks/check-audio
+```
+
+### Cues — write paths (DB-lock-guarded)
+```
 POST /api/generate                        POST /api/apply
 POST /api/generate-apply                  POST /api/generate-apply-stream (SSE)
 POST /api/delete-cues                     POST /api/color-tracks
-POST /api/color-tracks-stream (SSE)       GET  /api/backups
-POST /api/restore                         DELETE /api/backups/{filename}
-GET  /api/tracks/{id}/health              GET  /api/health (SSE, ?playlist_id=N&limit=N)
-POST /api/cue-tools-stream (SSE)          GET  /api/tracks/{id}/energy
-GET  /api/tracks/{id}/mixability          GET  /api/tracks/{id}/classification
-GET  /api/classify (SSE, ?playlist_id=N)  GET  /api/tracks/{id}/similar
-POST /api/transitions/score               POST /api/setbuilder
-GET  /api/setbuilder/alternatives         POST /api/playlists/suggest
-POST /api/playlists (create)              POST /api/auto-tag
-POST /api/auto-tag/undo                   GET  /api/config
+POST /api/color-tracks-stream (SSE)       POST /api/cue-tools-stream (SSE)
+```
+
+### Library intelligence (SSE fanouts + analysis)
+```
+GET  /api/health (SSE, ?playlist_id=N&limit=N)
+GET  /api/classify (SSE, ?playlist_id=N)
+POST /api/transitions/score
+POST /api/setbuilder                      GET  /api/setbuilder/alternatives
+```
+
+### Auto-tag + comment enrichment
+```
+POST /api/auto-tag                        POST /api/auto-tag/undo
 POST /api/auto-tag/discogs/test           POST /api/auto-tag/discogs (SSE)
 POST /api/enrich-comments                 POST /api/enrich-comments/preview
 POST /api/enrich-comments/stream (SSE)    POST /api/enrich-comments/undo
-GET  /api/discover (SSE)
-GET  /api/download/config                 POST /api/download (SSE)
-POST /api/download/album (SSE)
-POST /api/tracks/check-audio              GET  /api/youtube/search
-GET  /api/warmup (TASK-028)               GET  /api/perf/recent (TASK-045, dev-only — 404 unless AUTOCUE_PERF=1)
+```
+
+### Discover (legacy + v2)
+```
+GET  /api/discover (SSE — legacy Discogs)
+GET  /api/discover/feed                   GET  /api/discover/feed/status
+POST /api/discover/feed/cancel
+GET  /api/discover/stats                  GET  /api/discover/token-status
+GET  /api/discover/releases/{release_id}
+GET  /api/discover/labels                 GET  /api/discover/labels/search
+GET  /api/discover/labels/suggested
+POST /api/discover/labels/follow          POST /api/discover/labels/unfollow
+POST /api/discover/save                   POST /api/discover/unsave
+POST /api/discover/dismiss                POST /api/discover/undismiss
+POST /api/discover/snooze (1w|1m|3m)      POST /api/discover/unsnooze
+POST /api/discover/block-artist           POST /api/discover/unblock-artist
+POST /api/discover/block-label            POST /api/discover/unblock-label
+GET  /api/discover/saved                  GET  /api/discover/snoozed
+GET  /api/discover/dismissed              GET  /api/discover/downloaded
+GET  /api/discover/blocked-artists        GET  /api/discover/blocked-labels
+GET  /api/discover/state/export           POST /api/discover/state/import
+```
+
+### YouTube download (optional — `[download]` extra + ffmpeg)
+```
+GET  /api/download/config                 GET  /api/youtube/search
+GET  /api/download/queue                  GET  /api/download/stream/{job_id}
+POST /api/download (SSE)                  POST /api/download/album (SSE)
+POST /api/download/enqueue                POST /api/download/album/enqueue
+POST /api/download/cancel/{job_id}        POST /api/download/reveal
+```
+
+### Backups
+```
+GET  /api/backups                         POST /api/restore
+DELETE /api/backups/{filename}
 ```
 
 ## Performance layer (TASKs 001–050; 46 of 50 merged)

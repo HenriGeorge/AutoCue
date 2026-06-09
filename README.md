@@ -451,28 +451,105 @@ with remaining slots assigned by musical importance: Drop → Build → Outro �
 
 The local server exposes a full REST API at `http://localhost:7432`.
 
+#### Core
+
 | Method | Endpoint | Description |
 |---|---|---|
-| GET | `/api/status` | Server info + DB path |
+| GET | `/api/status` | Server info + DB path + diagnostic header |
+| GET | `/api/config` | Runtime config (download dir, Discogs token presence, …) |
+| GET | `/api/warmup` | Warm-up progress (cache hydrate → similar index → done) |
+| GET | `/api/perf/recent` | Perf ring buffer (dev-only — 404 unless `AUTOCUE_PERF=1`) |
+| GET | `/api/tags` | All My Tags |
 | GET | `/api/playlists` | All playlists |
-| GET | `/api/tracks` | Tracks (optional `?playlist_id=N`) |
+| POST | `/api/playlists` | Create playlist |
+| POST | `/api/playlists/suggest` | Suggest tracks for a DJ category |
+
+#### Tracks
+
+| Method | Endpoint | Description |
+|---|---|---|
+| GET | `/api/tracks` | Tracks (`?playlist_id=N`, ETag/304, optional NDJSON streaming) |
 | GET | `/api/tracks/{id}/artwork` | Track artwork |
 | GET | `/api/tracks/{id}/audio` | Track audio stream |
-| GET | `/api/tracks/{id}/health` | Single-track cue quality report |
-| GET | `/api/health` | SSE — library-wide health scan (`?playlist_id=N`) |
-| GET | `/api/tracks/{id}/similar` | Similar tracks (`?n=10&bpm_gate=8&force_rebuild=false`) |
+| GET | `/api/tracks/{id}/energy` | Energy curve (PWAV-derived, normalized 0–1) |
+| GET | `/api/tracks/{id}/mixability` | Mixability score (0–100) + components |
 | GET | `/api/tracks/{id}/classification` | Category scores (warmup/build/peak/…) |
-| POST | `/api/transitions/score` | Transition score for two tracks |
-| POST | `/api/setbuilder` | Build a DJ set by beam search |
+| GET | `/api/tracks/{id}/similar` | Similar tracks (`?n=10&bpm_gate=8&force_rebuild=false`) |
+| GET | `/api/tracks/{id}/health` | Single-track cue quality report |
+| POST | `/api/tracks/check-audio` | Bulk check whether audio files exist on disk |
+
+#### Cues — write paths (Rekordbox must be closed)
+
+| Method | Endpoint | Description |
+|---|---|---|
 | POST | `/api/generate` | Generate cue preview (no write) |
 | POST | `/api/apply` | Apply cues to Rekordbox DB |
+| POST | `/api/generate-apply` | Generate + apply in one step |
 | POST | `/api/generate-apply-stream` | SSE — generate + apply in one step |
 | POST | `/api/delete-cues` | Delete all cues for given track IDs |
+| POST | `/api/color-tracks` | Color tracks by BPM range |
 | POST | `/api/color-tracks-stream` | SSE — color tracks by BPM range |
 | POST | `/api/cue-tools-stream` | SSE — bulk rename / recolor / shift / delete cues |
-| POST | `/api/playlists/suggest` | Suggest tracks for a DJ category |
+
+#### Library intelligence
+
+| Method | Endpoint | Description |
+|---|---|---|
+| GET | `/api/health` | SSE — library-wide health scan (`?playlist_id=N&limit=N`) |
+| GET | `/api/classify` | SSE — library-wide classification (`?playlist_id=N`) |
+| POST | `/api/transitions/score` | Transition score for two tracks |
+| POST | `/api/setbuilder` | Build a DJ set by beam search |
+| GET | `/api/setbuilder/alternatives` | Replacement candidates for a set slot |
+
+#### Auto-tag + comments (My Tags / DjmdContent.Commnt)
+
+| Method | Endpoint | Description |
+|---|---|---|
+| POST | `/api/auto-tag` | Apply detector-driven My Tags |
+| POST | `/api/auto-tag/undo` | Reverse an auto-tag run |
+| POST | `/api/auto-tag/discogs/test` | Test Discogs token + lookup for one track |
+| POST | `/api/auto-tag/discogs` | SSE — Discogs-driven genre/style tagging |
+| POST | `/api/enrich-comments` | Apply MIK-compatible comment enrichment |
+| POST | `/api/enrich-comments/preview` | Preview the comment string per track |
+| POST | `/api/enrich-comments/stream` | SSE — comment enrichment with progress |
+| POST | `/api/enrich-comments/undo` | Reverse a comment enrichment run |
+
+#### Discover v2 (new-release surfacing)
+
+| Method | Endpoint | Description |
+|---|---|---|
+| GET | `/api/discover` | SSE — legacy Discogs new-release suggestions |
+| GET | `/api/discover/feed` | Discover v2 feed (artist / label / novelty) |
+| GET | `/api/discover/feed/status` | Active scan status |
+| POST | `/api/discover/feed/cancel` | Cancel running scan |
+| GET | `/api/discover/stats` | Taste vector + feed stats |
+| GET | `/api/discover/token-status` | Discogs token health |
+| GET | `/api/discover/releases/{release_id}` | Single release detail |
+| GET, POST | `/api/discover/labels`, `/api/discover/labels/search`, `/api/discover/labels/suggested`, `/api/discover/labels/follow`, `/api/discover/labels/unfollow` | Followed-label management |
+| POST | `/api/discover/save`, `/api/discover/unsave`, `/api/discover/dismiss`, `/api/discover/undismiss`, `/api/discover/snooze`, `/api/discover/unsnooze`, `/api/discover/block-artist`, `/api/discover/unblock-artist`, `/api/discover/block-label`, `/api/discover/unblock-label` | Per-release / per-entity state changes (snooze = 1w/1m/3m only) |
+| GET | `/api/discover/saved`, `/api/discover/snoozed`, `/api/discover/dismissed`, `/api/discover/downloaded`, `/api/discover/blocked-artists`, `/api/discover/blocked-labels` | State listings |
+| GET, POST | `/api/discover/state/export`, `/api/discover/state/import` | Backup + restore Discover state |
+
+#### YouTube download (optional — requires `[download]` extra + ffmpeg)
+
+| Method | Endpoint | Description |
+|---|---|---|
+| GET | `/api/download/config` | yt-dlp / ffmpeg availability + default dir |
+| GET | `/api/youtube/search` | Candidate picker for ambiguous queries |
+| GET | `/api/download/queue` | Active + queued jobs |
+| GET | `/api/download/stream/{job_id}` | SSE — per-job progress |
+| POST | `/api/download` | SSE — single-track download |
+| POST | `/api/download/album` | SSE — album download |
+| POST | `/api/download/enqueue`, `/api/download/album/enqueue` | Enqueue for background worker |
+| POST | `/api/download/cancel/{job_id}` | Cancel a running / queued job |
+| POST | `/api/download/reveal` | Reveal downloaded file in Finder / Explorer |
+
+#### Backups
+
+| Method | Endpoint | Description |
+|---|---|---|
 | GET | `/api/backups` | List available backups |
-| POST | `/api/restore` | Restore a backup |
+| POST | `/api/restore` | Restore a backup (invalidates the sidecar cache) |
 | DELETE | `/api/backups/{filename}` | Delete a backup |
 
 ---
@@ -481,9 +558,9 @@ The local server exposes a full REST API at `http://localhost:7432`.
 
 ```bash
 pip install -e ".[dev]"              # install with test deps
-pytest                               # run all 633 Python tests
+pytest                               # run all 1378 Python tests
 npm install                          # one-time: install JS test deps
-npm test                             # run 159 Vitest tests for the web app
+npm test                             # run 579 Vitest tests for the web app
 
 autocue serve --no-browser           # start local server without opening browser
 autocue --library --dry-run          # preview CLI output without writing
@@ -498,31 +575,49 @@ autocue/
   generator.py     — phrase → bar → heuristic strategy; smart slot ordering; confidence scores
   writer.py        — writes CuePoints to Rekordbox XML
   db_writer.py     — writes CuePoints to DjmdCue; backup + safety checks; BPM coloring
-  cli.py           — argparse CLI
+  cli.py           — argparse CLI; `autocue serve` subcommand
+  cache.py         — Sidecar SQLite cache at <rekordbox_dir>/autocue_cache.sqlite (L2)
+  cache_reset.py   — `autocue serve --reset-cache` implementation
+  perf.py          — perf_span() context manager + ring buffer (AUTOCUE_PERF=1)
+  download.py      — Optional yt-dlp wrapper (requires [download] extra + ffmpeg)
   analysis/
-    quality.py     — Cue Quality Checker: health score 0–100, fix tiers, SSE streaming
-    energy.py      — PWAV waveform reader → energy curve (one float per ~150ms column)
-    score.py       — Mixability score (0–100): intro/outro/energy/vocal formula
-    classify.py    — Track category classification (warmup/build/peak/after_hours/closing)
-    similar.py     — 5-dim cosine similarity index with ±8 BPM gate
-    transitions.py — BPM (40%) + Key Camelot wheel (35%) + Energy (25%) scoring
-    setbuilder.py  — Beam search set builder (width=5, energy mode, deduplication)
+    concurrency.py  — Shared process-singleton ThreadPoolExecutor (AUTOCUE_POOL_SIZE)
+    anlz_path.py    — Single source of truth for ANLZ mtime cache keys
+    quality.py      — Cue Quality Checker: health score 0–100, fix tiers, SSE streaming
+    energy.py       — PWAV waveform reader → energy curve + profile classifier
+    score.py        — Mixability score (0–100): intro/outro/energy/vocal formula
+    classify.py     — Track classification (warmup/build/peak/after_hours/closing)
+    similar.py      — 6-dim cosine similarity index with ±8 BPM gate
+    transitions.py  — BPM (40%) + Key Camelot wheel (35%) + Energy (25%) scoring
+    setbuilder.py   — Beam search set builder (width=5, energy mode, deduplication)
+    auto_tag.py     — Writes DJ analysis as Rekordbox My Tags; undo support
+    comment.py      — Track comment enrichment → DjmdContent.Commnt (MIK-compatible)
+    discogs.py      — Discogs API client (rate-limited; styles + recent releases)
+    discovery.py    — Legacy new-release suggestions (Discogs-based)
+    discover/       — Discover v2: taste, style_graph, feeders/, ranker,
+                       scan_orchestrator, store; new-release surfacing with novelty rotation
   serve/
-    app.py         — FastAPI app factory + uvicorn launcher
-    routes.py      — All API endpoints
-    schemas.py     — Pydantic request/response models
-    deps.py        — DB connection lifecycle
+    app.py          — FastAPI app factory + uvicorn launcher
+    middleware.py   — Snapshot-invalidation middleware (2xx POST/PUT/DELETE under /api/*)
+    routes.py       — All API endpoints
+    schemas.py      — Pydantic request/response models
+    deps.py         — DB connection lifecycle + L2 wiring + warm-up pipeline
 
 docs/
-  index.html       — Single-file web app (no build step, no framework, no dependencies)
+  index.html        — Single-file web app (no build step, no framework, no dependencies)
+  FEATURES.md       — End-user feature documentation
+  reference/        — Per-feature reference docs (rest-api, discover-v2, set-builder, …)
+  guides/           — Static DJ learning guides
 
 tests/
-  test_models.py, test_analyzer.py, test_generator.py, test_writer.py,
-  test_db_writer.py, test_quality.py, test_energy.py, test_score.py,
-  test_classify.py, test_similar.py, test_transitions.py, test_setbuilder.py,
-  test_serve_routes.py  — 633 Python tests total
-  web/
-    xml-processing.test.js, ui-logic.test.js  — 159 Vitest tests
+  test_*.py         — 1378 Python tests covering CLI, generator, writer, db_writer,
+                      analysis modules, perf, cache, snapshot, serve routes, and
+                      Discover v2 (taste, style_graph, feeders, ranker, orchestrator, store)
+  e2e/              — Playwright smoke harness (autocue-qa agent) — sandbox port-0 server
+  perf/             — Perf-budget tests (gated by RUN_PERF=1; `make perf`)
+  web/              — 579 Vitest tests across 30 spec files (xml-processing, ui-logic,
+                      Discover v2 onboarding/snooze/download/integration/sort/stats/…,
+                      virtualizer, sticky structure, UX PRs, warmup badge, perf helper)
 ```
 
 ---
