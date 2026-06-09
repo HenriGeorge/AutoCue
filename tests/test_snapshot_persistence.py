@@ -165,5 +165,18 @@ def test_middleware_does_not_invalidate_on_5xx():
 
 @pytest.mark.perf
 def test_marker_perf_is_registered_and_skipped_by_default():
-    """This test is itself marked @pytest.mark.perf — should skip unless RUN_PERF=1."""
-    assert False, "this should never run without RUN_PERF=1"
+    """Tripwire for the ``@pytest.mark.perf`` gate in tests/conftest.py.
+
+    Without ``RUN_PERF=1`` this test is skipped by the conftest hook, so the
+    body never runs. With ``RUN_PERF=1`` (i.e. ``make perf``) it executes and
+    must pass — proving the marker is registered AND honoured.
+
+    The original implementation asserted ``False`` here as a "should never run"
+    canary, which broke ``make perf`` itself (#111). The honest invariant is:
+    when this body runs, ``RUN_PERF`` is set; otherwise pytest never reached it.
+    """
+    import os
+
+    assert os.environ.get("RUN_PERF") == "1", (
+        "perf-marked test ran without RUN_PERF=1 — the conftest gate is broken"
+    )

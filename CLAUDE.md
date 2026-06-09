@@ -21,6 +21,7 @@ AutoCue places hot cues on Rekordbox 7 tracks automatically and analyses a DJ li
 pip install -e ".[dev]"              # install with test deps (fastapi, uvicorn, psutil, httpx, hypothesis)
 pip install -e ".[download]"         # OPTIONAL: YouTube download support (yt-dlp; also needs ffmpeg on PATH)
 pytest                               # run all 1109 Python tests
+make perf                            # run gated perf suite (RUN_PERF=1 pytest -m perf)
 npm install                          # one-time: install JS test deps
 npm test                             # run 435 Vitest tests for the web app
 
