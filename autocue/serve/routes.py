@@ -1006,12 +1006,26 @@ def generate_apply(req: GenerateAndApplyRequest, request: Request, db=Depends(ge
 
 
 @router.post("/generate-apply-stream")
-def generate_apply_stream(req: GenerateAndApplyRequest, request: Request, db=Depends(get_db)):
+async def generate_apply_stream(
+    req: GenerateAndApplyRequest,
+    request: Request,
+    db=Depends(get_db),
+):
     """SSE endpoint: yields progress events as each track is processed.
     Each event: data: {"processed":N,"total":M,"applied":A,"skipped":S}
     Final event: data: {"done":true,"applied":A,"skipped":S,"backup_path":"..."}
+
+    Issue #104 / TASK-041 — When the client disconnects (browser tab closed
+    mid-stream), an asyncio task polling ``request.is_disconnected()`` sets
+    a shared ``threading.Event`` watched by the compute + writer loop. The
+    route is ``async def`` so the poll task can live on the request's event
+    loop; the sync ``event_stream`` generator is still served via
+    :class:`StreamingResponse` (matches the pattern used by
+    ``library_health`` and ``classify_library`` elsewhere in this file).
     """
+    import asyncio
     import json
+    import threading as _threading
     from fastapi.responses import StreamingResponse
     from ..db_writer import backup_database, rekordbox_is_running, write_cues_to_db
     from pathlib import Path
@@ -1047,6 +1061,28 @@ def generate_apply_stream(req: GenerateAndApplyRequest, request: Request, db=Dep
     import os as _os
     from .. import perf as _perf
 
+    # Issue #104 / TASK-041 — cancellation Event hoisted to the async
+    # handler so the disconnect-poll task (launched below, on the request's
+    # event loop) can ``.set()`` it. The sync ``event_stream`` generator
+    # closes over this same Event and watches it from the compute + writer
+    # loop. A sync thread cannot observe ``request.is_disconnected()`` —
+    # starlette only flips ``_is_disconnected`` from inside the async call,
+    # so the previous attribute-poll path was a no-op (Issue #104).
+    cancel = _threading.Event()
+
+    async def _poll_disconnect_async() -> None:
+        """Poll ``request.is_disconnected()`` every 200ms; set ``cancel``
+        on disconnect. Narrow the exception list to ``CancelledError`` so a
+        real bug surfaces instead of being swallowed."""
+        try:
+            while not cancel.is_set():
+                if await request.is_disconnected():
+                    cancel.set()
+                    return
+                await asyncio.sleep(0.2)
+        except asyncio.CancelledError:
+            return
+
     def event_stream():
         applied = skipped = 0
         written_ids: list[int] = []
@@ -1069,8 +1105,6 @@ def generate_apply_stream(req: GenerateAndApplyRequest, request: Request, db=Dep
             # Set AUTOCUE_PARALLEL_GENERATE_APPLY=0 to fall back to the serial
             # path below.
             import queue as _queue
-            import threading as _threading
-            import time as _time
 
             from ..analysis.concurrency import get_pool, pool_size
             from ..db_writer import write_cues_to_db as _write_cues_to_db
@@ -1081,23 +1115,11 @@ def generate_apply_stream(req: GenerateAndApplyRequest, request: Request, db=Dep
             work_q: _queue.Queue = _queue.Queue(maxsize=cap)
             event_q: _queue.Queue = _queue.Queue()  # unbounded; events are tiny
 
-            # TASK-041 — cancellation on client disconnect.
-            cancel = _threading.Event()
-            disconnected_at: list[float | None] = [None]
-
-            def _poll_disconnect():
-                while not cancel.is_set():
-                    try:
-                        if hasattr(request, "_is_disconnected") and getattr(request, "_is_disconnected", False):
-                            cancel.set()
-                            disconnected_at[0] = _time.time()
-                            return
-                    except Exception:
-                        return
-                    _time.sleep(0.2)
-
-            poll_thread = _threading.Thread(target=_poll_disconnect, daemon=True, name="autocue-cancel-poll")
-            poll_thread.start()
+            # Issue #104 / TASK-041 — cancellation is signalled via the
+            # ``cancel`` Event hoisted to the async handler above. The
+            # disconnect-poll task launched there sets it on TCP close; the
+            # compute submit loop and writer loop both check
+            # ``cancel.is_set()`` between iterations.
 
             # Per-track compute closure (captures prefs + phrase_only).
             def _compute_one(tid):
@@ -1175,7 +1197,7 @@ def generate_apply_stream(req: GenerateAndApplyRequest, request: Request, db=Dep
             # Make sure the producer joins cleanly (it should already be done
             # by the time the writer finished, but the join is cheap).
             producer_thread.join(timeout=1.0)
-            cancel.set()  # stop the poll thread
+            cancel.set()  # signal the async poll task to exit on its next tick
             applied = writer_result["applied"]
             skipped = writer_result["skipped"]
             errors = writer_result["errors"]
@@ -1272,6 +1294,13 @@ def generate_apply_stream(req: GenerateAndApplyRequest, request: Request, db=Dep
                         pass
         _outer_span.__exit__(None, None, None)
         yield f"data: {json.dumps({'done': True, 'applied': applied, 'skipped': skipped, 'errors': errors, 'backup_path': backup_path})}\n\n"
+        cancel.set()  # signal the async poll task to exit on its next tick
+
+    # Issue #104 / TASK-041 — launch the disconnect-poll task on the
+    # request's event loop. It exits when ``cancel`` is set (either by the
+    # client closing the connection, or by the sync generator on normal
+    # completion).
+    asyncio.create_task(_poll_disconnect_async())
 
     return StreamingResponse(
         event_stream(),
