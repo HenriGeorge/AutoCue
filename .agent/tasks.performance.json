@@ -165,7 +165,7 @@
     "title": "Re-evaluate /api/tracks SQL pattern at 10k tracks",
     "category": "api-endpoint",
     "specFilePath": ".agent/tasks/performance/TASK-024.json",
-    "passes": true
+    "passes": false
   },
   {
     "id": "TASK-025",
