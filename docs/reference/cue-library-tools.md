@@ -308,6 +308,65 @@ omitted — `test_missing_operation_params_returns_422`
 > default. Programmatic callers must pass `dry_run: true` explicitly to get
 > the same safety.
 
+### Wire-format field names per operation
+
+Any UI labels in this document (e.g. **Find / Replace** for rename, the eight
+**slot-color drop-downs** for recolor, the **±ms** input for shift, the
+**Keep slots A–N** picker for delete_orphan) describe the **web UI controls
+only**. Programmatic callers of `POST /api/cue-tools-stream` MUST use the
+schema field names below — sending a UI label like `from` / `to` /
+`offset_ms` / `target_color_id` / `keep_first_n_slots` returns
+`HTTP 422 {detail:[{type:"missing", loc:["body","<op>","<field>"]}]}`.
+
+| Operation       | Nested key       | Required JSON fields                                                                | Source schema                                |
+|-----------------|------------------|--------------------------------------------------------------------------------------|----------------------------------------------|
+| `rename`        | `rename`         | `from_name: string`, `to_name: string`                                               | `CueRenameParams` (`schemas.py:286`)         |
+| `recolor`       | `recolor`        | `slot_colors: {"<slot 0–7>": <ColorTableIndex 0–8>, ...}`                            | `CueRecolorParams` (`schemas.py:291`)        |
+| `shift`         | `shift`          | `delta_ms: int` (non-zero), optional `negative_policy: "skip"\|"clamp_to_zero"\|"abort_track"` (default `"abort_track"`) | `CueShiftParams` (`schemas.py:298`)          |
+| `delete_orphan` | `delete_orphan`  | `keep_slots: int` (1 ≤ n ≤ 8)                                                        | `CueDeleteOrphanParams` (`schemas.py:314`)   |
+
+A minimal request body per operation:
+
+```json
+// rename
+{
+  "operation": "rename",
+  "track_ids": [101, 102],
+  "dry_run": true,
+  "rename": {"from_name": "Cue 1", "to_name": "Drop"}
+}
+
+// recolor (set slot A to Green=5, slot B to Blue=7; other slots untouched)
+{
+  "operation": "recolor",
+  "track_ids": [101, 102],
+  "dry_run": true,
+  "recolor": {"slot_colors": {"0": 5, "1": 7}}
+}
+
+// shift (+25 ms; abort tracks whose first cue would go negative)
+{
+  "operation": "shift",
+  "track_ids": [101, 102],
+  "dry_run": true,
+  "shift": {"delta_ms": 25, "negative_policy": "abort_track"}
+}
+
+// delete_orphan (keep slots A–D, delete E–H)
+{
+  "operation": "delete_orphan",
+  "track_ids": [101, 102],
+  "dry_run": true,
+  "delete_orphan": {"keep_slots": 4}
+}
+```
+
+The slot-index strings in `slot_colors` are `"0"` (slot A) through `"7"`
+(slot H) — `DjmdCue.Kind - 1`. The `ColorTableIndex` values are
+`0` (none) / `1` Pink / `2` Red / `3` Orange / `4` Yellow / `5` Green /
+`6` Aqua / `7` Blue / `8` Purple. See [Recolor](#recolor) above for the
+full mapping.
+
 ### Response — SSE stream
 
 The response is a `text/event-stream` with two kinds of events.
