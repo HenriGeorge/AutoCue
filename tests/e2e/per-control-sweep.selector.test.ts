@@ -1,5 +1,5 @@
 import { test, expect } from "@playwright/test";
-import { buildIdSelector } from "./per-control-sweep.spec";
+import { buildIdSelector } from "./per-control-sweep.helpers";
 
 /**
  * Regression guard for issue #20.
