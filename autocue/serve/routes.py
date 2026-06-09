@@ -145,17 +145,109 @@ def playlists(db=Depends(get_ro_db)):
     ]
 
 
-def _wait_any(in_flight: dict):
-    """Wait for ANY future in ``in_flight`` to complete; return (done_set, pending_set).
+def _compute_stage(track_iter, pool, work_fn, q, cancel, max_in_flight: int) -> None:
+    """TASK-039/040 compute stage.
 
-    Thin wrapper around ``concurrent.futures.wait`` with
-    ``return_when=FIRST_COMPLETED`` — keeps the TASK-040 bounded-in-flight
-    pattern testable with stub futures.
+    Submits work units from ``track_iter`` to ``pool`` (each becomes a Future
+    running ``work_fn(track_id)``). Maintains at most ``max_in_flight`` outstanding
+    futures at any time — when a future completes, its result tuple is pushed to
+    ``q`` and the next track id (if any) is submitted.
+
+    ``q`` is a ``queue.Queue`` with ``maxsize == max_in_flight`` (per PRD: bounded
+    buffer between stages). ``cancel`` is a ``threading.Event``; once set, no new
+    work is submitted and the stage drains its existing in-flight futures
+    before exiting.
+
+    On exit (normal or cancelled), a sentinel ``None`` is pushed to ``q`` so the
+    writer stage knows to stop. The sentinel is pushed exactly once.
+
+    This function blocks until done; intended to run on a background thread.
     """
     from concurrent.futures import FIRST_COMPLETED, wait
-    if not in_flight:
-        return set(), set()
-    return wait(list(in_flight.keys()), return_when=FIRST_COMPLETED)
+
+    in_flight: dict = {}
+
+    def _submit_next() -> bool:
+        try:
+            nxt = next(track_iter)
+        except StopIteration:
+            return False
+        in_flight[pool.submit(work_fn, nxt)] = nxt
+        return True
+
+    try:
+        # Prime up to ``max_in_flight`` slots.
+        for _ in range(max(1, max_in_flight)):
+            if cancel.is_set() or not _submit_next():
+                break
+
+        while in_flight:
+            done, _pending = wait(list(in_flight.keys()), return_when=FIRST_COMPLETED)
+            for fut in done:
+                in_flight.pop(fut, None)
+                try:
+                    result = fut.result()
+                except Exception as exc:  # noqa: BLE001
+                    result = (None, None, None, f"err:future:{exc}")
+                # Block on q.put — the bounded queue is our backpressure mechanism;
+                # if the writer is slow, we wait rather than buffering unbounded.
+                q.put(result)
+                if not cancel.is_set():
+                    _submit_next()
+    finally:
+        # Always push the sentinel, even on cancel — the writer is blocked on
+        # q.get() and would deadlock otherwise.
+        q.put(None)
+
+
+def _writer_stage(q, db, write_fn, on_event, cancel) -> tuple[int, int]:
+    """TASK-039/040 writer stage.
+
+    Drains result tuples ``(track_id, content, cues, skip)`` from ``q`` until it
+    sees the sentinel ``None``. For each tuple it runs the per-track write via
+    ``write_fn(content, cues)`` (when applicable) and calls ``on_event(processed,
+    applied, skipped)`` so the SSE layer can emit a progress event.
+
+    Single-writer rule on ``master.db`` is preserved: only this stage calls the
+    write path. Runs on the SSE-yielding thread (caller controls yields by
+    inspecting the tuple events ``on_event`` produces).
+
+    Returns ``(applied, skipped)`` totals on exit. On cancel, drains the queue
+    until the sentinel and exits without performing further writes.
+    """
+    applied = 0
+    skipped = 0
+    processed = 0
+    while True:
+        item = q.get()
+        if item is None:
+            # Sentinel — compute stage is done.
+            return (applied, skipped)
+        processed += 1
+        if processed % 100 == 0:
+            try:
+                db.session.expire_all()
+            except Exception:
+                pass
+
+        # On cancel, keep draining (so the compute stage can finish pushing the
+        # sentinel) but do not perform any further writes.
+        if cancel.is_set():
+            continue
+
+        _tid, content, cues, skip = item
+        if skip or content is None or not cues:
+            skipped += 1
+        else:
+            try:
+                n = write_fn(content, cues)
+                if n > 0:
+                    applied += 1
+                else:
+                    skipped += 1
+            except Exception:
+                skipped += 1
+        on_event(processed, applied, skipped)
 
 
 def _master_db_mtime(db) -> float | None:
@@ -820,10 +912,8 @@ def generate_apply_stream(req: GenerateAndApplyRequest, db=Depends(get_db)):
             # TASK-008 verification; set AUTOCUE_PARALLEL_GENERATE_APPLY=0
             # to fall back to the serial path.
             #
-            # TASK-040 — bounded in-flight count so memory stays bounded for
-            # 10k+-track applies; we batch-submit instead of dumping every
-            # future into the pool at once.
-            from concurrent.futures import as_completed
+            # TASK-039/040 — bounded producer/consumer (see _compute_stage /
+            # _writer_stage). Memory stays bounded for 10k+-track applies.
             import threading as _threading
             import time as _time
 
@@ -876,56 +966,77 @@ def generate_apply_stream(req: GenerateAndApplyRequest, db=Depends(get_db)):
             poll_thread = _threading.Thread(target=_poll_disconnect, daemon=True, name="autocue-cancel-poll")
             poll_thread.start()
 
-            # TASK-040 — bounded in-flight: at most ``2 * pool_size`` futures
-            # outstanding at any time. Track ids submitted lazily.
+            # TASK-039/040 — producer/consumer with a bounded queue between the
+            # compute and writer stages. Compute stage runs on a background
+            # thread, drives the shared pool, caps in-flight futures at
+            # ``2 * pool_size``, and pushes ``(tid, content, cues, skip)`` tuples
+            # into ``work_q``. A sentinel ``None`` marks end-of-stream. The
+            # writer stage runs on its own thread (preserves the single-writer
+            # rule on ``master.db``) and pushes serialized SSE event strings
+            # into ``events_q``; this generator drains ``events_q`` so SSE
+            # yields stay correctly ordered with the writer's progress.
+            import queue as _queue
+
+            ps = max(1, pool_size())
+            cap = 2 * ps
+            work_q: _queue.Queue = _queue.Queue(maxsize=cap)
+            events_q: _queue.Queue = _queue.Queue()
+
+            def _write_one(content, cues):
+                return write_cues_to_db(
+                    content, cues, db,
+                    overwrite=req.overwrite, dry_run=req.dry_run,
+                )
+
+            def _on_event(processed: int, applied_now: int, skipped_now: int):
+                events_q.put(
+                    f"data: {json.dumps({'processed': processed, 'total': total, 'applied': applied_now, 'skipped': skipped_now})}\n\n"
+                )
+
             track_iter = iter(req.track_ids)
-            in_flight: dict = {}
-            cap = max(2, 2 * pool_size())
-            for _ in range(cap):
+
+            compute_thread = _threading.Thread(
+                target=_compute_stage,
+                args=(track_iter, pool, _compute_one, work_q, cancel, cap),
+                daemon=True,
+                name="autocue-compute-stage",
+            )
+
+            writer_totals: dict = {"applied": 0, "skipped": 0}
+
+            def _writer_target():
                 try:
-                    nxt = next(track_iter)
-                except StopIteration:
-                    break
-                in_flight[pool.submit(_compute_one, nxt)] = nxt
+                    a, s = _writer_stage(work_q, db, _write_one, _on_event, cancel)
+                    writer_totals["applied"] = a
+                    writer_totals["skipped"] = s
+                finally:
+                    # End-of-stream sentinel for the SSE generator below.
+                    events_q.put(None)
 
-            processed = 0
-            while in_flight:
-                if cancel.is_set():
-                    break
-                done_set, _ = _wait_any(in_flight)
-                for fut in done_set:
-                    in_flight.pop(fut, None)
-                    try:
-                        tid, content, cues, skip = fut.result()
-                    except Exception:
-                        tid, content, cues, skip = (None, None, None, "err:future")
-                    processed += 1
-                    if processed % 100 == 0:
-                        db.session.expire_all()
-                    if skip or content is None or not cues:
-                        skipped += 1
-                    else:
-                        try:
-                            n = write_cues_to_db(
-                                content, cues, db,
-                                overwrite=req.overwrite, dry_run=req.dry_run,
-                            )
-                            if n > 0:
-                                applied += 1
-                            else:
-                                skipped += 1
-                        except Exception:
-                            skipped += 1
-                    yield f"data: {json.dumps({'processed': processed, 'total': total, 'applied': applied, 'skipped': skipped})}\n\n"
-                    # Top up the in-flight queue.
-                    if not cancel.is_set():
-                        try:
-                            nxt = next(track_iter)
-                            in_flight[pool.submit(_compute_one, nxt)] = nxt
-                        except StopIteration:
-                            pass
+            writer_thread = _threading.Thread(
+                target=_writer_target,
+                daemon=True,
+                name="autocue-writer-stage",
+            )
 
-            cancel.set()  # stop the poll thread
+            compute_thread.start()
+            writer_thread.start()
+
+            try:
+                while True:
+                    evt = events_q.get()
+                    if evt is None:
+                        break
+                    yield evt
+            finally:
+                cancel.set()  # stop the poll thread and any in-flight compute
+                # Make sure background threads have wound down before we emit
+                # the final 'done' event — totals are read out of writer_totals.
+                writer_thread.join(timeout=5.0)
+                compute_thread.join(timeout=5.0)
+
+            applied = writer_totals["applied"]
+            skipped = writer_totals["skipped"]
             yield f"data: {json.dumps({'done': True, 'applied': applied, 'skipped': skipped, 'backup_path': backup_path})}\n\n"
             return
 
