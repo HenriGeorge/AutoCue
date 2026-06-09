@@ -32,6 +32,7 @@ autocue --library --dry-run          # preview CLI output without writing
 autocue --track "Song Title"
 autocue --library --overwrite        # re-generate for all tracks (default skips already-cued)
 autocue --library --playlist "NAME"  # restrict --library to a named playlist
+make perf                            # run perf budget enforcement (RUN_PERF=1 pytest -m perf)
 ```
 
 ## Must-know constraints (read every session)
