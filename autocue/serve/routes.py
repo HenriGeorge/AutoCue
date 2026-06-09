@@ -282,6 +282,7 @@ def _writer_stage(
     appended — used by the caller to invalidate per-track mixability sidecar
     rows after the stream finishes (issue #106 / PR #143 contract).
     """
+    from .. import perf as _perf
     applied = skipped = processed = 0
     while True:
         if cancel.is_set():
@@ -311,10 +312,14 @@ def _writer_stage(
             skipped += 1
         else:
             try:
-                n = write_fn(
-                    content, cues, db,
-                    overwrite=overwrite, dry_run=dry_run,
-                )
+                # TASK-046 — per-track writer span (producer/consumer arch).
+                # _writer_stage runs in a single dedicated thread, so this
+                # span never violates master.db's single-writer rule.
+                with _perf.perf_span("generate_apply.write_one"):
+                    n = write_fn(
+                        content, cues, db,
+                        overwrite=overwrite, dry_run=dry_run,
+                    )
                 if n > 0:
                     applied += 1
                     if written_ids is not None and tid is not None:
@@ -1017,10 +1022,15 @@ def generate_apply_stream(req: GenerateAndApplyRequest, request: Request, db=Dep
     total = len(req.track_ids)
 
     import os as _os
+    from .. import perf as _perf
 
     def event_stream():
         applied = skipped = 0
         written_ids: list[int] = []
+        # TASK-046 (issue #110) — outer compute span for the whole SSE stream so
+        # /api/perf/recent surfaces per-endpoint p50/p95/p99.
+        _outer_span = _perf.perf_span("generate_apply.compute")
+        _outer_span.__enter__()
         if _os.environ.get("AUTOCUE_PARALLEL_GENERATE_APPLY", "1") != "0":
             # TASK-039 / TASK-040 — explicit producer/consumer split.
             #
@@ -1156,6 +1166,7 @@ def generate_apply_stream(req: GenerateAndApplyRequest, request: Request, db=Dep
                             _cs.invalidate_mixability(cid)
                         except Exception:
                             pass
+            _outer_span.__exit__(None, None, None)
             yield f"data: {json.dumps({'done': True, 'applied': applied, 'skipped': skipped, 'backup_path': backup_path})}\n\n"
             return
 
@@ -1181,7 +1192,9 @@ def generate_apply_stream(req: GenerateAndApplyRequest, request: Request, db=Dep
                     if not cues:
                         skipped += 1
                     else:
-                        n = write_cues_to_db(content, cues, db, overwrite=req.overwrite, dry_run=req.dry_run)
+                        # TASK-046 — per-track writer span (serial path).
+                        with _perf.perf_span("generate_apply.write_one"):
+                            n = write_cues_to_db(content, cues, db, overwrite=req.overwrite, dry_run=req.dry_run)
                         if n > 0:
                             applied += 1
                             written_ids.append(tid)
@@ -1197,6 +1210,7 @@ def generate_apply_stream(req: GenerateAndApplyRequest, request: Request, db=Dep
                         _cs.invalidate_mixability(cid)
                     except Exception:
                         pass
+        _outer_span.__exit__(None, None, None)
         yield f"data: {json.dumps({'done': True, 'applied': applied, 'skipped': skipped, 'backup_path': backup_path})}\n\n"
 
     return StreamingResponse(
@@ -1487,10 +1501,14 @@ def color_tracks_stream_ep(req: ColorTracksRequest, db=Depends(get_db)):
 
     def event_stream():
         from sqlalchemy import text as _text
+        from .. import perf as _perf
         stmt = _text("UPDATE djmdContent SET ColorID = :cid WHERE ID = :tid")
         colored = skipped = 0
         BATCH = 50
 
+        # TASK-046 (issue #110) — outer compute span for the SSE stream.
+        _outer_span = _perf.perf_span("color_tracks.compute")
+        _outer_span.__enter__()
         try:
             for i, tid in enumerate(track_ids):
                 content = db.get_content(ID=tid)
@@ -1504,7 +1522,9 @@ def color_tracks_stream_ep(req: ColorTracksRequest, db=Depends(get_db)):
                     sort_key = _bpm_to_color_sort_key(bpm)
                     color_id = color_by_sort_key.get(sort_key)
                     if not dry_run:
-                        db.session.execute(stmt, {"cid": color_id, "tid": tid})
+                        # TASK-046 — per-track writer span.
+                        with _perf.perf_span("color_tracks.write_one"):
+                            db.session.execute(stmt, {"cid": color_id, "tid": tid})
                     colored += 1
 
                 if (i + 1) % BATCH == 0:
@@ -1516,8 +1536,10 @@ def color_tracks_stream_ep(req: ColorTracksRequest, db=Depends(get_db)):
 
         except BaseException:  # includes GeneratorExit (client disconnect)
             db.session.rollback()
+            _outer_span.__exit__(None, None, None)
             raise
 
+        _outer_span.__exit__(None, None, None)
         yield f"data: {_json.dumps({'done': True, 'colored': colored, 'skipped': skipped, 'total': total, 'backup_path': backup_path, 'dry_run': dry_run})}\n\n"
 
     return StreamingResponse(event_stream(), media_type="text/event-stream")
@@ -1650,6 +1672,10 @@ async def library_health(
             raise HTTPException(404, f"Playlist {playlist_id} not found")
 
     def event_stream():
+        from .. import perf as _perf
+        # TASK-046 (issue #110) — outer compute span for the library-health SSE stream.
+        _outer_span = _perf.perf_span("library_health.compute")
+        _outer_span.__enter__()
         scores: list[int] = []
         missing_audio: list[int] = []
         issue_counts: dict[str, int] = defaultdict(int)
@@ -1705,6 +1731,7 @@ async def library_health(
             no_memory_cue=issue_counts.get("NO_MEMORY_CUE", 0),
             fix_tier_counts=dict(tier_counts),
         )
+        _outer_span.__exit__(None, None, None)
         yield f"data: {json.dumps({'done': True, 'summary': summary.model_dump()})}\n\n"
 
     return StreamingResponse(
@@ -1850,9 +1877,13 @@ def cue_tools_stream(req: CueToolsRequest, db=Depends(get_db)):
         return changed, skipped, reasons
 
     def event_stream():
+        from .. import perf as _perf
         processed = affected = total_changed = total_skipped = 0
         total_reasons: dict[str, int] = {}
 
+        # TASK-046 (issue #110) — outer compute span for cue-tools SSE.
+        _outer_span = _perf.perf_span("cue_tools.compute")
+        _outer_span.__enter__()
         try:
             for i, tid in enumerate(track_ids):
                 content = db.get_content(ID=tid)
@@ -1860,7 +1891,9 @@ def cue_tools_stream(req: CueToolsRequest, db=Depends(get_db)):
                     processed += 1
                 else:
                     try:
-                        changed, skipped_count, reasons = _process_track(content.ID)
+                        # TASK-046 — per-track mutation span.
+                        with _perf.perf_span("cue_tools.write_one"):
+                            changed, skipped_count, reasons = _process_track(content.ID)
                         processed += 1
                         if changed > 0:
                             affected += 1
@@ -1880,8 +1913,10 @@ def cue_tools_stream(req: CueToolsRequest, db=Depends(get_db)):
 
         except BaseException:  # includes GeneratorExit (client disconnect) — must not leave dirty session
             db.session.rollback()
+            _outer_span.__exit__(None, None, None)
             raise
 
+        _outer_span.__exit__(None, None, None)
         summary = CueToolsSummary(
             operation=operation,
             tracks_processed=processed,
@@ -2045,6 +2080,7 @@ async def classify_library(
 ):
     """SSE stream: one ClassificationResponse JSON event per track, then done summary."""
     import json as _json
+    from fastapi.responses import StreamingResponse  # issue #110 — was missing; SSE construction NameError'd before any span fired
     from ..analysis.classify import get_classification, CATEGORIES, _class_cache
     from pyrekordbox.db6 import DjmdPlaylist, DjmdSongPlaylist
 
@@ -2057,6 +2093,10 @@ async def classify_library(
             raise HTTPException(404, f"Playlist {playlist_id} not found")
 
     def event_stream():
+        from .. import perf as _perf
+        # TASK-046 (issue #110) — outer compute span for classify SSE.
+        _outer_span = _perf.perf_span("classify.compute")
+        _outer_span.__enter__()
         if playlist_id is not None:
             from pyrekordbox.db6 import DjmdContent as _DjmdContent
             ids = [
@@ -2109,6 +2149,7 @@ async def classify_library(
                     yield f"data: {resp.model_dump_json()}\n\n"
                 except Exception as exc:
                     logger.exception("classify error track %s: %s", content.ID, exc)
+        _outer_span.__exit__(None, None, None)
         yield f"data: {{\"done\":true,\"total\":{total},\"counts\":{_json.dumps(counts)}}}\n\n"
 
     return StreamingResponse(
@@ -2453,6 +2494,10 @@ def auto_tag_discogs(req: DiscogsTagRequest, db=Depends(get_db)):
         import os as _os
         from pyrekordbox.db6 import DjmdContent, DjmdMyTag, DjmdSongMyTag
         from ..analysis.auto_tag import ALL_AUTOCUE_TAG_NAMES
+        from .. import perf as _perf
+        # TASK-046 (issue #110) — outer compute span for auto-tag/discogs SSE.
+        _outer_span = _perf.perf_span("auto_tag_discogs.compute")
+        _outer_span.__enter__()
         total   = len(req.track_ids)
         tagged  = 0
         skipped = 0
@@ -2550,7 +2595,9 @@ def auto_tag_discogs(req: DiscogsTagRequest, db=Depends(get_db)):
                 # status == "ok" — writer runs serially in this generator thread.
                 if not req.dry_run:
                     try:
-                        _write_one(tid, styles)
+                        # TASK-046 — per-track writer span (parallel path).
+                        with _perf.perf_span("auto_tag_discogs.write_one"):
+                            _write_one(tid, styles)
                     except Exception as werr:
                         errors += 1
                         logger.warning("Discogs tag write error for track %d: %s", tid, werr)
@@ -2596,7 +2643,9 @@ def auto_tag_discogs(req: DiscogsTagRequest, db=Depends(get_db)):
                         continue
 
                     if not req.dry_run:
-                        _write_one(tid, styles)
+                        # TASK-046 — per-track writer span (serial path).
+                        with _perf.perf_span("auto_tag_discogs.write_one"):
+                            _write_one(tid, styles)
 
                     tagged += 1
                     yield f"data: {_json.dumps({'processed': i+1, 'total': total, 'track_id': tid, 'artist': artist, 'title': title, 'styles': styles, 'tagged': tagged})}\n\n"
@@ -2610,6 +2659,7 @@ def auto_tag_discogs(req: DiscogsTagRequest, db=Depends(get_db)):
                         pass
                     yield f"data: {_json.dumps({'processed': i+1, 'total': total, 'track_id': tid, 'error': str(exc), 'errors': errors})}\n\n"
 
+        _outer_span.__exit__(None, None, None)
         yield f"data: {_json.dumps({'done': True, 'tagged': tagged, 'skipped': skipped, 'errors': errors})}\n\n"
 
     return StreamingResponse(event_stream(), media_type="text/event-stream")
@@ -2665,8 +2715,12 @@ async def enrich_comments_stream(req: EnrichCommentsRequest, db=Depends(get_db))
         raise HTTPException(409, "Rekordbox is running — close it before enriching comments")
 
     import json as _json
+    from .. import perf as _perf
 
     def event_stream():
+        # TASK-046 (issue #110) — outer compute span for enrich-comments SSE.
+        _outer_span = _perf.perf_span("enrich_comments.compute")
+        _outer_span.__enter__()
         enriched = 0
         skipped = 0
         errors = 0
@@ -2733,8 +2787,10 @@ async def enrich_comments_stream(req: EnrichCommentsRequest, db=Depends(get_db))
                         enriched += 1
                     else:
                         try:
-                            content.Commnt = new_comment
-                            db.session.commit()
+                            # TASK-046 — per-track writer span (parallel path).
+                            with _perf.perf_span("enrich_comments.write_one"):
+                                content.Commnt = new_comment
+                                db.session.commit()
                             enriched += 1
                             undo_rows.append({"content_id": str(tid), "previous": previous})
                         except Exception as commit_exc:
@@ -2760,7 +2816,9 @@ async def enrich_comments_stream(req: EnrichCommentsRequest, db=Depends(get_db))
                             enriched += 1
                             if not req.dry_run:
                                 try:
-                                    db.session.commit()
+                                    # TASK-046 — per-track writer span (serial path).
+                                    with _perf.perf_span("enrich_comments.write_one"):
+                                        db.session.commit()
                                     undo_rows.append({"content_id": str(tid), "previous": previous})
                                 except Exception as commit_exc:
                                     db.session.rollback()
@@ -2771,6 +2829,7 @@ async def enrich_comments_stream(req: EnrichCommentsRequest, db=Depends(get_db))
                     errors += 1
                 yield f"data: {_json.dumps({'processed': i + 1, 'total': total, 'enriched': enriched})}\n\n"
 
+        _outer_span.__exit__(None, None, None)
         yield f"data: {_json.dumps({'done': True, 'enriched': enriched, 'skipped': skipped, 'errors': errors, 'backup_path': backup_path, 'dry_run': req.dry_run, 'undo_data': {'modified': undo_rows}})}\n\n"
 
     return StreamingResponse(
