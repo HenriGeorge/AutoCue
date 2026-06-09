@@ -41,6 +41,7 @@ Related references:
 - [5. Category arc — `_category_order(prefs)`](#5-category-arc--_category_orderprefs)
 - [6. Candidate retrieval — `_get_candidates(...)`](#6-candidate-retrieval--_get_candidates)
   - [Asymmetric BPM gate](#asymmetric-bpm-gate)
+  - [BPM monotonicity](#bpm-monotonicity)
   - [Candidate count](#candidate-count)
   - [Per-candidate filtering](#per-candidate-filtering)
 - [7. Deduplication — three axes](#7-deduplication--three-axes)
@@ -68,9 +69,15 @@ Related references:
 
 `build_set(...)` returns an ordered list of tracks that:
 
-1. Start near a given BPM (`start_bpm`).
+1. Start near a given BPM (`start_bpm`). The seed track can fall below
+   `start_bpm` on small libraries — `_find_seed` falls back to any-BPM
+   tracks when no candidate satisfies `bpm ≥ start_bpm × 0.97`
+   (see [Seed selection](#4-seed-selection--_find_seed) pass two).
 2. Move toward an ending BPM (`end_bpm`) at no more than `bpm_step_max` per
    step (default 8%, asymmetric — see [Candidate retrieval](#6-candidate-retrieval--_get_candidates)).
+   The progression is **biased**, not strictly monotonic: in `build` mode
+   the per-step BPM may dip by up to ~3% of `current_bpm` (≈ 1 BPM at
+   120 BPM) — see [BPM monotonicity](#bpm-monotonicity).
 3. Sum to roughly `duration_minutes` of playback.
 4. Honour an `energy_mode` of `build` / `flat` / `drop` (a soft penalty on each
    transition).
@@ -399,6 +406,13 @@ Two-pass design (Bug 4, layer C — see [Bug 4 history](#17-bug-4-history--full-
   Necessary for tiny libraries or very specific category requests where no
   in-range candidate exists.
 
+> **Consequence — the first track may sit below `start_bpm`.** On small
+> libraries (or when the target category is rare), pass two is reached and
+> the seed can be arbitrarily far below the user-supplied `start_bpm`. The
+> input is a *target*, not a hard floor. If you require the head track to
+> sit at or above `start_bpm`, pass an explicit `seed_track_id` — that
+> branch bypasses `_find_seed` entirely.
+
 The score blends BPM proximity (`_bpm_score` from
 [`transitions.py:28`](../../autocue/analysis/transitions.py#L28)) and target
 category fit equally:
@@ -508,6 +522,40 @@ gate symmetric meant the similarity index returned mostly same-BPM tracks,
 starving the planner of progression candidates (Bug 4, layer B — see [Bug 4 history](#17-bug-4-history--full-timeline)). The
 asymmetric gate gives the index more upside candidates while the fine filter
 still enforces the step constraint.
+
+### BPM monotonicity
+
+Important — the per-step BPM sequence is **biased upward (build) or downward
+(drop), not strictly monotonic**. The ascending fine filter accepts any
+candidate where:
+
+```
+current_bpm × 0.97  ≤  cand_bpm  ≤  current_bpm × (1 + bpm_step_max)
+```
+
+(clamped to `start_bpm × 0.97` on the low end). Concretely, in a 120 → 128
+`build` set, a step from `current_bpm = 118.81` may pick a candidate at
+`117.65` — a 1.16 BPM dip — because `117.65 ≥ 118.81 × 0.97 = 115.24`.
+
+Two reasons the tolerance window is intentional:
+
+1. **Pool size on small libraries.** Strictly non-decreasing would empty the
+   candidate pool at most steps in a typical home library (a few hundred
+   tracks). The BPM-progress bonus (see
+   [BPM-progress bonus](#9-bpm-progress-bonus)) and the rebalanced
+   transition score (BPM weight 0.25 instead of the global 0.40, see
+   [Reweighting](#8-setbuilder-specific-transition-reweighting)) bias the
+   beam toward upward movement *on average* — but a single dip can be the
+   right call when the alternative is a sharply less-compatible key/energy
+   match.
+2. **DJ practice.** Real sets often nudge BPM down by 1–2 to set up a key
+   change or an energy moment, then climb again. Strict monotonicity would
+   forbid this idiom.
+
+If you need strict non-decreasing/non-increasing behavior (e.g. a competition
+mix), supply the entire sequence as `anchor_track_ids` — anchors are inserted
+at their BPM-sorted positions and bypass the candidate selector entirely
+(see [Anchor merging](#12-anchor-merging--_merge_anchors)).
 
 ### Candidate count
 
