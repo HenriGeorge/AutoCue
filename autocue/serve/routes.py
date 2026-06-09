@@ -276,14 +276,22 @@ def _writer_stage(
 
     Pushes SSE payload dicts onto ``event_q`` (drained by the request thread
     which is the only thread that can ``yield`` from the SSE generator).
-    Returns ``(applied, skipped)``.
+    Returns ``(applied, skipped, errors)``.
+
+    TASK-042 / TASK-043 (issue #105): every event carries ``content_id`` so
+    consumers can correlate a progress tick with the specific track that
+    just completed (completion order ≠ submit order under the parallel
+    fanout). Compute-side failures (``skip`` prefixed with ``"err:"``) and
+    writer-side exceptions are bucketed into a separate ``errors`` counter
+    rather than ``skipped``; events for failures additionally carry
+    ``error_kind`` (``"compute"`` | ``"writer"``) and ``error_message``.
 
     If ``written_ids`` is provided, each successfully-written track id is
     appended — used by the caller to invalidate per-track mixability sidecar
     rows after the stream finishes (issue #106 / PR #143 contract).
     """
     from .. import perf as _perf
-    applied = skipped = processed = 0
+    applied = skipped = errors = processed = 0
     while True:
         if cancel.is_set():
             # Drain remaining items so producer's put() doesn't block forever.
@@ -308,7 +316,14 @@ def _writer_stage(
                 db.session.expire_all()
             except Exception:
                 pass
-        if skip or content is None or not cues:
+        err_kind: str | None = None
+        err_msg: str | None = None
+        if isinstance(skip, str) and skip.startswith("err:"):
+            # TASK-043 — compute-side exception bucketed as `errors`.
+            errors += 1
+            err_kind = "compute"
+            err_msg = skip[4:]
+        elif skip or content is None or not cues:
             skipped += 1
         else:
             try:
@@ -326,15 +341,23 @@ def _writer_stage(
                         written_ids.append(tid)
                 else:
                     skipped += 1
-            except Exception:
-                skipped += 1
-        event_q.put({
+            except Exception as exc:  # noqa: BLE001
+                errors += 1
+                err_kind = "writer"
+                err_msg = str(exc)
+        payload = {
             "processed": processed,
             "total": total,
             "applied": applied,
             "skipped": skipped,
-        })
-    return applied, skipped
+            "errors": errors,
+            "content_id": tid,
+        }
+        if err_kind is not None:
+            payload["error_kind"] = err_kind
+            payload["error_message"] = err_msg
+        event_q.put(payload)
+    return applied, skipped, errors
 
 
 def _master_db_mtime(db) -> float | None:
@@ -1096,10 +1119,10 @@ def generate_apply_stream(req: GenerateAndApplyRequest, request: Request, db=Dep
                 except Exception as exc:  # noqa: BLE001
                     return (tid, None, None, f"err:{exc}")
 
-            writer_result: dict = {"applied": 0, "skipped": 0}
+            writer_result: dict = {"applied": 0, "skipped": 0, "errors": 0}
 
             def _writer_target():
-                a, s = _writer_stage(
+                a, s, e = _writer_stage(
                     work_q, db,
                     write_fn=_write_cues_to_db,
                     overwrite=req.overwrite,
@@ -1111,6 +1134,7 @@ def generate_apply_stream(req: GenerateAndApplyRequest, request: Request, db=Dep
                 )
                 writer_result["applied"] = a
                 writer_result["skipped"] = s
+                writer_result["errors"] = e
 
             writer_thread = _threading.Thread(
                 target=_writer_target, daemon=True, name="autocue-writer"
@@ -1154,6 +1178,7 @@ def generate_apply_stream(req: GenerateAndApplyRequest, request: Request, db=Dep
             cancel.set()  # stop the poll thread
             applied = writer_result["applied"]
             skipped = writer_result["skipped"]
+            errors = writer_result["errors"]
             # Issue #106 / PR #143 — mixability sidecar invalidation.
             # The writer stage populates ``written_ids`` for every successful
             # cue commit; we invalidate those rows so /score recomputes on
@@ -1167,40 +1192,75 @@ def generate_apply_stream(req: GenerateAndApplyRequest, request: Request, db=Dep
                         except Exception:
                             pass
             _outer_span.__exit__(None, None, None)
-            yield f"data: {json.dumps({'done': True, 'applied': applied, 'skipped': skipped, 'backup_path': backup_path})}\n\n"
+            yield f"data: {json.dumps({'done': True, 'applied': applied, 'skipped': skipped, 'errors': errors, 'backup_path': backup_path})}\n\n"
             return
 
-        # Serial path (default) — unchanged behavior.
+        # Serial path (default) — TASK-042/043: per-track content_id + errors.
+        errors = 0
         for i, tid in enumerate(req.track_ids):
             # Expire session identity map every 100 tracks to prevent memory accumulation
             if i % 100 == 0 and i > 0:
                 db.session.expire_all()
-            content = db.get_content(ID=tid)
-            if content is None:
-                skipped += 1
-            else:
-                if req.phrase_only:
-                    try:
-                        has_ext = bool(db.get_anlz_path(content, "EXT"))
-                    except Exception:
-                        has_ext = False
-                    if not has_ext:
-                        skipped += 1
-                        content = None
-                if content is not None:
-                    cues, _ = generate_cues_for_track(content, db, prefs)
-                    if not cues:
-                        skipped += 1
-                    else:
-                        # TASK-046 — per-track writer span (serial path).
-                        with _perf.perf_span("generate_apply.write_one"):
-                            n = write_cues_to_db(content, cues, db, overwrite=req.overwrite, dry_run=req.dry_run)
-                        if n > 0:
-                            applied += 1
-                            written_ids.append(tid)
-                        else:
+            err_kind: str | None = None
+            err_msg: str | None = None
+            try:
+                content = db.get_content(ID=tid)
+            except Exception as exc:  # noqa: BLE001
+                content = None
+                errors += 1
+                err_kind = "compute"
+                err_msg = str(exc)
+            if err_kind is None:
+                if content is None:
+                    skipped += 1
+                else:
+                    if req.phrase_only:
+                        try:
+                            has_ext = bool(db.get_anlz_path(content, "EXT"))
+                        except Exception:
+                            has_ext = False
+                        if not has_ext:
                             skipped += 1
-            yield f"data: {json.dumps({'processed': i + 1, 'total': total, 'applied': applied, 'skipped': skipped})}\n\n"
+                            content = None
+                    if content is not None:
+                        try:
+                            cues, _ = generate_cues_for_track(content, db, prefs)
+                        except Exception as exc:  # noqa: BLE001
+                            cues = None
+                            errors += 1
+                            err_kind = "compute"
+                            err_msg = str(exc)
+                        if err_kind is None:
+                            if not cues:
+                                skipped += 1
+                            else:
+                                try:
+                                    # TASK-046 — per-track writer span (serial path).
+                                    with _perf.perf_span("generate_apply.write_one"):
+                                        n = write_cues_to_db(content, cues, db, overwrite=req.overwrite, dry_run=req.dry_run)
+                                except Exception as exc:  # noqa: BLE001
+                                    n = 0
+                                    errors += 1
+                                    err_kind = "writer"
+                                    err_msg = str(exc)
+                                if err_kind is None:
+                                    if n > 0:
+                                        applied += 1
+                                        written_ids.append(tid)
+                                    else:
+                                        skipped += 1
+            payload = {
+                "processed": i + 1,
+                "total": total,
+                "applied": applied,
+                "skipped": skipped,
+                "errors": errors,
+                "content_id": tid,
+            }
+            if err_kind is not None:
+                payload["error_kind"] = err_kind
+                payload["error_message"] = err_msg
+            yield f"data: {json.dumps(payload)}\n\n"
         # Issue #106 — mixability sidecar invalidation. See /api/apply.
         if not req.dry_run and written_ids:
             _cs = getattr(request.app.state, "cache_store", None)
@@ -1211,7 +1271,7 @@ def generate_apply_stream(req: GenerateAndApplyRequest, request: Request, db=Dep
                     except Exception:
                         pass
         _outer_span.__exit__(None, None, None)
-        yield f"data: {json.dumps({'done': True, 'applied': applied, 'skipped': skipped, 'backup_path': backup_path})}\n\n"
+        yield f"data: {json.dumps({'done': True, 'applied': applied, 'skipped': skipped, 'errors': errors, 'backup_path': backup_path})}\n\n"
 
     return StreamingResponse(
         event_stream(),
