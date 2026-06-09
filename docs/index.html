@@ -1339,6 +1339,15 @@
     }
     .existing-cue-chip.replaced { background: #fdecea; color: #c62828; }
     html.dark .existing-cue-chip.replaced { background: #3b1010; color: #ef9a9a; }
+    /* Chips shown on a Skipped card — same shape as cue badges so the visual
+       weight matches the proposed-cue row on non-skipped cards. */
+    .existing-cue-chip.skipped-card-chip {
+      font-size: 0.78rem; padding: 2px 8px;
+      border: 1px solid var(--border);
+    }
+    .existing-cues-row {
+      display: flex; gap: 4px; flex-wrap: wrap; margin-top: 6px;
+    }
 
     /* ── Library Health Panel ── */
     #health-section { margin: 0 auto 28px; max-width: 860px; }
@@ -4007,6 +4016,11 @@ async function loadTracksFromServer(playlistId = null) {
     id: String(t.id), name: t.title, artist: t.artist, album: t.album || '',
     bpm: t.bpm, totalTime: t.duration, tempo: null,
     existingHotCues: t.existing_hot_cues, hasPhrase: t.has_phrase, hasBeats: t.has_beats,
+    // Map API's existing_cue_details (slot/pos_sec) to the XML-shape used by the
+    // chip renderer (num/start). Local + Pages mode now share the same chip code.
+    existingCueDetails: (t.existing_cue_details || []).map(c => ({
+      num: c.slot, name: c.name || '', start: c.pos_sec, colorName: c.color_name || '',
+    })),
     source: t.source || 'file', // B1 — server tells us if it's file/streaming/unknown
     key: t.key || '',
     rating: t.rating || 0,
@@ -10027,6 +10041,31 @@ function buildTrackCard(track, cues, willSkip, opts = {}) {
     skipped.className = 'skipped-badge';
     skipped.textContent = `Skipped — has ${track.existingHotCues} existing hot cue${track.existingHotCues !== 1 ? 's' : ''}`;
     cardMain.appendChild(skipped);
+
+    // Render the existing cues so the user can see WHAT was already on the
+    // track (positions, names, slot letters), not just an opaque count.
+    // No "replaced" badge because nothing will be replaced — we're skipping.
+    if (track.existingCueDetails && track.existingCueDetails.length > 0) {
+      const chipsRow = document.createElement('div');
+      chipsRow.className = 'existing-cues-row';
+      const sortedExisting = [...track.existingCueDetails].sort((a, b) => {
+        if (a.num === -1) return -1;
+        if (b.num === -1) return 1;
+        return a.num - b.num;
+      });
+      for (const ec of sortedExisting) {
+        const chip = document.createElement('span');
+        chip.className = 'existing-cue-chip skipped-card-chip';
+        const slotLetter = ec.num === -1 ? 'Mem' : (ec.num >= 0 && ec.num <= 7 ? String.fromCharCode(65 + ec.num) : '?');
+        const mins = Math.floor((ec.start || 0) / 60);
+        const secs = Math.floor((ec.start || 0) % 60);
+        chip.textContent = `${slotLetter} ${ec.name || ''} ${mins}:${String(secs).padStart(2,'0')}`.replace(/\s+/g, ' ').trim();
+        if (ec.colorName) chip.dataset.color = ec.colorName;
+        chipsRow.appendChild(chip);
+      }
+      cardMain.appendChild(chipsRow);
+    }
+
     cardTop.appendChild(cardMain);
     card.appendChild(cardTop);
     return card;

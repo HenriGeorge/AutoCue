@@ -51,11 +51,12 @@ def test_ndjson_returns_one_object_per_line(monkeypatch):
 
 
 def test_ndjson_preserves_etag_header(monkeypatch):
+    from autocue.cache import SCHEMA_VERSION
     items = [_track_item(1)]
     client = _client_with_snapshot(items, mtime=200.0)
     monkeypatch.setattr("autocue.serve.routes._master_db_mtime", lambda _db: 200.0)
     r = client.get("/api/tracks", headers={"Accept": "application/x-ndjson"})
-    assert r.headers.get("etag") == '"200"'
+    assert r.headers.get("etag") == f'"200-v{SCHEMA_VERSION}"'
 
 
 def test_ndjson_returns_x_total_count(monkeypatch):

@@ -18,6 +18,14 @@ class PlaylistItem(BaseModel):
     track_count: int
 
 
+class CueDetail(BaseModel):
+    # slot: -1 = memory cue, 0-7 = hot cues A-H. Matches the XML POSITION_MARK
+    # Num convention used by docs/index.html when parsing Pages-mode XML.
+    slot: int
+    name: str = ""
+    pos_sec: float
+
+
 class TrackItem(BaseModel):
     id: int
     title: str
@@ -28,6 +36,11 @@ class TrackItem(BaseModel):
     has_phrase: bool
     has_beats: bool
     existing_hot_cues: int
+    # Per-cue details so the UI can render existing hot cues even when the
+    # "Skip tracks that already have hot cues" option hides them from the
+    # generate-apply pass. Empty when the track has no hot cues. Returned for
+    # both default-sort full-library and filtered queries.
+    existing_cue_details: list[CueDetail] = []
     key: str = ""
     rating: int = 0
     play_count: int = 0
