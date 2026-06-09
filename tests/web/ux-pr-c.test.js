@@ -128,3 +128,63 @@ describe('stale scanError clear on tab activation', () => {
     expect(copy).not.toContain('Wait')
   })
 })
+
+
+/* ====================================== Issue #121: auto-scan gating */
+
+describe('Discover auto-scan gating on tab activation (issue #121)', () => {
+  // Mirror of the production decision in initDiscoverV2 (docs/index.html
+  // ~line 7615). The whole point is to avoid calling /api/discover/feed
+  // (and the resulting native 409 console error) when a scan is already
+  // running on the server.
+  function decideAutoScan(status, state) {
+    if (status && status.running === true) return false
+    return Boolean(state.tokenValid && state.followedLabels.length > 0)
+  }
+
+  it('REGRESSION: returns false when a scan is already running (no 409)', () => {
+    // Without the fix this branch never existed and runScan was unconditional
+    // when tokenValid + followedLabels > 0 — guaranteed 409 on the second
+    // page load.
+    const state = {tokenValid: true, followedLabels: ['Stones Throw']}
+    expect(decideAutoScan({running: true}, state)).toBe(false)
+  })
+
+  it('BOUNDARY: returns true when status.running flips from true to false', () => {
+    // The exact threshold where behavior changes.
+    const state = {tokenValid: true, followedLabels: ['Stones Throw']}
+    expect(decideAutoScan({running: true},  state)).toBe(false)
+    expect(decideAutoScan({running: false}, state)).toBe(true)
+  })
+
+  it('happy path: fires when no scan is running AND prereqs are met', () => {
+    const state = {tokenValid: true, followedLabels: ['Stones Throw']}
+    expect(decideAutoScan({running: false}, state)).toBe(true)
+  })
+
+  it('respects token gate even when no scan is running', () => {
+    const state = {tokenValid: false, followedLabels: ['Stones Throw']}
+    expect(decideAutoScan({running: false}, state)).toBe(false)
+  })
+
+  it('respects followedLabels gate even when no scan is running', () => {
+    const state = {tokenValid: true, followedLabels: []}
+    expect(decideAutoScan({running: false}, state)).toBe(false)
+  })
+
+  it('fall-through when status fetch threw (status === null): preserves happy path', () => {
+    // Conservative behavior: if /api/discover/feed/status itself fails,
+    // we do NOT silently swallow the auto-scan. The user still gets the
+    // same behavior as before the fix.
+    const state = {tokenValid: true, followedLabels: ['Stones Throw']}
+    expect(decideAutoScan(null, state)).toBe(true)
+  })
+
+  it('truthiness invariant: any non-true running value still fires the auto-scan', () => {
+    // Property-style: only the explicit running===true sentinel should block.
+    const state = {tokenValid: true, followedLabels: ['Stones Throw']}
+    for (const r of [false, undefined, 0, '', null]) {
+      expect(decideAutoScan({running: r}, state)).toBe(true)
+    }
+  })
+})
