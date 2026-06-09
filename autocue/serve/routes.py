@@ -648,7 +648,7 @@ def generate(req: GenerateRequest, db=Depends(get_ro_db)):
 
 
 @router.post("/apply", response_model=ApplyResponse)
-def apply(req: ApplyRequest, db=Depends(get_db)):
+def apply(req: ApplyRequest, request: Request, db=Depends(get_db)):
     from ..db_writer import backup_database, rekordbox_is_running, write_cues_to_db
     from ..models import CuePoint, PhraseLabel
 
@@ -672,6 +672,7 @@ def apply(req: ApplyRequest, db=Depends(get_db)):
             raise HTTPException(500, f"Backup failed — aborting: {e}")
 
     applied = skipped = 0
+    written_ids: list[int] = []
     for track_result in req.tracks:
         content = db.get_content(ID=track_result.id)
         if content is None:
@@ -696,8 +697,23 @@ def apply(req: ApplyRequest, db=Depends(get_db)):
         )
         if n > 0:
             applied += 1
+            written_ids.append(track_result.id)
         else:
             skipped += 1
+
+    # Issue #106 — cue positions feed intro/outro detection, which the
+    # mixability score depends on. Drop stale sidecar rows so the next /score
+    # call recomputes against the freshly written cues. Bypass quietly if the
+    # sidecar is disabled or any single delete fails (best-effort cache hygiene
+    # must never abort a successful write).
+    if not req.dry_run and written_ids:
+        cache_store = getattr(request.app.state, "cache_store", None)
+        if cache_store is not None:
+            for cid in written_ids:
+                try:
+                    cache_store.invalidate_mixability(cid)
+                except Exception:
+                    pass
 
     return ApplyResponse(
         applied=applied,
@@ -708,7 +724,7 @@ def apply(req: ApplyRequest, db=Depends(get_db)):
 
 
 @router.post("/generate-apply", response_model=ApplyResponse)
-def generate_apply(req: GenerateAndApplyRequest, db=Depends(get_db)):
+def generate_apply(req: GenerateAndApplyRequest, request: Request, db=Depends(get_db)):
     """Generate cues and write them to the DB in a single pass — avoids the
     large JSON round-trip that the separate /generate + /apply flow requires."""
     from ..db_writer import backup_database, rekordbox_is_running, write_cues_to_db
@@ -743,6 +759,7 @@ def generate_apply(req: GenerateAndApplyRequest, db=Depends(get_db)):
             raise HTTPException(500, f"Backup failed — aborting: {e}")
 
     applied = skipped = 0
+    written_ids: list[int] = []
     for tid in req.track_ids:
         content = db.get_content(ID=tid)
         if content is None:
@@ -763,8 +780,20 @@ def generate_apply(req: GenerateAndApplyRequest, db=Depends(get_db)):
         n = write_cues_to_db(content, cues, db, overwrite=req.overwrite, dry_run=req.dry_run)
         if n > 0:
             applied += 1
+            written_ids.append(tid)
         else:
             skipped += 1
+
+    # Issue #106 — see /api/apply for rationale. Cue writes invalidate the
+    # mixability sidecar rows for the touched tracks so /score recomputes.
+    if not req.dry_run and written_ids:
+        cache_store = getattr(request.app.state, "cache_store", None)
+        if cache_store is not None:
+            for cid in written_ids:
+                try:
+                    cache_store.invalidate_mixability(cid)
+                except Exception:
+                    pass
 
     return ApplyResponse(
         applied=applied,
@@ -775,7 +804,7 @@ def generate_apply(req: GenerateAndApplyRequest, db=Depends(get_db)):
 
 
 @router.post("/generate-apply-stream")
-def generate_apply_stream(req: GenerateAndApplyRequest, db=Depends(get_db)):
+def generate_apply_stream(req: GenerateAndApplyRequest, request: Request, db=Depends(get_db)):
     """SSE endpoint: yields progress events as each track is processed.
     Each event: data: {"processed":N,"total":M,"applied":A,"skipped":S}
     Final event: data: {"done":true,"applied":A,"skipped":S,"backup_path":"..."}
@@ -817,6 +846,7 @@ def generate_apply_stream(req: GenerateAndApplyRequest, db=Depends(get_db)):
 
     def event_stream():
         applied = skipped = 0
+        written_ids: list[int] = []
         if _os.environ.get("AUTOCUE_PARALLEL_GENERATE_APPLY", "1") != "0":
             # TASK-002 — parallel compute (ANLZ read + cue generation) on the
             # shared pool; single-threaded writer loop preserves SQLite
@@ -916,6 +946,7 @@ def generate_apply_stream(req: GenerateAndApplyRequest, db=Depends(get_db)):
                             )
                             if n > 0:
                                 applied += 1
+                                written_ids.append(tid)
                             else:
                                 skipped += 1
                         except Exception:
@@ -930,6 +961,15 @@ def generate_apply_stream(req: GenerateAndApplyRequest, db=Depends(get_db)):
                             pass
 
             cancel.set()  # stop the poll thread
+            # Issue #106 — mixability sidecar invalidation. See /api/apply.
+            if not req.dry_run and written_ids:
+                _cs = getattr(request.app.state, "cache_store", None)
+                if _cs is not None:
+                    for cid in written_ids:
+                        try:
+                            _cs.invalidate_mixability(cid)
+                        except Exception:
+                            pass
             yield f"data: {json.dumps({'done': True, 'applied': applied, 'skipped': skipped, 'backup_path': backup_path})}\n\n"
             return
 
@@ -958,9 +998,19 @@ def generate_apply_stream(req: GenerateAndApplyRequest, db=Depends(get_db)):
                         n = write_cues_to_db(content, cues, db, overwrite=req.overwrite, dry_run=req.dry_run)
                         if n > 0:
                             applied += 1
+                            written_ids.append(tid)
                         else:
                             skipped += 1
             yield f"data: {json.dumps({'processed': i + 1, 'total': total, 'applied': applied, 'skipped': skipped})}\n\n"
+        # Issue #106 — mixability sidecar invalidation. See /api/apply.
+        if not req.dry_run and written_ids:
+            _cs = getattr(request.app.state, "cache_store", None)
+            if _cs is not None:
+                for cid in written_ids:
+                    try:
+                        _cs.invalidate_mixability(cid)
+                    except Exception:
+                        pass
         yield f"data: {json.dumps({'done': True, 'applied': applied, 'skipped': skipped, 'backup_path': backup_path})}\n\n"
 
     return StreamingResponse(
