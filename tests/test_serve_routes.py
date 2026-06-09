@@ -1394,35 +1394,59 @@ class TestGenerateApplyOptions:
 
 class TestArtworkEndpoint:
     def test_returns_404_when_track_not_found(self):
+        # 404 is RESERVED for "track ID is unknown to the DB" — a genuine
+        # client error that should surface in DevTools.
         db = _make_db()
         db.get_content.return_value = None
         client = _make_client(db)
         r = client.get("/api/tracks/9999/artwork")
         assert r.status_code == 404
 
-    def test_returns_404_when_no_image_path(self):
+    def test_returns_204_when_no_image_path(self):
+        # Issue #120 — track exists but ImagePath is unset (e.g. streaming
+        # source). 204 No Content lets the browser fail the <img> load silently
+        # without spamming console errors.
         db = _make_db()
         db.get_content.return_value = SimpleNamespace(ID=1, ImagePath=None)
         client = _make_client(db)
         r = client.get("/api/tracks/1/artwork")
-        assert r.status_code == 404
+        assert r.status_code == 204
 
-    def test_returns_404_when_db_dir_missing(self):
-        # When _db_dir is None and ImagePath doesn't resolve to a real file → 404 not 500
+    def test_returns_204_when_db_dir_missing(self):
+        # When _db_dir is None and ImagePath doesn't resolve to a real file
+        # → 204 (track exists), not 500.
         db = _make_db()
         db.get_content.return_value = SimpleNamespace(ID=1, ImagePath="cover.jpg", FolderPath=None)
         db._db_dir = None
         client = _make_client(db)
         r = client.get("/api/tracks/1/artwork")
-        assert r.status_code == 404
+        assert r.status_code == 204
 
-    def test_returns_404_when_file_not_on_disk(self, tmp_path):
+    def test_returns_204_when_file_not_on_disk(self, tmp_path):
         db = _make_db()
         db.get_content.return_value = SimpleNamespace(ID=1, ImagePath="/missing/cover.jpg")
         db._db_dir = str(tmp_path)
         client = _make_client(db)
         r = client.get("/api/tracks/1/artwork")
-        assert r.status_code == 404
+        assert r.status_code == 204
+
+    def test_no_artwork_is_distinguishable_from_track_not_found(self):
+        # Regression guard for issue #120: the two "no image returned" cases
+        # MUST use different status codes so DevTools console noise can be
+        # distinguished from genuine "track ID typo" errors.
+        db = _make_db()
+        db.get_content.return_value = None
+        client = _make_client(db)
+        r_missing = client.get("/api/tracks/9999/artwork")
+
+        db2 = _make_db()
+        db2.get_content.return_value = SimpleNamespace(ID=1, ImagePath=None)
+        client2 = _make_client(db2)
+        r_no_art = client2.get("/api/tracks/1/artwork")
+
+        assert r_missing.status_code != r_no_art.status_code
+        assert r_missing.status_code == 404
+        assert r_no_art.status_code == 204
 
     def test_returns_200_when_absolute_path_exists(self, tmp_path):
         img = tmp_path / "cover.jpg"
