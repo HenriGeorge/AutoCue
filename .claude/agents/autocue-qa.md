@@ -38,6 +38,18 @@ All DOM selectors the agent touches are listed in `tests/e2e/selectors-exist.spe
 
 **Do not list selectors in this prompt.** Read them from the spec; update the spec when adding new ones.
 
+### Probing visibility — do NOT use `display` or `opacity` blindly
+
+Some panels hide via `display: none`; others slide off-screen via `transform: translateX(...)` and toggle `aria-hidden`. Probing `getComputedStyle(el).display !== "none"` on a slide-in panel will always return `"block"` regardless of whether the panel is open or closed, producing a **false-positive "panel won't close" bug** (issue #66 was such a false positive).
+
+When asserting a panel is open or closed, use the source of truth the component uses:
+
+- **`aria-hidden`** — most reliable; both `#disc-v2-detail-panel` and the YouTube modal toggle this.
+- **Bounding-rect position** — `el.getBoundingClientRect().left >= window.innerWidth` ⇒ off-screen via transform.
+- `display`/`opacity`/`visibility` — only when the component is known to toggle that specific property (e.g. modal backdrops use opacity).
+
+Before filing a "won't close" issue, verify with at least one of the first two probes.
+
 ## Surfaces to exercise
 
 | Mode | URL | What it covers |
