@@ -158,6 +158,87 @@ def _wait_any(in_flight: dict):
     return wait(list(in_flight.keys()), return_when=FIRST_COMPLETED)
 
 
+def _poll_request_disconnect(request, cancel, *, poll_interval: float = 0.2,
+                             clock=None, token=None, runner=None):
+    """Background-thread poller that flips ``cancel`` on client disconnect.
+
+    Drives ``await request.is_disconnected()`` on the parent ASGI event loop
+    via ``anyio.from_thread.run`` — Starlette only updates the request's
+    disconnect state as a side-effect of awaiting that coroutine, and the
+    underlying receive channel is bound to the parent loop, so we can NOT
+    simply spin up a private asyncio loop in this worker thread (cross-loop
+    awaits fail with ``RuntimeError``).
+
+    The original implementation polled a bare ``_is_disconnected`` attribute
+    using an out-of-scope ``request`` free variable that raised NameError on
+    every tick; the bare ``except Exception: return`` silently swallowed it
+    and the cancel event was never set in production. See issue #104 /
+    TASK-041 for the regression.
+
+    Parameters
+    ----------
+    request:
+        The starlette ``Request`` (must be a real per-call Request so the
+        ``is_disconnected`` coroutine sees the live receive channel).
+    cancel:
+        A ``threading.Event`` set when disconnect (or a closed receive
+        channel) is observed — read by the compute / writer loop to bail
+        early.
+    poll_interval:
+        Seconds between polls. Tests pass ``0.0`` to drive deterministically.
+    clock:
+        Injectable ``time.time``-shaped callable (defaults to
+        ``time.time``). Returns the disconnect timestamp.
+    token:
+        ``anyio`` ``EventLoopToken`` from the parent thread (use
+        ``anyio.from_thread.current_token()`` in the endpoint body and pass
+        it here). If ``None``, the helper does not poll — it just waits for
+        ``cancel`` to be set elsewhere (degraded, but never raises). This
+        preserves the structural fix in environments where the token can't
+        be captured (e.g. unit tests calling the helper directly with a
+        stub request).
+    runner:
+        Optional injectable replacement for ``anyio.from_thread.run`` — used
+        only in tests so we can drive the helper without a live event loop.
+
+    Returns
+    -------
+    Disconnect timestamp on disconnect (or RuntimeError-as-disconnect),
+    ``None`` if the helper exited because ``cancel`` was set elsewhere.
+    """
+    import asyncio as _asyncio
+    import time as _time
+    if clock is None:
+        clock = _time.time
+    if runner is None and token is not None:
+        from anyio.from_thread import run as _anyio_run
+        def runner(coro_fn):  # type: ignore[no-redef]
+            return _anyio_run(coro_fn, token=token)
+
+    if runner is None:
+        # No token + no runner — we can't safely poll. Wait for an external
+        # cancel without busy-looping. Returning None means "no disconnect
+        # observed by us"; the writer loop still terminates normally.
+        while not cancel.is_set():
+            _time.sleep(poll_interval if poll_interval > 0 else 0.05)
+        return None
+
+    while not cancel.is_set():
+        try:
+            disconnected = runner(request.is_disconnected)
+        except (RuntimeError, _asyncio.CancelledError):
+            # Receive channel closed underneath us (or the parent loop has
+            # shut down) — treat as disconnected so the writer loop tears
+            # down rather than spinning forever.
+            cancel.set()
+            return clock()
+        if disconnected:
+            cancel.set()
+            return clock()
+        _time.sleep(poll_interval)
+    return None
+
+
 def _master_db_mtime(db) -> float | None:
     """Return the master.db mtime — used as the snapshot + ETag key (TASK-021/023)."""
     import os
@@ -771,7 +852,7 @@ def generate_apply(req: GenerateAndApplyRequest, db=Depends(get_db)):
 
 
 @router.post("/generate-apply-stream")
-def generate_apply_stream(req: GenerateAndApplyRequest, db=Depends(get_db)):
+def generate_apply_stream(req: GenerateAndApplyRequest, request: Request, db=Depends(get_db)):
     """SSE endpoint: yields progress events as each track is processed.
     Each event: data: {"processed":N,"total":M,"applied":A,"skipped":S}
     Final event: data: {"done":true,"applied":A,"skipped":S,"backup_path":"..."}
@@ -850,28 +931,29 @@ def generate_apply_stream(req: GenerateAndApplyRequest, db=Depends(get_db)):
                 except Exception as exc:  # noqa: BLE001
                     return (tid, None, None, f"err:{exc}")
 
-            # TASK-041 — cancellation on client disconnect. We can't await
-            # is_disconnected() from the sync generator, but we CAN check
-            # the request's underlying receive state via a poll thread that
-            # sets a threading.Event. The compute + writer loop both look at
-            # the event between iterations.
+            # TASK-041 — cancellation on client disconnect. The endpoint is
+            # sync, so the SSE generator runs in an anyio worker thread;
+            # ``request.is_disconnected()`` must be driven on the parent
+            # ASGI event loop. Grab a token now (while we're still on that
+            # thread) and pass it to the poll thread, which uses
+            # ``anyio.from_thread.run`` to call back into the parent loop.
             cancel = _threading.Event()
             disconnected_at: list[float | None] = [None]
+            try:
+                from anyio.from_thread import current_token as _anyio_current_token
+                _token = _anyio_current_token()
+            except Exception:  # noqa: BLE001
+                # Not running inside an anyio worker thread (e.g. unit-test
+                # harness calling event_stream() directly). Without a token,
+                # _poll_request_disconnect degrades to "wait for external
+                # cancel" — the writer loop still completes normally; only
+                # mid-stream client-disconnect cancellation is lost.
+                _token = None
 
             def _poll_disconnect():
-                # Best-effort — uvicorn fills request.scope/receive when the
-                # client closes the TCP connection. The synchronous wrapper
-                # here just watches the request object for a known close
-                # signal that fastapi/starlette exposes via _is_disconnected.
-                while not cancel.is_set():
-                    try:
-                        if hasattr(request, "_is_disconnected") and getattr(request, "_is_disconnected", False):
-                            cancel.set()
-                            disconnected_at[0] = _time.time()
-                            return
-                    except Exception:
-                        return
-                    _time.sleep(0.2)
+                ts = _poll_request_disconnect(request, cancel, token=_token)
+                if ts is not None:
+                    disconnected_at[0] = ts
 
             poll_thread = _threading.Thread(target=_poll_disconnect, daemon=True, name="autocue-cancel-poll")
             poll_thread.start()
