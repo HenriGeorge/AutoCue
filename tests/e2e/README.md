@@ -6,8 +6,9 @@ End-to-end smoke harness driven by the `autocue-qa` Claude Code sub-agent
 ## SAFETY
 
 The harness boots `autocue serve` against a SANDBOX copy of `master.db`
-created in a temp dir by `globalSetup.ts`. `safety.spec.ts` runs first
-and verifies — via `/api/status` + `X-AutoCue-Diagnostic: 1` header —
+created in a temp dir by `globalSetup.ts`. `0-safety.spec.ts` runs first
+(the `0-` prefix forces it ahead of every other spec in alphabetical
+discovery order) and verifies — via `/api/status` + `X-AutoCue-Diagnostic: 1` header —
 that the server is bound to the sandbox copy and not your real library.
 If verification fails, the rest of the run is aborted before any other
 test executes.
@@ -55,7 +56,7 @@ Sandbox dir is cleaned up by `globalTeardown.ts`.
 
 | Spec | Purpose |
 |------|---------|
-| `safety.spec.ts` | Verifies server is bound to sandbox DB; aborts run otherwise |
+| `0-safety.spec.ts` | Verifies server is bound to sandbox DB; aborts run otherwise. `0-` prefix forces it to run first under alphabetical spec discovery |
 | `selectors-exist.spec.ts` | Single source of truth for DOM selectors the suite depends on |
 | `qa-smoke.spec.ts` | Read-only API + bounded SSE + UI smoke (console / pageerror / requestfailed) |
 | `pages-smoke.spec.ts` | Pages-mode static serve — server-only panels must be hidden, no crashes |

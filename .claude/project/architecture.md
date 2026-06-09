@@ -149,9 +149,9 @@ tests/
   test_serve_routes.py       — 197 tests (FastAPI TestClient, mocked DB; covers all endpoints incl. discover/download)
   e2e/                       — Playwright smoke harness for the `autocue-qa` agent.
                                globalSetup allocates free ports (port-0, never the production 7432)
-                               + sandbox copy of master.db; safety.spec.ts verifies the server is
+                               + sandbox copy of master.db; 0-safety.spec.ts verifies the server is
                                bound to the sandbox via GET /api/status + X-AutoCue-Diagnostic
-                               header before any other spec runs. Specs: safety, selectors-exist,
+                               header before any other spec runs. Specs: 0-safety, selectors-exist,
                                qa-smoke (read-only APIs + bounded SSE + UI smoke), pages-smoke
                                (static-served docs/index.html via `python -m http.server`),
                                qa-full (write endpoints, gated by RUN_FULL=1). See tests/e2e/README.md.

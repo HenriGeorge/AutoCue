@@ -5,7 +5,7 @@ import { test } from "@playwright/test";
  *
  * Stub for now. Extend incrementally as the agent encounters bugs that
  * need regression coverage. Every write-endpoint test in here MUST end
- * with a re-assertion of `safety.spec.ts`-style invariants (the server
+ * with a re-assertion of `0-safety.spec.ts`-style invariants (the server
  * is still bound to the sandbox DB) before declaring success.
  */
 
