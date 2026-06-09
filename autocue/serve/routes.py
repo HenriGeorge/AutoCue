@@ -771,11 +771,24 @@ def generate_apply(req: GenerateAndApplyRequest, db=Depends(get_db)):
 
 
 @router.post("/generate-apply-stream")
-def generate_apply_stream(req: GenerateAndApplyRequest, db=Depends(get_db)):
+async def generate_apply_stream(
+    req: GenerateAndApplyRequest,
+    request: Request,
+    db=Depends(get_db),
+):
     """SSE endpoint: yields progress events as each track is processed.
     Each event: data: {"processed":N,"total":M,"applied":A,"skipped":S}
     Final event: data: {"done":true,"applied":A,"skipped":S,"backup_path":"..."}
+
+    TASK-041 — When the client disconnects (browser tab closed mid-stream),
+    an asyncio task polling ``request.is_disconnected()`` sets a shared
+    ``threading.Event`` watched by the compute + writer loop. The route is
+    ``async def`` so the poll task can live on the request's event loop;
+    the sync ``event_stream`` generator is still served via
+    :class:`StreamingResponse` (matches the pattern used by
+    ``library_health`` and ``classify_library`` elsewhere in this file).
     """
+    import asyncio
     import json
     from fastapi.responses import StreamingResponse
     from ..db_writer import backup_database, rekordbox_is_running, write_cues_to_db
@@ -810,6 +823,25 @@ def generate_apply_stream(req: GenerateAndApplyRequest, db=Depends(get_db)):
     total = len(req.track_ids)
 
     import os as _os
+    import threading as _threading
+
+    # TASK-041 — cancellation shared with the compute + writer loop.
+    # Created in the async handler so the poll task below can `.set()` it
+    # from the event loop when the client disconnects; the sync generator
+    # closes over this same Event.
+    cancel = _threading.Event()
+
+    async def _poll_disconnect_async() -> None:
+        """Poll ``request.is_disconnected()`` every 200ms; set ``cancel``
+        on disconnect. Narrow exception list — a real bug should surface."""
+        try:
+            while not cancel.is_set():
+                if await request.is_disconnected():
+                    cancel.set()
+                    return
+                await asyncio.sleep(0.2)
+        except asyncio.CancelledError:
+            return
 
     def event_stream():
         applied = skipped = 0
@@ -824,8 +856,6 @@ def generate_apply_stream(req: GenerateAndApplyRequest, db=Depends(get_db)):
             # 10k+-track applies; we batch-submit instead of dumping every
             # future into the pool at once.
             from concurrent.futures import as_completed
-            import threading as _threading
-            import time as _time
 
             from ..analysis.concurrency import get_pool, pool_size
 
@@ -850,31 +880,10 @@ def generate_apply_stream(req: GenerateAndApplyRequest, db=Depends(get_db)):
                 except Exception as exc:  # noqa: BLE001
                     return (tid, None, None, f"err:{exc}")
 
-            # TASK-041 — cancellation on client disconnect. We can't await
-            # is_disconnected() from the sync generator, but we CAN check
-            # the request's underlying receive state via a poll thread that
-            # sets a threading.Event. The compute + writer loop both look at
-            # the event between iterations.
-            cancel = _threading.Event()
-            disconnected_at: list[float | None] = [None]
-
-            def _poll_disconnect():
-                # Best-effort — uvicorn fills request.scope/receive when the
-                # client closes the TCP connection. The synchronous wrapper
-                # here just watches the request object for a known close
-                # signal that fastapi/starlette exposes via _is_disconnected.
-                while not cancel.is_set():
-                    try:
-                        if hasattr(request, "_is_disconnected") and getattr(request, "_is_disconnected", False):
-                            cancel.set()
-                            disconnected_at[0] = _time.time()
-                            return
-                    except Exception:
-                        return
-                    _time.sleep(0.2)
-
-            poll_thread = _threading.Thread(target=_poll_disconnect, daemon=True, name="autocue-cancel-poll")
-            poll_thread.start()
+            # TASK-041 — cancellation: the async poll task launched by the
+            # handler watches ``request.is_disconnected()`` and sets the
+            # shared ``cancel`` Event. The compute submit loop and writer
+            # loop both check ``cancel.is_set()`` between iterations.
 
             # TASK-040 — bounded in-flight: at most ``2 * pool_size`` futures
             # outstanding at any time. Track ids submitted lazily.
@@ -925,7 +934,7 @@ def generate_apply_stream(req: GenerateAndApplyRequest, db=Depends(get_db)):
                         except StopIteration:
                             pass
 
-            cancel.set()  # stop the poll thread
+            cancel.set()  # signal the async poll task to exit on its next tick
             yield f"data: {json.dumps({'done': True, 'applied': applied, 'skipped': skipped, 'backup_path': backup_path})}\n\n"
             return
 
@@ -958,6 +967,12 @@ def generate_apply_stream(req: GenerateAndApplyRequest, db=Depends(get_db)):
                             skipped += 1
             yield f"data: {json.dumps({'processed': i + 1, 'total': total, 'applied': applied, 'skipped': skipped})}\n\n"
         yield f"data: {json.dumps({'done': True, 'applied': applied, 'skipped': skipped, 'backup_path': backup_path})}\n\n"
+        cancel.set()  # signal the async poll task to exit on its next tick
+
+    # TASK-041 — launch the disconnect-poll task on the request's event
+    # loop. It exits when ``cancel`` is set (either by the client closing
+    # the connection, or by the sync generator on normal completion).
+    asyncio.create_task(_poll_disconnect_async())
 
     return StreamingResponse(
         event_stream(),
