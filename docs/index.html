@@ -3203,11 +3203,11 @@ autocue --library --mode bar --bars-interval 8 --start-bar 1</pre>
       <button id="disc-v2-empty-action" class="primary" style="font-size:12px;display:none;"></button>
     </div>
 
-    <!-- Card grid (populated by the SSE consumer) -->
-    <div id="disc-v2-grid" class="disc-v2-grid"></div>
-
-    <!-- Settings sub-panel (toggled by the ⚙ button) -->
-    <div id="disc-v2-settings" style="display:none;margin-top:18px;border-top:1px solid var(--border);padding-top:18px;">
+    <!-- Settings sub-panel (toggled by the ⚙ button). Placed ABOVE the
+         feed grid so opening Settings reveals in place — the user can
+         tweak follows / blocks / export without scrolling past every card
+         they were already browsing. -->
+    <div id="disc-v2-settings" style="display:none;margin-bottom:18px;border-bottom:1px solid var(--border);padding-bottom:18px;">
       <h3 style="margin:0 0 10px;font-size:14px;font-weight:700;">Discover settings</h3>
       <!-- Saved releases — gives 💚 Save a destination. Previously the user
            saved cards and they vanished into the void. UX audit M-4 (High). -->
@@ -3245,6 +3245,9 @@ autocue --library --mode bar --bars-interval 8 --start-bar 1</pre>
         <div id="disc-v2-stats-block" style="margin:6px 0;font-size:12px;color:var(--muted);"></div>
       </div>
     </div>
+
+    <!-- Card grid (populated by the SSE consumer) -->
+    <div id="disc-v2-grid" class="disc-v2-grid"></div>
   </section>
 
   <!-- Detail panel — rendered as a side overlay when a card is clicked.
