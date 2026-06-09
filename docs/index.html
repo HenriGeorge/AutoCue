@@ -3155,8 +3155,8 @@ autocue --library --mode bar --bars-interval 8 --start-bar 1</pre>
       <button id="disc-v2-onboarding-skip" class="secondary-btn" style="font-size:12px;margin-left:6px;">Skip for now</button>
     </div>
 
-    <!-- Filter bar -->
-    <div id="disc-v2-filter-bar" style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:12px;">
+    <!-- Filter bar (row 1) — server-side filters: source, sort, year. -->
+    <div id="disc-v2-filter-bar" style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:8px;">
       <span style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.04em;">Source:</span>
       <label class="disc-v2-chip"><input type="checkbox" data-source="artist" checked> Artist</label>
       <label class="disc-v2-chip"><input type="checkbox" data-source="label" checked> Label</label>
@@ -3174,8 +3174,28 @@ autocue --library --mode bar --bars-interval 8 --start-bar 1</pre>
         <option value="">All</option>
         <option value="this">This year</option>
         <option value="last2">Last 2 years</option>
+        <option value="last5">Last 5 years</option>
+        <option value="custom">Specific year…</option>
       </select>
+      <input id="disc-v2-year-custom" type="number" min="1900" max="2099" step="1"
+             placeholder="YYYY" aria-label="Specific year"
+             style="display:none;width:72px;font-size:12px;padding:4px 6px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--text);">
     </div>
+
+    <!-- Filter bar (row 2) — client-side filters applied to the loaded feed.
+         No re-scan needed; these narrow what's already on screen. -->
+    <div id="disc-v2-filter-bar-2" style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:12px;">
+      <input id="disc-v2-search" type="search" placeholder="Search artist or title…"
+             aria-label="Search Discover feed"
+             style="flex:1;min-width:180px;max-width:280px;font-size:12px;padding:6px 8px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--text);">
+      <label class="disc-v2-chip"><input type="checkbox" id="disc-v2-hide-saved"> Hide saved</label>
+      <label class="disc-v2-chip"><input type="checkbox" id="disc-v2-hide-dismissed" checked> Hide dismissed</label>
+      <button id="disc-v2-styles-clear" class="secondary-btn"
+              style="display:none;font-size:11px;padding:3px 8px;"
+              title="Clear all style filters">Clear styles</button>
+    </div>
+    <!-- Style chips — populated from the visible feed's Discogs styles. -->
+    <div id="disc-v2-style-chips" style="display:none;flex-wrap:wrap;gap:6px;margin-bottom:12px;"></div>
 
     <!-- Scan progress indicator -->
     <div id="disc-v2-scan-progress" style="display:none;font-size:12px;color:var(--muted);background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:8px 10px;margin-bottom:12px;">
@@ -5591,8 +5611,16 @@ const DiscoverV2 = (() => {
     const yearVal = document.getElementById('disc-v2-year')?.value || '';
     const params = new URLSearchParams();
     if (sources.length) params.set('sources', sources.join(','));
-    if (yearVal === 'this') params.set('year_from', String(new Date().getFullYear()));
-    else if (yearVal === 'last2') params.set('year_from', String(new Date().getFullYear() - 1));
+    const currentYear = new Date().getFullYear();
+    if (yearVal === 'this') params.set('year_from', String(currentYear));
+    else if (yearVal === 'last2') params.set('year_from', String(currentYear - 1));
+    else if (yearVal === 'last5') params.set('year_from', String(currentYear - 4));
+    else if (yearVal === 'custom') {
+      const custom = parseInt(document.getElementById('disc-v2-year-custom')?.value || '', 10);
+      if (Number.isFinite(custom) && custom >= 1900 && custom <= 2099) {
+        params.set('year_from', String(custom));
+      }
+    }
 
     const abort = new AbortController();
     _scanAbort = abort;
@@ -5996,6 +6024,107 @@ function _applyDiscoverV2Sort(cards, sortMode) {
   return cards.slice();
 }
 
+// Client-side filter predicate for the Discover feed. Extracted from
+// `_renderDiscoverV2Feed` so the filter logic is unit-testable in isolation.
+// `state` is the persisted filter state (search, selectedStyles, hideSaved,
+// hideDismissed, year, customYear); `s` is the global DiscoverV2.state with
+// dismissed/snoozed/saved keys.
+function _applyDiscoverV2Filters(cards, filters, s) {
+  const search = (filters.search || '').trim().toLowerCase();
+  const styles = filters.selectedStyles instanceof Set
+    ? filters.selectedStyles
+    : new Set(filters.selectedStyles || []);
+  const hideSaved = !!filters.hideSaved;
+  const hideDismissed = filters.hideDismissed !== false; // default ON
+  // Snoozed cards are ALWAYS hidden (they had an explicit "come back later"
+  // action and would be noise to surface again until the snooze expires).
+  return cards.filter((c) => {
+    if (s.snoozedKeys && s.snoozedKeys.has(c.release_key)) return false;
+    if (hideDismissed && s.dismissedKeys && s.dismissedKeys.has(c.release_key)) return false;
+    if (hideSaved && s.savedKeys && s.savedKeys.has(c.release_key)) return false;
+    const r = c.release || {};
+    if (search) {
+      const hay = (
+        (r.artist || '') + ' ' +
+        (r.title || '') + ' ' +
+        (r.album || '') + ' ' +
+        (r.label || '')
+      ).toLowerCase();
+      if (!hay.includes(search)) return false;
+    }
+    if (styles.size > 0) {
+      const cardStyles = Array.isArray(r.styles) ? r.styles : [];
+      if (!cardStyles.some((st) => styles.has(String(st).toLowerCase()))) return false;
+    }
+    return true;
+  });
+}
+
+// Persistent filter state for the Discover feed. Loaded from localStorage on
+// boot; selectedStyles is reconstituted as a Set so .has() works.
+let _discoverFilters = (() => {
+  try {
+    const raw = JSON.parse(localStorage.getItem('ac_discover_filters') || '{}');
+    return {
+      search: typeof raw.search === 'string' ? raw.search : '',
+      selectedStyles: new Set(Array.isArray(raw.selectedStyles) ? raw.selectedStyles : []),
+      hideSaved: !!raw.hideSaved,
+      hideDismissed: raw.hideDismissed !== false, // default ON
+    };
+  } catch {
+    return { search: '', selectedStyles: new Set(), hideSaved: false, hideDismissed: true };
+  }
+})();
+
+function _persistDiscoverFilters() {
+  try {
+    localStorage.setItem('ac_discover_filters', JSON.stringify({
+      search: _discoverFilters.search,
+      selectedStyles: Array.from(_discoverFilters.selectedStyles),
+      hideSaved: _discoverFilters.hideSaved,
+      hideDismissed: _discoverFilters.hideDismissed,
+    }));
+  } catch {}
+}
+
+// Rebuilds the style-chip strip from the styles present in the loaded feed.
+// Only the styles that actually appear in the user's current cards become
+// chips — no point offering "Bossa Nova" if no card has it. Chips reflect
+// selection state from _discoverFilters.selectedStyles.
+function _renderDiscoverStyleChips() {
+  const container = document.getElementById('disc-v2-style-chips');
+  const clearBtn = document.getElementById('disc-v2-styles-clear');
+  if (!container) return;
+  const counts = new Map();
+  for (const c of DiscoverV2.state.cards) {
+    const styles = Array.isArray(c.release?.styles) ? c.release.styles : [];
+    for (const st of styles) {
+      const key = String(st).toLowerCase();
+      if (!key) continue;
+      counts.set(key, (counts.get(key) || 0) + 1);
+    }
+  }
+  if (counts.size === 0) {
+    container.style.display = 'none';
+    if (clearBtn) clearBtn.style.display = 'none';
+    return;
+  }
+  // Top 16 most common styles — keeps the strip short. Sorted by count desc.
+  const top = Array.from(counts.entries())
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 16);
+  container.style.display = 'flex';
+  container.innerHTML = top.map(([key, n]) => {
+    const active = _discoverFilters.selectedStyles.has(key) ? ' active' : '';
+    return `<label class="disc-v2-chip${active}" data-style="${_esc(key)}">` +
+      `<input type="checkbox" data-style-key="${_esc(key)}"${active ? ' checked' : ''}> ` +
+      `${_esc(key.replace(/\b\w/g, (c) => c.toUpperCase()))} <span style="color:var(--muted)">${n}</span></label>`;
+  }).join('');
+  if (clearBtn) {
+    clearBtn.style.display = _discoverFilters.selectedStyles.size > 0 ? '' : 'none';
+  }
+}
+
 function _renderDiscoverV2Feed() {
   const grid = document.getElementById('disc-v2-grid');
   if (!grid) return;
@@ -6003,11 +6132,12 @@ function _renderDiscoverV2Feed() {
 
   const s = DiscoverV2.state;
   const sortMode = document.getElementById('disc-v2-sort')?.value || 'taste';
-  // Filter out dismissed / snoozed cards client-side so the user sees the
-  // action take effect immediately (the next scan will exclude them server-side).
-  // Then resort by the active sort mode (defaults to taste-ranked backend order).
-  const filtered = s.cards.filter(c =>
-    !s.dismissedKeys.has(c.release_key) && !s.snoozedKeys.has(c.release_key));
+  // Refresh the style chips from the current feed before filtering so the
+  // user can toggle a style that just appeared.
+  _renderDiscoverStyleChips();
+  // Apply client-side filters (search / styles / hide-saved / hide-dismissed).
+  // Snoozed cards are unconditionally hidden inside _applyDiscoverV2Filters.
+  const filtered = _applyDiscoverV2Filters(s.cards, _discoverFilters, s);
   const visible = _applyDiscoverV2Sort(filtered, sortMode);
 
   const emptyEl = document.getElementById('disc-v2-empty-state');
@@ -7391,10 +7521,80 @@ function initDiscoverV2() {
   // Filter chips re-trigger scan on change (server-side feeder selection).
   document.querySelectorAll('#disc-v2-filter-bar input[data-source]').forEach(el =>
     el.addEventListener('change', () => DiscoverV2.runScan()));
-  // Year filter changes the backend window — re-scan.
-  document.getElementById('disc-v2-year')?.addEventListener('change', () => DiscoverV2.runScan());
+  // Year filter changes the backend window — re-scan. "custom" reveals an
+  // inline number input; only re-scan once a valid 4-digit year is entered.
+  const yearSelect = document.getElementById('disc-v2-year');
+  const yearCustom = document.getElementById('disc-v2-year-custom');
+  yearSelect?.addEventListener('change', () => {
+    if (yearCustom) {
+      yearCustom.style.display = yearSelect.value === 'custom' ? '' : 'none';
+      if (yearSelect.value === 'custom') {
+        yearCustom.focus();
+        // Don't scan yet — wait for the user to type a year.
+        if (!yearCustom.value) return;
+      }
+    }
+    DiscoverV2.runScan();
+  });
+  yearCustom?.addEventListener('change', () => {
+    const v = parseInt(yearCustom.value || '', 10);
+    if (Number.isFinite(v) && v >= 1900 && v <= 2099) DiscoverV2.runScan();
+  });
   // Sort is purely client-side — just re-render the existing fetch.
   document.getElementById('disc-v2-sort')?.addEventListener('change', _renderDiscoverV2Feed);
+
+  // ── Client-side filter row 2: search / hide-saved / hide-dismissed / styles ──
+  // These narrow the loaded feed without re-scanning. State is persisted
+  // to localStorage so it survives reloads (matches the sort-persistence
+  // pattern at line 3891).
+  const searchInput = document.getElementById('disc-v2-search');
+  if (searchInput) {
+    searchInput.value = _discoverFilters.search || '';
+    let searchDebounce = null;
+    searchInput.addEventListener('input', () => {
+      clearTimeout(searchDebounce);
+      searchDebounce = setTimeout(() => {
+        _discoverFilters.search = searchInput.value || '';
+        _persistDiscoverFilters();
+        _renderDiscoverV2Feed();
+      }, 180);
+    });
+  }
+  const hideSavedEl = document.getElementById('disc-v2-hide-saved');
+  if (hideSavedEl) {
+    hideSavedEl.checked = !!_discoverFilters.hideSaved;
+    hideSavedEl.addEventListener('change', () => {
+      _discoverFilters.hideSaved = hideSavedEl.checked;
+      _persistDiscoverFilters();
+      _renderDiscoverV2Feed();
+    });
+  }
+  const hideDismissedEl = document.getElementById('disc-v2-hide-dismissed');
+  if (hideDismissedEl) {
+    hideDismissedEl.checked = _discoverFilters.hideDismissed !== false;
+    hideDismissedEl.addEventListener('change', () => {
+      _discoverFilters.hideDismissed = hideDismissedEl.checked;
+      _persistDiscoverFilters();
+      _renderDiscoverV2Feed();
+    });
+  }
+  // Style-chip clicks toggle membership in _discoverFilters.selectedStyles
+  // via event delegation (the chips themselves are re-rendered on every feed
+  // update by _renderDiscoverStyleChips).
+  document.getElementById('disc-v2-style-chips')?.addEventListener('change', (ev) => {
+    const target = ev.target;
+    if (!target || !target.matches('input[data-style-key]')) return;
+    const key = target.getAttribute('data-style-key') || '';
+    if (target.checked) _discoverFilters.selectedStyles.add(key);
+    else _discoverFilters.selectedStyles.delete(key);
+    _persistDiscoverFilters();
+    _renderDiscoverV2Feed();
+  });
+  document.getElementById('disc-v2-styles-clear')?.addEventListener('click', () => {
+    _discoverFilters.selectedStyles.clear();
+    _persistDiscoverFilters();
+    _renderDiscoverV2Feed();
+  });
 
   // Scan-cancel button.
   document.getElementById('disc-v2-scan-cancel-btn')?.addEventListener('click', () => DiscoverV2.cancelScan());
