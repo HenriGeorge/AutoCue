@@ -70,6 +70,20 @@ need to mutate the ones you already have.
 
 ## The four operations
 
+> **UI labels are not API field names.** The panel uses human-friendly
+> labels ("Find", "Replace with", "Shift by", "Keep up to slot #") that do
+> NOT match the wire-format keys. Programmatic callers must use the field
+> names shown in each operation's **REST API request body** block below.
+> Sending the UI labels as JSON keys produces HTTP 422 with
+> `{"detail":[{"type":"missing","loc":["body","<op>","<field>"],...}]}`.
+
+| Operation        | UI label                       | API request field                       |
+|------------------|--------------------------------|-----------------------------------------|
+| `rename`         | Find / Replace with            | `rename.from_name` / `rename.to_name`   |
+| `recolor`        | Per-slot color drop-downs (A–H)| `recolor.slot_colors` (dict `"0"`–`"7"` → 0–8) |
+| `shift`          | Shift by (ms)                  | `shift.delta_ms`                        |
+| `delete_orphan`  | Keep up to slot # (1=A … 8=H)  | `delete_orphan.keep_slots`              |
+
 ### Rename
 
 Replace the `DjmdCue.Comment` field — the cue name that shows in Rekordbox —
@@ -82,6 +96,20 @@ class CueRenameParams(BaseModel):
     from_name: str   # exact, case-sensitive match against DjmdCue.Comment
     to_name: str
 ```
+
+REST API request body (`POST /api/cue-tools-stream`):
+
+```json
+{
+  "operation": "rename",
+  "track_ids": [101, 102, 103],
+  "dry_run": true,
+  "rename": {"from_name": "Cue 1", "to_name": "Drop"}
+}
+```
+
+The UI's `Find` input maps to `rename.from_name`; `Replace with` maps to
+`rename.to_name`. The UI keys are NOT accepted by the API.
 
 Per-track logic (`autocue/serve/routes.py:995`):
 
@@ -116,6 +144,23 @@ class CueRecolorParams(BaseModel):
     # 2=Red,3=Orange,4=Yellow,5=Green,6=Aqua,7=Blue,8=Purple).
     slot_colors: dict[str, int]
 ```
+
+REST API request body (`POST /api/cue-tools-stream`):
+
+```json
+{
+  "operation": "recolor",
+  "track_ids": [101, 102, 103],
+  "dry_run": true,
+  "recolor": {"slot_colors": {"0": 5, "1": 7, "4": 1}}
+}
+```
+
+The UI's eight per-slot color drop-downs map to entries in
+`recolor.slot_colors`, keyed by slot index string `"0"`–`"7"` (slot A–H).
+Omit a slot key to leave that slot unchanged; sending `0` for a slot also
+means "skip" (the UI's "—" entry). The API has no `target_color_id` /
+`where_color_id` fields — those are not part of the request schema.
 
 Per-track logic (`autocue/serve/routes.py:1006`):
 
@@ -162,6 +207,20 @@ class CueShiftParams(BaseModel):
     delta_ms: int  # positive = shift later, negative = shift earlier
     negative_policy: Literal["skip", "clamp_to_zero", "abort_track"] = "abort_track"
 ```
+
+REST API request body (`POST /api/cue-tools-stream`):
+
+```json
+{
+  "operation": "shift",
+  "track_ids": [101, 102, 103],
+  "dry_run": true,
+  "shift": {"delta_ms": 25, "negative_policy": "abort_track"}
+}
+```
+
+The UI's "Shift by (ms)" input maps to `shift.delta_ms` — not `offset_ms`.
+The API only accepts `delta_ms`; sending `offset_ms` returns 422.
 
 `delta_ms` is rejected at the schema layer if it equals zero
 (`autocue/serve/schemas.py:274`):
@@ -234,6 +293,21 @@ Schema (`autocue/serve/schemas.py:282`):
 class CueDeleteOrphanParams(BaseModel):
     keep_slots: int = Field(..., ge=1, le=8)  # delete hot cues whose Kind > keep_slots
 ```
+
+REST API request body (`POST /api/cue-tools-stream`):
+
+```json
+{
+  "operation": "delete_orphan",
+  "track_ids": [101, 102, 103],
+  "dry_run": true,
+  "delete_orphan": {"keep_slots": 4}
+}
+```
+
+The UI's "Keep up to slot # (1=A … 8=H)" input maps to
+`delete_orphan.keep_slots` — not `keep_first_n_slots`. The API only
+accepts `keep_slots`; sending `keep_first_n_slots` returns 422.
 
 Per-track logic (`autocue/serve/routes.py:1048`):
 
