@@ -10537,6 +10537,15 @@ function renderTracks() {
     // _cardMap is the album-mode cache only; flat mode keeps live nodes
     // inside Virtualizer._visibleNodes(). The recycle pool caps mounted DOM
     // at ~viewport+buffer cards.
+    //
+    // Album-mode DOM (built by the `if (currentSort.by === 'album')` branch
+    // above) is invisible to Virtualizer.attach() — it would render the flat
+    // window on top of the orphan .album-group children and never recover the
+    // memory. Clear it explicitly on the album → flat transition. (Issue #114.)
+    if (list.querySelector('.album-group')) {
+      list.innerHTML = '';
+      _cardMap.clear();
+    }
     list.classList.add('virtualized');
     const newFingerprint = _computeSettingsFingerprint();
     const settingsChanged = newFingerprint !== _cardSettingsFingerprint;
