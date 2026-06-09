@@ -68,9 +68,17 @@ Related references:
 
 `build_set(...)` returns an ordered list of tracks that:
 
-1. Start near a given BPM (`start_bpm`).
+1. Start near a given BPM (`start_bpm`). "Near" means the seed may sit as
+   low as `start_bpm × 0.97` — `_find_seed` accepts a 3% slack so a 120
+   request can land on a 116.5 seed if no in-range track scores high enough
+   on the warmup/peak category (see [Seed selection](#4-seed-selection--_find_seed)).
 2. Move toward an ending BPM (`end_bpm`) at no more than `bpm_step_max` per
-   step (default 8%, asymmetric — see [Candidate retrieval](#6-candidate-retrieval--_get_candidates)).
+   step (default 8%) in the **forward** direction, while allowing a small
+   **backward** step of up to 3% per slot. In ascending (`build`) sets,
+   consecutive BPMs are biased upward but can dip slightly (e.g.
+   `118.81 → 117.65`) — Set Builder is *biased upward*, not strictly
+   monotonic. The 3% backward tolerance is deliberate: it stops the
+   candidate pool collapsing onto same-BPM tracks (see [Asymmetric BPM gate](#asymmetric-bpm-gate) and [Bug 4 history](#17-bug-4-history--full-timeline)).
 3. Sum to roughly `duration_minutes` of playback.
 4. Honour an `energy_mode` of `build` / `flat` / `drop` (a soft penalty on each
    transition).
@@ -109,6 +117,17 @@ when a safety cap (`3 × est_tracks` steps) is hit.
 ```python
 {
     "tracks": [
+        {
+            "track_id": 4001,
+            "title": "...",
+            "artist": "...",
+            "bpm": 118.0,
+            "key": "8A",
+            "category": "warmup",
+            "transition_score": None,      # None on the seed (head) row
+            "mix_advice": None,            # None on the seed — no previous track
+            "relaxed": False,
+        },
         {
             "track_id": 4214,
             "title": "...",
@@ -509,6 +528,28 @@ starving the planner of progression candidates (Bug 4, layer B — see [Bug 4 hi
 asymmetric gate gives the index more upside candidates while the fine filter
 still enforces the step constraint.
 
+### Backward step allowance — Set Builder is biased, not monotonic
+
+In ascending sets the per-slot floor is `current_bpm × 0.97` (capped no
+lower than `start_bpm × 0.97`). That means consecutive BPMs **can** dip by
+up to ~3% per step — `118.81 → 117.65` is a legal step (3% of 118.81 is
+3.56). The set is biased upward by the BPM-progress bonus (see [BPM-progress bonus](#9-bpm-progress-bonus))
+and the reweighting (see [Reweighting](#8-setbuilder-specific-transition-reweighting)), but the gate itself does **not** enforce
+strict monotonic non-decreasing BPM. The same applies in reverse for
+descending sets: the per-slot ceiling is `current_bpm × 1.03`, so a
+descending set can have small upward dips.
+
+This is a deliberate trade-off. Strict monotonic would re-create the Bug 4
+trap: the similarity index returns mostly same-BPM tracks, and a strict
+floor at `current_bpm` would mean the *only* way out is a single 8% jump,
+which key/energy almost always vetoes. The 3% slack keeps a usable
+candidate pool around the current BPM while the reweighting + bonus push
+the *cumulative* drift upward.
+
+If you need strict monotonic ascending BPM (e.g. for a contest mix), there
+is currently **no** request flag for it — you'd post-process the returned
+`tracks[]` and filter any rows where `bpm < tracks[i-1].bpm`.
+
 ### Candidate count
 
 ```python
@@ -838,7 +879,14 @@ The advice has three components, joined by `"; "`:
 3. **Energy technique** — only mentioned when energy jumps or drops by more
    than 20%. Suggests filtering or bridging.
 
-The seed track has `mix_advice=None` (no previous track to transition from).
+**Seed exception**: the first row (`tracks[0]`) always carries
+`mix_advice = None` and `transition_score = None` — there is no previous
+track to transition *from*, so neither field is meaningful. Every
+**subsequent** row (`tracks[1:]`) carries non-`None` values for both
+fields. Consumers must handle the head-row `None` (the UI renders the
+advice in the connector *between* rows, so the head row simply has no
+connector above it).
+
 The UI renders advice in the connector between rows.
 
 ---
@@ -923,8 +971,8 @@ class SetBuilderTrackItem(BaseModel):
 | `bpm`              | `float`         | Stored ×100 in Rekordbox, divided here. Rounded to 2 decimal places.              |
 | `key`              | `str`           | `DjmdContent.Key.ScaleName` (Camelot, e.g. `"8A"`). Empty if not analysed.        |
 | `category`         | `str`           | `get_classification(content)["primary"]` — `warmup`/`build`/`peak`/`after_hours`/`closing`/`unknown`. |
-| `transition_score` | `float \| None` | The **raw** `ts["overall"]` for inspection (NOT the reweighted/adjusted internal score). `None` for the seed. |
-| `mix_advice`       | `str \| None`   | `transition_advice(ts)`. `None` for the seed.                                     |
+| `transition_score` | `float \| None` | The **raw** `ts["overall"]` for inspection (NOT the reweighted/adjusted internal score). **`None` on the seed (head) row** (`tracks[0]`) — no previous track to score against. Non-`None` on every other row. |
+| `mix_advice`       | `str \| None`   | `transition_advice(ts)`. **`None` on the seed (head) row** (`tracks[0]`) — no previous track to transition from. Non-`None` on every other row. |
 | `relaxed`          | `bool`          | `True` if this track was placed via relaxation tier ≥ 1 (see [Relaxation tiers](#11-relaxation-tiers--_relaxation_tiers)).                    |
 
 The full response wrapper:
