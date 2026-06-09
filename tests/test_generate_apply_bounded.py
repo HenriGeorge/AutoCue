@@ -210,7 +210,7 @@ def test_writer_stage_drains_until_sentinel():
     q.put(_COMPUTE_DONE)
 
     write_fn = MagicMock(return_value=1)
-    applied, skipped = _writer_stage(
+    applied, skipped, errors = _writer_stage(
         q, db,
         write_fn=write_fn,
         overwrite=True,
@@ -222,13 +222,20 @@ def test_writer_stage_drains_until_sentinel():
 
     assert applied == 3
     assert skipped == 0
+    assert errors == 0
     assert write_fn.call_count == 3
     # One SSE payload per processed item.
     payloads = []
     while not event_q.empty():
         payloads.append(event_q.get_nowait())
     assert len(payloads) == 3
-    assert payloads[-1] == {"processed": 3, "total": 3, "applied": 3, "skipped": 0}
+    # TASK-042/043 — payload carries content_id + errors counter.
+    assert payloads[-1]["processed"] == 3
+    assert payloads[-1]["total"] == 3
+    assert payloads[-1]["applied"] == 3
+    assert payloads[-1]["skipped"] == 0
+    assert payloads[-1]["errors"] == 0
+    assert payloads[-1]["content_id"] == 3
 
 
 def test_compute_writer_backpressure_queue_never_exceeds_maxsize():
