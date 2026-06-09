@@ -13,6 +13,7 @@ from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from .deps import lifespan
+from .middleware import SnapshotInvalidationMiddleware
 from .routes import router
 
 DOCS_DIR = Path(__file__).parent.parent.parent / "docs"
@@ -56,28 +57,18 @@ def create_app(db_path: str | None = None, port: int = DEFAULT_PORT) -> FastAPI:
         allow_headers=["*"],
     )
 
-    # TASK-026 — invalidate the /api/tracks snapshot after any successful
-    # POST / DELETE / PUT to /api/*. The handler's mtime check already
-    # catches master.db changes, but this is defense-in-depth: snapshot
-    # clears immediately after the mutating call returns 2xx, even before
-    # the OS flushes the new mtime.
-    @app.middleware("http")
-    async def _invalidate_snapshot_on_mutation(request, call_next):
-        from .routes import _invalidate_tracks_snapshot
-        response = await call_next(request)
-        try:
-            method = request.method.upper()
-            path = request.url.path
-            if (
-                method in ("POST", "PUT", "DELETE")
-                and path.startswith("/api/")
-                and 200 <= response.status_code < 300
-            ):
-                _invalidate_tracks_snapshot(request.app)
-        except Exception:
-            # Never let invalidation bookkeeping break the response.
-            pass
-        return response
+    # TASK-026 / issue #115 — invalidate the /api/tracks snapshot after any
+    # successful POST / DELETE / PUT to /api/*. The handler's mtime check
+    # already catches master.db changes, but this is defense-in-depth: the
+    # snapshot clears immediately after the mutating call returns 2xx, even
+    # before the OS flushes the new mtime.
+    #
+    # Installed as a pure-ASGI middleware (NOT @app.middleware("http"), which
+    # wraps in starlette's BaseHTTPMiddleware) — BaseHTTPMiddleware is
+    # documented to be incompatible with StreamingResponse: any abort in the
+    # response generator surfaces as RuntimeError("No response returned.")
+    # from call_next. See encode/starlette#1925.
+    app.add_middleware(SnapshotInvalidationMiddleware)
 
     # NOTE: friendly 422 rewriting for the removed `audio_quality` field is
     # done INLINE in autocue/serve/routes.py :: _validate_download_body() so

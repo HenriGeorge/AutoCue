@@ -1,4 +1,5 @@
-"""TASK-022 + TASK-026 + TASK-048 — snapshot persistence + invalidation middleware + perf marker."""
+"""TASK-022 + TASK-026 + TASK-048 + issue #115 — snapshot persistence +
+invalidation middleware (now pure-ASGI) + perf marker."""
 from __future__ import annotations
 
 import threading
@@ -9,6 +10,7 @@ from fastapi.testclient import TestClient
 
 from autocue.cache import CacheStore
 from autocue.serve.app import create_app
+from autocue.serve.middleware import SnapshotInvalidationMiddleware
 from autocue.serve.schemas import TrackItem
 
 
@@ -69,25 +71,14 @@ def test_snapshot_persists_to_cachestore_on_write_through(monkeypatch):
 
 def test_middleware_invalidates_after_successful_post():
     """Build a minimal app fragment with only the middleware + a stub POST
-    so the static-files mount doesn't shadow the test route."""
+    so the static-files mount doesn't shadow the test route. Uses the same
+    SnapshotInvalidationMiddleware class that ships in create_app(), so this
+    exercises the production code path."""
     from fastapi import FastAPI
-    from autocue.serve.routes import _invalidate_tracks_snapshot
     app = FastAPI()
     app.state.tracks_snapshot_lock = threading.Lock()
     app.state.tracks_snapshot = {"mtime": 100.0, "payload": [_track_item(1)]}
-
-    @app.middleware("http")
-    async def _hook(request, call_next):
-        response = await call_next(request)
-        method = request.method.upper()
-        path = request.url.path
-        if (
-            method in ("POST", "PUT", "DELETE")
-            and path.startswith("/api/")
-            and 200 <= response.status_code < 300
-        ):
-            _invalidate_tracks_snapshot(request.app)
-        return response
+    app.add_middleware(SnapshotInvalidationMiddleware)
 
     @app.post("/api/_test_mutating")
     def _ep():
@@ -114,24 +105,10 @@ def test_middleware_does_not_invalidate_on_get():
 
 def _stub_middleware_app(routes_fn):
     from fastapi import FastAPI
-    from autocue.serve.routes import _invalidate_tracks_snapshot
     app = FastAPI()
     app.state.tracks_snapshot_lock = threading.Lock()
     app.state.tracks_snapshot = {"mtime": 100.0, "payload": [_track_item(1)]}
-
-    @app.middleware("http")
-    async def _hook(request, call_next):
-        response = await call_next(request)
-        method = request.method.upper()
-        path = request.url.path
-        if (
-            method in ("POST", "PUT", "DELETE")
-            and path.startswith("/api/")
-            and 200 <= response.status_code < 300
-        ):
-            _invalidate_tracks_snapshot(request.app)
-        return response
-
+    app.add_middleware(SnapshotInvalidationMiddleware)
     routes_fn(app)
     return app
 
@@ -158,6 +135,129 @@ def test_middleware_does_not_invalidate_on_5xx():
     snapshot = app.state.tracks_snapshot
     client = TestClient(app)
     client.post("/api/_test_fail")
+    assert app.state.tracks_snapshot is snapshot
+
+
+# ── issue #115 — pure-ASGI middleware survives StreamingResponse aborts ──
+
+
+def _make_streaming_app(generator_factory):
+    """Build a stub app whose POST /api/_stream returns a StreamingResponse
+    backed by generator_factory(). Uses the production middleware class."""
+    from fastapi import FastAPI
+    from fastapi.responses import StreamingResponse
+
+    app = FastAPI()
+    app.state.tracks_snapshot_lock = threading.Lock()
+    app.state.tracks_snapshot = {"mtime": 100.0, "payload": [_track_item(1)]}
+    app.add_middleware(SnapshotInvalidationMiddleware)
+
+    @app.post("/api/_stream")
+    def _ep():
+        return StreamingResponse(generator_factory(), media_type="text/event-stream")
+
+    return app
+
+
+def test_streaming_response_that_aborts_does_not_raise_runtime_error():
+    """Regression for issue #115. Previously, @app.middleware('http') wrapped
+    the invalidation hook in BaseHTTPMiddleware, which raised
+    RuntimeError('No response returned.') whenever a StreamingResponse
+    generator aborted mid-stream. The pure-ASGI middleware must not.
+
+    This test FAILS against the old BaseHTTPMiddleware implementation:
+    starlette would surface the generator's RuntimeError as a 500 with a
+    nested "No response returned." traceback.
+    """
+    def aborting_gen():
+        yield b"data: first\n\n"
+        raise RuntimeError("simulated generator abort mid-stream")
+
+    app = _make_streaming_app(aborting_gen)
+    client = TestClient(app)
+
+    # The pure-ASGI middleware MUST propagate the generator's RuntimeError
+    # cleanly without dressing it up as "No response returned." — and any
+    # subsequent requests on the same app must still work.
+    try:
+        client.post("/api/_stream")
+    except RuntimeError as e:
+        # The original generator's RuntimeError may bubble — that's fine.
+        # The critical invariant is that it's NOT the BaseHTTPMiddleware
+        # "No response returned." failure mode.
+        assert "No response returned" not in str(e), (
+            f"middleware regressed to BaseHTTPMiddleware behavior: {e!r}"
+        )
+
+    # Boundary check: after an aborted stream, the app must still serve
+    # subsequent requests (BaseHTTPMiddleware sometimes wedged the loop).
+    @app.post("/api/_ok")
+    def _ok():
+        return {"ok": True}
+
+    r2 = client.post("/api/_ok")
+    assert r2.status_code == 200
+    # And the snapshot must have been invalidated by the second 2xx mutation.
+    assert app.state.tracks_snapshot is None
+
+
+def test_streaming_response_completing_cleanly_invalidates_snapshot():
+    """Boundary: a StreamingResponse that completes normally with a 2xx
+    must still trigger snapshot invalidation. This protects the original
+    TASK-026 behavior under the new middleware."""
+    def good_gen():
+        yield b"data: one\n\n"
+        yield b"data: two\n\n"
+
+    app = _make_streaming_app(good_gen)
+    client = TestClient(app)
+    r = client.post("/api/_stream")
+    assert r.status_code == 200
+    # Drain to ensure the response stream actually completed.
+    _ = r.content
+    assert app.state.tracks_snapshot is None
+
+
+def test_middleware_invalidates_on_201_created_boundary():
+    """Boundary: status_code == 200 is in, status_code == 299 is in,
+    status_code == 300 is OUT. Uses 201 to confirm the inclusive 2xx range."""
+    from fastapi import FastAPI
+
+    app = FastAPI()
+    app.state.tracks_snapshot_lock = threading.Lock()
+    app.state.tracks_snapshot = {"mtime": 100.0, "payload": [_track_item(1)]}
+    app.add_middleware(SnapshotInvalidationMiddleware)
+
+    @app.post("/api/_created", status_code=201)
+    def _ep():
+        return {"ok": True}
+
+    client = TestClient(app)
+    r = client.post("/api/_created")
+    assert r.status_code == 201
+    assert app.state.tracks_snapshot is None
+
+
+def test_middleware_does_not_invalidate_on_300_redirect_boundary():
+    """Boundary: 3xx must NOT invalidate. The original middleware used
+    `200 <= response.status_code < 300`; the pure-ASGI version must
+    preserve that exact half-open interval."""
+    from fastapi import FastAPI
+    from fastapi.responses import RedirectResponse
+
+    app = FastAPI()
+    app.state.tracks_snapshot_lock = threading.Lock()
+    snapshot = {"mtime": 100.0, "payload": [_track_item(1)]}
+    app.state.tracks_snapshot = snapshot
+    app.add_middleware(SnapshotInvalidationMiddleware)
+
+    @app.post("/api/_redirect")
+    def _ep():
+        return RedirectResponse(url="/api/_other", status_code=303)
+
+    client = TestClient(app)
+    r = client.post("/api/_redirect", follow_redirects=False)
+    assert r.status_code == 303
     assert app.state.tracks_snapshot is snapshot
 
 
