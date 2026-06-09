@@ -5873,20 +5873,33 @@ const DiscoverV2 = (() => {
   }
 
   // YouTube preview: lazy, per-release, cached for the session.
+  //
+  // Sends `artist` + `album` alongside the raw `q` query so the backend can
+  // apply its token-mismatch filter: when at least one candidate is a
+  // genuine match, hard mismatches (Vénissieux → corporate-services video,
+  // Philip Glass → Schubert, etc.) are dropped server-side and `mismatch:
+  // true` is flagged on any survivors. The frontend respects the flag
+  // (drops mismatches from the carousel; falls back to "no clean match
+  // found" if ALL results are flagged).
   async function searchYouTube(release, n = 3) {
     const key = release.release_key;
     const cached = state.youtubeByKey.get(key);
     if (cached && cached.status !== 'error') return cached;
     const r = release.release || {};
-    const q = [r.artist, r.title].filter(Boolean).join(' ').trim();
+    const artist = r.artist || '';
+    const title = r.title || r.album || '';
+    const q = [artist, title].filter(Boolean).join(' ').trim();
     if (!q) {
       const empty = {status: 'loaded', candidates: []};
       state.youtubeByKey.set(key, empty);
       return empty;
     }
     state.youtubeByKey.set(key, {status: 'loading', candidates: []});
+    const params = new URLSearchParams({q, n: String(n)});
+    if (artist) params.set('artist', artist);
+    if (title) params.set('album', title);
     try {
-      const res = await _get('/api/youtube/search?q=' + encodeURIComponent(q) + '&n=' + n);
+      const res = await _get('/api/youtube/search?' + params.toString());
       const entry = {status: 'loaded', candidates: res.candidates || []};
       state.youtubeByKey.set(key, entry);
       return entry;
@@ -6857,12 +6870,27 @@ async function _loadYouTubePreview(release) {
     slot.innerHTML = '<div class="disc-v2-yt-placeholder">Could not load YouTube previews: ' + _esc(entry.error || '') + '</div>';
     return;
   }
-  const candidates = (entry.candidates || []).filter(c => _extractYouTubeId(c.url));
-  if (!candidates.length) {
+  const all = (entry.candidates || []).filter(c => _extractYouTubeId(c.url));
+  if (!all.length) {
     slot.innerHTML = '<div class="disc-v2-yt-placeholder">No YouTube previews found for this release.</div>';
     return;
   }
-  _renderYouTubeCarousel(slot, candidates, 0, release);
+  // The backend already drops mismatches when at least one match exists.
+  // When every candidate is flagged `mismatch:true`, the backend kept them
+  // ALL — that's the "no clean match found" fallback. Surface that to the
+  // user with a clearer placeholder rather than silently playing wrong audio.
+  const matches = all.filter(c => c.mismatch !== true);
+  if (matches.length === 0) {
+    const r = release.release || {};
+    slot.innerHTML =
+      '<div class="disc-v2-yt-placeholder">' +
+      'No YouTube match found for <em>' + _esc(r.artist || '') +
+      ' — ' + _esc(r.title || r.album || '') + '</em>. ' +
+      'YouTube returned only mismatched results.' +
+      '</div>';
+    return;
+  }
+  _renderYouTubeCarousel(slot, matches, 0, release);
 }
 
 // Cheap mismatch heuristic for UX audit Issue 3: if neither the album nor

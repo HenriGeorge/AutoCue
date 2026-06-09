@@ -785,14 +785,71 @@ def check_audio(req: CheckAudioRequest, db=Depends(get_ro_db)):
     return CheckAudioResponse(results=results, unverified_dirs=unverified)
 
 
+def _youtube_token_mismatch(title: str, channel: str, artist: str, album: str) -> bool:
+    """Token-overlap heuristic — returns True when no 4+ char ARTIST token
+    appears in the result's title OR channel name. The artist is the
+    discriminating signal: place names and generic terms ("Vénissieux",
+    "Songs", "30") often appear in both legit and mismatched results, so
+    album-only overlap doesn't save a candidate.
+
+    Most legit YouTube results include the artist in either the title
+    ("Artist - Album HQ") or the channel ("Artist Official"). Requiring
+    that match catches the Discogs→YouTube cross-source false positives
+    that motivated this filter:
+      * Vénissieux (album) → ZFU du Grand Lyon corporate-services video
+      * Philip Glass - Songs → Schubert "Winterreise" classical upload
+      * 30. (album) → Queen Naija - thirty
+
+    "4+ char token" filters out short words like "the"/"of" that bloat
+    haystacks. Match is case-insensitive, alphanumeric-only tokenization
+    (so "Vénissieux" → ["v", "nissieux"] — the prefix survives).
+
+    Empty artist input → returns False (caller didn't supply enough to
+    judge, fall through to no filtering). Empty haystack → returns False
+    (uninformative; let it through rather than over-filter).
+
+    `album` is reserved as a future weak-signal fallback (currently unused
+    in the decision; kept in the signature so the caller doesn't need to
+    change when we add a tie-breaker).
+    """
+    import re
+
+    def _norm(s: str) -> set[str]:
+        if not s:
+            return set()
+        return {t for t in re.split(r"[^a-z0-9]+", s.lower()) if len(t) >= 4}
+
+    artist_tokens = _norm(artist)
+    if not artist_tokens:
+        return False
+    haystack = _norm(title) | _norm(channel)
+    if not haystack:
+        return False
+    return haystack.isdisjoint(artist_tokens)
+
+
 @router.get("/youtube/search", response_model=YoutubeSearchResponse)
-def youtube_search(q: str = Query(..., min_length=1), n: int = Query(5, ge=1, le=10)):
+def youtube_search(
+    q: str = Query(..., min_length=1),
+    n: int = Query(5, ge=1, le=10),
+    artist: str | None = Query(None),
+    album: str | None = Query(None),
+):
     """Search YouTube for downloadable candidates (read-only).
 
     Bounded by a 2-process semaphore; excess returns 429. In-flight searches
     dedupe by exact query so two clicks with the same query share one yt-dlp
     process. Each search has a 30-second hard timeout; the slot is freed on
     timeout (504) so a hung YouTube response can't permanently jam the cap.
+
+    Optional `artist` + `album` params drive a token-overlap mismatch
+    flag on each candidate. When both are provided AND at least one
+    candidate matches the artist/album tokens, mismatched candidates
+    are DROPPED from the response (Discogs→YouTube cross-source false
+    positives like "Vénissieux" → ZFU du Grand Lyon corporate-services
+    video). If all candidates mismatch, ALL are returned with
+    `mismatch=true` so the caller can warn the user rather than show
+    an empty placeholder.
     """
     import concurrent.futures as _cf
     from .. import download as dl
@@ -835,13 +892,31 @@ def youtube_search(q: str = Query(..., min_length=1), n: int = Query(5, ge=1, le
 
     candidates = []
     for r in results or []:
+        title = r.get("title", "")
+        channel = r.get("uploader", "")
+        is_mismatch = (
+            _youtube_token_mismatch(title, channel, artist or "", album or "")
+            if (artist and album)
+            else False
+        )
         candidates.append(YoutubeSearchCandidate(
             url=r.get("url", ""),
-            title=r.get("title", ""),
-            channel=r.get("uploader", ""),
+            title=title,
+            channel=channel,
             duration=r.get("duration"),
             thumbnail=None,
+            mismatch=is_mismatch,
         ))
+
+    # If the caller passed both artist+album and AT LEAST one candidate
+    # is a real match, drop the mismatches. If ALL are mismatches we
+    # keep them so the caller can fall back to a "couldn't find a clean
+    # match" warning instead of an empty placeholder.
+    if artist and album:
+        matches = [c for c in candidates if not c.mismatch]
+        if matches:
+            candidates = matches
+
     return YoutubeSearchResponse(candidates=candidates)
 
 
