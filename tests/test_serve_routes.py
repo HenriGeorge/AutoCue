@@ -748,6 +748,63 @@ class TestGenerateApplyStream:
         assert progress[0]["processed"] == 1
         assert progress[0]["total"] == 2
         assert progress[1]["processed"] == 2
+        # TASK-042 — serial path also carries content_id on every event.
+        assert progress[0]["content_id"] == 1
+        assert progress[1]["content_id"] == 2
+        # TASK-043 — errors counter present and zero on the happy path.
+        assert progress[0].get("errors", 0) == 0
+        assert progress[1].get("errors", 0) == 0
+
+    def test_writer_exception_surfaces_as_error_kind_writer_serial(self, tmp_path):
+        """Issue #105 / TASK-043 — writer failure → errors, not skipped."""
+        db = _make_db()
+        db._db_dir = tmp_path
+        (tmp_path / "master.db").write_bytes(b"fake")
+        db.get_content.return_value = self._make_track(1)
+        with patch("autocue.db_writer.rekordbox_is_running", return_value=False):
+            with patch("autocue.serve.routes.generate_cues_for_track",
+                       return_value=([{"cue": 1}], None)):
+                with patch("autocue.db_writer.write_cues_to_db",
+                           side_effect=RuntimeError("serial-writer-boom")):
+                    with patch("autocue.db_writer.BACKUP_DIR", tmp_path / "backups"):
+                        client = _make_client(db)
+                        r = client.post("/api/generate-apply-stream",
+                                        json={"track_ids": [1], "dry_run": False,
+                                              "overwrite": True})
+        assert r.status_code == 200
+        events = self._collect_sse(r.text)
+        progress = [e for e in events if not e.get("done")]
+        assert len(progress) == 1
+        assert progress[0]["error_kind"] == "writer"
+        assert "serial-writer-boom" in progress[0]["error_message"]
+        assert progress[0]["content_id"] == 1
+        done = next(e for e in events if e.get("done"))
+        assert done["errors"] == 1
+        assert done["skipped"] == 0
+        assert done["applied"] == 0
+
+    def test_compute_exception_surfaces_as_error_kind_compute_serial(self, tmp_path):
+        """Issue #105 / TASK-043 — compute failure → errors, not skipped."""
+        db = _make_db()
+        db._db_dir = tmp_path
+        (tmp_path / "master.db").write_bytes(b"fake")
+        db.get_content.side_effect = RuntimeError("serial-compute-boom")
+        with patch("autocue.db_writer.rekordbox_is_running", return_value=False):
+            with patch("autocue.db_writer.BACKUP_DIR", tmp_path / "backups"):
+                client = _make_client(db)
+                r = client.post("/api/generate-apply-stream",
+                                json={"track_ids": [42], "dry_run": False,
+                                      "overwrite": True})
+        assert r.status_code == 200
+        events = self._collect_sse(r.text)
+        progress = [e for e in events if not e.get("done")]
+        assert len(progress) == 1
+        assert progress[0]["error_kind"] == "compute"
+        assert "serial-compute-boom" in progress[0]["error_message"]
+        assert progress[0]["content_id"] == 42
+        done = next(e for e in events if e.get("done"))
+        assert done["errors"] == 1
+        assert done["skipped"] == 0
 
     def test_final_event_has_done_true(self, tmp_path):
         db = _make_db()

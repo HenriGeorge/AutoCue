@@ -4336,7 +4336,7 @@ async function _applyHealthFix(trackIds, needsConfirm) {
         if (!line.startsWith('data: ')) continue;
         const ev = JSON.parse(line.slice(6));
         if (ev.done) finalData = ev;
-        else dlBtn.textContent = `Fixing… ${(ev.applied||0) + (ev.skipped||0)} / ${trackIds.length}`;
+        else dlBtn.textContent = `Fixing… ${(ev.applied||0) + (ev.skipped||0) + (ev.errors||0)} / ${trackIds.length}`;
       }
     }
 
@@ -8058,7 +8058,7 @@ async function applyToRekordbox() {
         if (ev.done) {
           finalData = ev;
         } else {
-          btn.textContent = `Applying… ${ev.applied + ev.skipped} / ${ev.total}`;
+          btn.textContent = `Applying… ${(ev.applied||0) + (ev.skipped||0) + (ev.errors||0)} / ${ev.total}`;
         }
       }
     }

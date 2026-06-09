@@ -889,20 +889,33 @@ def generate_apply_stream(req: GenerateAndApplyRequest, db=Depends(get_db)):
                 in_flight[pool.submit(_compute_one, nxt)] = nxt
 
             processed = 0
+            errors = 0
             while in_flight:
                 if cancel.is_set():
                     break
                 done_set, _ = _wait_any(in_flight)
                 for fut in done_set:
-                    in_flight.pop(fut, None)
+                    submitted_tid = in_flight.pop(fut, None)
+                    err_msg: str | None = None
+                    err_kind: str | None = None
                     try:
                         tid, content, cues, skip = fut.result()
-                    except Exception:
-                        tid, content, cues, skip = (None, None, None, "err:future")
+                    except Exception as exc:  # noqa: BLE001
+                        tid, content, cues, skip = (submitted_tid, None, None, f"err:{exc}")
+                    # TASK-042 — every progress event carries the content_id
+                    # so consumers can correlate the tick with a specific
+                    # track (completion order may differ from input order).
+                    event_cid = tid if tid is not None else submitted_tid
                     processed += 1
                     if processed % 100 == 0:
                         db.session.expire_all()
-                    if skip or content is None or not cues:
+                    if isinstance(skip, str) and skip.startswith("err:"):
+                        # TASK-043 — compute-side exception bucketed as
+                        # `errors`, not `skipped`.
+                        errors += 1
+                        err_kind = "compute"
+                        err_msg = skip[4:]
+                    elif skip or content is None or not cues:
                         skipped += 1
                     else:
                         try:
@@ -914,9 +927,22 @@ def generate_apply_stream(req: GenerateAndApplyRequest, db=Depends(get_db)):
                                 applied += 1
                             else:
                                 skipped += 1
-                        except Exception:
-                            skipped += 1
-                    yield f"data: {json.dumps({'processed': processed, 'total': total, 'applied': applied, 'skipped': skipped})}\n\n"
+                        except Exception as exc:  # noqa: BLE001
+                            errors += 1
+                            err_kind = "writer"
+                            err_msg = str(exc)
+                    payload = {
+                        "processed": processed,
+                        "total": total,
+                        "applied": applied,
+                        "skipped": skipped,
+                        "errors": errors,
+                        "content_id": event_cid,
+                    }
+                    if err_kind is not None:
+                        payload["error_kind"] = err_kind
+                        payload["error_message"] = err_msg
+                    yield f"data: {json.dumps(payload)}\n\n"
                     # Top up the in-flight queue.
                     if not cancel.is_set():
                         try:
@@ -926,38 +952,73 @@ def generate_apply_stream(req: GenerateAndApplyRequest, db=Depends(get_db)):
                             pass
 
             cancel.set()  # stop the poll thread
-            yield f"data: {json.dumps({'done': True, 'applied': applied, 'skipped': skipped, 'backup_path': backup_path})}\n\n"
+            yield f"data: {json.dumps({'done': True, 'applied': applied, 'skipped': skipped, 'errors': errors, 'backup_path': backup_path})}\n\n"
             return
 
-        # Serial path (default) — unchanged behavior.
+        # Serial path (default) — TASK-042/043: per-track content_id + errors.
+        errors = 0
         for i, tid in enumerate(req.track_ids):
             # Expire session identity map every 100 tracks to prevent memory accumulation
             if i % 100 == 0 and i > 0:
                 db.session.expire_all()
-            content = db.get_content(ID=tid)
-            if content is None:
-                skipped += 1
-            else:
-                if req.phrase_only:
-                    try:
-                        has_ext = bool(db.get_anlz_path(content, "EXT"))
-                    except Exception:
-                        has_ext = False
-                    if not has_ext:
-                        skipped += 1
-                        content = None
-                if content is not None:
-                    cues, _ = generate_cues_for_track(content, db, prefs)
-                    if not cues:
-                        skipped += 1
-                    else:
-                        n = write_cues_to_db(content, cues, db, overwrite=req.overwrite, dry_run=req.dry_run)
-                        if n > 0:
-                            applied += 1
-                        else:
+            err_kind: str | None = None
+            err_msg: str | None = None
+            try:
+                content = db.get_content(ID=tid)
+            except Exception as exc:  # noqa: BLE001
+                content = None
+                errors += 1
+                err_kind = "compute"
+                err_msg = str(exc)
+            if err_kind is None:
+                if content is None:
+                    skipped += 1
+                else:
+                    if req.phrase_only:
+                        try:
+                            has_ext = bool(db.get_anlz_path(content, "EXT"))
+                        except Exception:
+                            has_ext = False
+                        if not has_ext:
                             skipped += 1
-            yield f"data: {json.dumps({'processed': i + 1, 'total': total, 'applied': applied, 'skipped': skipped})}\n\n"
-        yield f"data: {json.dumps({'done': True, 'applied': applied, 'skipped': skipped, 'backup_path': backup_path})}\n\n"
+                            content = None
+                    if content is not None:
+                        try:
+                            cues, _ = generate_cues_for_track(content, db, prefs)
+                        except Exception as exc:  # noqa: BLE001
+                            cues = None
+                            errors += 1
+                            err_kind = "compute"
+                            err_msg = str(exc)
+                        if err_kind is None:
+                            if not cues:
+                                skipped += 1
+                            else:
+                                try:
+                                    n = write_cues_to_db(content, cues, db, overwrite=req.overwrite, dry_run=req.dry_run)
+                                except Exception as exc:  # noqa: BLE001
+                                    n = 0
+                                    errors += 1
+                                    err_kind = "writer"
+                                    err_msg = str(exc)
+                                if err_kind is None:
+                                    if n > 0:
+                                        applied += 1
+                                    else:
+                                        skipped += 1
+            payload = {
+                "processed": i + 1,
+                "total": total,
+                "applied": applied,
+                "skipped": skipped,
+                "errors": errors,
+                "content_id": tid,
+            }
+            if err_kind is not None:
+                payload["error_kind"] = err_kind
+                payload["error_message"] = err_msg
+            yield f"data: {json.dumps(payload)}\n\n"
+        yield f"data: {json.dumps({'done': True, 'applied': applied, 'skipped': skipped, 'errors': errors, 'backup_path': backup_path})}\n\n"
 
     return StreamingResponse(
         event_stream(),
