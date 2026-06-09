@@ -749,6 +749,49 @@ class TestGenerateApplyStream:
         assert progress[0]["total"] == 2
         assert progress[1]["processed"] == 2
 
+    def test_serial_path_emits_content_id_and_errors_counter(self, tmp_path, monkeypatch):
+        """TASK-042/043 on the serial branch: progress events carry
+        ``content_id``; compute exceptions surface as ``errors`` (not skipped).
+
+        Regression guard — without the fix, both assertions fail."""
+        monkeypatch.setenv("AUTOCUE_PARALLEL_GENERATE_APPLY", "0")
+        db = _make_db()
+        db._db_dir = tmp_path
+        (tmp_path / "master.db").write_bytes(b"fake")
+
+        # Track 7 raises; tracks 5/9 succeed.
+        def _get_content(ID):
+            if ID == 7:
+                raise RuntimeError("compute kaboom")
+            return self._make_track(ID)
+
+        db.get_content.side_effect = _get_content
+        with patch("autocue.db_writer.rekordbox_is_running", return_value=False):
+            with patch("autocue.serve.routes.generate_cues_for_track",
+                       return_value=([{"cue": 1}], None)):
+                with patch("autocue.db_writer.write_cues_to_db", return_value=1):
+                    with patch("autocue.db_writer.BACKUP_DIR", tmp_path / "backups"):
+                        client = _make_client(db)
+                        r = client.post(
+                            "/api/generate-apply-stream",
+                            json={"track_ids": [5, 7, 9], "dry_run": False,
+                                  "overwrite": True},
+                        )
+        assert r.status_code == 200
+        events = self._collect_sse(r.text)
+        progress = [e for e in events if not e.get("done")]
+        assert len(progress) == 3
+        # Serial path: content_id matches input order exactly.
+        assert [e["content_id"] for e in progress] == [5, 7, 9]
+        # Track 7's tick carries an error_kind, not a silent skip.
+        seven = next(e for e in progress if e["content_id"] == 7)
+        assert seven.get("error_kind") == "compute"
+        assert "kaboom" in (seven.get("error_message") or "")
+        done = next(e for e in events if e.get("done"))
+        assert done["applied"] == 2
+        assert done["errors"] == 1
+        assert done["skipped"] == 0
+
     def test_final_event_has_done_true(self, tmp_path):
         db = _make_db()
         db._db_dir = tmp_path

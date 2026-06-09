@@ -148,13 +148,18 @@ class TestParallelFanout:
         # Processed counts must increment 1..10 (completion-order, not input-order).
         processed_vals = sorted(e["processed"] for e in progress)
         assert processed_vals == list(range(1, 11))
+        # TASK-042: content_id present on every progress event, and the set
+        # covers exactly the input track ids.
+        assert {e["content_id"] for e in progress} == set(range(1, 11))
         done = [e for e in events if e.get("done")]
         assert len(done) == 1
         assert done[0]["done"] is True
-        assert done[0]["applied"] + done[0]["skipped"] == 10
+        # TASK-043: ``errors`` exists in the final event; total is the sum.
+        assert done[0]["applied"] + done[0]["skipped"] + done[0]["errors"] == 10
 
-    def test_per_track_exception_increments_skipped(self, tmp_path, _enable_flag):
-        """Exception in _compute_one → that track counts as skipped, stream continues."""
+    def test_per_track_compute_exception_increments_errors(self, tmp_path, _enable_flag):
+        """TASK-043 regression guard: a track that raises in _compute_one
+        surfaces as ``errors`` (NOT ``skipped``). Stream continues."""
         db = _make_db()
         db._db_dir = tmp_path
         (tmp_path / "master.db").write_bytes(b"fake")
@@ -185,11 +190,87 @@ class TestParallelFanout:
         progress = [e for e in events if not e.get("done")]
         # Five progress events, one per track, regardless of completion order.
         assert len(progress) == 5
+        # Every progress event MUST carry content_id (TASK-042).
+        assert all("content_id" in e for e in progress)
+        # The error event names the failing track explicitly.
+        err_events = [e for e in progress if e.get("error_kind") == "compute"]
+        assert len(err_events) == 1
+        assert err_events[0]["content_id"] == 3
+        assert "boom" in (err_events[0].get("error_message") or "")
         done = next(e for e in events if e.get("done"))
         assert done["done"] is True
-        # 4 succeed, 1 (the raiser) is skipped.
+        # 4 succeed, 1 (the raiser) is an error — NOT a skip.
         assert done["applied"] == 4
-        assert done["skipped"] == 1
+        assert done["errors"] == 1
+        assert done["skipped"] == 0
+
+    def test_writer_exception_increments_errors_not_skipped(self, tmp_path, _enable_flag):
+        """TASK-043 regression guard: writer raising → ``errors``, not ``skipped``."""
+        db = _make_db()
+        db._db_dir = tmp_path
+        (tmp_path / "master.db").write_bytes(b"fake")
+        db.get_content.side_effect = [_make_track(1), _make_track(2)]
+
+        call = {"n": 0}
+
+        def _flaky_write(*a, **kw):
+            call["n"] += 1
+            if call["n"] == 1:
+                raise RuntimeError("writer kaboom")
+            return 1
+
+        with patch("autocue.db_writer.rekordbox_is_running", return_value=False):
+            with patch("autocue.serve.routes.generate_cues_for_track",
+                       return_value=([{"cue": 1}], None)):
+                with patch("autocue.db_writer.write_cues_to_db", side_effect=_flaky_write):
+                    with patch("autocue.db_writer.BACKUP_DIR", tmp_path / "backups"):
+                        client = _make_client(db)
+                        r = client.post(
+                            "/api/generate-apply-stream",
+                            json={"track_ids": [1, 2],
+                                  "dry_run": False, "overwrite": True},
+                        )
+
+        assert r.status_code == 200
+        events = _collect_sse(r.text)
+        progress = [e for e in events if not e.get("done")]
+        assert len(progress) == 2
+        # Exactly one writer-error event, attached to a real content_id.
+        writer_errs = [e for e in progress if e.get("error_kind") == "writer"]
+        assert len(writer_errs) == 1
+        assert writer_errs[0]["content_id"] in (1, 2)
+        done = next(e for e in events if e.get("done"))
+        assert done["applied"] == 1
+        assert done["errors"] == 1
+        assert done["skipped"] == 0
+
+    def test_no_cues_remains_skipped_not_error(self, tmp_path, _enable_flag):
+        """Boundary case: ``no_cues`` (intentional skip) MUST NOT regress
+        into ``errors`` — the split is errors-vs-intentional-skip, not
+        any-non-applied."""
+        db = _make_db()
+        db._db_dir = tmp_path
+        (tmp_path / "master.db").write_bytes(b"fake")
+        db.get_content.side_effect = [_make_track(1), _make_track(2)]
+
+        with patch("autocue.db_writer.rekordbox_is_running", return_value=False):
+            with patch("autocue.serve.routes.generate_cues_for_track",
+                       return_value=([], None)):  # no cues returned
+                with patch("autocue.db_writer.write_cues_to_db", return_value=0):
+                    with patch("autocue.db_writer.BACKUP_DIR", tmp_path / "backups"):
+                        client = _make_client(db)
+                        r = client.post(
+                            "/api/generate-apply-stream",
+                            json={"track_ids": [1, 2],
+                                  "dry_run": False, "overwrite": True},
+                        )
+
+        assert r.status_code == 200
+        events = _collect_sse(r.text)
+        done = next(e for e in events if e.get("done"))
+        assert done["skipped"] == 2
+        assert done["errors"] == 0
+        assert done["applied"] == 0
 
     def test_final_event_has_done_true_and_counts(self, tmp_path, _enable_flag):
         """Final SSE event shape: {done:true, applied, skipped, backup_path}."""
@@ -216,8 +297,9 @@ class TestParallelFanout:
         assert done[0]["done"] is True
         assert "applied" in done[0]
         assert "skipped" in done[0]
+        assert "errors" in done[0]
         assert "backup_path" in done[0]
-        assert done[0]["applied"] + done[0]["skipped"] == 2
+        assert done[0]["applied"] + done[0]["skipped"] + done[0]["errors"] == 2
 
     def test_rekordbox_running_guard_fires_before_pool(self, tmp_path, _enable_flag):
         """409 guard must still fire even on the flagged path."""
