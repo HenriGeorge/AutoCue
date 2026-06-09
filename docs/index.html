@@ -3568,7 +3568,7 @@ var CARD_HEIGHT_PX = 160;
 //
 // API:
 //   Virtualizer.attach({container, itemHeight, totalCount, renderItem,
-//                       buffer, scrollSource, onWindowChange})
+//                       buffer, scrollSource, onWindowChange, topOcclusionFn})
 //   Virtualizer.update({totalCount, scrollToIndex?})
 //   Virtualizer.detach()
 //
@@ -3584,6 +3584,13 @@ var CARD_HEIGHT_PX = 160;
 // onWindowChange(firstIdx, lastIdx, liveMap) fires after _render whenever
 // the visible window's index range changes (used by the track-list wiring
 // to re-attach IntersectionObservers on newly-visible cards).
+//
+// topOcclusionFn: optional () => number returning the viewport y-coordinate
+// of the bottom edge of any sticky/fixed element that visually overlays the
+// container's top. When provided, cards are snapped UP so the next card
+// boundary aligns with the occluder's bottom — eliminates the "orphan
+// half-card poking out below the sticky filter bar" regression that JSDOM
+// tests can't catch (no layout). See `tests/e2e/1-sticky-overlap.spec.ts`.
 var Virtualizer = (function() {
   var state = null;
 
@@ -3604,11 +3611,37 @@ var Virtualizer = (function() {
     return { first: firstC, last: lastC };
   }
 
+  // Compute the snap-offset that aligns the next card boundary with the
+  // bottom of any sticky/fixed element occluding the viewport top.
+  //
+  // When `topOcclusionFn` is provided and the container has scrolled
+  // partially under the occluder (listRect.top < occluderBottom), the
+  // first card naturally rendered at translateY(0) would have its TOP
+  // hidden behind the sticky while its BOTTOM pokes out below — the
+  // "orphan ⚠ row" regression. Shifting ALL cards UP by `itemHeight -
+  // (occluderBottom - listRect.top) mod itemHeight` snaps the next
+  // card boundary to align with the occluder's bottom edge, so the
+  // user sees full cards starting cleanly below the sticky.
+  function _computeCardOffset(s) {
+    if (s.scrollSource !== 'window') return 0;
+    if (typeof s.topOcclusionFn !== 'function') return 0;
+    var occluderBottom = s.topOcclusionFn();
+    if (!occluderBottom || occluderBottom <= 0) return 0;
+    var listTop = s.container.getBoundingClientRect().top;
+    var gap = occluderBottom - listTop;
+    if (gap <= 0) return 0;
+    var remainder = gap % s.itemHeight;
+    if (remainder === 0) return 0;
+    // Shift cards UP so the next boundary lands at occluderBottom.
+    return -(s.itemHeight - remainder);
+  }
+
   function _render() {
     if (state === null) return;
     if (state.scrollSource === 'window') {
       state.viewportHeight = window.innerHeight || state.viewportHeight;
     }
+    state.cardOffset = _computeCardOffset(state);
     var win = _computeWindow(state);
     var needed = new Set();
     for (var i = win.first; i < win.last; i++) needed.add(i);
@@ -3624,6 +3657,16 @@ var Virtualizer = (function() {
       state.pool.push(node);
     });
 
+    // Re-position cards already in the live map — their translateY needs
+    // to reflect the current cardOffset, which moves on every scroll.
+    if (state.cardOffset !== state._lastCardOffset) {
+      state.live.forEach(function(node, idx) {
+        node.style.transform =
+          'translateY(' + (idx * state.itemHeight + state.cardOffset) + 'px)';
+      });
+      state._lastCardOffset = state.cardOffset;
+    }
+
     for (var j = win.first; j < win.last; j++) {
       if (state.live.has(j)) continue;
       var recycled = state.pool.pop() || null;
@@ -3633,14 +3676,18 @@ var Virtualizer = (function() {
         rendered.style.top = '0';
         rendered.style.left = '0';
         rendered.style.right = '0';
-        rendered.style.transform = 'translateY(' + (j * state.itemHeight) + 'px)';
+        rendered.style.transform =
+          'translateY(' + (j * state.itemHeight + state.cardOffset) + 'px)';
         if (!rendered.parentNode) state.container.appendChild(rendered);
         state.live.set(j, rendered);
       }
     }
 
-    // Spacer keeps the scrollbar honest.
-    state.spacer.style.height = (state.totalCount * state.itemHeight) + 'px';
+    // Spacer keeps the scrollbar honest. Add one itemHeight of buffer so the
+    // last card stays reachable when cardOffset shifts cards up by up to
+    // (itemHeight - 1) to snap-align with the sticky bar.
+    state.spacer.style.height =
+      (state.totalCount * state.itemHeight + state.itemHeight) + 'px';
 
     if (state.onWindowChange && (state._lastFirst !== win.first || state._lastLast !== win.last)) {
       state._lastFirst = win.first;
@@ -3694,10 +3741,14 @@ var Virtualizer = (function() {
         buffer: opts.buffer != null ? opts.buffer : 5,
         renderItem: opts.renderItem,
         onWindowChange: opts.onWindowChange || null,
+        topOcclusionFn: typeof opts.topOcclusionFn === 'function'
+          ? opts.topOcclusionFn : null,
         scrollSource: scrollSource,
         pool: [],
         live: new Map(),
         rafScheduled: false,
+        cardOffset: 0,
+        _lastCardOffset: 0,
         _lastFirst: -1,
         _lastLast: -1,
         _scrollHandler: scrollSource === 'window' ? _onWindowScroll : _onContainerScroll,
@@ -10710,6 +10761,16 @@ function renderTracks() {
       renderItem: renderItem,
       onWindowChange: onWindowChange,
       scrollSource: 'window',
+      // Snap the first visible card to align with the sticky filter bar's
+      // bottom edge. Without this, when the sticky pins to the viewport,
+      // the first virtualized card flows naturally under it — the user
+      // sees only the card's bottom slice (the cue-warning row) poking
+      // out below the sticky, looking like an orphan row floating above
+      // the next full card. Regression spec: tests/e2e/1-sticky-overlap.
+      topOcclusionFn: function() {
+        var sticky = document.getElementById('tracks-sticky');
+        return sticky ? sticky.getBoundingClientRect().bottom : 0;
+      },
     });
 
     // FLIP for visible-only reorders: nodes that survived the re-attach and
