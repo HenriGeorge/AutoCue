@@ -380,45 +380,53 @@ def ensure_tag_by_name(db, name: str, attribute: int = 1) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Per-type detection functions — return list of tag *names* to apply
+# Per-type detection functions — return (names, skip_reason).
+# When ``names`` is non-empty, ``skip_reason`` is None. When ``names`` is
+# empty, ``skip_reason`` is a short stable key naming WHY (e.g.
+# ``"no_energy_curve"``, ``"low_classification_score"``). Callers surface
+# this in the per-call ``skipped_reasons`` aggregate so users can debug a
+# ``{tagged: 0, skipped_no_data: N}`` response.
 # ---------------------------------------------------------------------------
 
-def _detect_category(content, db) -> list[str]:
+_DetectResult = tuple[list[str], str | None]
+
+
+def _detect_category(content, db) -> _DetectResult:
     curve = get_energy_curve(content, db)
     if not curve:
-        return []
+        return [], "no_energy_curve"
     clf = get_classification(content, db)
     if clf is None:
-        return []
+        return [], "no_classification"
     top_cat = clf["primary"]
     if clf["scores"].get(top_cat, 0.0) < MIN_SCORE:
-        return []
-    return [_CATEGORIES[top_cat]["name"]]
+        return [], "low_classification_score"
+    return [_CATEGORIES[top_cat]["name"]], None
 
 
-def _detect_vocal(content, db) -> list[str]:
+def _detect_vocal(content, db) -> _DetectResult:
     mix = get_mixability(content, db)
     if mix is None:
-        return []
-    return ["Vocal" if mix["vocal_proxy"] else "Instrumental"]
+        return [], "no_mixability"
+    return (["Vocal" if mix["vocal_proxy"] else "Instrumental"], None)
 
 
-def _detect_energy_level(content, db) -> list[str]:
+def _detect_energy_level(content, db) -> _DetectResult:
     curve = get_energy_curve(content, db)
     if not curve:
-        return []
+        return [], "no_energy_curve"
     mean = sum(curve) / len(curve)
     if mean >= 0.65:
-        return ["High Energy"]
+        return ["High Energy"], None
     if mean >= 0.35:
-        return ["Mid Energy"]
-    return ["Low Energy"]
+        return ["Mid Energy"], None
+    return ["Low Energy"], None
 
 
-def _detect_energy_profile(content, db) -> list[str]:
+def _detect_energy_profile(content, db) -> _DetectResult:
     curve = get_energy_curve(content, db)
     if not curve:
-        return []
+        return [], "no_energy_curve"
     profile = classify_energy_profile(curve)
     name_map = {
         "build":          "Build Track",
@@ -427,13 +435,17 @@ def _detect_energy_profile(content, db) -> list[str]:
         "drop-then-flat": "Drop Track",
     }
     name = name_map.get(profile)
-    return [name] if name else []
+    if name:
+        return [name], None
+    return [], "unknown_energy_profile"
 
 
-def _detect_intro_outro(content, db) -> list[str]:
+def _detect_intro_outro(content, db) -> _DetectResult:
     mix = get_mixability(content, db)
-    if mix is None or mix.get("phrase_count", 0) == 0:
-        return []
+    if mix is None:
+        return [], "no_mixability"
+    if mix.get("phrase_count", 0) == 0:
+        return [], "no_phrases"
     tags = []
     intro = mix.get("intro_bars", 0)
     outro = mix.get("outro_bars", 0)
@@ -445,56 +457,64 @@ def _detect_intro_outro(content, db) -> list[str]:
         tags.append("Long Outro")
     elif 0 < outro <= SHORT_OUTRO_BARS:
         tags.append("Short Outro")
-    return tags
+    if tags:
+        return tags, None
+    # Phrases were present but neither intro nor outro hit a bucket — this is
+    # normal for tracks with mid-range intros/outros (5-15 bars) and not a
+    # data-availability problem. Surfaced under its own reason so it doesn't
+    # masquerade as missing analysis.
+    return [], "intro_outro_in_neutral_band"
 
 
-def _detect_decade(content, db) -> list[str]:
+def _detect_decade(content, db) -> _DetectResult:
     year = getattr(content, "ReleaseYear", None)
     if not year:
-        return []
+        return [], "no_year"
     try:
         year = int(year)
     except (ValueError, TypeError):
-        return []
+        return [], "no_year"
     if year <= 0:
-        return []
+        return [], "no_year"
     decade_start = (year // 10) * 10
     decade_map = {1960: "60s", 1970: "70s", 1980: "80s", 1990: "90s",
                   2000: "00s", 2010: "10s", 2020: "20s"}
-    return [decade_map[decade_start]] if decade_start in decade_map else []
+    if decade_start in decade_map:
+        return [decade_map[decade_start]], None
+    return [], "year_out_of_range"
 
 
-def _detect_bpm_tier(content, db) -> list[str]:
+def _detect_bpm_tier(content, db) -> _DetectResult:
     bpm_raw = getattr(content, "BPM", None)
     if not bpm_raw:
-        return []
+        return [], "no_bpm"
     try:
         bpm = float(bpm_raw) / 100.0
     except (ValueError, TypeError):
-        return []
+        return [], "no_bpm"
     if bpm <= 0:
-        return []
-    if bpm < 120: return ["<120 BPM"]
-    if bpm < 125: return ["120–124 BPM"]
-    if bpm < 129: return ["125–128 BPM"]
-    if bpm < 136: return ["129–135 BPM"]
-    if bpm < 145: return ["136–144 BPM"]
-    return [">144 BPM"]
+        return [], "no_bpm"
+    if bpm < 120: return ["<120 BPM"], None
+    if bpm < 125: return ["120–124 BPM"], None
+    if bpm < 129: return ["125–128 BPM"], None
+    if bpm < 136: return ["129–135 BPM"], None
+    if bpm < 145: return ["136–144 BPM"], None
+    return [">144 BPM"], None
 
 
-def _detect_play_history(content, db) -> list[str]:
+def _detect_play_history(content, db) -> _DetectResult:
     count_raw = getattr(content, "DJPlayCount", None)
     try:
         count = int(str(count_raw or 0))
     except (ValueError, TypeError):
         count = 0
     if count == 0:
-        return ["Never Played"]
+        return ["Never Played"], None
     if count <= 5:
-        return ["Rarely Played"]
+        return ["Rarely Played"], None
     if count >= 25:
-        return ["Frequently Played"]
-    return []
+        return ["Frequently Played"], None
+    return [], "play_count_in_neutral_band"
 
 
 _DETECTORS = {
@@ -546,24 +566,39 @@ def apply_tags(
 
     tagged = 0
     skipped_no_data = 0
+    skipped_reasons: dict[str, int] = {}
     errors = 0
     undo_data: dict[str, Any] = {"removed": [], "added": []}
+
+    def _bump(reason: str) -> None:
+        skipped_reasons[reason] = skipped_reasons.get(reason, 0) + 1
 
     # TASK-005 default-on as of TASK-008 verification; set =0 to disable.
     parallel = _os.environ.get("AUTOCUE_PARALLEL_AUTO_TAG", "1") != "0"
 
     def _eval_one(track_id):
-        """Pure-read worker: resolve content + run detectors. No writes."""
+        """Pure-read worker: resolve content + run detectors. No writes.
+
+        Returns ``(track_id, content, names, reasons_for_skipped_detectors, exc)``.
+        ``reasons_for_skipped_detectors`` is a list of stable string keys
+        — one per detector that returned no names — used to populate the
+        per-call ``skipped_reasons`` aggregate.
+        """
         try:
             content = db.get_content(ID=track_id)
             if content is None:
-                return (track_id, None, [], None)
+                return (track_id, None, [], ["no_content"], None)
             names: list[str] = []
+            reasons: list[str] = []
             for ttype in active_types:
-                names.extend(_DETECTORS[ttype](content, db))
-            return (track_id, content, names, None)
+                got, reason = _DETECTORS[ttype](content, db)
+                if got:
+                    names.extend(got)
+                elif reason is not None:
+                    reasons.append(reason)
+            return (track_id, content, names, reasons, None)
         except Exception as exc:
-            return (track_id, None, [], exc)
+            return (track_id, None, [], [], exc)
 
     def _write_one(track_id, names_to_write):
         """Writer-thread side: delete old AutoCue tags + add new ones. Mutates
@@ -609,7 +644,7 @@ def apply_tags(
         # Writer (this thread) drains completions one at a time.
         for fut in _as_completed(futures):
             try:
-                track_id, content, names_to_write, exc = fut.result()
+                track_id, content, names_to_write, reasons, exc = fut.result()
             except Exception as outer:
                 errors += 1
                 if errors <= 3:
@@ -620,8 +655,15 @@ def apply_tags(
                 if errors <= 3:
                     _log.warning("apply_tags track %s: %s", track_id, exc)
                 continue
+            # Surface per-detector skip reasons regardless of write outcome —
+            # diagnostic counters track *which* detectors failed, not whether
+            # the track in aggregate got tagged.
+            for r in reasons:
+                _bump(r)
             if content is None:
-                # get_content returned None — silently skip (matches serial path).
+                # get_content returned None — recorded under "no_content" via
+                # reasons above; do NOT bump skipped_no_data (preserves prior
+                # silent-skip semantics for that counter).
                 continue
             if not names_to_write:
                 skipped_no_data += 1
@@ -640,11 +682,16 @@ def apply_tags(
             try:
                 content = db.get_content(ID=track_id)
                 if content is None:
+                    _bump("no_content")
                     continue
 
-                names_to_write: list[str] = []
+                names_to_write = []
                 for ttype in active_types:
-                    names_to_write.extend(_DETECTORS[ttype](content, db))
+                    got, reason = _DETECTORS[ttype](content, db)
+                    if got:
+                        names_to_write.extend(got)
+                    elif reason is not None:
+                        _bump(reason)
 
                 if not names_to_write:
                     skipped_no_data += 1
@@ -671,6 +718,7 @@ def apply_tags(
     return {
         "tagged": tagged,
         "skipped_no_data": skipped_no_data,
+        "skipped_reasons": skipped_reasons,
         "errors": errors,
         "dry_run": dry_run,
         "undo_data": undo_data if not dry_run else None,

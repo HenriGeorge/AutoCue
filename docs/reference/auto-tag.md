@@ -417,11 +417,12 @@ Return shape:
 
 ```python
 {
-    "tagged": int,            # tracks that received ≥1 tag
-    "skipped_no_data": int,   # detectors produced no names
-    "errors": int,            # exceptions caught during the per-track loop
+    "tagged": int,                 # tracks that received ≥1 tag
+    "skipped_no_data": int,        # detectors produced no names (per-track)
+    "skipped_reasons": dict[str, int],  # per-reason breakdown — see below
+    "errors": int,                 # exceptions caught during the per-track loop
     "dry_run": bool,
-    "undo_data": {            # None when dry_run=True
+    "undo_data": {                 # None when dry_run=True
         "added":   list[str],
         "removed": list[dict],
     },
@@ -430,6 +431,42 @@ Return shape:
 
 The `errors` counter is capped at three log lines (`auto_tag.py:582`) so a
 runaway library does not flood the journal — the count is still accurate.
+
+### `skipped_reasons` diagnostic field (issue #118)
+
+`skipped_no_data` is a per-*track* counter — it tells you "N tracks were
+skipped" but not why. `skipped_reasons` is a per-*detector-skip-event*
+breakdown so you can tell exactly which inputs were missing. Keys that
+never fired are omitted. Stable keys include:
+
+| Key                            | Detector that bumped it                       |
+|--------------------------------|-----------------------------------------------|
+| `no_content`                   | `db.get_content(ID=...)` returned None        |
+| `no_energy_curve`              | `get_energy_curve` returned None (no PWAV)    |
+| `no_classification`            | `get_classification` returned None            |
+| `low_classification_score`     | top category score `< MIN_SCORE` (0.70)       |
+| `no_mixability`                | `get_mixability` returned None (no PSSI/PQTZ) |
+| `no_phrases`                   | mixability ok but `phrase_count == 0`         |
+| `intro_outro_in_neutral_band`  | phrases ok, intro/outro hit no named bucket   |
+| `unknown_energy_profile`       | `classify_energy_profile` returned an unmapped value |
+| `no_year`                      | `ReleaseYear` missing / non-numeric / ≤ 0     |
+| `year_out_of_range`            | year present but no decade bucket             |
+| `no_bpm`                       | BPM missing / non-numeric / ≤ 0               |
+| `play_count_in_neutral_band`   | play count between 6 and 24 (no bucket)       |
+
+Note: a single track with two failing detectors (e.g. `tag_types=
+["category","vocal"]` on a track with no ANLZ analysis data) contributes
+TWO bumps (one per detector). Therefore
+`sum(skipped_reasons.values()) >= skipped_no_data` — equality is rare and
+only happens when every active detector fails for the same reason on
+every skipped track.
+
+The `has_phrase` / `has_beats` flags on `/api/tracks` are weak signals:
+`has_phrase` only means `AnalysisDataPath` is set on the DjmdContent row,
+NOT that PSSI phrases were actually parsed out of the ANLZ file.
+`has_beats` is `BPM > 0`, not PQTZ presence. Tracks can satisfy both and
+still be missing the ANLZ tags the detectors require — `skipped_reasons`
+is the canonical place to see which.
 
 ---
 

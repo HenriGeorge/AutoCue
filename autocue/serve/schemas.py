@@ -420,6 +420,12 @@ class AutoTagUndoData(BaseModel):
 class AutoTagResponse(BaseModel):
     tagged: int
     skipped_no_data: int = 0
+    # Per-reason skip counters surfaced so users (and the QA agent) can tell
+    # *why* tracks got dropped instead of staring at an opaque
+    # ``skipped_no_data`` total. Reasons are detector-derived; the dict is
+    # additive — new keys may appear over time. Keys that never fire are
+    # omitted to keep the response small.
+    skipped_reasons: dict[str, int] = {}
     errors: int
     dry_run: bool
     undo_data: AutoTagUndoData | None = None

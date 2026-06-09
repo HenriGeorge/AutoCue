@@ -555,3 +555,121 @@ class TestApplyTags:
         with patch(f"{MODULE}.ensure_tags", return_value={}):
             result = apply_tags(db, [999], tag_types=["vocal"])
         assert result["tagged"] == 0
+
+
+# ---------------------------------------------------------------------------
+# Issue #118 — `skipped_reasons` diagnostic field on the response
+# ---------------------------------------------------------------------------
+
+class TestSkippedReasons:
+    """Regression coverage for the per-reason skip breakdown surfaced on
+    ``apply_tags()`` responses. Without this signal, users get an opaque
+    ``{tagged: 0, skipped_no_data: N}`` and can't tell *why* every track
+    was dropped — exactly the scenario filed in GitHub issue #118.
+    """
+
+    def test_response_carries_skipped_reasons_key(self):
+        """The field must exist even on a fully-successful call (empty dict
+        is fine; what matters is the key is always present so consumers
+        can rely on it)."""
+        from autocue.analysis.auto_tag import apply_tags
+        db = _make_db()
+        db.get_content.return_value = _make_content(1)
+        mix = {"vocal_proxy": True, "phrase_count": 4, "intro_bars": 8, "outro_bars": 8}
+        with patch(f"{MODULE}.get_mixability", return_value=mix):
+            with patch(f"{MODULE}.ensure_tags", return_value={"Vocal": "10", "Instrumental": "11"}):
+                result = apply_tags(db, [1], tag_types=["vocal"])
+        # FAILS without the fix: the old shape had no ``skipped_reasons``.
+        assert "skipped_reasons" in result
+        assert isinstance(result["skipped_reasons"], dict)
+
+    def test_category_and_vocal_skip_distinguished(self):
+        """The #118 scenario: ``{tag_types: ["category", "vocal"]}`` on a
+        track with no ANLZ analysis data. Without the fix, we only saw
+        ``skipped_no_data == 1``; with the fix, we see *two* distinct
+        reasons so the user knows WHICH inputs are missing."""
+        from autocue.analysis.auto_tag import apply_tags
+        db = _make_db()
+        db.get_content.return_value = _make_content(1)
+        # Simulate the failure surface: no energy curve (no PWAV in ANLZ)
+        # AND no mixability (no PSSI/PQTZ in ANLZ).
+        with patch(f"{MODULE}.get_energy_curve", return_value=None), \
+             patch(f"{MODULE}.get_mixability", return_value=None), \
+             patch(f"{MODULE}.ensure_tags", return_value={}):
+            result = apply_tags(db, [1], tag_types=["category", "vocal"])
+
+        assert result["tagged"] == 0
+        assert result["skipped_no_data"] == 1
+        # FAILS without the fix — old code collapsed both into the single
+        # ``skipped_no_data`` counter.
+        assert result["skipped_reasons"].get("no_energy_curve") == 1
+        assert result["skipped_reasons"].get("no_mixability") == 1
+        # Invariant: every skipped detector contributes a reason; with two
+        # active types, at least two reason-bumps for a single skipped track.
+        assert sum(result["skipped_reasons"].values()) >= 2
+
+    def test_low_classification_score_boundary(self):
+        """Boundary case for the score gate: a top score equal to
+        MIN_SCORE passes (``>= MIN_SCORE``); a hair below counts as
+        ``low_classification_score``."""
+        from autocue.analysis.auto_tag import apply_tags, MIN_SCORE
+        # Just-below: skip with reason.
+        db_below = _make_db()
+        db_below.get_content.return_value = _make_content(1)
+        clf_below = {
+            "primary": "peak",
+            "scores": {"peak": MIN_SCORE - 0.01, "warmup": 0.1, "build": 0.1,
+                       "after_hours": 0.1, "closing": 0.1},
+        }
+        with patch(f"{MODULE}.get_energy_curve", return_value=[0.5] * 50), \
+             patch(f"{MODULE}.get_classification", return_value=clf_below), \
+             patch(f"{MODULE}.ensure_tags", return_value={"Peak": "1"}):
+            r_below = apply_tags(db_below, [1], tag_types=["category"])
+        assert r_below["tagged"] == 0
+        assert r_below["skipped_reasons"].get("low_classification_score") == 1
+
+        # Exactly-at: must tag (not skip).
+        db_at = _make_db()
+        db_at.get_content.return_value = _make_content(1)
+        clf_at = {
+            "primary": "peak",
+            "scores": {"peak": MIN_SCORE, "warmup": 0.1, "build": 0.1,
+                       "after_hours": 0.1, "closing": 0.1},
+        }
+        with patch(f"{MODULE}.get_energy_curve", return_value=[0.5] * 50), \
+             patch(f"{MODULE}.get_classification", return_value=clf_at), \
+             patch(f"{MODULE}.ensure_tags", return_value={"Peak": "1"}):
+            r_at = apply_tags(db_at, [1], tag_types=["category"])
+        assert r_at["tagged"] == 1
+        assert "low_classification_score" not in r_at["skipped_reasons"]
+
+    def test_missing_content_recorded_as_no_content(self):
+        """``get_content() -> None`` previously skipped silently. The new
+        diagnostic surfaces this under ``no_content`` while preserving the
+        pre-existing behavior that ``skipped_no_data`` does NOT bump for
+        this case (no detector ran)."""
+        from autocue.analysis.auto_tag import apply_tags
+        db = _make_db()
+        db.get_content.return_value = None
+        with patch(f"{MODULE}.ensure_tags", return_value={}):
+            result = apply_tags(db, [42], tag_types=["category", "vocal"])
+        assert result["tagged"] == 0
+        assert result["skipped_no_data"] == 0  # preserved silent-skip semantics
+        assert result["skipped_reasons"].get("no_content") == 1
+
+    def test_invariant_total_reasons_at_least_skipped_no_data(self):
+        """Property: across N tracks where every detector fails, the sum
+        of reason counts is at least the active-types count times
+        ``skipped_no_data``. This guards against future regressions where
+        a detector silently returns ``[]`` with no reason."""
+        from autocue.analysis.auto_tag import apply_tags
+        db = _make_db()
+        # 4 tracks, all returning ``content`` but with no analysis data.
+        db.get_content.side_effect = lambda ID: _make_content(int(ID))
+        with patch(f"{MODULE}.get_energy_curve", return_value=None), \
+             patch(f"{MODULE}.get_mixability", return_value=None), \
+             patch(f"{MODULE}.ensure_tags", return_value={}):
+            result = apply_tags(db, [1, 2, 3, 4], tag_types=["category", "vocal"])
+        assert result["skipped_no_data"] == 4
+        # 2 active types × 4 tracks → 8 reason-bumps minimum.
+        assert sum(result["skipped_reasons"].values()) >= 2 * result["skipped_no_data"]
