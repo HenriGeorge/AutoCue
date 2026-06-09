@@ -686,6 +686,77 @@ class TestTracksPlaylistFilter:
         assert r.status_code == 200
         assert r.json()[0]["has_beats"] is False
 
+    def test_existing_cue_details_field_present_and_empty_when_no_cues(self):
+        """Track with no hot cues returns an empty existing_cue_details list."""
+        db = _make_db()
+        track = SimpleNamespace(
+            ID=1, Title="T", ArtistName="A", AlbumName="", BPM=12800, Length=300, KeyID=None,
+            AnalysisDataPath="",
+        )
+        self._make_content_q(db, [track])
+        key_q = MagicMock()
+        key_q.all.return_value = []
+        db.query.return_value = key_q
+        client = _make_client(db)
+        r = client.get("/api/tracks")
+        assert r.status_code == 200
+        item = r.json()[0]
+        assert "existing_cue_details" in item, "schema field missing — UI cannot render chips"
+        assert item["existing_cue_details"] == []
+
+    def test_existing_cue_details_populated_from_djmdcue_query(self):
+        """Cue rows from the DjmdCue query are mapped to slot/name/pos_sec."""
+        db = _make_db()
+        # ID is a string in pyrekordbox; DjmdCue.ContentID is the same.
+        track = SimpleNamespace(
+            ID="42", Title="T", ArtistName="A", AlbumName="", BPM=12800, Length=300, KeyID=None,
+            AnalysisDataPath="",
+        )
+        self._make_content_q(db, [track])
+
+        # Two queries land on the column-expression path: hot_cue_counts (uses
+        # .group_by()) and hot_cue_details (uses .order_by()). Differentiate
+        # by which terminal method is called.
+        counts_q = MagicMock()
+        counts_q.filter.return_value = counts_q
+        counts_q.group_by.return_value = counts_q
+        counts_q.all.return_value = [("42", 2)]  # one ContentID, 2 cues
+
+        details_q = MagicMock()
+        details_q.filter.return_value = details_q
+        details_q.order_by.return_value = details_q
+        details_q.all.return_value = [
+            # (ContentID, Kind, Comment, InMsec)
+            ("42", 1, "Intro", 1500),    # slot=0 (A), 1.5s
+            ("42", 3, "Drop", 30000),    # slot=2 (C), 30.0s
+        ]
+
+        empty_q = MagicMock()
+        empty_q.all.return_value = []
+
+        call_count = {"n": 0}
+        def _query_side_effect(*args):
+            # First column-query is hot_cue_counts; second is hot_cue_details.
+            # Earlier queries (key/last-played/my-tags/color) use class args
+            # and resolve via .all() returning [].
+            cls = args[0] if args else None
+            if hasattr(cls, "__name__"):
+                return empty_q
+            # Column-expression query
+            call_count["n"] += 1
+            return counts_q if call_count["n"] == 1 else details_q
+
+        db.query.side_effect = _query_side_effect
+        client = _make_client(db)
+        r = client.get("/api/tracks")
+        assert r.status_code == 200
+        item = r.json()[0]
+        assert item["existing_hot_cues"] == 2
+        assert item["existing_cue_details"] == [
+            {"slot": 0, "name": "Intro", "pos_sec": 1.5},
+            {"slot": 2, "name": "Drop",  "pos_sec": 30.0},
+        ]
+
     def test_has_beats_false_when_bpm_none(self):
         db = _make_db()
         track = SimpleNamespace(

@@ -28,7 +28,7 @@ from typing import Any
 __all__ = ["CacheStore", "CACHE_FILENAME", "SCHEMA_VERSION", "MISSING"]
 
 CACHE_FILENAME = "autocue_cache.sqlite"
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2  # v2 bump: TrackItem snapshot now includes existing_cue_details
 
 # Sentinel returned when a track has been recorded with anlz_mtime = -1
 # (no ANLZ file present at compute time). Callers MUST treat this distinctly

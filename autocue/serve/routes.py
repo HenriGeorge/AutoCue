@@ -33,6 +33,7 @@ from .schemas import (
     BackupItem,
     ColorTracksRequest,
     ColorTracksResponse,
+    CueDetail,
     CueIssueSchema,
     CueItem,
     CueToolsRequest,
@@ -404,9 +405,13 @@ def tracks(
     from sqlalchemy import asc, desc, func
     from .. import perf as _perf
 
-    # TASK-023 — ETag/304 revalidation keyed by master.db mtime.
+    # TASK-023 — ETag/304 revalidation keyed by master.db mtime AND the
+    # cache schema version. Mixing in SCHEMA_VERSION ensures clients holding
+    # a 200 from an older TrackItem shape get a fresh body after we add fields
+    # (browser 304 cache was preserving stale payloads otherwise).
+    from ..cache import SCHEMA_VERSION as _SCHEMA_VERSION
     mtime = _master_db_mtime(db)
-    etag = f'"{int(mtime)}"' if mtime is not None else None
+    etag = f'"{int(mtime)}-v{_SCHEMA_VERSION}"' if mtime is not None else None
     if etag is not None:
         response.headers["ETag"] = etag
         if if_none_match is not None and if_none_match == etag:
@@ -560,8 +565,34 @@ def tracks(
         .all()
     )
 
+    # Pre-load hot cue details (slot, name, position) in one ordered query so
+    # the UI can render existing cues on each track card even when "Skip tracks
+    # that already have hot cues" hides them from the generate-apply pass.
+    # Kind 0 is excluded — that's the memory cue, not a hot cue slot.
+    # Filter by row_ids so non-default-sort paginated requests don't pay a
+    # library-wide DjmdCue scan they'd discard anyway.
+    hot_cue_details: dict[str, list[CueDetail]] = {}
+    if row_ids:
+        rows_cue = (
+            db.query(
+                DjmdCue.ContentID, DjmdCue.Kind, DjmdCue.Comment, DjmdCue.InMsec,
+            )
+            .filter(
+                DjmdCue.Kind >= 1, DjmdCue.Kind <= 8,
+                DjmdCue.ContentID.in_(row_ids),
+            )
+            .order_by(DjmdCue.ContentID, DjmdCue.Kind)
+            .all()
+        )
+        for cid, kind, name, in_msec in rows_cue:
+            hot_cue_details.setdefault(cid, []).append(CueDetail(
+                slot=int(kind) - 1,
+                name=name or "",
+                pos_sec=float(in_msec or 0) / 1000.0,
+            ))
+
     response.headers["X-Total-Count"] = str(total)
-    items = [_to_item(t, db, key_map, last_played_map, my_tags_map, color_name_map, hot_cue_counts) for t in rows]
+    items = [_to_item(t, db, key_map, last_played_map, my_tags_map, color_name_map, hot_cue_counts, hot_cue_details) for t in rows]
 
     # TASK-021 write-through — populate the snapshot when the request matches
     # the default-sort full-library profile. Later requests with the same
@@ -1641,6 +1672,7 @@ def _to_item(
     my_tags_map: dict | None = None,
     color_name_map: dict | None = None,
     hot_cue_counts: dict | None = None,
+    hot_cue_details: dict | None = None,
 ) -> TrackItem:
     bpm_raw = getattr(t, "BPM", None)
     key_id = getattr(t, "KeyID", None)
@@ -1664,6 +1696,7 @@ def _to_item(
         has_phrase=has_phrase,
         has_beats=bool(bpm_raw and float(bpm_raw) > 0),
         existing_hot_cues=existing,
+        existing_cue_details=(hot_cue_details or {}).get(t.ID, []),
         key=key,
         rating=int(getattr(t, "Rating", 0) or 0),
         play_count=int(getattr(t, "DJPlayCount", 0) or 0),

@@ -71,13 +71,19 @@ def test_snapshot_mtime_mismatch_falls_through(monkeypatch):
     assert db.get_content.called
 
 
+def _etag(mtime: float) -> str:
+    """Match the server's ETag format — keyed by mtime AND cache SCHEMA_VERSION."""
+    from autocue.cache import SCHEMA_VERSION
+    return f'"{int(mtime)}-v{SCHEMA_VERSION}"'
+
+
 def test_etag_returns_304_on_match(monkeypatch):
     items = [_track_item(1)]
     client, db = _client_with_snapshot(items, mtime=100.0)
     monkeypatch.setattr("autocue.serve.routes._master_db_mtime", lambda _db: 100.0)
-    r = client.get("/api/tracks", headers={"If-None-Match": '"100"'})
+    r = client.get("/api/tracks", headers={"If-None-Match": _etag(100.0)})
     assert r.status_code == 304
-    assert r.headers.get("etag") == '"100"'
+    assert r.headers.get("etag") == _etag(100.0)
 
 
 def test_etag_emitted_on_response(monkeypatch):
@@ -86,16 +92,28 @@ def test_etag_emitted_on_response(monkeypatch):
     monkeypatch.setattr("autocue.serve.routes._master_db_mtime", lambda _db: 200.0)
     r = client.get("/api/tracks")
     assert r.status_code == 200
-    assert r.headers.get("etag") == '"200"'
+    assert r.headers.get("etag") == _etag(200.0)
 
 
 def test_etag_mismatch_returns_full_body(monkeypatch):
     items = [_track_item(1)]
     client, db = _client_with_snapshot(items, mtime=100.0)
     monkeypatch.setattr("autocue.serve.routes._master_db_mtime", lambda _db: 100.0)
-    r = client.get("/api/tracks", headers={"If-None-Match": '"99"'})
+    # Old-format ETag (no schema-version suffix) must NOT match — clients
+    # cached against an older TrackItem shape get a fresh body.
+    r = client.get("/api/tracks", headers={"If-None-Match": '"100"'})
     assert r.status_code == 200
     assert len(r.json()) == 1
+
+
+def test_etag_invalidates_when_schema_bumps(monkeypatch):
+    """A client holding an ETag built with a different SCHEMA_VERSION must miss."""
+    items = [_track_item(1)]
+    client, db = _client_with_snapshot(items, mtime=100.0)
+    monkeypatch.setattr("autocue.serve.routes._master_db_mtime", lambda _db: 100.0)
+    stale = '"100-v999"'
+    r = client.get("/api/tracks", headers={"If-None-Match": stale})
+    assert r.status_code == 200, "stale schema-version ETag must NOT match"
 
 
 def test_snapshot_respects_offset_limit(monkeypatch):
