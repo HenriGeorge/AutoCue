@@ -111,6 +111,13 @@ def build_set(
     """
     Build a DJ set using beam search.
 
+    BPM progression is a soft bias, not a hard monotonic gate. In `build`
+    mode each step may dip up to ~3% below the previous track's BPM
+    (clamped at ``start_bpm * 0.97``); in `drop` mode each step may rise up
+    to 3% above. The seed track may likewise sit up to 3% below
+    ``start_bpm``. See ``docs/reference/set-builder.md`` §6 for the
+    rationale.
+
     Returns a dict: {
         "tracks": list[dict],           # track_id, title, artist, bpm, key, category,
                                         #   transition_score, relaxed
@@ -443,6 +450,15 @@ def _get_candidates(
     # BPM gate: asymmetric — look wider toward end_bpm so find_similar can
     # surface higher-BPM candidates (the secondary bpm_lo/bpm_hi filter below
     # still enforces the actual step constraint).
+    #
+    # NOTE: This is intentionally NOT strict monotonicity. In ascending sets
+    # each step may dip up to 3% below the previous track (clamped at
+    # start_bpm * 0.97); in descending sets each step may rise up to 3% above.
+    # The BPM-progress bonus (build_set, ~line 244) biases the planner toward
+    # end_bpm, but a candidate with a better key/energy fit can still win at
+    # a slightly lower BPM. See docs/reference/set-builder.md §6 for the
+    # rationale. If you tighten the floor here, expect the candidate pool to
+    # collapse on small libraries (Bug 4, layer B).
     if end_bpm > start_bpm:
         bpm_lo = max(current_bpm * (1.0 - 0.03), start_bpm * 0.97)
         bpm_hi = current_bpm * (1.0 + bpm_step_max)

@@ -9,6 +9,7 @@ from autocue.analysis.setbuilder import (
     _category_order,
     _target_category,
     _energy_penalty,
+    _get_candidates,
     _get_track_info,
     build_set,
 )
@@ -291,3 +292,172 @@ class TestBuildSet:
 
         # Only seed track should be in result if all transitions fail threshold
         assert len(result["tracks"]) == 1
+
+
+# ---------------------------------------------------------------------------
+# Asymmetric BPM gate — soft-bias contract (regression for issue #116)
+#
+# `build` mode is NOT strict monotonic. The asymmetric gate in
+# `_get_candidates` permits each step to dip up to ~3% below the previous
+# track (clamped at start_bpm * 0.97). This is intentional — without that
+# slack the candidate pool collapses on small libraries (Bug 4, layer B).
+# These tests lock that contract so a future "fix" tightening the gate
+# can't ship silently. See docs/reference/set-builder.md §6.
+# ---------------------------------------------------------------------------
+
+class TestAsymmetricBpmGateSoftBias:
+    """Property-based assertions over the asymmetric BPM gate.
+
+    Each test drives `_get_candidates` directly with mocked `find_similar`
+    output so the gate (`bpm_lo`/`bpm_hi`) is the only thing under test.
+    """
+
+    @staticmethod
+    def _setup(candidate_bpms: list[float], current_bpm: float):
+        """Build a mock db + similar list for the given candidate BPMs.
+
+        Returns (db, similar_list, classification_mock).
+        Each candidate gets a unique track_id starting at 1001.
+        """
+        contents = {}
+        similar = []
+        for i, bpm in enumerate(candidate_bpms):
+            cid = 1001 + i
+            similar.append({"track_id": cid, "score": 0.9, "bpm_diff": abs(bpm - current_bpm)})
+            c = _make_db_content(
+                track_id=cid,
+                bpm_int=int(round(bpm * 100)),
+                length=300,
+                key="8A",
+                title=f"Cand{i}",
+                artist=f"Artist{i}",
+            )
+            contents[cid] = c
+
+        db = MagicMock()
+
+        def get_content(**kwargs):
+            return contents.get(int(kwargs["ID"])) if "ID" in kwargs else None
+
+        db.get_content.side_effect = get_content
+        # category filter is permissive for ALL categories used in these tests
+        cls = {
+            "primary": "warmup",
+            "scores": {
+                "warmup": 0.9, "build": 0.9, "peak": 0.9,
+                "after_hours": 0.9, "closing": 0.9,
+            },
+        }
+        return db, similar, cls
+
+    @pytest.mark.parametrize(
+        "dip_fraction,must_pass",
+        [
+            (0.005, True),   # 0.5% dip — well inside the 3% slack
+            (0.010, True),   # 1% dip — well inside
+            (0.029, True),   # boundary: just inside 3%
+            (0.040, False),  # 4% dip — outside the slack, must be filtered
+            (0.060, False),  # 6% dip — clearly outside
+        ],
+    )
+    def test_build_mode_accepts_dips_within_three_percent(self, dip_fraction, must_pass):
+        """Property: in ascending sets, a candidate at current_bpm * (1 - x)
+        is accepted iff x <= ~0.03. This is the load-bearing contract that
+        keeps the planner's candidate pool deep on small libraries.
+
+        REGRESSION GUARD for issue #116 — would fail if a future fix
+        tightened the gate to strict monotonicity.
+        """
+        current_bpm = 120.0
+        start_bpm = 110.0
+        end_bpm = 130.0  # ascending
+        cand_bpm = round(current_bpm * (1.0 - dip_fraction), 2)
+        db, similar, cls = self._setup([cand_bpm], current_bpm)
+
+        with patch(f"{MODULE}.find_similar", return_value=similar), \
+             patch(f"{MODULE}.get_classification", return_value=cls):
+            results = _get_candidates(
+                track_id=1, current_bpm=current_bpm, target_cat="warmup",
+                visited=set(), db=db, bpm_step_max=0.08,
+                start_bpm=start_bpm, end_bpm=end_bpm,
+                visited_titles=set(), visited_artists={},
+            )
+
+        accepted = any(cid == 1001 for cid, _, _ in results)
+        if must_pass:
+            assert accepted, (
+                f"Candidate at {cand_bpm} BPM ({dip_fraction*100:.1f}% dip) "
+                f"should pass the build-mode gate but was filtered. "
+                f"The asymmetric gate is supposed to permit ~3% downside slack."
+            )
+        else:
+            assert not accepted, (
+                f"Candidate at {cand_bpm} BPM ({dip_fraction*100:.1f}% dip) "
+                f"should have been filtered by the gate; the slack is bounded at ~3%."
+            )
+
+    def test_build_mode_clamps_dip_at_start_bpm_floor(self):
+        """Property: the ascending floor is max(current_bpm * 0.97,
+        start_bpm * 0.97). When current_bpm has drifted *below* start_bpm,
+        the start_bpm clamp wins and the gate refuses to drop further.
+
+        This guarantees: across an entire set, the BPM never crawls more
+        than 3% below the user-stated start_bpm even if individual steps
+        could otherwise compound their dips. Doc invariant from §6.
+        """
+        # current_bpm is below start_bpm; without the start_bpm clamp the
+        # gate would accept candidates at current * 0.97 = 102.0 BPM.
+        # With the clamp, the floor stays at start_bpm * 0.97 = 116.4.
+        current_bpm = 105.0  # below start_bpm — simulates a deep dip
+        start_bpm = 120.0
+        end_bpm = 135.0
+        # candidate at 103 (below start_bpm * 0.97 = 116.4) — must be filtered
+        # candidate at 110 (also below 116.4) — must be filtered too
+        db, similar, cls = self._setup([103.0, 110.0], current_bpm)
+
+        with patch(f"{MODULE}.find_similar", return_value=similar), \
+             patch(f"{MODULE}.get_classification", return_value=cls):
+            results = _get_candidates(
+                track_id=1, current_bpm=current_bpm, target_cat="warmup",
+                visited=set(), db=db, bpm_step_max=0.08,
+                start_bpm=start_bpm, end_bpm=end_bpm,
+                visited_titles=set(), visited_artists={},
+            )
+
+        ids = {cid for cid, _, _ in results}
+        # Both candidates sit below start_bpm * 0.97 — both must be filtered.
+        # If a maintainer removed the start_bpm clamp, the candidate at
+        # 103.0 (above current * 0.97 = 101.85) would slip through and a
+        # set could compound downward indefinitely.
+        assert 1001 not in ids, (
+            "103.0 BPM must be filtered: the start_bpm * 0.97 clamp "
+            "(116.4 BPM) wins over current_bpm * 0.97 (101.85 BPM)."
+        )
+        assert 1002 not in ids, (
+            "110.0 BPM must be filtered: below the start_bpm * 0.97 floor."
+        )
+
+    def test_drop_mode_accepts_small_upward_moves(self):
+        """Symmetry: in descending sets the slack flips — small upside
+        moves (up to ~3%) are accepted. This locks the mirror contract.
+        """
+        current_bpm = 120.0
+        start_bpm = 130.0
+        end_bpm = 110.0  # descending → drop mode
+        # candidate 1% above current — should be allowed
+        cand_bpm = round(current_bpm * 1.01, 2)
+        db, similar, cls = self._setup([cand_bpm], current_bpm)
+
+        with patch(f"{MODULE}.find_similar", return_value=similar), \
+             patch(f"{MODULE}.get_classification", return_value=cls):
+            results = _get_candidates(
+                track_id=1, current_bpm=current_bpm, target_cat="peak",
+                visited=set(), db=db, bpm_step_max=0.08,
+                start_bpm=start_bpm, end_bpm=end_bpm,
+                visited_titles=set(), visited_artists={},
+            )
+
+        assert any(cid == 1001 for cid, _, _ in results), (
+            "Drop mode should permit small upside moves (~3%); the mirror "
+            "of the build-mode contract."
+        )

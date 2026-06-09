@@ -68,9 +68,17 @@ Related references:
 
 `build_set(...)` returns an ordered list of tracks that:
 
-1. Start near a given BPM (`start_bpm`).
+1. Start near a given BPM (`start_bpm`). The seed track may sit up to **3%
+   below** `start_bpm` (`start_bpm × 0.97` floor) — see [Seed selection](#4-seed-selection--_find_seed)
+   for the rationale.
 2. Move toward an ending BPM (`end_bpm`) at no more than `bpm_step_max` per
    step (default 8%, asymmetric — see [Candidate retrieval](#6-candidate-retrieval--_get_candidates)).
+   The progression is a **soft bias**, not a hard monotonic gate: in `build`
+   mode each step may dip up to **3% below** the previous track's BPM
+   (clamped at `start_bpm × 0.97`), and in `drop` mode each step may rise up
+   to 3% above. The asymmetric gate and the BPM-progress bonus together
+   bias the planner toward `end_bpm` without forbidding small backwards
+   moves that improve key / energy fit.
 3. Sum to roughly `duration_minutes` of playback.
 4. Honour an `energy_mode` of `build` / `flat` / `drop` (a soft penalty on each
    transition).
@@ -508,6 +516,30 @@ gate symmetric meant the similarity index returned mostly same-BPM tracks,
 starving the planner of progression candidates (Bug 4, layer B — see [Bug 4 history](#17-bug-4-history--full-timeline)). The
 asymmetric gate gives the index more upside candidates while the fine filter
 still enforces the step constraint.
+
+#### Why the BPM sequence isn't strictly monotonic in `build` mode
+
+The `bpm_lo = current_bpm × (1.0 - 0.03)` clause is **deliberate downside
+slack** — in an ascending set each step may pick a track up to ~3% below the
+previous one. So a 120 → 118.8 → 117.7 BPM dip across three steps is **allowed
+by design**, not a bug. Two practical consequences:
+
+- **`build` mode is a soft bias, not a hard gate.** The BPM-progress bonus
+  (see [BPM-progress bonus](#9-bpm-progress-bonus)) rewards forward movement,
+  but a candidate with a better key/energy fit can still win at a slightly
+  lower BPM. The `start_bpm × 0.97` floor prevents the slack from cascading
+  the set below the user's stated start_bpm.
+- **The seed track may sit below `start_bpm`.** The same `× 0.97` floor
+  applies in [`_find_seed`](#4-seed-selection--_find_seed) pass one. A
+  120-BPM request can legitimately seed at 116.4-BPM if that's the
+  best-scoring track in range. Pass two relaxes this further when pass one
+  is empty.
+
+If you need a strictly monotonic ascending set, post-process the returned
+`tracks` list (drop any track whose `bpm` is below the previous slot's). The
+planner doesn't expose a strict-monotonic flag because the soft bias is what
+makes the candidate pool deep enough to actually finish a long set — see the
+Bug 4 fix table for the empirical impact.
 
 ### Candidate count
 
