@@ -13,10 +13,18 @@ import * as path from "node:path";
  * `globalSetup` (a separate file) is too late: by then the webServer
  * command string has already been frozen with empty env values.
  *
- * SAFETY: `safety.spec.ts` runs first in the project order and verifies
- * via `/api/status` + `X-AutoCue-Diagnostic: 1` that the server is bound
- * to the sandbox copy. That spec is the load-bearing safety check — this
- * file is only responsible for putting the right files / ports in place.
+ * SAFETY: `0-safety.spec.ts` runs first in the project order (it is named
+ * with a leading `0-` so alphabetical spec discovery puts it ahead of every
+ * other spec) and verifies via `/api/status` + `X-AutoCue-Diagnostic: 1`
+ * that the server is bound to the sandbox copy. That spec is the
+ * load-bearing safety check — this file is only responsible for putting the
+ * right files / ports in place.
+ *
+ * `globalTimeout` is sized for a full per-control sweep (~116 row tests at
+ * ~10-15s each ≈ 20-30 min). Smoke-only runs finish in seconds. DO NOT
+ * lower this below ~30 min without also splitting the sweep into its own
+ * Playwright project, or `0-safety.spec.ts` may silently never run on
+ * slower machines when the sweep blows the budget — see issue #119.
  */
 
 async function findFreePort(): Promise<number> {
@@ -118,7 +126,7 @@ if (
 export default defineConfig({
   testDir: ".",
   globalTeardown: "./globalTeardown.ts",
-  globalTimeout: 300_000,
+  globalTimeout: 1_800_000,
   fullyParallel: false,
   forbidOnly: !!process.env.CI,
   retries: 0,

@@ -30,7 +30,7 @@ flowchart TD
     B1 --> C[Boot autocue serve<br/>--db-path SANDBOX<br/>via PYTHONPATH-pinned source]
     B2 --> C
     C --> D[Boot Python http.server<br/>against docs/ for Pages mode]
-    D --> E[safety.spec.ts<br/>SANDBOX VERIFICATION]
+    D --> E[0-safety.spec.ts<br/>SANDBOX VERIFICATION]
     E -->|"realpath(db_path) ≠ sandbox<br/>OR path under ~/Library/Pioneer/"| F[ABORT RUN]
     E -->|OK| G[selectors-exist.spec.ts]
     G -->|"selector missing"| F
@@ -64,7 +64,7 @@ sequenceDiagram
     participant Setup as Playwright<br/>globalSetup
     participant FS as Filesystem
     participant Server as autocue serve
-    participant Safety as safety.spec.ts
+    participant Safety as 0-safety.spec.ts
 
     Setup->>FS: mktemp -d → SANDBOX_DIR
     Setup->>FS: cp ~/Library/Pioneer/rekordbox/master.db* → SANDBOX_DIR/
@@ -368,7 +368,7 @@ All issues carry `bug` + `severity:*` + `impact:*` (required) plus any of
 | Agent system prompt              | `.claude/agents/autocue-qa.md`                            |
 | Slash command                    | `.claude/commands/autocue-qa.md`                          |
 | Playwright config                | `tests/e2e/playwright.config.ts`                          |
-| Safety preflight                 | `tests/e2e/safety.spec.ts`                                |
+| Safety preflight                 | `tests/e2e/0-safety.spec.ts`                              |
 | Canonical selector inventory     | `tests/e2e/selectors-exist.spec.ts`                       |
 | API + SSE + UI smoke             | `tests/e2e/qa-smoke.spec.ts`                              |
 | Pages-mode smoke                 | `tests/e2e/pages-smoke.spec.ts`                           |
