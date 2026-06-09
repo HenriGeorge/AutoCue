@@ -6145,19 +6145,42 @@ function _persistDiscoverFilters() {
 // Only the styles that actually appear in the user's current cards become
 // chips — no point offering "Bossa Nova" if no card has it. Chips reflect
 // selection state from _discoverFilters.selectedStyles.
+//
+// Ghost-filter guard: after a re-scan the new feed may not contain a
+// style the user previously selected. Without pruning, that selection
+// stays in _discoverFilters.selectedStyles and silently filters every
+// subsequent feed to an empty grid — the user sees no cards, no chip
+// to un-toggle the filter, no clue what's wrong. We prune any selected
+// style whose key is not present in ANY current card's `release.styles`
+// (NOT just the top 16 — a style that survives in card N+17 should keep
+// its filter; only truly-vanished styles get dropped).
 function _renderDiscoverStyleChips() {
   const container = document.getElementById('disc-v2-style-chips');
   const clearBtn = document.getElementById('disc-v2-styles-clear');
   if (!container) return;
   const counts = new Map();
+  const allStyles = new Set();
   for (const c of DiscoverV2.state.cards) {
     const styles = Array.isArray(c.release?.styles) ? c.release.styles : [];
     for (const st of styles) {
       const key = String(st).toLowerCase();
       if (!key) continue;
       counts.set(key, (counts.get(key) || 0) + 1);
+      allStyles.add(key);
     }
   }
+  // Prune ghost selections — those whose style has fully disappeared from
+  // the feed since the user toggled them. Persist the trimmed set so the
+  // ghost doesn't come back on the next reload.
+  let prunedAny = false;
+  for (const key of Array.from(_discoverFilters.selectedStyles)) {
+    if (!allStyles.has(key)) {
+      _discoverFilters.selectedStyles.delete(key);
+      prunedAny = true;
+    }
+  }
+  if (prunedAny) _persistDiscoverFilters();
+
   if (counts.size === 0) {
     container.style.display = 'none';
     if (clearBtn) clearBtn.style.display = 'none';
