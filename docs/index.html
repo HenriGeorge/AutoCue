@@ -10085,6 +10085,58 @@ async function _renderEnergySparkline(container) {
   }
 }
 
+// Append the per-track "intelligence" widgets (sparkline, mix score chip,
+// classification chip, similar-tracks button + panels) to `cardMain`. No-op
+// when not in localMode (the data behind these widgets is local-server
+// only). Shared between the cue-gen card path and the Skipped card path —
+// both describe the same underlying track, so both should surface the same
+// per-track intelligence.
+function _appendIntelligenceWidgets(cardMain, track) {
+  if (!localMode) return;
+  const sparkContainer = document.createElement('div');
+  sparkContainer.className = 'energy-sparkline';
+  sparkContainer.dataset.trackId = track.id;
+  const loading = document.createElement('span');
+  loading.className = 'loading';
+  loading.textContent = '▁▂▃▄';
+  sparkContainer.appendChild(loading);
+  cardMain.appendChild(sparkContainer);
+
+  // Mixability score chip — loaded lazily alongside sparkline
+  const mixRow = document.createElement('div');
+  mixRow.className = 'mix-score-row';
+  const mixChip = document.createElement('span');
+  mixChip.className = 'mix-score-chip loading';
+  mixChip.textContent = '…';
+  mixChip.dataset.trackId = track.id;
+  mixRow.appendChild(mixChip);
+
+  const catChip = document.createElement('span');
+  catChip.className = 'category-chip loading';
+  catChip.textContent = '·';
+  catChip.dataset.trackId = track.id;
+  mixRow.appendChild(catChip);
+  catChip._isCategoryChip = true;
+
+  const simBtn = document.createElement('button');
+  simBtn.className = 'similar-btn';
+  simBtn.textContent = '≈ Similar';
+  simBtn.dataset.trackId = track.id;
+  mixRow.appendChild(simBtn);
+
+  const mixBreakdown = document.createElement('div');
+  mixBreakdown.className = 'mix-breakdown';
+  const simPanel = document.createElement('div');
+  simPanel.className = 'similar-panel';
+  cardMain.appendChild(mixRow);
+  cardMain.appendChild(mixBreakdown);
+  cardMain.appendChild(simPanel);
+  // Store ref on chip for observer callback
+  mixChip._breakdown = mixBreakdown;
+
+  simBtn.addEventListener('click', () => _toggleSimilarPanel(simBtn, simPanel, track.id));
+}
+
 function buildTrackCard(track, cues, willSkip, opts = {}) {
   const { hideAlbum = false } = opts;
   const hasAudio = !!audioState[track.id];
@@ -10342,6 +10394,12 @@ function buildTrackCard(track, cues, willSkip, opts = {}) {
       cardMain.appendChild(chipsRow);
     }
 
+    // Restore the per-track intelligence widgets on Skipped cards (PR #163
+    // regression): sparkline, mix-score chip, classification chip, similar
+    // button. These describe the track itself and apply regardless of
+    // whether AutoCue would write new cues.
+    _appendIntelligenceWidgets(cardMain, track);
+
     cardTop.appendChild(cardMain);
     card.appendChild(cardTop);
     return card;
@@ -10461,51 +10519,11 @@ function buildTrackCard(track, cues, willSkip, opts = {}) {
     }
   }
 
-  // Energy sparkline placeholder — populated lazily via IntersectionObserver
-  if (localMode) {
-    const sparkContainer = document.createElement('div');
-    sparkContainer.className = 'energy-sparkline';
-    sparkContainer.dataset.trackId = track.id;
-    const loading = document.createElement('span');
-    loading.className = 'loading';
-    loading.textContent = '▁▂▃▄';
-    sparkContainer.appendChild(loading);
-    cardMain.appendChild(sparkContainer);
-
-    // Mixability score chip — loaded lazily alongside sparkline
-    const mixRow = document.createElement('div');
-    mixRow.className = 'mix-score-row';
-    const mixChip = document.createElement('span');
-    mixChip.className = 'mix-score-chip loading';
-    mixChip.textContent = '…';
-    mixChip.dataset.trackId = track.id;
-    mixRow.appendChild(mixChip);
-
-    const catChip = document.createElement('span');
-    catChip.className = 'category-chip loading';
-    catChip.textContent = '·';
-    catChip.dataset.trackId = track.id;
-    mixRow.appendChild(catChip);
-    catChip._isCategoryChip = true;
-
-    const simBtn = document.createElement('button');
-    simBtn.className = 'similar-btn';
-    simBtn.textContent = '≈ Similar';
-    simBtn.dataset.trackId = track.id;
-    mixRow.appendChild(simBtn);
-
-    const mixBreakdown = document.createElement('div');
-    mixBreakdown.className = 'mix-breakdown';
-    const simPanel = document.createElement('div');
-    simPanel.className = 'similar-panel';
-    cardMain.appendChild(mixRow);
-    cardMain.appendChild(mixBreakdown);
-    cardMain.appendChild(simPanel);
-    // Store ref on chip for observer callback
-    mixChip._breakdown = mixBreakdown;
-
-    simBtn.addEventListener('click', () => _toggleSimilarPanel(simBtn, simPanel, track.id));
-  }
+  // Energy sparkline + mixability + classification + similar tracks — the
+  // "intelligence" widgets that describe the TRACK itself (not what AutoCue
+  // would write). Shared between the regular cue-gen path AND the Skipped
+  // path (PR for #163 regression — Skipped cards previously dropped these).
+  _appendIntelligenceWidgets(cardMain, track);
 
   if (track.totalTime > 0 && cues.length > 0) {
     const tl = document.createElement('div');
