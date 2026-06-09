@@ -569,21 +569,27 @@ def tracks(
     # the UI can render existing cues on each track card even when "Skip tracks
     # that already have hot cues" hides them from the generate-apply pass.
     # Kind 0 is excluded — that's the memory cue, not a hot cue slot.
+    # Filter by row_ids so non-default-sort paginated requests don't pay a
+    # library-wide DjmdCue scan they'd discard anyway.
     hot_cue_details: dict[str, list[CueDetail]] = {}
-    rows_cue = (
-        db.query(
-            DjmdCue.ContentID, DjmdCue.Kind, DjmdCue.Comment, DjmdCue.InMsec,
+    if row_ids:
+        rows_cue = (
+            db.query(
+                DjmdCue.ContentID, DjmdCue.Kind, DjmdCue.Comment, DjmdCue.InMsec,
+            )
+            .filter(
+                DjmdCue.Kind >= 1, DjmdCue.Kind <= 8,
+                DjmdCue.ContentID.in_(row_ids),
+            )
+            .order_by(DjmdCue.ContentID, DjmdCue.Kind)
+            .all()
         )
-        .filter(DjmdCue.Kind >= 1, DjmdCue.Kind <= 8)
-        .order_by(DjmdCue.ContentID, DjmdCue.Kind)
-        .all()
-    )
-    for cid, kind, name, in_msec in rows_cue:
-        hot_cue_details.setdefault(cid, []).append(CueDetail(
-            slot=int(kind) - 1,
-            name=name or "",
-            pos_sec=float(in_msec or 0) / 1000.0,
-        ))
+        for cid, kind, name, in_msec in rows_cue:
+            hot_cue_details.setdefault(cid, []).append(CueDetail(
+                slot=int(kind) - 1,
+                name=name or "",
+                pos_sec=float(in_msec or 0) / 1000.0,
+            ))
 
     response.headers["X-Total-Count"] = str(total)
     items = [_to_item(t, db, key_map, last_played_map, my_tags_map, color_name_map, hot_cue_counts, hot_cue_details) for t in rows]

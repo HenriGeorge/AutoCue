@@ -1344,9 +1344,19 @@
     .existing-cue-chip.skipped-card-chip {
       font-size: 0.78rem; padding: 2px 8px;
       border: 1px solid var(--border);
+      flex-shrink: 0;
     }
+    /* Single-line, no-wrap row so skipped cards stay inside the Virtualizer's
+       fixed 160px card-height envelope (TASK-033). overflow:hidden is the
+       safety net; the .existing-cues-overflow chip renders a "+N" count when
+       chips don't fit. */
     .existing-cues-row {
-      display: flex; gap: 4px; flex-wrap: wrap; margin-top: 6px;
+      display: flex; gap: 4px; flex-wrap: nowrap;
+      margin-top: 6px; overflow: hidden; align-items: center;
+    }
+    .existing-cues-overflow {
+      font-size: 0.72rem; color: var(--muted);
+      padding: 2px 6px; white-space: nowrap; flex-shrink: 0;
     }
 
     /* ── Library Health Panel ── */
@@ -10045,7 +10055,10 @@ function buildTrackCard(track, cues, willSkip, opts = {}) {
     // Render the existing cues so the user can see WHAT was already on the
     // track (positions, names, slot letters), not just an opaque count.
     // No "replaced" badge because nothing will be replaced — we're skipping.
+    // Cap at SKIPPED_CHIP_LIMIT and add a "+N more" indicator so the row stays
+    // single-line inside the Virtualizer's fixed 160px card height (TASK-033).
     if (track.existingCueDetails && track.existingCueDetails.length > 0) {
+      const SKIPPED_CHIP_LIMIT = 9;  // 8 hot cues (A-H) + memory cue
       const chipsRow = document.createElement('div');
       chipsRow.className = 'existing-cues-row';
       const sortedExisting = [...track.existingCueDetails].sort((a, b) => {
@@ -10053,7 +10066,9 @@ function buildTrackCard(track, cues, willSkip, opts = {}) {
         if (b.num === -1) return 1;
         return a.num - b.num;
       });
-      for (const ec of sortedExisting) {
+      const visible = sortedExisting.slice(0, SKIPPED_CHIP_LIMIT);
+      const overflowCount = sortedExisting.length - visible.length;
+      for (const ec of visible) {
         const chip = document.createElement('span');
         chip.className = 'existing-cue-chip skipped-card-chip';
         const slotLetter = ec.num === -1 ? 'Mem' : (ec.num >= 0 && ec.num <= 7 ? String.fromCharCode(65 + ec.num) : '?');
@@ -10062,6 +10077,13 @@ function buildTrackCard(track, cues, willSkip, opts = {}) {
         chip.textContent = `${slotLetter} ${ec.name || ''} ${mins}:${String(secs).padStart(2,'0')}`.replace(/\s+/g, ' ').trim();
         if (ec.colorName) chip.dataset.color = ec.colorName;
         chipsRow.appendChild(chip);
+      }
+      if (overflowCount > 0) {
+        const ov = document.createElement('span');
+        ov.className = 'existing-cues-overflow';
+        ov.textContent = `+${overflowCount} more`;
+        ov.title = `${overflowCount} more existing cue${overflowCount !== 1 ? 's' : ''} not shown`;
+        chipsRow.appendChild(ov);
       }
       cardMain.appendChild(chipsRow);
     }
