@@ -149,13 +149,176 @@ def _wait_any(in_flight: dict):
     """Wait for ANY future in ``in_flight`` to complete; return (done_set, pending_set).
 
     Thin wrapper around ``concurrent.futures.wait`` with
-    ``return_when=FIRST_COMPLETED`` — keeps the TASK-040 bounded-in-flight
-    pattern testable with stub futures.
+    ``return_when=FIRST_COMPLETED`` — kept for backwards compatibility with
+    callers that pre-date the TASK-039 producer/consumer refactor.
     """
     from concurrent.futures import FIRST_COMPLETED, wait
     if not in_flight:
         return set(), set()
     return wait(list(in_flight.keys()), return_when=FIRST_COMPLETED)
+
+
+# ---------------------------------------------------------------------------
+# Issue #107 / TASK-039 + TASK-040 — factored producer/consumer scaffolding
+# for /api/generate-apply-stream. The compute stage parallelises ANLZ reads +
+# cue generation; the writer stage owns db.session for writes (preserving
+# SQLite single-writer semantics on master.db). A bounded queue.Queue
+# (maxsize = 2 * pool_size) gives backpressure so a fast compute stage cannot
+# buffer thousands of results when the writer is slow.
+#
+# Wire shape (per-track tuple pushed onto the queue):
+#   (tid: int, content, cues: list | None, skip_reason: str | None)
+# End-of-stream sentinel: ``None`` (single value, NOT a tuple).
+# ---------------------------------------------------------------------------
+
+_COMPUTE_SENTINEL = None
+
+
+def _compute_stage(
+    track_ids,
+    db,
+    prefs,
+    phrase_only: bool,
+    q,
+    cancel,
+):
+    """Producer — read ANLZ + generate cues on the shared pool; push results onto ``q``.
+
+    Always pushes exactly one ``_COMPUTE_SENTINEL`` (``None``) onto ``q``
+    before returning, even on cancellation or unexpected failure, so the
+    writer stage always terminates.
+
+    On ``cancel.is_set()`` mid-stream: stops submitting new futures and
+    lets in-flight futures resolve (their results are still pushed so the
+    writer can persist work already paid for — see TASK-041 rationale).
+    """
+    from concurrent.futures import as_completed
+    from ..analysis.concurrency import get_pool
+
+    pool = get_pool()
+
+    def _compute_one(tid):
+        try:
+            content = db.get_content(ID=tid)
+            if content is None:
+                return (tid, None, None, "not_found")
+            if phrase_only:
+                try:
+                    has_ext = bool(db.get_anlz_path(content, "EXT"))
+                except Exception:
+                    has_ext = False
+                if not has_ext:
+                    return (tid, content, None, "no_phrase")
+            cues, _ = generate_cues_for_track(content, db, prefs)
+            if not cues:
+                return (tid, content, None, "no_cues")
+            return (tid, content, cues, None)
+        except Exception as exc:  # noqa: BLE001
+            return (tid, None, None, f"err:{exc}")
+
+    futures = []
+    try:
+        for tid in track_ids:
+            if cancel.is_set():
+                break
+            futures.append(pool.submit(_compute_one, tid))
+
+        for fut in as_completed(futures):
+            try:
+                result = fut.result()
+            except Exception as exc:  # noqa: BLE001
+                result = (None, None, None, f"err:future:{exc}")
+            # TASK-040 — bounded queue, blocking put with a short timeout so
+            # we periodically observe ``cancel`` even if the writer is wedged.
+            while True:
+                try:
+                    q.put(result, block=True, timeout=10)
+                    break
+                except Exception:  # queue.Full or any wrapping error
+                    if cancel.is_set():
+                        break
+                    # else: spin again — writer is slow but not stopped
+    finally:
+        # Always signal end-of-stream so writer never blocks forever.
+        try:
+            q.put(_COMPUTE_SENTINEL, block=True, timeout=10)
+        except Exception:
+            # Last-ditch — drop sentinel non-blockingly; writer will exit
+            # on cancel if this fails.
+            try:
+                q.put_nowait(_COMPUTE_SENTINEL)
+            except Exception:
+                pass
+
+
+def _writer_stage(
+    db,
+    dry_run: bool,
+    overwrite: bool,
+    q,
+    send_event,
+    cancel,
+):
+    """Consumer — single-thread writer; drains ``q`` and writes per-track.
+
+    Returns ``(applied, skipped, written_ids)``. Emits one SSE event per
+    drained result via ``send_event(payload_dict)``. Terminates on
+    ``_COMPUTE_SENTINEL`` from the producer.
+
+    Per-track failures do NOT abort the batch: a single exception bumps
+    ``skipped`` and the loop continues, matching the v0 semantics the PRD
+    calls out (TASK-039 acceptance #4).
+    """
+    from ..db_writer import write_cues_to_db
+
+    applied = 0
+    skipped = 0
+    written_ids: list[int] = []
+    processed = 0
+    total = None  # set lazily — caller carries the total for the SSE event
+
+    while True:
+        try:
+            item = q.get(block=True, timeout=10)
+        except Exception:
+            # queue.Empty after timeout: re-check cancel and loop.
+            if cancel.is_set():
+                break
+            continue
+
+        if item is _COMPUTE_SENTINEL:
+            break
+
+        tid, content, cues, skip = item
+        processed += 1
+        if processed % 100 == 0:
+            try:
+                db.session.expire_all()
+            except Exception:
+                pass
+        if skip or content is None or not cues:
+            skipped += 1
+        else:
+            try:
+                n = write_cues_to_db(
+                    content, cues, db,
+                    overwrite=overwrite, dry_run=dry_run,
+                )
+                if n > 0:
+                    applied += 1
+                    if tid is not None:
+                        written_ids.append(tid)
+                else:
+                    skipped += 1
+            except Exception:
+                skipped += 1
+        send_event({
+            "processed": processed,
+            "applied": applied,
+            "skipped": skipped,
+        })
+
+    return applied, skipped, written_ids
 
 
 def _master_db_mtime(db) -> float | None:
@@ -848,47 +1011,21 @@ def generate_apply_stream(req: GenerateAndApplyRequest, request: Request, db=Dep
         applied = skipped = 0
         written_ids: list[int] = []
         if _os.environ.get("AUTOCUE_PARALLEL_GENERATE_APPLY", "1") != "0":
-            # TASK-002 — parallel compute (ANLZ read + cue generation) on the
-            # shared pool; single-threaded writer loop preserves SQLite
-            # single-writer semantics on master.db. Default-on as of
-            # TASK-008 verification; set AUTOCUE_PARALLEL_GENERATE_APPLY=0
-            # to fall back to the serial path.
-            #
-            # TASK-040 — bounded in-flight count so memory stays bounded for
-            # 10k+-track applies; we batch-submit instead of dumping every
-            # future into the pool at once.
-            from concurrent.futures import as_completed
+            # TASK-039 / TASK-040 (Issue #107) — factored producer/consumer:
+            # _compute_stage runs on the shared pool (ANLZ + cue gen), pushes
+            # results through a bounded queue.Queue(maxsize=2*pool_size())
+            # to _writer_stage which is the sole owner of db.session for
+            # writes. Single-writer semantics on master.db are preserved.
+            # AUTOCUE_PARALLEL_GENERATE_APPLY=0 falls back to the serial path.
+            import queue as _queue
             import threading as _threading
             import time as _time
 
-            from ..analysis.concurrency import get_pool, pool_size
+            from ..analysis.concurrency import pool_size
 
-            pool = get_pool()
-
-            def _compute_one(tid):
-                try:
-                    content = db.get_content(ID=tid)
-                    if content is None:
-                        return (tid, None, None, "not_found")
-                    if req.phrase_only:
-                        try:
-                            has_ext = bool(db.get_anlz_path(content, "EXT"))
-                        except Exception:
-                            has_ext = False
-                        if not has_ext:
-                            return (tid, content, None, "no_phrase")
-                    cues, _ = generate_cues_for_track(content, db, prefs)
-                    if not cues:
-                        return (tid, content, None, "no_cues")
-                    return (tid, content, cues, None)
-                except Exception as exc:  # noqa: BLE001
-                    return (tid, None, None, f"err:{exc}")
-
-            # TASK-041 — cancellation on client disconnect. We can't await
-            # is_disconnected() from the sync generator, but we CAN check
-            # the request's underlying receive state via a poll thread that
-            # sets a threading.Event. The compute + writer loop both look at
-            # the event between iterations.
+            # TASK-041 — disconnect → cancel event watched by both stages
+            # and the per-event drain below. See poll thread comment in the
+            # legacy implementation; preserved verbatim.
             cancel = _threading.Event()
             disconnected_at: list[float | None] = [None]
 
@@ -910,57 +1047,100 @@ def generate_apply_stream(req: GenerateAndApplyRequest, request: Request, db=Dep
             poll_thread = _threading.Thread(target=_poll_disconnect, daemon=True, name="autocue-cancel-poll")
             poll_thread.start()
 
-            # TASK-040 — bounded in-flight: at most ``2 * pool_size`` futures
-            # outstanding at any time. Track ids submitted lazily.
-            track_iter = iter(req.track_ids)
-            in_flight: dict = {}
+            # TASK-040 — bounded queue between stages. maxsize bounds memory
+            # at ≈ 2 * pool_size results (~16 by default).
             cap = max(2, 2 * pool_size())
-            for _ in range(cap):
+            work_q: _queue.Queue = _queue.Queue(maxsize=cap)
+
+            # SSE event queue — writer pushes payload dicts, the generator
+            # drains them and yields SSE-formatted strings to the client.
+            # Large enough to absorb a brief gap; bounded so a stuck client
+            # cannot grow without limit.
+            sse_q: _queue.Queue = _queue.Queue(maxsize=max(128, cap * 4))
+
+            def _send_event(payload: dict) -> None:
                 try:
-                    nxt = next(track_iter)
-                except StopIteration:
-                    break
-                in_flight[pool.submit(_compute_one, nxt)] = nxt
-
-            processed = 0
-            while in_flight:
-                if cancel.is_set():
-                    break
-                done_set, _ = _wait_any(in_flight)
-                for fut in done_set:
-                    in_flight.pop(fut, None)
+                    sse_q.put(payload, block=True, timeout=5)
+                except Exception:
+                    # SSE buffer full — drop oldest then retry once.
                     try:
-                        tid, content, cues, skip = fut.result()
+                        sse_q.get_nowait()
                     except Exception:
-                        tid, content, cues, skip = (None, None, None, "err:future")
-                    processed += 1
-                    if processed % 100 == 0:
-                        db.session.expire_all()
-                    if skip or content is None or not cues:
-                        skipped += 1
-                    else:
-                        try:
-                            n = write_cues_to_db(
-                                content, cues, db,
-                                overwrite=req.overwrite, dry_run=req.dry_run,
-                            )
-                            if n > 0:
-                                applied += 1
-                                written_ids.append(tid)
-                            else:
-                                skipped += 1
-                        except Exception:
-                            skipped += 1
-                    yield f"data: {json.dumps({'processed': processed, 'total': total, 'applied': applied, 'skipped': skipped})}\n\n"
-                    # Top up the in-flight queue.
-                    if not cancel.is_set():
-                        try:
-                            nxt = next(track_iter)
-                            in_flight[pool.submit(_compute_one, nxt)] = nxt
-                        except StopIteration:
-                            pass
+                        pass
+                    try:
+                        sse_q.put_nowait(payload)
+                    except Exception:
+                        pass
 
+            writer_result: dict = {}
+
+            def _run_writer():
+                try:
+                    a, s, w = _writer_stage(
+                        db,
+                        dry_run=req.dry_run,
+                        overwrite=req.overwrite,
+                        q=work_q,
+                        send_event=_send_event,
+                        cancel=cancel,
+                    )
+                    writer_result["applied"] = a
+                    writer_result["skipped"] = s
+                    writer_result["written_ids"] = w
+                finally:
+                    # Wake the SSE generator so it can yield the final event.
+                    try:
+                        sse_q.put_nowait({"__done__": True})
+                    except Exception:
+                        pass
+
+            def _run_compute():
+                try:
+                    _compute_stage(
+                        req.track_ids,
+                        db,
+                        prefs,
+                        phrase_only=req.phrase_only,
+                        q=work_q,
+                        cancel=cancel,
+                    )
+                except Exception:
+                    # Make sure writer terminates even on producer crash.
+                    try:
+                        work_q.put(_COMPUTE_SENTINEL, block=True, timeout=5)
+                    except Exception:
+                        pass
+
+            compute_thread = _threading.Thread(target=_run_compute, daemon=True, name="autocue-compute")
+            writer_thread = _threading.Thread(target=_run_writer, daemon=True, name="autocue-writer")
+            compute_thread.start()
+            writer_thread.start()
+
+            # Drain SSE events from sse_q and yield them as they arrive.
+            done_seen = False
+            while not done_seen:
+                try:
+                    payload = sse_q.get(block=True, timeout=1)
+                except Exception:
+                    if not writer_thread.is_alive() and sse_q.empty():
+                        break
+                    continue
+                if payload.get("__done__"):
+                    done_seen = True
+                    break
+                payload_with_total = dict(payload)
+                payload_with_total["total"] = total
+                yield f"data: {json.dumps(payload_with_total)}\n\n"
+
+            # Make sure threads are fully done before reading writer_result.
             cancel.set()  # stop the poll thread
+            writer_thread.join(timeout=15)
+            compute_thread.join(timeout=15)
+
+            applied = writer_result.get("applied", 0)
+            skipped = writer_result.get("skipped", 0)
+            written_ids = writer_result.get("written_ids", [])
+
             # Issue #106 — mixability sidecar invalidation. See /api/apply.
             if not req.dry_run and written_ids:
                 _cs = getattr(request.app.state, "cache_store", None)
