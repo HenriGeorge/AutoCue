@@ -103,9 +103,15 @@
       { "id": "sb-save-playlist-btn", "kind": "button", "safeOnRealDb": false }
     ],
     "discover": [
-      { "id": "disc-since-year", "kind": "number" },
-      { "id": "disc-max-artists", "kind": "number" },
-      { "id": "disc-scan-btn", "kind": "button" },
+      { "id": "disc-v2-settings-btn", "kind": "button" },
+      { "id": "disc-v2-refresh-btn", "kind": "button" },
+      { "id": "disc-v2-sort", "kind": "select" },
+      { "id": "disc-v2-year", "kind": "select" },
+      { "id": "disc-v2-year-custom", "kind": "number" },
+      { "id": "disc-v2-search", "kind": "search" },
+      { "id": "disc-v2-hide-saved", "kind": "checkbox" },
+      { "id": "disc-v2-hide-dismissed", "kind": "checkbox" },
+      { "id": "disc-v2-styles-clear", "kind": "button" },
       { "id": "dl-query", "kind": "text" },
       { "id": "dl-go-btn", "kind": "button" },
       { "id": "dl-dest-switch", "kind": "button" }
