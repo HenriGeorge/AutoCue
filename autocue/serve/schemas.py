@@ -73,6 +73,11 @@ class YoutubeSearchCandidate(BaseModel):
     channel: str = ""
     duration: float | None = None
     thumbnail: str | None = None
+    # True when neither the artist nor the album token (4+ chars) appears in
+    # the result title OR channel name. Set by the backend when the caller
+    # passes `artist` + `album` query params; the frontend can hide these
+    # by default (carousel false-match guard) or surface them with a warning.
+    mismatch: bool = False
 
 
 class YoutubeSearchResponse(BaseModel):
