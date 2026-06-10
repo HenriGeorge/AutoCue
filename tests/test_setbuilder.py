@@ -291,3 +291,159 @@ class TestBuildSet:
 
         # Only seed track should be in result if all transitions fail threshold
         assert len(result["tracks"]) == 1
+
+
+# ---------------------------------------------------------------------------
+# Trajectory-deficit penalty (#116)
+# ---------------------------------------------------------------------------
+
+class TestTrajectoryDeficitPenalty:
+    """Issue #116: small-BPM-span build sets (e.g. 120→128 / 30min) used to
+    stall below start_bpm because the existing BPM-progress bonus was
+    proportionally diluted on short climbs — a 1-BPM step was 12.5% of an
+    8-BPM span (vs 4% of the 25-BPM range the algorithm was tuned on), so
+    same-BPM transitions tied climbers and the beam picked same-BPM.
+
+    The trajectory-deficit penalty subtracts points from candidates that
+    sit significantly below where the set SHOULD be at the current elapsed
+    duration (linear start→end interpolation). Same-BPM transitions in a
+    build set get punished proportional to how far the climb has fallen
+    behind, so climbers actually win even on short spans.
+    """
+
+    def _make_db_with_tracks(self, tracks: list) -> MagicMock:
+        db = MagicMock()
+        content_map = {int(c.ID): c for c in tracks}
+
+        def get_content(**kwargs):
+            if "ID" in kwargs:
+                return content_map.get(int(kwargs["ID"]))
+            mock_q = MagicMock()
+            mock_q.__iter__ = MagicMock(return_value=iter(tracks))
+            return mock_q
+
+        db.get_content.side_effect = get_content
+        return db
+
+    @staticmethod
+    def _transition_factory():
+        """Return a side_effect that simulates score_transition's behaviour:
+        BPM score drops linearly with diff, key/energy stay constant. Lets
+        the beam-search realistically prefer same-BPM unless something else
+        pushes it (the trajectory penalty)."""
+        def fake(a, b, db):
+            ba = float(getattr(a, "BPM", 0) or 0) / 100.0
+            bb = float(getattr(b, "BPM", 0) or 0) / 100.0
+            diff_pct = abs(bb - ba) / max(ba, 0.1)
+            # 0% diff → 100; 15% diff → 0; linear in between.
+            bpm = max(0.0, 100.0 - (diff_pct / 0.15) * 100.0)
+            return {
+                "overall": (0.40 * bpm + 0.35 * 80.0 + 0.25 * 70.0),
+                "bpm": bpm, "key": 80.0, "energy": 70.0,
+                "bpm_a": ba, "bpm_b": bb, "key_a": "8A", "key_b": "8A",
+                "end_energy_a": 0.5, "start_energy_b": 0.5,
+            }
+        return fake
+
+    def test_small_span_build_set_actually_climbs(self):
+        """The exact QA probe scenario: start=120, end=128, 20min, build.
+
+        Library has tracks at 120, 122, 124, 126, 128. Without the
+        trajectory penalty, the seed lands near 120 and the beam stays
+        there (same-BPM wins). WITH the penalty, the beam climbs because
+        each slot's expected_bpm rises and below-line candidates lose
+        points to mid-set."""
+        bpms_int = [12000, 12200, 12400, 12600, 12800]  # 120, 122, 124, 126, 128
+        tracks = [_make_db_content(i, bpms_int[i - 1], 240, "8A", f"Track{i}", f"DJ{i}")
+                  for i in range(1, 6)]
+        db = self._make_db_with_tracks(tracks)
+
+        # find_similar returns ALL non-seed tracks so the beam has free choice.
+        def fake_similar(track_id, db_, n, bpm_gate):
+            return [{"track_id": int(t.ID), "score": 0.9,
+                     "bpm_diff": abs(float(getattr(t, "BPM", 0) or 0) / 100.0
+                                     - float(getattr(db_.get_content(ID=track_id), "BPM", 0) or 0) / 100.0)}
+                    for t in tracks if int(t.ID) != track_id]
+
+        fake_class = {"primary": "build", "scores": {"warmup": 0.8, "build": 0.8, "peak": 0.5}}
+
+        with patch("autocue.analysis.similar._INDEX_BUILT", True), \
+             patch(f"{MODULE}.find_similar", side_effect=fake_similar), \
+             patch(f"{MODULE}.get_classification", return_value=fake_class), \
+             patch(f"{MODULE}.score_transition", side_effect=self._transition_factory()):
+            result = build_set(
+                db, start_bpm=120.0, end_bpm=128.0,
+                duration_minutes=20.0, energy_mode="build",
+            )
+
+        out = result["tracks"]
+        assert len(out) >= 3, f"expected ≥3 tracks, got {len(out)}: {out}"
+        first_bpm = out[0]["bpm"]
+        last_bpm = out[-1]["bpm"]
+        # The actual #116 symptom was last_bpm <= first_bpm (set stalled).
+        # With the trajectory penalty, the last track must be strictly
+        # above the first.
+        assert last_bpm > first_bpm, (
+            f"set did not climb — bpms={[t['bpm'] for t in out]} "
+            f"(first={first_bpm}, last={last_bpm})"
+        )
+
+    def test_penalty_zero_on_same_start_and_end_bpm(self):
+        """Flat sets (start == end) should not apply the trajectory penalty —
+        the existing same-BPM behaviour is correct for flat mode."""
+        tracks = [_make_db_content(i, 12000, 240, "8A", f"T{i}", f"D{i}") for i in range(1, 4)]
+        db = self._make_db_with_tracks(tracks)
+
+        def fake_similar(track_id, db_, n, bpm_gate):
+            return [{"track_id": int(t.ID), "score": 0.9, "bpm_diff": 0.0}
+                    for t in tracks if int(t.ID) != track_id]
+
+        fake_class = {"primary": "warmup", "scores": {"warmup": 0.9}}
+
+        with patch("autocue.analysis.similar._INDEX_BUILT", True), \
+             patch(f"{MODULE}.find_similar", side_effect=fake_similar), \
+             patch(f"{MODULE}.get_classification", return_value=fake_class), \
+             patch(f"{MODULE}.score_transition", side_effect=self._transition_factory()):
+            result = build_set(
+                db, start_bpm=120.0, end_bpm=120.0,
+                duration_minutes=5.0, energy_mode="flat",
+            )
+
+        # Flat set: every track at 120 — penalty must not fire (would
+        # produce zero-score candidates that fail the relaxation tier
+        # threshold and we'd get a single-track seed back).
+        assert len(result["tracks"]) >= 2, (
+            f"flat set unexpectedly short: {result['tracks']}"
+        )
+
+    def test_drop_mode_penalises_above_trajectory(self):
+        """Drop (descending) mode: candidates ABOVE the expected trajectory
+        get penalised. Mirror of the build case."""
+        # Tracks at 128, 124, 120, 116, 112 — descending arc.
+        bpms_int = [12800, 12400, 12000, 11600, 11200]
+        tracks = [_make_db_content(i, bpms_int[i - 1], 240, "8A", f"T{i}", f"D{i}")
+                  for i in range(1, 6)]
+        db = self._make_db_with_tracks(tracks)
+
+        def fake_similar(track_id, db_, n, bpm_gate):
+            return [{"track_id": int(t.ID), "score": 0.9, "bpm_diff": 0.0}
+                    for t in tracks if int(t.ID) != track_id]
+
+        fake_class = {"primary": "closing", "scores": {"closing": 0.8, "after_hours": 0.8, "peak": 0.5}}
+
+        with patch("autocue.analysis.similar._INDEX_BUILT", True), \
+             patch(f"{MODULE}.find_similar", side_effect=fake_similar), \
+             patch(f"{MODULE}.get_classification", return_value=fake_class), \
+             patch(f"{MODULE}.score_transition", side_effect=self._transition_factory()):
+            result = build_set(
+                db, start_bpm=128.0, end_bpm=112.0,
+                duration_minutes=20.0, energy_mode="drop",
+            )
+
+        out = result["tracks"]
+        assert len(out) >= 3
+        first_bpm, last_bpm = out[0]["bpm"], out[-1]["bpm"]
+        assert last_bpm < first_bpm, (
+            f"drop set did not descend — bpms={[t['bpm'] for t in out]} "
+            f"(first={first_bpm}, last={last_bpm})"
+        )

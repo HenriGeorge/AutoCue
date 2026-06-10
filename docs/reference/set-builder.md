@@ -714,6 +714,56 @@ This bonus is the **counterforce** to the BPM penalty inside `score_transition`
 upward movement gets up to 15 points back. Combined with the reweighting
 (see [Reweighting](#8-setbuilder-specific-transition-reweighting)), this is what makes the planner actually escape same-BPM clusters.
 
+### Trajectory-deficit penalty (small-span guard)
+
+The bonus above is proportional to **fractional** progress (`progress_made /
+progress_needed`). That works on the doc's headline 110→135 example (25 BPM
+of climb) but is **proportionally diluted** on short climbs: a 1-BPM step
+is 12.5% of an 8-BPM span vs 4% of a 25-BPM span, so the bonus shrinks just
+when the planner most needs to keep climbing. The result was the QA agent's
+issue #116 — `start=120 / end=128 / 30min` returned a flat 116–119 set
+because same-BPM transitions were essentially tied with climbers and the
+beam picked same-BPM.
+
+A second term — the **trajectory-deficit penalty** — fixes this by computing
+where the set SHOULD be at the candidate's elapsed time (linear `start →
+end` interpolation over the requested duration) and subtracting points from
+candidates that sit significantly below the line in build mode (or above in
+drop mode).
+
+```python
+if duration_minutes > 0 and end_bpm != start_bpm:
+    elapsed_min = beam.total_duration / 60.0
+    fraction_done = max(0.0, min(1.0, elapsed_min / duration_minutes))
+    expected_bpm = start_bpm + (end_bpm - start_bpm) * fraction_done
+    if end_bpm > start_bpm and cand_bpm < expected_bpm - 1.0:
+        trajectory_penalty = min(25.0, (expected_bpm - cand_bpm) * 4.0)
+    elif end_bpm < start_bpm and cand_bpm > expected_bpm + 1.0:
+        trajectory_penalty = min(25.0, (cand_bpm - expected_bpm) * 4.0)
+
+adjusted = overall - ep + bpm_bonus - trajectory_penalty
+```
+
+Tuning:
+
+- **4 points per BPM** behind the line, capped at **25** (large enough to
+  swing the beam against same-BPM, small enough that key/energy still
+  matter when on-trajectory candidates exist).
+- **1 BPM dead-band** so candidates exactly on the line aren't punished
+  by sub-BPM rounding.
+- **Asymmetric**: build mode penalises BPMs below the trajectory, drop
+  mode penalises BPMs above. Flat sets (`start == end`) skip the penalty
+  entirely — same-BPM is the correct answer there.
+- The penalty stacks with the +15 bonus, so a strong climber on-trajectory
+  can net **+15** while a same-BPM at mid-set nets **−25**: a clear 40-point
+  preference for the climber.
+
+This is intentionally separate from the asymmetric BPM gate's 3% backward
+tolerance: short transitions stay smooth (the gate still allows a 1–2 BPM
+dip between consecutive tracks), but the **cumulative** trajectory has to
+climb. The set can still take a step back as long as it stays close to the
+expected line over the duration.
+
 ---
 
 ## 10. Energy penalty — `_energy_penalty(...)`
