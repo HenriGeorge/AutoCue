@@ -1939,6 +1939,135 @@ async def library_health(
 
 
 # ---------------------------------------------------------------------------
+# Duplicate-track scan (phase 1: read-only surface)
+# ---------------------------------------------------------------------------
+
+@router.get("/duplicates")
+def find_duplicates(db=Depends(get_ro_db)):
+    """Stream the library duplicate-scan as SSE.
+
+    Read-only. No backup, no Rekordbox-running check (we never mutate
+    master.db on this path). Each event is JSON:
+
+      - ``{"total": N}`` — total tracks projected for scoring
+      - ``{"group": {artist, title, copies: [...], }}`` — one per dupe bucket,
+        sorted worst-offender first
+      - ``{"done": true, "summary": {groups, surplus, scanned, skipped_empty}}``
+
+    The keeper heuristic and grouping logic live in
+    :mod:`autocue.analysis.duplicates`; this endpoint only adapts the
+    Rekordbox ORM rows into ``TrackProjection`` objects and serialises
+    the result as SSE.
+    """
+    import json as _json
+    from fastapi.responses import StreamingResponse
+
+    from pyrekordbox.db6 import DjmdContent, DjmdCue
+    from ..analysis.duplicates import (
+        TrackProjection,
+        find_duplicate_groups,
+    )
+
+    def event_stream():
+        # Pre-load the auxiliary maps in a couple of bulk queries — same
+        # pattern as /api/tracks above. Per-row queries inside the projection
+        # loop would be O(N) round-trips on a 3,775-track library; bulk is one
+        # query each.
+        rows = db.query(DjmdContent).all()
+        row_ids = {r.ID for r in rows}
+
+        # Hot-cue count per content (Kind > 0 excludes memory cues).
+        hot_cue_counts: dict[str, int] = {}
+        try:
+            for c in db.query(DjmdCue).filter(DjmdCue.Kind > 0).all():
+                cid = str(c.ContentID)
+                if cid in {str(rid) for rid in row_ids}:
+                    hot_cue_counts[cid] = hot_cue_counts.get(cid, 0) + 1
+        except Exception:
+            pass
+
+        # last_played from DjmdHistory + DjmdSongHistory (same shape as
+        # /api/tracks at line 516-530).
+        last_played_map: dict[str, str] = {}
+        try:
+            from pyrekordbox.db6 import DjmdHistory, DjmdSongHistory
+            hist_date = {
+                str(h.ID): h.DateCreated
+                for h in db.query(DjmdHistory).all()
+                if h.DateCreated
+            }
+            for sh in db.query(DjmdSongHistory).all():
+                if sh.ContentID not in row_ids:
+                    continue
+                d = hist_date.get(str(sh.HistoryID))
+                if d and sh.ContentID:
+                    key = str(sh.ContentID)
+                    if key not in last_played_map or d > last_played_map[key]:
+                        last_played_map[key] = d
+        except Exception:
+            pass
+
+        # Materialise projections — skip empty-metadata tracks (their own
+        # bucket would mix unrelated streaming references).
+        projections: list[TrackProjection] = []
+        skipped_empty = 0
+        for row in rows:
+            title = (getattr(row, "Title", None) or "").strip()
+            artist = (getattr(row, "ArtistName", None) or "").strip()
+            if not title and not artist:
+                skipped_empty += 1
+                continue
+            try:
+                bpm = float(getattr(row, "BPM", 0) or 0) / 100.0
+            except (TypeError, ValueError):
+                bpm = 0.0
+            key_str = ""
+            try:
+                k = getattr(row, "Key", None)
+                if k is not None:
+                    key_str = str(getattr(k, "ScaleName", "") or "")
+            except Exception:
+                pass
+            projections.append(
+                TrackProjection(
+                    track_id=int(row.ID),
+                    title=title,
+                    artist=artist,
+                    bpm=bpm,
+                    key=key_str,
+                    existing_hot_cues=hot_cue_counts.get(str(row.ID), 0),
+                    play_count=int(getattr(row, "DJPlayCount", 0) or 0),
+                    last_played=last_played_map.get(str(row.ID)),
+                    source=_classify_source(getattr(row, "FolderPath", None)),
+                )
+            )
+
+        yield f"data: {_json.dumps({'total': len(projections)})}\n\n"
+
+        groups = find_duplicate_groups(projections)
+        for g in groups:
+            yield f"data: {_json.dumps({'group': g.to_dict()})}\n\n"
+
+        surplus = sum(len(g.copies) - 1 for g in groups)
+        summary = {
+            "done": True,
+            "summary": {
+                "groups": len(groups),
+                "surplus": surplus,
+                "scanned": len(projections),
+                "skipped_empty": skipped_empty,
+            },
+        }
+        yield f"data: {_json.dumps(summary)}\n\n"
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
+# ---------------------------------------------------------------------------
 # Cue Library Tools
 # ---------------------------------------------------------------------------
 

@@ -2683,6 +2683,29 @@ autocue --library --mode bar --bars-interval 8 --start-bar 1</pre>
     </div>
   </section>
 
+  <!-- Duplicate Tracks (local mode only). Phase 1 surface-only:
+       scan + group display, NO delete action. The destructive delete path
+       lands in a follow-up PR after the read-only UX is validated. -->
+  <section id="duplicates-section" class="panel-card" style="display:none">
+    <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px;">
+      <h2 style="margin:0;font-size:15px;font-weight:700;">Duplicate Tracks</h2>
+      <button id="duplicates-scan-btn" class="secondary-btn" style="font-size:12px;padding:4px 12px;">Find duplicates</button>
+      <span id="duplicates-status-label" style="display:none;font-size:12px;color:var(--muted);"></span>
+    </div>
+    <p style="margin:0 0 12px;font-size:12px;color:var(--muted);">
+      Groups tracks by (artist, title) — case-insensitive, whitespace-normalised.
+      The <em>keeper</em> is the row with the most plays, then most existing hot cues,
+      then most-recent last-played, then lowest track ID. Read-only —
+      no tracks are deleted here.
+    </p>
+    <div id="duplicates-progress" style="display:none;font-size:12px;color:var(--muted);background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:8px 10px;margin-bottom:12px;"></div>
+    <div id="duplicates-summary" style="display:none;font-size:13px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:10px 12px;margin-bottom:12px;"></div>
+    <div id="duplicates-empty" style="display:none;font-size:13px;color:var(--muted);text-align:center;padding:24px;">
+      No duplicate tracks found. Library is clean.
+    </div>
+    <div id="duplicates-list" style="display:flex;flex-direction:column;gap:8px;"></div>
+  </section>
+
   <!-- Cue Library Tools (local mode only) -->
   <section id="cue-tools-section" class="panel-card" style="display:none">
     <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px;">
@@ -4323,6 +4346,169 @@ async function scanLibraryHealth() {
     _setBtnLoading(btn, false);
     label.style.display = 'none';
     progBar.style.display = 'none';
+  }
+}
+
+// ── Duplicate Tracks ──────────────────────────────────────────────────────────
+//
+// Phase 1: scan + display only. The destructive delete path (with backup +
+// Rekordbox-closed checks) lands in a follow-up PR after this UX is validated.
+
+function _pickKeeper(copies) {
+  // Mirror of autocue.analysis.duplicates.pick_keeper. Keep in sync.
+  let best = copies[0];
+  for (let i = 1; i < copies.length; i++) {
+    const c = copies[i];
+    const aKey = [
+      best.play_count || 0,
+      best.existing_hot_cues || 0,
+      best.last_played || '',
+      -best.track_id,
+    ];
+    const bKey = [
+      c.play_count || 0,
+      c.existing_hot_cues || 0,
+      c.last_played || '',
+      -c.track_id,
+    ];
+    let take = false;
+    for (let j = 0; j < aKey.length; j++) {
+      if (bKey[j] > aKey[j]) { take = true; break; }
+      if (bKey[j] < aKey[j]) { break; }
+    }
+    if (take) best = c;
+  }
+  return best.track_id;
+}
+
+function _renderDuplicateGroup(group) {
+  const div = document.createElement('div');
+  div.className = 'duplicates-group panel-card';
+  div.style.cssText = 'padding:10px 12px;border:1px solid var(--border);border-radius:8px;background:var(--surface);';
+  const head = document.createElement('div');
+  head.style.cssText = 'display:flex;align-items:center;gap:10px;flex-wrap:wrap;';
+  const title = document.createElement('div');
+  title.style.cssText = 'flex:1;min-width:0;';
+  const artistEl = document.createElement('span');
+  artistEl.style.cssText = 'font-weight:600;';
+  artistEl.textContent = group.artist || '(unknown artist)';
+  const dashEl = document.createElement('span');
+  dashEl.style.cssText = 'margin:0 6px;color:var(--muted);';
+  dashEl.textContent = '—';
+  const titleEl = document.createElement('span');
+  titleEl.textContent = group.title || '(untitled)';
+  title.appendChild(artistEl);
+  title.appendChild(dashEl);
+  title.appendChild(titleEl);
+  const countChip = document.createElement('span');
+  countChip.style.cssText = 'font-size:11px;background:var(--amber, #c98a00)22;color:var(--amber, #c98a00);border:1px solid var(--amber, #c98a00)55;border-radius:9999px;padding:2px 8px;font-weight:600;';
+  countChip.textContent = `${group.copies.length} copies`;
+  const toggle = document.createElement('button');
+  toggle.className = 'secondary-btn';
+  toggle.style.cssText = 'font-size:11px;padding:3px 10px;';
+  toggle.textContent = 'Show details';
+  head.appendChild(title);
+  head.appendChild(countChip);
+  head.appendChild(toggle);
+  div.appendChild(head);
+
+  const table = document.createElement('div');
+  table.style.cssText = 'display:none;margin-top:10px;font-size:12px;font-family:var(--mono);';
+  // Use a key map so the keeper row gets highlighted; mirrors the Python
+  // is_keeper flag (which the SSE event already includes).
+  for (const c of group.copies) {
+    const row = document.createElement('div');
+    row.style.cssText = 'display:flex;gap:10px;padding:4px 6px;border-radius:4px;'
+      + (c.is_keeper ? 'background:color-mix(in srgb, var(--green) 12%, transparent);font-weight:600;' : '');
+    row.innerHTML =
+      `<span style="min-width:80px;">id ${c.track_id}</span>` +
+      `<span style="min-width:60px;">${(c.bpm || 0).toFixed(2)} BPM</span>` +
+      `<span style="min-width:40px;">${_esc(c.key || '—')}</span>` +
+      `<span style="min-width:50px;">${c.existing_hot_cues || 0} cues</span>` +
+      `<span style="min-width:50px;">${c.play_count || 0} plays</span>` +
+      `<span style="min-width:120px;">${_esc((c.last_played || '—').slice(0, 19))}</span>` +
+      `<span>${_esc(c.source || '—')}</span>` +
+      (c.is_keeper ? `<span style="color:var(--green);margin-left:auto;">★ keeper</span>` : '');
+    table.appendChild(row);
+  }
+  div.appendChild(table);
+
+  toggle.addEventListener('click', () => {
+    const isOpen = table.style.display !== 'none';
+    table.style.display = isOpen ? 'none' : '';
+    toggle.textContent = isOpen ? 'Show details' : 'Hide details';
+  });
+  return div;
+}
+
+async function scanDuplicates() {
+  const btn = document.getElementById('duplicates-scan-btn');
+  const statusEl = document.getElementById('duplicates-status-label');
+  const progress = document.getElementById('duplicates-progress');
+  const summary = document.getElementById('duplicates-summary');
+  const empty = document.getElementById('duplicates-empty');
+  const list = document.getElementById('duplicates-list');
+
+  const abortCtrl = new AbortController();
+  _setBtnCancellable(btn, 'Scanning…', abortCtrl);
+  statusEl.style.display = '';
+  statusEl.textContent = 'Scanning…';
+  progress.style.display = '';
+  progress.textContent = 'Loading tracks…';
+  summary.style.display = 'none';
+  empty.style.display = 'none';
+  list.innerHTML = '';
+
+  try {
+    const r = await fetch('/api/duplicates', { signal: abortCtrl.signal });
+    if (!r.ok) {
+      const e = await r.json().catch(() => ({}));
+      throw new Error(e.detail || r.statusText);
+    }
+    const reader = r.body.getReader();
+    const decoder = new TextDecoder();
+    let buf = '';
+    let total = null;
+    let groupCount = 0;
+    abortCtrl.signal.addEventListener('abort', () => reader.cancel().catch(() => {}), { once: true });
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buf += decoder.decode(value, { stream: true });
+      const lines = buf.split('\n');
+      buf = lines.pop();
+      for (const line of lines) {
+        if (!line.startsWith('data: ')) continue;
+        const ev = JSON.parse(line.slice(6));
+        if (ev.total !== undefined && !ev.group && !ev.done) {
+          total = ev.total;
+          progress.textContent = `Scanning ${total.toLocaleString()} tracks…`;
+        } else if (ev.group) {
+          groupCount++;
+          list.appendChild(_renderDuplicateGroup(ev.group));
+          progress.textContent = `Found ${groupCount.toLocaleString()} duplicate groups so far…`;
+        } else if (ev.done) {
+          const s = ev.summary;
+          progress.style.display = 'none';
+          if (s.groups === 0) {
+            empty.style.display = '';
+          } else {
+            summary.style.display = '';
+            summary.innerHTML =
+              `<strong>${s.groups.toLocaleString()} duplicate group${s.groups === 1 ? '' : 's'}</strong> ` +
+              `· ${s.surplus.toLocaleString()} surplus copies of ${s.scanned.toLocaleString()} scanned tracks` +
+              (s.skipped_empty > 0 ? ` · ${s.skipped_empty.toLocaleString()} empty-metadata tracks skipped` : '');
+          }
+        }
+      }
+    }
+  } catch (e) {
+    progress.textContent = `Scan failed: ${e.message || e}`;
+  } finally {
+    _setBtnLoading(btn, false);
+    btn.textContent = 'Find duplicates';
+    statusEl.style.display = 'none';
   }
 }
 
@@ -8613,6 +8799,8 @@ detectLocalMode().then(async connected => {
     document.getElementById('local-how-to').style.display = '';
     document.getElementById('health-section').style.display = '';
     document.getElementById('health-scan-btn').addEventListener('click', scanLibraryHealth);
+    document.getElementById('duplicates-section').style.display = '';
+    document.getElementById('duplicates-scan-btn').addEventListener('click', scanDuplicates);
     document.getElementById('cue-tools-section').style.display = '';
     _initCueTools();
     document.getElementById('discogs-section').style.display = '';
