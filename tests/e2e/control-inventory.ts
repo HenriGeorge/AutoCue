@@ -40,6 +40,15 @@ export type ControlRow = {
    */
   skipSweep?: boolean;
   skipReason?: string;
+  /**
+   * Click strategy override for the per-control sweep.
+   * - "force" (issue #190): skip Playwright's scrollIntoView precheck. Needed
+   *   for `position: fixed` buttons (e.g. action-bar-*) — Playwright sees
+   *   them as "outside viewport" and burns 30 s retrying scroll on an element
+   *   that ignores scroll by definition.
+   * Default (undefined) = normal click with viewport precheck.
+   */
+  clickStrategy?: "force";
 };
 
 export type PerTrackRow = {

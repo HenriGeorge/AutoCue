@@ -103,8 +103,18 @@ test.describe("Sticky filter bar — virtualized card overlap (regression)", () 
     // Wait until the snap has stabilized — the first visible card's
     // bottom should align with the sticky's bottom (within 1px). This
     // also covers any straggler RAF/repaint after the scroll event.
+    // Tolerance for picking which card counts as "first visible" — must be
+    // bigger than sub-pixel rounding noise but smaller than any half-card
+    // we'd want to catch. The Virtualizer's snap targets card.bottom ≈
+    // stickyBottom for the LAST hidden card; that comparison can drift by
+    // ~0.5 px between the snap-compute frame and the probe frame (issue
+    // #187 — picking card[0] for a 0.44 px overshoot reported a 159 px
+    // false-positive overlap when the user-visible behaviour was correct).
+    // 5 px keeps the original "≥5 px overlap = bug" assertion intact.
+    const VISIBLE_THRESHOLD_PX = 5;
+
     await page.waitForFunction(
-      () => {
+      (threshold) => {
         const sticky = document.getElementById("tracks-sticky");
         const list = document.getElementById("track-list");
         if (!sticky || !list) return false;
@@ -113,18 +123,18 @@ test.describe("Sticky filter bar — virtualized card overlap (regression)", () 
           list.querySelectorAll<HTMLElement>(".track-card"),
         );
         const visible = cards.find(
-          (c) => c.getBoundingClientRect().bottom > sb,
+          (c) => c.getBoundingClientRect().bottom > sb + threshold,
         );
         if (!visible) return false;
         return visible.getBoundingClientRect().top >= sb - 1;
       },
-      undefined,
+      VISIBLE_THRESHOLD_PX,
       { timeout: 5_000 },
     ).catch(() => {
       // Fall through — let the assertion below produce the diagnostic.
     });
 
-    const layout = await page.evaluate(() => {
+    const layout = await page.evaluate((threshold) => {
       const sticky = document.getElementById("tracks-sticky")!;
       const list = document.getElementById("track-list")!;
       const cards = Array.from(
@@ -136,11 +146,13 @@ test.describe("Sticky filter bar — virtualized card overlap (regression)", () 
       const stickyRect = sticky.getBoundingClientRect();
       const listRect = list.getBoundingClientRect();
       const stickyBottom = stickyRect.bottom;
-      // First card whose bottom edge is still on-screen below the sticky.
-      // (Cards fully scrolled past — bottom <= stickyBottom — must be
-      // ignored, otherwise we'd compare against a negative top.)
+      // First card whose bottom edge is *materially* below the sticky.
+      // The +threshold filters out the "last hidden card whose bottom
+      // happens to overshoot stickyBottom by sub-pixel rounding" case
+      // (issue #187). Anything past the threshold has enough visible
+      // content that an actual overlap would be obvious to the user.
       const firstVisible = cards.find(
-        (c) => c.getBoundingClientRect().bottom > stickyBottom,
+        (c) => c.getBoundingClientRect().bottom > stickyBottom + threshold,
       );
       const firstVisibleRect = firstVisible?.getBoundingClientRect();
       const firstCardTransform = cards[0]?.style.transform ?? null;
@@ -166,7 +178,7 @@ test.describe("Sticky filter bar — virtualized card overlap (regression)", () 
           };
         }),
       };
-    });
+    }, VISIBLE_THRESHOLD_PX);
 
     expect(
       layout.firstVisibleTop,
