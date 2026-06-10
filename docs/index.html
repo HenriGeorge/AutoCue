@@ -625,6 +625,13 @@
       white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
       letter-spacing: -0.2px;
     }
+    /* Placeholder for streaming tracks with no Rekordbox-side metadata —
+       still visible, just clearly tagged as untitled so it doesn't look
+       like a rendering glitch. */
+    .track-name.untitled,
+    .track-artist.untitled {
+      font-weight: 500; color: var(--muted); font-style: italic;
+    }
     .track-artist { font-size: 12px; color: var(--muted); white-space: nowrap; font-weight: 500; }
     .track-bpm {
       font-family: var(--mono); font-size: 12px; color: var(--green);
@@ -10036,8 +10043,14 @@ async function _toggleSimilarPanel(btn, panel, trackId) {
     const deduped = d.results.filter(item => {
       const t = lookup[String(item.track_id)];
       if (!t) return true;
+      // parsedTracks rows expose the title under `name` (matches the API's
+      // TrackItem schema → `title` is mapped during ingest). The earlier
+      // `t.title` lookup silently produced `undefined`, every key became
+      // `"<artist>|||"`, and every same-artist similar match collapsed
+      // into one row. Probe-verified against a 3,775-track library: track
+      // 212087170's similar results (5 → 1 row) was the surfacing case.
       const artistStr = (t.artist || '').toLowerCase().trim();
-      const titleStr  = (t.title  || '').toLowerCase().trim();
+      const titleStr  = (t.name   || '').toLowerCase().trim();
       const key = `${artistStr}|||${titleStr}`;
       if (!artistStr && !titleStr) return true;
       if (seen.has(key)) return false;
@@ -10334,8 +10347,20 @@ function buildTrackCard(track, cues, willSkip, opts = {}) {
 
   const nameEl = document.createElement('span');
   nameEl.className = 'track-name';
-  nameEl.title = track.name;
-  nameEl.textContent = track.name;
+  // Streaming-source tracks (Spotify / Tidal / Apple Music links) frequently
+  // import into Rekordbox with empty Title / ArtistName / AlbumName columns
+  // — the API echoes those through as empty strings and the card otherwise
+  // renders as a visually blank row. Show a clear "untitled" placeholder so
+  // the user spots which rows need a Rekordbox-side metadata fix instead of
+  // wondering why some cards look broken.
+  if (!track.name && track.source === 'streaming') {
+    nameEl.textContent = '— Untitled streaming track —';
+    nameEl.classList.add('untitled');
+    nameEl.title = `Track ${track.id} — no title in Rekordbox; streaming source`;
+  } else {
+    nameEl.title = track.name;
+    nameEl.textContent = track.name;
+  }
   meta.appendChild(nameEl);
 
   if (localMode && healthData[String(track.id)]) {
@@ -10412,13 +10437,25 @@ function buildTrackCard(track, cues, willSkip, opts = {}) {
   // Artist / album sub-row (hidden in album-group view where album is shown in header)
   const showArtist = track.artist;
   const showAlbumName = !hideAlbum && track.album;
-  if (showArtist || showAlbumName) {
+  // Same streaming-empty-metadata case as above: when BOTH name and artist
+  // are missing, surface a clear artist placeholder so the row makes sense.
+  // (We don't placeholder when ONLY the artist is missing — 187 tracks in a
+  // typical library are classical / various-artists with empty artist but
+  // valid title; those should keep rendering naturally.)
+  const showArtistPlaceholder =
+    !track.name && !track.artist && track.source === 'streaming';
+  if (showArtist || showAlbumName || showArtistPlaceholder) {
     const sub = document.createElement('div');
     sub.style.cssText = 'display:flex;gap:6px;align-items:baseline;flex-wrap:wrap;margin-top:2px;margin-bottom:4px;';
     if (showArtist) {
       const a = document.createElement('span');
       a.className = 'track-artist';
       a.textContent = track.artist;
+      sub.appendChild(a);
+    } else if (showArtistPlaceholder) {
+      const a = document.createElement('span');
+      a.className = 'track-artist untitled';
+      a.textContent = 'No artist metadata';
       sub.appendChild(a);
     }
     if (showAlbumName) {
