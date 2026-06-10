@@ -4049,6 +4049,14 @@ let _playRafId   = null; // D1: RAF loop for smooth playhead
 var _cardMap = new Map();           // C: trackId → card element (shared cache for flat+album modes)
 var _cardSettingsFingerprint = '';  // C: fingerprint of settings affecting card content
 var _albumSortKey = '';             // C: last-rendered album sort key; skip rebuild if unchanged
+// #172: cache the entire album-group element keyed by (albumName + memberTrackIds).
+// On filter changes that leave an album untouched, we reuse the cached group
+// (header + artwork chain + track cards). Without this, every filter toggle
+// rebuilds every album group — which restarts the per-album `<img>` artwork
+// fetch chain (one image request per album, sequential fail-over) and pegs
+// the main thread + network until enough work piles up that subsequent
+// synthetic clicks cannot land within the 30 s Playwright budget.
+var _albumGroupCache = new Map();   // key: `${name}|${memberIdsCommaJoined}` → <div.album-group>
 var _sparkObserver = null;          // C: reused observers prevent IntersectionObserver leaks
 var _mixObserver   = null;
 var _enterObserver = null;
@@ -4105,6 +4113,7 @@ async function loadTracksFromServer(playlistId = null) {
   }
   _energyCache = {};           // D4 fix: invalidate on reload so stale curves don't persist
   _cardMap.clear();            // C: force full rebuild on library reload
+  _albumGroupCache.clear();    // #172: album cache wraps cards, drop when cards drop
   _cardSettingsFingerprint = '';
   if (Virtualizer.isAttached()) Virtualizer.detach();
   _setParsedTracks(tracksData.map(t => ({
@@ -10765,7 +10774,7 @@ function renderTracks() {
     if (Virtualizer.isAttached()) Virtualizer.detach();
     list.classList.remove('virtualized');
     list.innerHTML = '';
-    _cardMap.clear(); _cardSettingsFingerprint = '';
+    _cardMap.clear(); _albumGroupCache.clear(); _cardSettingsFingerprint = '';
     const empty = document.createElement('div');
     empty.className = 'empty-state';
     const icon = document.createElement('div');
@@ -10835,7 +10844,7 @@ function renderTracks() {
     if (Virtualizer.isAttached()) Virtualizer.detach();
     list.classList.remove('virtualized');
     list.innerHTML = '';
-    _cardMap.clear(); _cardSettingsFingerprint = '';
+    _cardMap.clear(); _albumGroupCache.clear(); _cardSettingsFingerprint = '';
     const empty = document.createElement('div');
     empty.className = 'empty-state';
     const icon = document.createElement('div');
@@ -10867,6 +10876,11 @@ function renderTracks() {
     if (settingsChanged) {
       _cardSettingsFingerprint = newFingerprint;
       _cardMap.clear();
+      // #172: settings (e.g. analysis mode, max cues) invalidate the cached
+      // header DOM via the track cards they wrap, so drop the album-group
+      // cache here too. Filter-only changes (which do NOT bump the
+      // fingerprint) keep the cache hot.
+      _albumGroupCache.clear();
     }
     _albumSortKey = newSortKey;
 
@@ -10881,6 +10895,8 @@ function renderTracks() {
     // Only rebuild DOM when something actually changed
     if (settingsChanged || orderChanged || !list.firstChild) {
       list.innerHTML = '';
+      // Track which cache entries we still need so we can evict stale ones.
+      const usedCacheKeys = new Set();
       for (const [albumName, tracks] of groups) {
         // Count cues for this group
         for (const track of tracks) {
@@ -10888,7 +10904,19 @@ function renderTracks() {
           if (cues.length) { tracksWithCues++; totalCues += cues.length; }
         }
 
-        const group = document.createElement('div');
+        // #172: cache key = album name + member track ids in order. If a
+        // filter change leaves an album fully intact, we reuse the prior
+        // <div.album-group> verbatim — header text, artwork chain, and
+        // mounted track cards stay put.
+        const cacheKey = albumName + '|' + tracks.map(t => t.id).join(',');
+        usedCacheKeys.add(cacheKey);
+        let group = _albumGroupCache.get(cacheKey);
+        if (group) {
+          list.appendChild(group);
+          continue;
+        }
+
+        group = document.createElement('div');
         group.className = 'album-group';
 
         // Album header
@@ -10967,7 +10995,14 @@ function renderTracks() {
 
         group.appendChild(header);
         group.appendChild(tracksDiv);
+        _albumGroupCache.set(cacheKey, group);
         list.appendChild(group);
+      }
+      // Evict cache entries that no longer correspond to a visible album —
+      // keeps the cache bounded by the number of distinct filtered slices
+      // we've rendered, not by lifetime of the page.
+      for (const k of _albumGroupCache.keys()) {
+        if (!usedCacheKeys.has(k)) _albumGroupCache.delete(k);
       }
     } else {
       // Nothing changed — just tally cues for the counter
@@ -10991,6 +11026,7 @@ function renderTracks() {
     if (list.querySelector('.album-group')) {
       list.innerHTML = '';
       _cardMap.clear();
+      _albumGroupCache.clear();
     }
     list.classList.add('virtualized');
     const newFingerprint = _computeSettingsFingerprint();
@@ -11022,6 +11058,7 @@ function renderTracks() {
     if (settingsChanged) {
       _cardSettingsFingerprint = newFingerprint;
       _cardMap.clear();
+      _albumGroupCache.clear();
       if (Virtualizer.isAttached()) Virtualizer.detach();
     }
 
@@ -11272,6 +11309,7 @@ function handleFile(file) {
     _setParsedTracks(tracks);
     _energyCache = {};           // D4 fix: clear stale curves on XML reload
     _cardMap.clear();            // C: force full rebuild on XML reload
+    _albumGroupCache.clear();    // #172: album cache wraps cards, drop when cards drop
     _cardSettingsFingerprint = '';
     if (Virtualizer.isAttached()) Virtualizer.detach();
     originalXmlText = e.target.result;
@@ -11602,8 +11640,25 @@ window.addEventListener('beforeunload', revokeAllBlobUrls);
 // 'filters'  → re-render track list when any filter changes
 // 'settings' → re-render + overwrite warning when cue settings change
 // 'tracks'   → re-render after data load (tracks replaced/enriched)
+//
+// Issue #172: a rapid sequence of filter toggles (search-fill, search-clear,
+// phrase-on, phrase-off, beats-on) on a large album-mode library produces
+// back-to-back renderTracks() rebuilds — each one clears the list, walks all
+// tracks, and re-fires the per-album <img> artwork-probe chains. On a 3,775-
+// track library this saturates the main thread long enough that the next
+// synthetic click event in a Playwright run never gets dispatched within
+// 30 s. Debounce the render to the trailing edge so a burst of filter
+// signals collapses into one render. The cadence (80 ms) matches the
+// existing _scheduleSearchRecompute debounce on #search-input — already
+// shipped, no new perceived latency for human users.
+var _filtersRenderTimer = null;
 AppState.subscribe('filters', function() {
-  if (parsedTracks.length) renderTracks();
+  if (!parsedTracks.length) return;
+  if (_filtersRenderTimer) clearTimeout(_filtersRenderTimer);
+  _filtersRenderTimer = setTimeout(function() {
+    _filtersRenderTimer = null;
+    renderTracks();
+  }, 80);
 });
 AppState.subscribe('settings', function() {
   if (parsedTracks.length) { renderTracks(); updateOverwriteWarning(); }
