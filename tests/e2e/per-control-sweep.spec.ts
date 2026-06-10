@@ -58,7 +58,9 @@ async function gotoPanel(page: Page, panel: PanelName | "global") {
   else if (panel === "library")
     await expect(page.locator("#health-section")).toBeAttached();
   else if (panel === "discover") {
-    await expect(page.locator("#discover-section")).toBeAttached();
+    // Discover tab wrapper was renamed to `#disc-v2-section` during the
+    // Discover v2 rebuild (see `docs/index.html` § initDiscoverV2 guard).
+    await expect(page.locator("#disc-v2-section")).toBeAttached();
     await expect(page.locator("#download-section")).toBeAttached();
   }
 }
