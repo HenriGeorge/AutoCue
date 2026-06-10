@@ -64,21 +64,91 @@ async function gotoPanel(page: Page, panel: PanelName | "global") {
 }
 
 async function expandHiddenSections(page: Page) {
+  // Force every collapsible / panel container into an open, reachable state
+  // so per-control-sweep rows aren't blocked by inline display:none or by
+  // class-based collapse (e.g. `#settings-section.collapsed` set via
+  // `_collapseSettings`, applied automatically when local mode boots).
+  //
+  // We mutate inline style + className directly rather than clicking title
+  // toggles: the same approach the drift guard
+  // (control-inventory.spec.ts:25-47) uses, and it avoids firing onclick
+  // handlers that may persist state or fire network requests.
+  //
+  // Timing: the boot path in `docs/index.html` runs a staggered fade-in
+  // chain that adds `visible` to `#settings-section` and, in local mode,
+  // immediately calls `_collapseSettings()` inside the same setTimeout
+  // callback. If we strip `collapsed` before that callback fires, the
+  // collapse re-applies a tick later and the click intercept returns.
+  // Wait for `#settings-section.visible` first so we know the boot fade
+  // chain has reached the settings entry, THEN strip — the class won't
+  // be re-applied by any later code path (only manual toggle would).
+  await page.waitForFunction(() => {
+    const el = document.getElementById("settings-section");
+    // If the section isn't on the page (Pages mode / unusual fixture),
+    // skip the wait — nothing to collapse-race against.
+    if (!el) return true;
+    return el.classList.contains("visible");
+  });
   await page.evaluate(() => {
-    for (const sel of ["[id$='-section']", "[id$='-body']", "[id$='-panel']"]) {
+    const SELECTORS = [
+      "[id$='-section']",
+      "[id$='-body']",
+      "[id$='-panel']",
+      "section",
+      "[class*='-params']",
+    ];
+    const COLLAPSE_CLASSES = ["collapsed", "is-collapsed", "hidden"];
+    const seen = new Set<HTMLElement>();
+    for (const sel of SELECTORS) {
       for (const el of Array.from(
         document.querySelectorAll<HTMLElement>(sel),
       )) {
+        if (seen.has(el)) continue;
+        seen.add(el);
         if (el.style.display === "none") el.style.display = "";
+        for (const cls of COLLAPSE_CLASSES) {
+          if (el.classList.contains(cls)) el.classList.remove(cls);
+        }
       }
     }
   });
+}
+
+async function forceShowAncestors(page: Page, controlId: string) {
+  // Walk up from the control's element clearing inline `display:none` on
+  // every ancestor, and stripping a small allowlist of collapse classes.
+  // This catches the "container ID doesn't match *-section/-body/-panel"
+  // shapes that the broad sweep helper deliberately doesn't try to
+  // enumerate — e.g. `#existing-cues-info` (state-gated info row) or
+  // `#skip-colored-label` (gated on color-by-bpm visibility). Safe
+  // because we only walk a single chain (the row's ancestors), so we
+  // never reveal sibling modals / drawers.
+  await page.evaluate((id) => {
+    const COLLAPSE_CLASSES = ["collapsed", "is-collapsed", "hidden"];
+    const el = document.getElementById(id);
+    if (!el) return;
+    let node: HTMLElement | null = el;
+    while (node && node !== document.body) {
+      if (node.style.display === "none") node.style.display = "";
+      for (const cls of COLLAPSE_CLASSES) {
+        if (node.classList.contains(cls)) node.classList.remove(cls);
+      }
+      node = node.parentElement;
+    }
+  }, controlId);
 }
 
 async function safeInteract(page: Page, row: ControlRow) {
   const sel = buildIdSelector(row.id);
   const locator = page.locator(sel);
   await expect(locator, `control ${row.id} is missing`).toHaveCount(1);
+  // Per-row last-mile reveal: even after the panel-wide
+  // `expandHiddenSections`, some controls live inside state-gated
+  // wrappers (#existing-cues-info, #skip-colored-label, …) that the
+  // sweep helper doesn't try to enumerate by selector. Walk this row's
+  // ancestor chain and clear inline display:none / collapse classes so
+  // the click / focus interaction below can land on the actual element.
+  await forceShowAncestors(page, row.id);
 
   // Per-kind interaction. v1 is conservative — for safeOnRealDb:false rows
   // (writes / mutations) we ONLY confirm presence + focusability. Real
@@ -177,6 +247,63 @@ function runRows(panel: PanelName | "global", rows: ControlRow[]) {
     }
   });
 }
+
+// Regression guard for issue #171 — expandHiddenSections must strip the
+// class-based collapse on `#settings-section` (auto-applied when local
+// mode boots via `_collapseSettings`) AND must reach the auto-classify
+// param sub-panel (a `cue-tools-params-auto-classify` div hidden by
+// inline display:none, which the previous *-section/-body/-panel
+// selector trio did NOT match). Without these, ~25 inventory rows time
+// out at 30s each on click-intercepted.
+test.describe("expandHiddenSections (helper)", () => {
+  test("strips collapsed class from #settings-section after Cues tab load", async ({
+    page,
+  }) => {
+    await gotoPanel(page, "cues");
+    // Sanity: confirm the bug's precondition — the page auto-collapses
+    // the settings section on local-mode boot. If this ever stops being
+    // true, this regression test still holds (the assertion below is
+    // about the helper, not about the initial state).
+    const collapsedBefore = await page
+      .locator("#settings-section")
+      .evaluate((el) => el.classList.contains("collapsed"));
+    await expandHiddenSections(page);
+    const collapsedAfter = await page
+      .locator("#settings-section")
+      .evaluate((el) => el.classList.contains("collapsed"));
+    expect(
+      collapsedAfter,
+      "expandHiddenSections must clear the .collapsed class so sweep rows are reachable",
+    ).toBe(false);
+    // Boundary: if precondition holds, helper truly flipped the bit; if
+    // not, helper is at least idempotent (still false).
+    if (collapsedBefore) expect(collapsedAfter).toBe(false);
+  });
+
+  test("clears inline display:none on cue-tools-params-* sub-panels (Library)", async ({
+    page,
+  }) => {
+    await gotoPanel(page, "library");
+    await expandHiddenSections(page);
+    // All five `cue-tools-params-*` divs are inline `display:none` by
+    // default (only the currently-selected op is shown). After the
+    // helper runs, every one of them must be reachable so the at-* /
+    // cue-* inputs inside the auto-classify sub-panel can be exercised.
+    const stillHidden = await page.evaluate(() => {
+      const out: string[] = [];
+      for (const el of Array.from(
+        document.querySelectorAll<HTMLElement>("[id^='cue-tools-params-']"),
+      )) {
+        if (el.style.display === "none") out.push(el.id);
+      }
+      return out;
+    });
+    expect(
+      stillHidden,
+      "expandHiddenSections must un-hide cue-tools-params-* sub-panels",
+    ).toEqual([]);
+  });
+});
 
 // Global controls always run.
 runRows("global", INVENTORY.globalControls);
