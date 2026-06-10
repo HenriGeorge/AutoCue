@@ -3373,3 +3373,118 @@ class TestApplyInvalidatesMixability:
                     )
         assert r.status_code == 200, r.text
         assert store.get_mixability(1, expected_anlz_mtime=100.0) is not None
+
+
+# ---------------------------------------------------------------------------
+# /api/duplicates — duplicate-track scan (phase 1: read-only surface)
+# ---------------------------------------------------------------------------
+
+class TestDuplicatesEndpoint:
+    @staticmethod
+    def _make_content(track_id, *, title="", artist="", bpm_int=12000, play_count=0):
+        c = MagicMock()
+        c.ID = track_id
+        c.Title = title
+        c.ArtistName = artist
+        c.BPM = bpm_int
+        c.DJPlayCount = play_count
+        c.FolderPath = ""  # _classify_source treats empty as streaming
+        c.Key = None
+        return c
+
+    def _db_with_rows(self, content_rows):
+        db = MagicMock()
+
+        # Map (queried-model -> response) so we can answer the bulk lookups
+        # the duplicate endpoint uses (DjmdContent, DjmdCue, DjmdHistory,
+        # DjmdSongHistory). The mocks return a query stub whose .all() /
+        # .filter().all() yields the expected rows.
+        empty_q = MagicMock()
+        empty_q.all.return_value = []
+        empty_q.filter.return_value = empty_q
+
+        content_q = MagicMock()
+        content_q.all.return_value = content_rows
+        content_q.filter.return_value = content_q
+
+        def query_router(model):
+            name = model.__name__
+            if name == "DjmdContent":
+                return content_q
+            return empty_q
+
+        db.query.side_effect = query_router
+        return db
+
+    def _sse_payloads(self, body):
+        import json as _json
+        out = []
+        for line in body.splitlines():
+            if line.startswith("data: "):
+                out.append(_json.loads(line[6:]))
+        return out
+
+    def test_no_duplicates_returns_total_and_done_only(self):
+        rows = [
+            self._make_content(1, title="A", artist="X"),
+            self._make_content(2, title="B", artist="Y"),
+        ]
+        client = _make_client(self._db_with_rows(rows))
+        r = client.get("/api/duplicates")
+        assert r.status_code == 200
+        events = self._sse_payloads(r.text)
+        assert events[0] == {"total": 2}
+        assert events[-1]["done"] is True
+        assert events[-1]["summary"]["groups"] == 0
+        assert events[-1]["summary"]["surplus"] == 0
+        # No group events between total and done.
+        assert all("group" not in e for e in events[1:-1])
+
+    def test_finds_a_duplicate_group(self):
+        rows = [
+            self._make_content(1, title="Same Song", artist="Same Artist", play_count=5),
+            self._make_content(2, title="Same Song", artist="Same Artist", play_count=1),
+            self._make_content(3, title="Other", artist="Other"),
+        ]
+        client = _make_client(self._db_with_rows(rows))
+        r = client.get("/api/duplicates")
+        events = self._sse_payloads(r.text)
+        assert events[0] == {"total": 3}
+        groups = [e["group"] for e in events if "group" in e]
+        assert len(groups) == 1
+        assert groups[0]["artist"] == "Same Artist"
+        assert groups[0]["title"] == "Same Song"
+        assert len(groups[0]["copies"]) == 2
+        keepers = [c for c in groups[0]["copies"] if c["is_keeper"]]
+        assert len(keepers) == 1
+        assert keepers[0]["track_id"] == 1  # higher play_count wins
+        assert events[-1]["summary"]["groups"] == 1
+        assert events[-1]["summary"]["surplus"] == 1
+
+    def test_skips_empty_metadata_tracks_from_grouping(self):
+        # All 3 have empty title+artist — should NOT form one fake bucket;
+        # the summary's skipped_empty counts them.
+        rows = [
+            self._make_content(1, title="", artist=""),
+            self._make_content(2, title="", artist=""),
+            self._make_content(3, title="", artist=""),
+        ]
+        client = _make_client(self._db_with_rows(rows))
+        r = client.get("/api/duplicates")
+        events = self._sse_payloads(r.text)
+        # total = 0 because empty-metadata are skipped before projection
+        assert events[0] == {"total": 0}
+        assert events[-1]["summary"]["skipped_empty"] == 3
+        assert events[-1]["summary"]["groups"] == 0
+
+    def test_groups_sort_worst_offenders_first(self):
+        # 3 in "Big", 2 in "Small"
+        rows = (
+            [self._make_content(100 + i, title="Track Big", artist="Big") for i in range(3)]
+            + [self._make_content(200 + i, title="Track Small", artist="Small") for i in range(2)]
+        )
+        client = _make_client(self._db_with_rows(rows))
+        r = client.get("/api/duplicates")
+        events = self._sse_payloads(r.text)
+        groups = [e["group"] for e in events if "group" in e]
+        assert [len(g["copies"]) for g in groups] == [3, 2]
