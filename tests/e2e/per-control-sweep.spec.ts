@@ -163,8 +163,15 @@ async function safeInteract(page: Page, row: ControlRow) {
   switch (row.kind) {
     case "button":
       // For modal-trigger buttons we click, then close via Escape so we don't
-      // leave the modal up for the next row.
-      await locator.click({ trial: false });
+      // leave the modal up for the next row. `clickStrategy: "force"` on the
+      // inventory row bypasses Playwright's scrollIntoView precheck — needed
+      // for `position: fixed` action-bar buttons (issue #190): Playwright
+      // sees `position:fixed` as "outside viewport" and burns 30s retrying
+      // `scrollIntoView` on an element that ignores it by definition.
+      await locator.click({
+        trial: false,
+        force: row.clickStrategy === "force",
+      });
       await page.keyboard.press("Escape").catch(() => {});
       break;
     case "checkbox": {
