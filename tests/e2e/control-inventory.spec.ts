@@ -66,7 +66,9 @@ test.describe("control inventory drift guard", () => {
       } else if (tabId === "#tab-library") {
         await expect(page.locator("#health-section")).toBeAttached();
       } else {
-        await expect(page.locator("#discover-section")).toBeAttached();
+        // Discover tab wrapper was renamed to `#disc-v2-section` during the
+        // Discover v2 rebuild (see `docs/index.html` § initDiscoverV2 guard).
+        await expect(page.locator("#disc-v2-section")).toBeAttached();
         await expect(page.locator("#download-section")).toBeAttached();
       }
       const tabIds = await enumerateLiveIds(page);
