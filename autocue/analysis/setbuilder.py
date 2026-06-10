@@ -248,7 +248,29 @@ def build_set(
                             if abs(progress_needed) > 0.5 and progress_needed * progress_made > 0:
                                 bpm_bonus = min(15.0, 15.0 * abs(progress_made / progress_needed))
 
-                        adjusted = overall - ep + bpm_bonus
+                        # Trajectory-deficit penalty (#116): when the BPM span is
+                        # small (e.g. 120→128, only 8 BPM), the bonus above is
+                        # proportionally diluted (1 BPM step = 12.5% of progress
+                        # vs. 4% on a 25-BPM span), so same-BPM transitions tie
+                        # climbers and the set stalls below start_bpm. Compute
+                        # where the set SHOULD be at this point in the timeline
+                        # (linear start→end over elapsed duration) and penalise
+                        # candidates that fall significantly behind. Asymmetric:
+                        # in build mode we penalise BPMs BELOW the line, in drop
+                        # mode BPMs ABOVE.
+                        trajectory_penalty = 0.0
+                        if duration_minutes > 0 and end_bpm != start_bpm:
+                            elapsed_min = beam.total_duration / 60.0
+                            fraction_done = max(0.0, min(1.0, elapsed_min / duration_minutes))
+                            expected_bpm = start_bpm + (end_bpm - start_bpm) * fraction_done
+                            # 1 BPM dead-band so on-trajectory candidates aren't
+                            # over-punished by sub-BPM rounding.
+                            if end_bpm > start_bpm and cand_bpm < expected_bpm - 1.0:
+                                trajectory_penalty = min(25.0, (expected_bpm - cand_bpm) * 4.0)
+                            elif end_bpm < start_bpm and cand_bpm > expected_bpm + 1.0:
+                                trajectory_penalty = min(25.0, (cand_bpm - expected_bpm) * 4.0)
+
+                        adjusted = overall - ep + bpm_bonus - trajectory_penalty
                         cand_title, cand_artist, _, cand_dur = _get_track_info(cand_content)
                         cand_class = get_classification(cand_content, db)
 
