@@ -215,6 +215,30 @@ master generator. It:
 that sums above `HARD_SCAN_REQUEST_CAP=60` raises `ValueError("exceeds
 hard cap")`. Tests live in `test_discover_budget_audit.py`.
 
+### Wallclock soft-timeout (issue #174)
+
+`ScanConfig.timeout_seconds` (default **120s**) bounds the entire
+`run_scan` generator. The check fires at the top of every inner-loop
+iteration; on overrun the orchestrator sets `final_status = "timeout"`,
+yields `('error', {feeder, key:None, exc: 'scan exceeded Ns'})`, and
+breaks out of both loops. The existing `try/finally` still runs
+`finish_scan` + the trailing `('done', ...)` event, so the SSE consumer
+closes cleanly AND the concurrent-scan lock releases.
+
+Before this guard, a wedged urlopen (macOS network state change while a
+TLS read was mid-partial-read; getaddrinfo stuck) pinned the lock
+indefinitely — `/api/discover/feed/status` reported `running:true` past
+12 minutes and every `/feed` POST returned 409 until the server
+restarted. The 120s ceiling is generous (worst-case clean run is ~60s
+at 60 requests / 1 rps + assembly + commit) and intentionally a SOFT cap
+— it doesn't cancel an in-flight HTTP call, only bounds the iteration
+between calls. Truly wedged `urlopen` still needs its own 10s urllib
+timeout to fire first; the wallclock catches the iteration after that.
+`'timeout'` is the fifth recognised value in `scans.status` (alongside
+`'ok' / 'rate_limited' / 'cancelled' / 'error'`); no schema migration
+needed. Tests at `tests/test_discover_orchestrator_crash_safety.py
+::TestScanWallclockTimeout`.
+
 ## 8. Per-scan budget table
 
 | feeder   | default | rationale                                            |
@@ -289,13 +313,69 @@ const DiscoverV2 = (() => {
 Subscribers are renderers — `_renderDiscoverV2Feed`,
 `_renderDiscoverV2ScanProgress`, `_renderDiscoverV2ScanWarnings`,
 `_renderDiscoverV2Onboarding`, `_renderDiscoverV2TokenBanner`,
-`_renderDiscoverV2Followed`, `_renderDiscoverV2Blocked`. They all read
-from `state`; pub/sub fan-out swallows per-subscriber exceptions so one
-broken renderer doesn't break the chain.
+`_renderDiscoverV2Followed`, `_renderDiscoverV2Blocked`,
+`_renderDiscoverScanErrorInline`, `_renderDiscoverStyleChips`. They all
+read from `state`; pub/sub fan-out swallows per-subscriber exceptions so
+one broken renderer doesn't break the chain.
 
 The detail panel + snooze popover + download confirm modal + keyboard
 help overlay each install a per-open keydown handler that's removed on
 close, so Escape stays scoped to the active dialog.
+
+### Filter rows (two-stage)
+
+The Discover tab has **two** filter rows:
+
+1. **Server-side** (`#disc-v2-filter-bar`) — Source chips (artist /
+   label / novelty), Sort dropdown (taste / newest / title / artist /
+   explore), Year dropdown (`all` / `this` / `last2` / `last5` /
+   `custom`). Custom reveals a `#disc-v2-year-custom` number input;
+   re-scan fires once a valid 4-digit year is entered. A change here
+   re-fires `runScan()` (server-side filter pass).
+2. **Client-side** (`#disc-v2-filter-bar-2`) — Search input (artist /
+   title / album / label, 180 ms debounced), hide-saved / hide-dismissed
+   toggles. Plus an adjacent `#disc-v2-style-chips` strip auto-populated
+   from the top-16 Discogs styles in the current feed. Selections persist
+   to `localStorage.ac_discover_filters` (matches the sort-persistence
+   pattern). Style selections are pruned on each render — entries whose
+   key has vanished from any current card's `release.styles` are removed
+   from `selectedStyles` AND from localStorage, preventing a ghost filter
+   that silently empties the grid.
+
+`_applyDiscoverV2Filters(cards, filters, s)` is a pure helper (`docs/
+index.html`) — testable in isolation. Tests at `tests/web/discover-v2-
+filters.test.js` (18 specs) and `tests/web/discover-v2-style-chip-prune
+.test.js` (7 specs).
+
+### Scan supersede + inline error banner (issue #169)
+
+`runScan()` aborts any in-flight fetch via `_scanAbort.abort()` and POSTs
+`/feed/cancel` before issuing a new request. The cancel POST returns
+immediately, but the server-side orchestrator may still be blocked in a
+long Discogs call — so the new fetch races the lock. The supersede path
+polls `/feed/status` every 150 ms (3 s hard cap) for `running:false`
+before issuing the new fetch, draining the race in the common case.
+
+If the wait times out (genuinely stuck scan — issue #174 territory), the
+new fetch fires anyway. If it 409s, `#disc-v2-scan-error-inline` renders
+above the grid with the message *"Filter change ignored — a Discover
+scan is still running. Try again in a moment."* and a Retry button.
+Without this surface, the user's filter change appeared to do nothing
+because the existing empty-state error path only fires on an empty grid;
+when prior cards remain visible, the silent 409 was indistinguishable
+from "your filter has no matches."
+
+### YouTube preview carousel — candidate-quality filter (issue #178 / PR #178)
+
+`searchYouTube(release, n)` sends `artist` + `album` alongside `q` so the
+backend can apply the token-mismatch heuristic (see
+`autocue/serve/routes.py::_youtube_token_mismatch`). When ≥1 candidate
+contains a 4+ char artist token in its title OR channel name, mismatches
+are dropped from the response. When ALL candidates mismatch, ALL are
+returned (still flagged) — `_loadYouTubePreview` filters mismatch:true
+candidates from the displayed carousel and shows a *"No YouTube match
+found for <artist> — <album>"* placeholder instead of loading a random
+video. Backend tests at `tests/test_youtube_search.py` (14 specs).
 
 Keyboard map (PRD §5.6):
 

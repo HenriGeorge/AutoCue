@@ -558,9 +558,9 @@ The local server exposes a full REST API at `http://localhost:7432`.
 
 ```bash
 pip install -e ".[dev]"              # install with test deps
-pytest                               # run all 1378 Python tests
+pytest                               # run all 1400 Python tests
 npm install                          # one-time: install JS test deps
-npm test                             # run 579 Vitest tests for the web app
+npm test                             # run 609 Vitest tests for the web app
 
 autocue serve --no-browser           # start local server without opening browser
 autocue --library --dry-run          # preview CLI output without writing
