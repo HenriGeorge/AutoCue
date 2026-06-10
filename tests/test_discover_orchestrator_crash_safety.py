@@ -158,6 +158,106 @@ class TestScanLockNeverLeaks:
         assert not store.is_scan_running(), "scan-lock should be released after crashed scan"
 
 
+# ============================================================ wallclock (#174)
+
+class TestScanWallclockTimeout:
+    """Issue #174: a wedged orchestrator (silent stall inside a feeder — stuck
+    urlopen, macOS network transition, TLS partial-read) pinned the scan_lock
+    forever. ScanConfig.timeout_seconds is a wallclock soft-cap that aborts
+    the scan, releases the lock, and surfaces a structured error event so the
+    next user scan can start cleanly."""
+
+    def test_negative_timeout_seconds_rejected_by_validate(self):
+        cfg = ScanConfig(timeout_seconds=0)
+        with pytest.raises(ValueError, match="timeout_seconds must be positive"):
+            cfg.validate()
+
+    def test_default_timeout_is_120s(self):
+        # Locked default — if you change this, also update the docstring on
+        # ScanConfig.timeout_seconds + the issue-#174 investigation artifact.
+        assert ScanConfig().timeout_seconds == 120.0
+
+    def test_wallclock_overrun_yields_error_and_closes_scan(
+        self, store, basic_taste, simple_adjacency,
+    ):
+        """A 1ms timeout + a 10ms-sleeping feeder forces the wallclock check
+        to trip on the very first inner-loop iteration. The orchestrator
+        must yield ('error', ...) with the timeout message AND finish the
+        scan row with status='timeout' so the concurrent-scan lock releases."""
+        import time as _time
+        cfg = ScanConfig(feeders=["artist"], top_n=10, timeout_seconds=0.001)
+
+        def slow_releases(artist_name, *, token, year_from=None, per_page=50):
+            # Ensure the wallclock exceeds 1ms before the first iteration.
+            _time.sleep(0.02)
+            return [{"id": 1, "title": "X", "artist": artist_name, "year": 2024}]
+
+        with patch.object(discogs_client, "search_artist_releases", side_effect=slow_releases):
+            by_kind, _ = _collect(run_scan(
+                store, basic_taste, simple_adjacency, token="t", config=cfg,
+            ))
+
+        # Structured error event was emitted with the timeout message.
+        assert "error" in by_kind, "expected ('error', ...) on wallclock overrun"
+        err_msgs = [e.get("exc", "") for e in by_kind["error"]]
+        assert any("exceeded" in m for m in err_msgs), (
+            f"timeout 'exceeded' message missing — got: {err_msgs}"
+        )
+
+        # Scan row closed with status='timeout' — lock released.
+        row = store.conn.execute(
+            "SELECT finished_at, status FROM scans ORDER BY scan_id DESC LIMIT 1"
+        ).fetchone()
+        assert row["finished_at"] is not None, "scan-lock leak: finished_at still NULL"
+        assert row["status"] == "timeout", (
+            f"expected status='timeout', got {row['status']!r}"
+        )
+
+    def test_concurrent_scan_lock_releases_after_wallclock_timeout(
+        self, store, basic_taste, simple_adjacency,
+    ):
+        """A timed-out scan must NOT pin the lock — the next /api/discover/feed
+        request should succeed, not 409. That's the actual user symptom #174
+        is about (the 12-min hang made every subsequent request 409 silently
+        until server restart)."""
+        import time as _time
+        cfg = ScanConfig(feeders=["artist"], top_n=10, timeout_seconds=0.001)
+
+        def slow_releases(artist_name, *, token, year_from=None, per_page=50):
+            _time.sleep(0.02)
+            return [{"id": 1, "title": "X", "artist": artist_name, "year": 2024}]
+
+        with patch.object(discogs_client, "search_artist_releases", side_effect=slow_releases):
+            list(run_scan(store, basic_taste, simple_adjacency, token="t", config=cfg))
+
+        # Lock released — a brand new scan can start.
+        assert not store.is_scan_running(), (
+            "scan-lock not released after timeout — would 409 every subsequent request"
+        )
+
+    def test_done_event_fires_after_timeout(
+        self, store, basic_taste, simple_adjacency,
+    ):
+        """Even on timeout the SSE consumer expects a ('done', ...) event so
+        the UI can close the stream cleanly. The fall-through assemble_feed
+        + finally + final yield path handles this — verify it does."""
+        import time as _time
+        cfg = ScanConfig(feeders=["artist"], top_n=10, timeout_seconds=0.001)
+
+        def slow_releases(artist_name, *, token, year_from=None, per_page=50):
+            _time.sleep(0.02)
+            return [{"id": 1, "title": "X", "artist": artist_name, "year": 2024}]
+
+        with patch.object(discogs_client, "search_artist_releases", side_effect=slow_releases):
+            by_kind, _ = _collect(run_scan(
+                store, basic_taste, simple_adjacency, token="t", config=cfg,
+            ))
+
+        assert "done" in by_kind, "expected ('done', ...) — UI relies on it to close SSE"
+        done_payload = by_kind["done"][-1]
+        assert done_payload["status"] == "timeout"
+
+
 # ============================================================ library dedup
 
 class TestLibraryAlbumDedup:
