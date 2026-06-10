@@ -88,6 +88,17 @@ class ScanConfig:
     artist_budget: int = DEFAULT_ARTIST_BUDGET
     label_budget: int = DEFAULT_LABEL_BUDGET
     novelty_budget: int = DEFAULT_NOVELTY_BUDGET
+    # Issue #174: wallclock soft-timeout for the entire run_scan generator.
+    # The historical average run on a typical library is ~5s; HARD_SCAN_
+    # REQUEST_CAP=60 with the discogs 1 req/s rate cap puts the worst-case
+    # clean run at ~60s. 120s leaves headroom for assemble_feed + commit
+    # while still bounding a silently stuck scan (#174's symptom was a
+    # 12-min hang that pinned the concurrent-scan lock until restart).
+    # The check fires BETWEEN feeder events, so a truly wedged urlopen
+    # still waits for its own urllib timeout (10s) to fire first; the
+    # wallclock catches the iteration AFTER that, which is what the
+    # reported repro needed.
+    timeout_seconds: float = 120.0
 
     def validate(self) -> None:
         total = self.artist_budget + self.label_budget + self.novelty_budget
@@ -95,6 +106,10 @@ class ScanConfig:
             raise ValueError(
                 f"feeder budgets sum to {total}, exceeds hard cap "
                 f"{HARD_SCAN_REQUEST_CAP}"
+            )
+        if self.timeout_seconds <= 0:
+            raise ValueError(
+                f"timeout_seconds must be positive, got {self.timeout_seconds}"
             )
 
 
@@ -184,8 +199,11 @@ def run_scan(
     releases_after_dedup = 0
     final_status = "ok"
 
+    timed_out = False
     try:
         for feeder_name in config.feeders:
+            if timed_out:
+                break
             yield ("progress", {"feeder": feeder_name, "scanned": 0, "total": None})
             stream = _dispatch_feeder(
                 feeder_name=feeder_name,
@@ -201,6 +219,27 @@ def run_scan(
                 scan_id=scan_id,
             )
             for event in stream:
+                # Issue #174: wallclock soft-timeout. Without this, a silent
+                # stall inside a feeder (stuck urlopen on macOS network
+                # transitions, partial-read TLS wedge, etc.) pinned the
+                # scan_lock open forever and every subsequent /api/discover/
+                # feed POST 409'd until server restart. Check at the top of
+                # every iteration so the wedge is bounded to ONE HTTP call's
+                # urllib timeout (~10s) + this iteration.
+                if (time.monotonic() - started) >= config.timeout_seconds:
+                    logger.warning(
+                        "scan_orchestrator: timeout — exceeded %.1fs, "
+                        "aborting current feeder %r",
+                        config.timeout_seconds, feeder_name,
+                    )
+                    final_status = "timeout"
+                    yield ("error", {
+                        "feeder": feeder_name,
+                        "key": None,
+                        "exc": f"scan exceeded {config.timeout_seconds:.0f}s — aborting",
+                    })
+                    timed_out = True
+                    break
                 if isinstance(event, tuple):
                     # ('error', …), ('warning', …), ('sparse_adjacency', …)
                     kind = event[0]
