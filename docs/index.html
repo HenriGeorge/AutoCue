@@ -11767,7 +11767,12 @@ document.getElementById('preview-cues-btn').addEventListener('click', async () =
   const btn = document.getElementById('preview-cues-btn');
   btn.textContent = 'Loading…'; btn.disabled = true;
   const { barsInterval, startBar, maxCues } = getSettings();
-  const trackIds = filteredTracks().map(i => parseInt(parsedTracks[i].id));
+  // Issue #173: Preview must target the selection when any cards are
+  // checked — otherwise a user with 2 tracks selected sees a toast for
+  // 3,775 tracks AND a subsequent Apply silently overwrites the whole
+  // visible library. Every other write op (apply/delete/color/download)
+  // already calls activeTracks(); Preview was the lone holdout.
+  const trackIds = activeTracks().map(t => parseInt(t.id));
   try {
     const r = await fetch('/api/generate', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
