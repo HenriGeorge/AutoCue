@@ -3197,6 +3197,17 @@ autocue --library --mode bar --bars-interval 8 --start-bar 1</pre>
     <!-- Style chips — populated from the visible feed's Discogs styles. -->
     <div id="disc-v2-style-chips" style="display:none;flex-wrap:wrap;gap:6px;margin-bottom:12px;"></div>
 
+    <!-- Inline scan-error banner (issue #169). Shown when a refresh attempt
+         fails — most commonly 409 from a year-filter change racing the
+         initial scan. Distinct from the empty-state error path because the
+         feed grid may still have cards from a prior successful scan; we
+         want to tell the user "your filter didn't apply" without blowing
+         away their data. -->
+    <div id="disc-v2-scan-error-inline" style="display:none;font-size:12px;background:color-mix(in srgb, var(--amber, #c98a00) 12%, var(--surface2));border:1px solid var(--amber, #c98a00);border-radius:6px;padding:8px 10px;margin-bottom:12px;display:none;align-items:center;gap:8px;">
+      <span id="disc-v2-scan-error-inline-msg" style="flex:1;"></span>
+      <button id="disc-v2-scan-error-inline-retry" class="secondary-btn" style="font-size:11px;">Retry</button>
+    </div>
+
     <!-- Scan progress indicator -->
     <div id="disc-v2-scan-progress" style="display:none;font-size:12px;color:var(--muted);background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:8px 10px;margin-bottom:12px;">
       <div style="display:flex;align-items:center;gap:8px;">
@@ -5646,6 +5657,23 @@ const DiscoverV2 = (() => {
       // Yield one microtask so the prior runScan's catch can run and reset
       // scanRunning before we proceed.
       await Promise.resolve();
+      // Issue #169: the cancel POST returns immediately but the server-side
+      // orchestrator may still be blocked inside a long Discogs API call,
+      // so the scan lock is held for another beat. Without waiting, the
+      // next fetch lands while the lock is still held and 409s. The 409
+      // handler (line ~5702) sets scanError but leaves the prior cards
+      // visible — the user gets no signal that the filter change was
+      // rejected. Poll /api/discover/feed/status until running=false (or
+      // a 3s hard cap, so a stuck scan doesn't freeze the UI forever).
+      const tNow = () => (typeof performance !== 'undefined' ? performance.now() : Date.now());
+      const deadline = tNow() + 3000;
+      while (tNow() < deadline) {
+        let status;
+        try { status = await _get('/api/discover/feed/status'); }
+        catch (_) { break; }  // network glitch — let the next fetch handle it
+        if (!status || !status.running) break;
+        await new Promise(r => setTimeout(r, 150));
+      }
     }
     state.scanRunning = true;
     state.scanFeeder = null;
@@ -6192,6 +6220,34 @@ function _renderDiscoverStyleChips() {
   }
 }
 
+// Render the inline scan-error banner (issue #169) when a refresh failed
+// but the user still has prior cards visible — the empty-state-only path
+// in _renderDiscoverV2Feed wouldn't surface anything in that case. Hide
+// the banner whenever a new scan is in flight or when scanError is null.
+function _renderDiscoverScanErrorInline() {
+  const el = document.getElementById('disc-v2-scan-error-inline');
+  const msgEl = document.getElementById('disc-v2-scan-error-inline-msg');
+  if (!el || !msgEl) return;
+  const s = DiscoverV2.state;
+  if (s.scanRunning || !s.scanError) {
+    el.style.display = 'none';
+    return;
+  }
+  const e = s.scanError;
+  let text;
+  if (e.kind === 'conflict') {
+    text = 'Filter change ignored — a Discover scan is still running. Try again in a moment.';
+  } else if (e.kind === 'network') {
+    text = 'Network error while updating the feed: ' + (e.message || 'connection failed') + '.';
+  } else if (e.kind === 'bad-request') {
+    text = 'Filter rejected: ' + (e.message || 'bad request') + '.';
+  } else {
+    text = 'Feed update failed: ' + (e.message || 'unknown error') + '.';
+  }
+  msgEl.textContent = text;
+  el.style.display = 'flex';
+}
+
 function _renderDiscoverV2Feed() {
   const grid = document.getElementById('disc-v2-grid');
   if (!grid) return;
@@ -6202,6 +6258,7 @@ function _renderDiscoverV2Feed() {
   // Refresh the style chips from the current feed before filtering so the
   // user can toggle a style that just appeared.
   _renderDiscoverStyleChips();
+  _renderDiscoverScanErrorInline();
   // Apply client-side filters (search / styles / hide-saved / hide-dismissed).
   // Snoozed cards are unconditionally hidden inside _applyDiscoverV2Filters.
   const filtered = _applyDiscoverV2Filters(s.cards, _discoverFilters, s);
@@ -7677,6 +7734,11 @@ function initDiscoverV2() {
     _persistDiscoverFilters();
     _renderDiscoverV2Feed();
   });
+
+  // Issue #169: retry from the inline error banner (shown when a refresh
+  // 409'd after the initial-scan lock didn't clear in time).
+  document.getElementById('disc-v2-scan-error-inline-retry')
+    ?.addEventListener('click', () => DiscoverV2.runScan());
 
   // Scan-cancel button.
   document.getElementById('disc-v2-scan-cancel-btn')?.addEventListener('click', () => DiscoverV2.cancelScan());
