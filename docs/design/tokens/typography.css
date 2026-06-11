@@ -1,0 +1,35 @@
+/* ============================================================
+   AutoCue — Typography tokens
+   UI sans:   Inter (400 / 500 / 600 / 700)
+   Mono:      JetBrains Mono — all numeric/technical data
+              (BPM, keys, timestamps, cue names, code, paths)
+   ============================================================ */
+
+:root {
+  --font-sans: 'Inter', system-ui, -apple-system, sans-serif;
+  --font-mono: 'JetBrains Mono', 'Fira Code', ui-monospace, SFMono-Regular, Menlo, monospace;
+
+  /* Type scale (px) — compact, data-dense UI */
+  --text-xs:   10px;
+  --text-sm:   12px;
+  --text-base: 14px;
+  --text-md:   15px;   /* body default */
+  --text-lg:   16px;
+  --text-xl:   20px;
+  --text-2xl:  28px;   /* section / page titles */
+
+  /* Weights */
+  --fw-regular:  400;  /* @kind other */
+  --fw-medium:   500;  /* @kind other */
+  --fw-semibold: 600;  /* @kind other */
+  --fw-bold:     700;  /* @kind other */
+
+  /* Line heights */
+  --lh-tight: 1.1;  /* @kind other */
+  --lh-snug:  1.4;  /* @kind other */
+  --lh-body:  1.6;  /* @kind other */
+
+  /* Tracking */
+  --tracking-tight: -0.4px;   /* @kind other */
+  --tracking-label:  0.08em;  /* @kind other */
+}

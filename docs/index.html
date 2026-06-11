@@ -39,7 +39,40 @@
       /* radius scale */
       --radius-sm: 4px; --radius-md: 8px; --radius-lg: 12px; --radius-pill: 999px;
       /* type scale */
-      --text-xs: 10px; --text-sm: 12px; --text-base: 14px; --text-lg: 16px; --text-xl: 20px;
+      --text-xs: 10px; --text-sm: 12px; --text-base: 14px; --text-md: 15px; --text-lg: 16px; --text-xl: 20px; --text-2xl: 28px;
+      /* action ink — the primary CTA is the ink pill, never green */
+      --ink:         #0a0a0a;
+      --ink-hover:   #2a2a2a;
+      --on-ink:      #fafafa;
+      /* green washes / rings (8% wash behind active rows + chips, 14% focus ring) */
+      --green-wash:  rgba(21,154,5,.08);
+      --green-ring:  rgba(21,154,5,.14);
+      /* semantic */
+      --danger:      #e74c3c;
+      --warn:        #f0801a;
+      --warn-amber:  #ffa000;
+      --error:       #e53935;
+      --rating:      #f0b429;
+      /* Rekordbox track-color dots */
+      --rb-pink:#e4849b; --rb-red:#e4384e; --rb-orange:#f0801a; --rb-yellow:#e4c000;
+      --rb-green:#35c26e; --rb-aqua:#00b4ba; --rb-blue:#2e7de4; --rb-purple:#9050e4;
+      /* elevation + glass */
+      --shadow-lg:   0 10px 32px rgba(0,0,0,.18), 0 2px 8px rgba(0,0,0,.08);
+      --glass-bg:    rgba(255,255,255,.86);
+      /* radius (elevated cards + track-list container) */
+      --radius-xl:   16px;
+      /* weights / line-heights / tracking */
+      --fw-regular:400; --fw-medium:500; --fw-semibold:600; --fw-bold:700;
+      --lh-tight:1.1; --lh-snug:1.4; --lh-body:1.6;
+      --tracking-tight:-0.4px; --tracking-label:0.08em;
+      /* layout + motion */
+      --content-max: 900px;
+      --ease-out: cubic-bezier(.4,0,.2,1); --ease-enter: cubic-bezier(.2,.7,.2,1); --ease-fill: cubic-bezier(.25,.46,.45,.94);
+      --dur-fast:.15s; --dur-btn:.18s; --dur-chrome:.3s;
+      /* design-system-name aliases (canonical app names above are kept) */
+      --surface-2: var(--surface2);
+      --font-sans: var(--font);
+      --font-mono: var(--mono);
     }
 
     html.dark {
@@ -58,6 +91,18 @@
       --cue-a: #28e214; --cue-b: #305aff; --cue-c: #00e0ff;
       --cue-d: #ffa000; --cue-e: #ff6400; --cue-f: #e0301e;
       --cue-g: #f51e8c; --cue-h: #e600ff;
+      /* action ink flips to a white pill on dark */
+      --ink:         #fafafa;
+      --ink-hover:   #e2e2e2;
+      --on-ink:      #0a0a0a;
+      /* green washes brighten with the dark-theme green */
+      --green-wash:  rgba(40,226,20,.08);
+      --green-ring:  rgba(40,226,20,.14);
+      /* elevation deepens on dark; lg is new */
+      --shadow-sm:   0 1px 3px rgba(0,0,0,.3);
+      --shadow-md:   0 4px 12px rgba(0,0,0,.3);
+      --shadow-lg:   0 10px 32px rgba(0,0,0,.45), 0 2px 8px rgba(0,0,0,.3);
+      --glass-bg:    rgba(12,10,9,.80);
     }
 
     /* ── Global button reset ── */
@@ -683,14 +728,17 @@
     .cue-badge[data-confidence="bar"]       { opacity: .70; }
     .cue-badge[data-confidence="heuristic"] { opacity: .45; }
 
-    .cue-badge[data-slot="0"] { color: var(--cue-a); border-color: var(--cue-a); background: rgba(40,226,20,.08); }
-    .cue-badge[data-slot="1"] { color: var(--cue-b); border-color: var(--cue-b); background: rgba(48,90,255,.08); }
-    .cue-badge[data-slot="2"] { color: var(--cue-c); border-color: var(--cue-c); background: rgba(0,224,255,.08); }
-    .cue-badge[data-slot="3"] { color: var(--cue-d); border-color: var(--cue-d); background: rgba(255,160,0,.08); }
-    .cue-badge[data-slot="4"] { color: var(--cue-e); border-color: var(--cue-e); background: rgba(255,100,0,.08); }
-    .cue-badge[data-slot="5"] { color: var(--cue-f); border-color: var(--cue-f); background: rgba(224,48,30,.08); }
-    .cue-badge[data-slot="6"] { color: var(--cue-g); border-color: var(--cue-g); background: rgba(245,30,140,.08); }
-    .cue-badge[data-slot="7"] { color: var(--cue-h); border-color: var(--cue-h); background: rgba(230,0,255,.08); }
+    /* slot wash derives from the slot's own --cue-* token (8% over surface) so
+       it tracks the theme — the old rgba literals were the dark-palette hues
+       applied in light mode too. */
+    .cue-badge[data-slot="0"] { color: var(--cue-a); border-color: var(--cue-a); background: color-mix(in srgb, var(--cue-a) 8%, transparent); }
+    .cue-badge[data-slot="1"] { color: var(--cue-b); border-color: var(--cue-b); background: color-mix(in srgb, var(--cue-b) 8%, transparent); }
+    .cue-badge[data-slot="2"] { color: var(--cue-c); border-color: var(--cue-c); background: color-mix(in srgb, var(--cue-c) 8%, transparent); }
+    .cue-badge[data-slot="3"] { color: var(--cue-d); border-color: var(--cue-d); background: color-mix(in srgb, var(--cue-d) 8%, transparent); }
+    .cue-badge[data-slot="4"] { color: var(--cue-e); border-color: var(--cue-e); background: color-mix(in srgb, var(--cue-e) 8%, transparent); }
+    .cue-badge[data-slot="5"] { color: var(--cue-f); border-color: var(--cue-f); background: color-mix(in srgb, var(--cue-f) 8%, transparent); }
+    .cue-badge[data-slot="6"] { color: var(--cue-g); border-color: var(--cue-g); background: color-mix(in srgb, var(--cue-g) 8%, transparent); }
+    .cue-badge[data-slot="7"] { color: var(--cue-h); border-color: var(--cue-h); background: color-mix(in srgb, var(--cue-h) 8%, transparent); }
 
     /* energy sparkline */
     .energy-sparkline {
@@ -706,6 +754,7 @@
       display: flex; align-items: center; gap: 8px; margin-top: 4px; flex-wrap: wrap;
     }
     .mix-score-chip {
+      font-family: var(--mono);
       font-size: 11px; font-weight: 600; padding: 1px 7px; border-radius: 10px;
       border: 1px solid var(--green); color: var(--green); cursor: pointer;
       white-space: nowrap; user-select: none;

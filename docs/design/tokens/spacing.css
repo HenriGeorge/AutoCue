@@ -1,0 +1,40 @@
+/* ============================================================
+   AutoCue — Spacing, radius, elevation & motion tokens
+   ============================================================ */
+
+:root {
+  /* ── Spacing scale (px) ── */
+  --sp-1: 4px;
+  --sp-2: 8px;
+  --sp-3: 12px;
+  --sp-4: 16px;
+  --sp-5: 24px;
+  --sp-6: 40px;
+
+  /* ── Corner radii ──
+     4  small data chips (cue badges, BPM/key pills, color swatches)
+     8  inputs, selects, secondary controls, callouts
+     12 panels / drop zones / settings blocks
+     16 elevated cards & the track-list container
+     999 fully-rounded pills (all buttons, tabs, tags) */
+  --radius-sm:   4px;
+  --radius-md:   8px;
+  --radius-lg:   12px;
+  --radius-xl:   16px;
+  --radius-pill: 999px;
+
+  /* ── Layout ── */
+  --content-max: 900px;   /* the centered app column */
+
+  /* ── Motion ──
+     Snappy by default (.15s) for hovers; .18–.22s for buttons/tabs;
+     .3s for chrome (sticky/scroll). Easing favors ease / ease-out;
+     entrances use a gentle overshoot. */
+  --ease-out:   cubic-bezier(.4, 0, .2, 1);    /* @kind other */
+  --ease-enter: cubic-bezier(.2, .7, .2, 1);   /* @kind other */
+  --ease-fill:  cubic-bezier(.25, .46, .45, .94); /* @kind other */
+
+  --dur-fast:  .15s;  /* @kind other */
+  --dur-btn:   .18s;  /* @kind other */
+  --dur-chrome:.3s;   /* @kind other */
+}

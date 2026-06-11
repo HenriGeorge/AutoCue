@@ -9,11 +9,32 @@ When doing browser testing or UI verification with Chrome DevTools tools:
 
 ## Design reference
 
-For any UI / visual work in `docs/index.html`, follow the design system at:
-**https://claude.ai/design/p/78d834e0-b83e-458a-a7f5-e38fa01d17ce?via=share** —
-the source of truth for colours, typography, spacing, and component styling.
-The link is auth-gated (the user must open it); match its tokens and patterns
-when adding or restyling UI rather than inventing new ones.
+For any UI / visual work in `docs/index.html`, follow the **AutoCue design
+system**, vendored at **`docs/design/`** (`styles.css` → `tokens/*`, full guide
+in `docs/design/README.md`, component design-intent in
+`docs/design/components/**/*.prompt.md`). It was reverse-engineered FROM
+`docs/index.html`'s own `:root`/`html.dark` blocks — so the live `:root` is the
+source of truth and the vendored tokens are the canonical target to reconcile to.
+Online source (auth-gated, user opens it):
+https://claude.ai/design/p/78d834e0-b83e-458a-a7f5-e38fa01d17ce?via=share
+
+The five rules that make it look like AutoCue:
+1. **Two themes** — light = "ElevenLabs clean" cool neutrals (`--bg #fafafa`,
+   white surfaces); dark = warm **stone** (`--bg #0c0a09`, `--surface #1c1917`),
+   toggled on `html.dark`. Test both.
+2. **Green is signal, not decoration** — `--green` (`#159a05` / `#28e214` dark) is
+   reserved for brand mark, BPM chips, active/selected, focus rings, success. The
+   **primary CTA is the ink pill** (`--ink` bg / `--on-ink` text — black on light,
+   white on dark), NEVER green. Accent backgrounds are ~8% washes (`--green-wash`).
+3. **Mono for data** — every measured value (BPM, Camelot key, time, score, path,
+   cue name) is `--font-mono` (JetBrains Mono); `--font-sans` (Inter) for all else.
+4. **Pills for actions** — buttons/tabs/tags are `--radius-pill` (999px); data chips
+   4px (`--radius-sm`), inputs 8px, panels 12px, elevated cards 16px (`--radius-xl`).
+5. **Light & airy** — borders structure; soft shadows only lift on hover; flat
+   neutral backgrounds (no gradients/textures/illustrations). Glass blur only on
+   sticky chrome in motion. Cue palette A–H = bordered chip + 8% color wash.
+
+Honour `prefers-reduced-motion`. Reference `var(--token)`; never hardcode hexes.
 
 ## What this project is
 
