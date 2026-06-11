@@ -11833,6 +11833,9 @@ function renderTracks() {
           for (let i = 0; i < mixEls.length; i++) _mixObserver.observe(mixEls[i]);
         }
       });
+      // Lazy phrase-cue loading for the visible window (phrase mode only).
+      // Replaces the eager full-library pass; fetches just what's on screen.
+      _queuePhraseLazyLoad(visibleMap);
     };
 
     // Reattach every render: the renderItem closure captures `sorted` so we
@@ -12642,9 +12645,14 @@ document.getElementById('mode-phrase-btn').addEventListener('click', async () =>
   document.getElementById('mode-bar-btn').classList.remove('active');
   _applyModeUI('phrase');
   if (localMode) {
-    // Server already has ANLZ access — no Pyodide or folder drop needed
+    // Server already has ANLZ access — no Pyodide or folder drop needed.
+    // Phrase cues are now loaded LAZILY per viewport (see
+    // _queuePhraseLazyLoad wired into the Virtualizer's onWindowChange),
+    // NOT eagerly for the whole library. Just re-render; the visible
+    // cards' phrase cues fetch as they scroll into view, so there's no
+    // "Computing phrase cues N/M" full-library pass on mode switch.
     document.getElementById('anlz-drop-section').style.display = 'none';
-    if (parsedTracks.length) await loadPhraseFromServer();
+    if (parsedTracks.length) AppState.signal('filters');
   } else {
     document.getElementById('anlz-drop-section').style.display = '';
     loadPyodideEngine(); // start loading in background
@@ -12654,6 +12662,88 @@ document.getElementById('mode-phrase-btn').addEventListener('click', async () =>
 
 // Module-level so Cancel button can reach it.
 let _phraseLoadAbort = null;
+
+// ── Lazy viewport-driven phrase-cue loading ─────────────────────────────────
+// Instead of eagerly computing phrase cues for the whole library on mode
+// switch (the old "Computing phrase cues 300/2789" banner), we fetch only
+// the cards currently in the virtualized window, as they scroll into view —
+// the same pattern the energy sparkline + mix chips use. _queuePhraseLazyLoad
+// is wired into the Virtualizer's onWindowChange; it collects visible tracks
+// that have phrase data but no cached cues, debounces, and batch-fetches them.
+const _phraseInFlight = new Set();   // track-id strings with a pending fetch
+const _phraseLazyQueue = new Set();  // track-id strings waiting for the next batch
+let _phraseLazyTimer = null;
+
+function _collectPhraseLazyIds(visibleMap) {
+  // Returns the visible track-id strings that need a phrase fetch:
+  // phrase mode + local + hasPhrase + not already cached + not in flight.
+  const out = [];
+  if (analysisMode !== 'phrase' || !localMode) return out;
+  visibleMap.forEach(function(card) {
+    if (!card || !card.dataset) return;
+    const tid = card.dataset.trackId;
+    if (!tid) return;
+    const track = parsedTracksById.get(tid);
+    if (!track || !track.hasPhrase) return;        // server has no phrase data
+    if (phraseCueState[tid] !== undefined) return;  // cached (incl. empty [])
+    if (_phraseInFlight.has(tid)) return;           // already fetching
+    out.push(tid);
+  });
+  return out;
+}
+
+function _queuePhraseLazyLoad(visibleMap) {
+  const ids = _collectPhraseLazyIds(visibleMap);
+  if (!ids.length) return;
+  ids.forEach(tid => _phraseLazyQueue.add(tid));
+  // Debounce so a fast scroll coalesces into one batch rather than one
+  // request per onWindowChange tick.
+  clearTimeout(_phraseLazyTimer);
+  _phraseLazyTimer = setTimeout(_flushPhraseLazyQueue, 120);
+}
+
+async function _flushPhraseLazyQueue() {
+  if (_phraseLazyQueue.size === 0) return;
+  const tidStrs = Array.from(_phraseLazyQueue);
+  _phraseLazyQueue.clear();
+  tidStrs.forEach(tid => _phraseInFlight.add(tid));
+  const ids = tidStrs.map(s => parseInt(s));
+  try {
+    const r = await fetch('/api/generate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ track_ids: ids, mode: 'phrase' }),
+    });
+    if (!r.ok) throw new Error('phrase fetch ' + r.status);
+    const resp = await r.json();
+    const seen = new Set();
+    for (const result of (resp.tracks || [])) {
+      const tid = String(result.id);
+      seen.add(tid);
+      // Cache even an empty result so a track with no phrase cues isn't
+      // re-queued every time it scrolls back into view.
+      phraseCueState[tid] =
+        (result.mode_used === 'phrase' && result.cues.length)
+          ? result.cues.map(c => ({
+              position_ms: c.position_ms, label: c.label, slot: c.slot,
+              name: c.name || '', confidence: c.confidence ?? 1.0,
+              phrase_bars: c.phrase_bars ?? 0,
+            }))
+          : [];
+      _updateTrackCardCues(result.id);
+    }
+    // Any requested id the server didn't return → cache empty so it won't loop.
+    for (const tid of tidStrs) {
+      if (!seen.has(tid)) phraseCueState[tid] = [];
+    }
+  } catch (e) {
+    // Best-effort: a failed batch leaves those cards without a phrase strip;
+    // clearing in-flight lets them retry on the next scroll into view.
+    console.warn('lazy phrase load failed:', e && e.message || e);
+  } finally {
+    tidStrs.forEach(tid => _phraseInFlight.delete(tid));
+  }
+}
 
 async function loadPhraseFromServer() {
   // B7 cache short-circuit: if phrase data was already loaded for the current
