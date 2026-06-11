@@ -465,6 +465,49 @@ The SSE stream emits one JSON event per track (as a `TrackHealthReport` schema),
 
 ---
 
+## Feature 9b: Duplicate Tracks
+
+The **Duplicate Tracks** panel (Library tab) finds tracks that exist more than once in your library, suggests which copy to keep, and lets you delete the rest with a backup-before-write safety net and one-click undo.
+
+### Finding duplicates
+
+Click **Find duplicates**. AutoCue groups tracks by **artist + title + duration** (case-insensitive, 5-second duration buckets). The duration bucket is what keeps a *4:12 album cut* and a *6:48 extended mix* of the "same" song from being wrongly merged, while still grouping two imports whose tagged lengths differ by a second or two. The summary shows how many groups, how many surplus copies, and how many empty-metadata streaming tracks were skipped.
+
+### The keeper
+
+Each group highlights one copy as the **★ keeper** — the one AutoCue suggests you keep. The pick order is:
+
+1. **Most hot cues** — your cue-prep work wins. A freshly-prepped re-import beats a heavily-played copy with only auto-cues.
+2. **Most plays**
+3. **Most recently played**
+4. **Highest bitrate** — a 320 kbps re-rip beats a 192 kbps original.
+5. Lowest track ID (deterministic tiebreak).
+
+Expand a group to see every copy with its cues / plays / bitrate / last-played, and a **"Keep" radio** on each — pick a different keeper and the delete button + chips update instantly.
+
+### Same-file vs distinct-file
+
+Each non-keeper shows a chip:
+
+- 🗂 **same file as keeper** — this row points at the same audio file; deleting it leaves no orphan on disk.
+- 📁 **distinct file — stays on disk** — a separate audio file that will remain on disk after the library row is removed.
+
+### Deleting
+
+Delete a single group's non-keepers, or use **Delete all N non-keepers** for the whole library. Either way:
+
+- A **confirm dialog** opens (its Delete button is disabled for a moment so a stray Enter can't fire it). It tells you how many distinct audio files will remain on disk.
+- **Rekordbox must be closed** (the panel refuses with a clear message otherwise).
+- A **backup of your library** is created before the first delete. Repeated deletes within 30 seconds share one backup, so restoring it undoes the whole cleanup session.
+- A **progress bar** fills as tracks are deleted; you can **Cancel** mid-way (already-deleted tracks stay deleted, the backup still restores everything).
+- On success an **"Undo this delete"** button appears for 30 seconds — one click restores the backup.
+
+### What is not deleted
+
+Deleting a duplicate removes it from your Rekordbox library and all its cues / playlists / tags / history — but it does **not** delete the audio file from disk. The 📁 chip tells you which deletes leave an orphan file behind so you can clean those up manually if you want.
+
+---
+
 ## Feature 10: Cue Library Tools
 
 ### Operations

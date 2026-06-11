@@ -93,6 +93,15 @@ autocue/
                       most-played artists via Discogs, skipping albums already owned.
                       library_artists() / library_album_set() / iter_new_releases() (generator
                       for SSE) / suggest_new_releases(). Reuses discogs.py's rate limiter.
+    duplicates.py   — Duplicate-track detector. normalize_key(artist, title, duration) →
+                      "a|||t|||round(dur/5)"; TrackProjection dataclass; pick_keeper
+                      (existing_hot_cues → play_count → last_played → bitrate → -track_id);
+                      find_duplicate_groups → DuplicateGroup list (sorted worst-first).
+                      Pure stdlib, no DB writes. The destructive delete lives in
+                      db_writer.delete_tracks (cascades all 13 ContentID tables); the
+                      route surface is GET /api/duplicates (SSE scan) + POST
+                      /api/duplicates/delete (SSE delete, per-session backup, concurrency
+                      lock). See docs/reference/library-duplicates.md.
   serve/
     app.py       — FastAPI app factory + uvicorn launcher; CORS whitelist (localhost only).
                    New HTTP middleware (TASK-026) invalidates app.state.tracks_snapshot after any

@@ -576,7 +576,7 @@ autocue/
   analyzer.py      — ANLZ phrase (PSSI) + beat grid (PQTZ) parser
   generator.py     — phrase → bar → heuristic strategy; smart slot ordering; confidence scores
   writer.py        — writes CuePoints to Rekordbox XML
-  db_writer.py     — writes CuePoints to DjmdCue; backup + safety checks; BPM coloring
+  db_writer.py     — writes/deletes CuePoints + tracks; backup + safety checks; BPM coloring
   cli.py           — argparse CLI; `autocue serve` subcommand
   cache.py         — Sidecar SQLite cache at <rekordbox_dir>/autocue_cache.sqlite (L2)
   cache_reset.py   — `autocue serve --reset-cache` implementation
@@ -596,6 +596,8 @@ autocue/
     comment.py      — Track comment enrichment → DjmdContent.Commnt (MIK-compatible)
     discogs.py      — Discogs API client (rate-limited; styles + recent releases)
     discovery.py    — Legacy new-release suggestions (Discogs-based)
+    duplicates.py   — Duplicate-track detector: group by (artist, title, duration_bucket),
+                       keeper heuristic (cues→plays→last→bitrate→-id); read-only scan logic
     discover/       — Discover v2: taste, style_graph, feeders/, ranker,
                        scan_orchestrator, store; new-release surfacing with novelty rotation
   serve/
@@ -608,18 +610,21 @@ autocue/
 docs/
   index.html        — Single-file web app (no build step, no framework, no dependencies)
   FEATURES.md       — End-user feature documentation
-  reference/        — Per-feature reference docs (rest-api, discover-v2, set-builder, …)
+  reference/        — Per-feature reference docs (rest-api, discover-v2, set-builder,
+                      library-duplicates, …)
   guides/           — Static DJ learning guides
 
 tests/
-  test_*.py         — 1378 Python tests covering CLI, generator, writer, db_writer,
-                      analysis modules, perf, cache, snapshot, serve routes, and
-                      Discover v2 (taste, style_graph, feeders, ranker, orchestrator, store)
+  test_*.py         — 1446 Python tests covering CLI, generator, writer, db_writer,
+                      analysis modules, perf, cache, snapshot, serve routes, duplicates
+                      (unit + real-SQLite integration), and Discover v2 (taste,
+                      style_graph, feeders, ranker, orchestrator, store)
   e2e/              — Playwright smoke harness (autocue-qa agent) — sandbox port-0 server
   perf/             — Perf-budget tests (gated by RUN_PERF=1; `make perf`)
-  web/              — 579 Vitest tests across 30 spec files (xml-processing, ui-logic,
+  web/              — 648 Vitest tests across 38 spec files (xml-processing, ui-logic,
                       Discover v2 onboarding/snooze/download/integration/sort/stats/…,
-                      virtualizer, sticky structure, UX PRs, warmup badge, perf helper)
+                      duplicates panel + delete-confirm, virtualizer, sticky structure,
+                      UX PRs, warmup badge, perf helper)
 ```
 
 ---
