@@ -12,3 +12,19 @@ node_modules/
 # read by stop_log.py hook to bypass the unpushed-work reminder.
 .claude/state/
 
+# Secrets — .env holds DISCOGS_TOKEN etc. NEVER commit. Verified never
+# committed to history as of this change; if that ever changes, rotate
+# the token immediately.
+.env
+.env.*
+!.env.example
+
+# macOS Finder junk
+.DS_Store
+
+# Ephemeral agent runtime artifacts (worktrees are real git worktrees;
+# logs/reports are generated). The durable AI assets — hooks, skills,
+# commands, project docs — are intentionally NOT ignored here.
+.claude/worktrees/
+.claude/session-logs/
+
