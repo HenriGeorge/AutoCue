@@ -1,0 +1,11 @@
+/* ============================================================
+   AutoCue — Webfonts
+   Loaded from Google Fonts. Inter is the only face the product
+   itself bundles via <link>; JetBrains Mono is added here so the
+   mono data styling renders consistently (the app references it
+   in --font-mono but only system-loads it). If you need fully
+   offline/self-hosted fonts, swap these @imports for @font-face
+   rules pointing at local .woff2 files.
+   ============================================================ */
+
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap');

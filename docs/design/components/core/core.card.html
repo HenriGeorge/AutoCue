@@ -1,0 +1,56 @@
+<!-- @dsCard group="Components" viewport="700x340" name="Core primitives" subtitle="Buttons · badges · chips · inputs · toggle" -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<link rel="stylesheet" href="../../styles.css">
+<style>
+  body { padding: 22px; background: var(--bg); }
+  .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 16px; }
+  .label { font-size: 10px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); font-weight: 600; width: 100%; margin-bottom: 2px; }
+  #root { display: flex; flex-direction: column; }
+</style>
+</head>
+<body>
+  <div id="root"></div>
+  <script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+  <script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+  <script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+  <script src="../../_ds_bundle.js"></script>
+  <script type="text/babel">
+    const { Button, Badge, Chip, Input, Select, Toggle } = window.AutoCueDesignSystem_78d834;
+    function Demo() {
+      const [on, setOn] = React.useState(true);
+      const [sort, setSort] = React.useState('bpm');
+      return (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+          <div className="row"><span className="label">Buttons</span>
+            <Button variant="primary">Apply to Rekordbox</Button>
+            <Button variant="secondary">Preview cues</Button>
+            <Button variant="ghost" size="sm">Clear</Button>
+            <Button variant="danger">Delete non-keepers</Button>
+          </div>
+          <div className="row"><span className="label">Badges</span>
+            <Badge tone="green">OK</Badge>
+            <Badge tone="warn" variant="outline">No phrase data</Badge>
+            <Badge tone="danger">Audio missing</Badge>
+            <Badge>203 tracks</Badge>
+          </div>
+          <div className="row"><span className="label">Chips · sort / filter</span>
+            <Chip active={sort==='bpm'} onClick={()=>setSort('bpm')}>BPM ↑</Chip>
+            <Chip active={sort==='key'} onClick={()=>setSort('key')}>Key</Chip>
+            <Chip active={sort==='mix'} onClick={()=>setSort('mix')}>Mixability</Chip>
+            <Chip accent="green" active>✨ Techno</Chip>
+          </div>
+          <div className="row" style={{ alignItems: 'flex-end' }}><span className="label">Inputs</span>
+            <Input label="Start BPM" type="number" defaultValue={120} wrapStyle={{ width: 130 }} />
+            <Select label="Energy mode" options={['Build (ascending)','Drop (descending)','Flat']} wrapStyle={{ width: 200 }} />
+            <Toggle checked={on} onChange={setOn} label="Skip already colored" />
+          </div>
+        </div>
+      );
+    }
+    ReactDOM.createRoot(document.getElementById('root')).render(<Demo />);
+  </script>
+</body>
+</html>

@@ -1,0 +1,64 @@
+<!-- @dsCard group="Components" viewport="700x420" name="DJ data primitives" subtitle="Cue badges · BPM/key chips · scores · energy · TrackCard" -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<link rel="stylesheet" href="../../styles.css">
+<style>
+  body { padding: 22px; background: var(--bg); }
+  .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 16px; }
+  .label { font-size: 10px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); font-weight: 600; width: 100%; margin-bottom: 2px; }
+</style>
+</head>
+<body>
+  <div id="root"></div>
+  <script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+  <script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+  <script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+  <script src="../../_ds_bundle.js"></script>
+  <script type="text/babel">
+    const { CueBadge, BpmChip, KeyChip, ScoreChip, CategoryBadge, EnergySparkline, TrackCard } = window.AutoCueDesignSystem_78d834;
+    function Demo() {
+      return (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+          <div className="row"><span className="label">Cue badges (slots A–H · confidence)</span>
+            <CueBadge slot={0} label="Drop (Mix In)" playable />
+            <CueBadge slot={1} label="Verse" />
+            <CueBadge slot={3} label="Build" confidence="bar" />
+            <CueBadge slot={5} label="0:30" confidence="heuristic" />
+            <CueBadge slot={7} label="Intro" />
+          </div>
+          <div className="row"><span className="label">Data chips & scores</span>
+            <BpmChip bpm={124.5} />
+            <KeyChip keyName="8A" />
+            <ScoreChip value={74} />
+            <ScoreChip label="Health" value={92} />
+            <ScoreChip value={null} />
+            <CategoryBadge category="warmup" />
+            <CategoryBadge category="peak" />
+            <CategoryBadge category="after_hours" />
+          </div>
+          <div className="row"><span className="label">Energy sparkline</span>
+            <div style={{ width: 260 }}>
+              <EnergySparkline data={[0.1,0.2,0.4,0.7,0.9,0.85,0.95,0.7,0.5,0.35,0.6,0.8]} />
+            </div>
+          </div>
+          <div><span className="label" style={{ display: 'block', marginBottom: 8 }}>TrackCard</span>
+            <TrackCard track={{
+              title: 'Strobe', artist: 'deadmau5', bpm: 128, keyName: '4A', time: '10:34', color: 'Blue',
+              cues: [
+                { slot: 0, label: 'Drop (Mix In)' },
+                { slot: 1, label: 'Verse' },
+                { slot: 5, label: 'Outro', confidence: 'bar' },
+              ],
+              energy: [0.1,0.2,0.4,0.7,0.9,0.85,0.95,0.7,0.5,0.3,0.55,0.8],
+              mix: 74, category: 'build',
+            }} />
+          </div>
+        </div>
+      );
+    }
+    ReactDOM.createRoot(document.getElementById('root')).render(<Demo />);
+  </script>
+</body>
+</html>

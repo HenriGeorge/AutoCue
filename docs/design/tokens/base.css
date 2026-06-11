@@ -1,0 +1,58 @@
+/* ============================================================
+   AutoCue — base / reset
+   Minimal element defaults that mirror the product shell.
+   ============================================================ */
+
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html { -webkit-text-size-adjust: 100%; }
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-sans);
+  font-size: var(--text-md);
+  line-height: var(--lh-body);
+  min-height: 100vh;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+  transition: background .2s, color .2s;
+}
+
+/* Buttons are pills by default in AutoCue */
+button {
+  font-family: var(--font-sans);
+  border-radius: var(--radius-pill);
+  cursor: pointer;
+}
+
+/* All numeric / technical data is mono */
+code, kbd, samp, pre { font-family: var(--font-mono); }
+
+a { color: var(--green); text-decoration: none; }
+
+/* Inputs share the green focus ring */
+input:focus, select:focus, textarea:focus {
+  outline: none;
+  border-color: var(--green);
+  box-shadow: 0 0 0 2px var(--green-ring);
+}
+
+/* Thin, rounded scrollbars */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: var(--bg); }
+::-webkit-scrollbar-thumb { background: var(--border-hover); border-radius: var(--radius-pill); }
+::-webkit-scrollbar-thumb:hover { background: var(--muted-soft); }
+
+@keyframes ac-fade-slide-in {
+  from { opacity: 0; transform: translateY(10px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+@keyframes ac-fill-bar {
+  from { width: 0%; }
+  to   { width: var(--tw, 0%); }
+}

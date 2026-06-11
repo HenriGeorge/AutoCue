@@ -1,0 +1,100 @@
+/* ============================================================
+   AutoCue — Color tokens
+   Light theme = "ElevenLabs clean" (cool neutrals, white surfaces)
+   Dark theme  = warm stone neutrals (Tailwind stone family)
+   Brand accent = AutoCue green (the equalizer / cue green)
+   ============================================================ */
+
+:root {
+  /* ── Surfaces & neutrals (light) ── */
+  --bg:            #fafafa;
+  --surface:       #ffffff;
+  --surface-2:     #f2f2f2;
+  --surface-card:  #ffffff;
+  --border:        #e8e8e8;
+  --border-hover:  #c8c8c8;
+
+  /* ── Text ── */
+  --text:          #1a1a1a;
+  --muted:         #737373;
+  --muted-soft:    #a3a3a3;
+
+  /* ── Brand green (primary accent) ── */
+  --green:         #159a05;
+  --green-dim:     #0f6e03;
+  /* tinted green wash used behind BPM chips, active rows, drop zones */
+  --green-wash:    rgba(21,154,5,.08);
+  --green-ring:    rgba(21,154,5,.14);
+
+  /* ── Action ink (the ElevenLabs black/white pill button) ── */
+  --ink:           #0a0a0a;   /* primary button bg (light) */
+  --ink-hover:     #2a2a2a;
+  --on-ink:        #fafafa;   /* primary button text (light) */
+
+  /* ── Semantic ── */
+  --danger:        #e74c3c;
+  --warn:          #f0801a;
+  --warn-amber:    #ffa000;
+  --error:         #e53935;
+  --rating:        #f0b429;   /* star rating gold */
+
+  /* ── Cue slot palette A–H (hot cues 1–8) ── */
+  --cue-a: #18a80c;  --cue-b: #2246e0;  --cue-c: #0099bb;
+  --cue-d: #c07800;  --cue-e: #c84800;  --cue-f: #c02010;
+  --cue-g: #c8006a;  --cue-h: #9900cc;
+
+  /* ── Rekordbox track-color dots ── */
+  --rb-pink:   #e4849b;
+  --rb-red:    #e4384e;
+  --rb-orange: #f0801a;
+  --rb-yellow: #e4c000;
+  --rb-green:  #35c26e;
+  --rb-aqua:   #00b4ba;
+  --rb-blue:   #2e7de4;
+  --rb-purple: #9050e4;
+
+  /* ── Elevation ── */
+  --shadow-sm: 0 1px 3px rgba(0,0,0,.06), 0 0 0 1px rgba(0,0,0,.03);
+  --shadow-md: 0 4px 14px rgba(0,0,0,.08), 0 0 0 1px rgba(0,0,0,.04);
+  --shadow-lg: 0 10px 32px rgba(0,0,0,.18), 0 2px 8px rgba(0,0,0,.08);
+
+  /* ── Glass (sticky/scrolled chrome) ── */
+  --glass-bg:  rgba(255,255,255,.86);
+}
+
+html.dark {
+  /* ── Surfaces & neutrals (warm stone) ── */
+  --bg:            #0c0a09;
+  --surface:       #1c1917;
+  --surface-2:     #231f1d;
+  --surface-card:  #1c1917;
+  --border:        #292524;
+  --border-hover:  #3d3830;
+
+  /* ── Text ── */
+  --text:          #fafaf9;
+  --muted:         #a8a29e;
+  --muted-soft:    #78716c;
+
+  /* ── Brand green (brighter on dark) ── */
+  --green:         #28e214;
+  --green-dim:     #1a9a0d;
+  --green-wash:    rgba(40,226,20,.08);
+  --green-ring:    rgba(40,226,20,.14);
+
+  /* ── Action ink flips to white pill on dark ── */
+  --ink:           #fafafa;
+  --ink-hover:     #e2e2e2;
+  --on-ink:        #0a0a0a;
+
+  /* ── Cue slot palette (brighter on dark) ── */
+  --cue-a: #28e214;  --cue-b: #305aff;  --cue-c: #00e0ff;
+  --cue-d: #ffa000;  --cue-e: #ff6400;  --cue-f: #e0301e;
+  --cue-g: #f51e8c;  --cue-h: #e600ff;
+
+  --shadow-sm: 0 1px 3px rgba(0,0,0,.3);
+  --shadow-md: 0 4px 12px rgba(0,0,0,.3);
+  --shadow-lg: 0 10px 32px rgba(0,0,0,.45), 0 2px 8px rgba(0,0,0,.3);
+
+  --glass-bg:  rgba(12,10,9,.80);
+}
