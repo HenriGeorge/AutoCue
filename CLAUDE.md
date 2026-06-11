@@ -64,6 +64,21 @@ autocue --library --playlist "NAME"  # restrict --library to a named playlist
 make perf                            # run perf budget enforcement (RUN_PERF=1 pytest -m perf)
 ```
 
+## No CI — validate locally before every merge
+
+There is **no GitHub Actions / CI** (the workflow was removed intentionally to
+avoid GitHub billing). The merge gate is the **local three-leg stack**, run green
+before any merge to `main`:
+
+```bash
+pytest                                   # Python
+npm test                                 # Vitest (web app)
+cd tests/e2e && npx playwright test      # Playwright e2e
+```
+
+Do not re-add `.github/workflows/`. PRs and issues still work (free); merges are
+admin-merged after the local stack is green.
+
 ## Must-know constraints (read every session)
 
 - **Rekordbox must be closed** before any write (CLI or local-mode Apply). DB is SQLCipher-locked while open. Server enforces this at every write endpoint via `_rb_running(db)`.
