@@ -2718,10 +2718,17 @@ autocue --library --mode bar --bars-interval 8 --start-bar 1</pre>
       <strong id="duplicates-confirm-count">—</strong>
       <span id="duplicates-confirm-meta"></span>
     </p>
+    <!-- WS3 — audio-file summary: how many distinct files survive on disk. -->
+    <p id="duplicates-confirm-audio" style="margin:0 0 12px;font-size:12px;color:var(--amber, #c98a00);display:none;"></p>
     <p style="margin:0 0 12px;font-size:12px;color:var(--muted);">
       A backup of <code>master.db</code> is created before any delete.
       If you regret this, restore the backup from the Cues tab.
     </p>
+    <!-- WS5 — progress shown in-place during the SSE delete. -->
+    <div id="duplicates-confirm-progress" style="display:none;margin:0 0 12px;">
+      <div style="font-size:12px;color:var(--muted);margin-bottom:4px;" id="duplicates-confirm-progress-label">Deleting…</div>
+      <div class="cue-tools-progress"><div class="cue-tools-progress-fill" id="duplicates-confirm-progress-fill" style="width:0%"></div></div>
+    </div>
     <div style="display:flex;gap:8px;justify-content:flex-end;align-items:center;">
       <button id="duplicates-confirm-cancel" class="secondary-btn">Cancel</button>
       <button id="duplicates-confirm-go" class="primary" disabled>Delete</button>
@@ -4378,21 +4385,19 @@ async function scanLibraryHealth() {
 
 function _pickKeeper(copies) {
   // Mirror of autocue.analysis.duplicates.pick_keeper. Keep in sync.
+  // Phase 3 WS2 order: cues → plays → last_played → bitrate → -id.
+  const keyOf = (c) => [
+    c.existing_hot_cues || 0,
+    c.play_count || 0,
+    c.last_played || '',
+    c.bitrate || 0,
+    -c.track_id,
+  ];
   let best = copies[0];
   for (let i = 1; i < copies.length; i++) {
     const c = copies[i];
-    const aKey = [
-      best.play_count || 0,
-      best.existing_hot_cues || 0,
-      best.last_played || '',
-      -best.track_id,
-    ];
-    const bKey = [
-      c.play_count || 0,
-      c.existing_hot_cues || 0,
-      c.last_played || '',
-      -c.track_id,
-    ];
+    const aKey = keyOf(best);
+    const bKey = keyOf(c);
     let take = false;
     for (let j = 0; j < aKey.length; j++) {
       if (bKey[j] > aKey[j]) { take = true; break; }
@@ -4403,16 +4408,33 @@ function _pickKeeper(copies) {
   return best.track_id;
 }
 
+// Format a duration in seconds as M:SS for the per-copy detail row.
+function _fmtDur(sec) {
+  sec = Math.round(sec || 0);
+  const m = Math.floor(sec / 60), s = sec % 60;
+  return `${m}:${String(s).padStart(2, '0')}`;
+}
+
 function _renderDuplicateGroup(group) {
   const div = document.createElement('div');
   div.className = 'duplicates-group panel-card';
   div.style.cssText = 'padding:10px 12px;border:1px solid var(--border);border-radius:8px;background:var(--surface);';
   div.dataset.groupKey = `${(group.artist || '').toLowerCase()}|||${(group.title || '').toLowerCase()}`;
-  // Stash the non-keeper ids for the per-group delete button — the array
-  // is small (≤ 7 per group in the live data) and the click handler reads
-  // it on demand without re-parsing the DOM.
-  const nonKeeperIds = group.copies.filter(c => !c.is_keeper).map(c => c.track_id);
-  div.dataset.nonKeeperIds = JSON.stringify(nonKeeperIds);
+
+  // WS2 — the keeper is now mutable. It starts at the backend's suggestion
+  // (group.keeper_id, echoed via is_keeper) but the user can pick a
+  // different copy via the "Keep" radio in the expanded detail rows. All
+  // derived state (non-keeper ids, delete-button label, dataset for the
+  // bulk-delete walk, same-path chips) recomputes from currentKeeperId.
+  let currentKeeperId = (group.copies.find(c => c.is_keeper) || group.copies[0]).track_id;
+
+  const _nonKeepers = () =>
+    group.copies.filter(c => c.track_id !== currentKeeperId).map(c => c.track_id);
+  const _keeperPath = () => {
+    const k = group.copies.find(c => c.track_id === currentKeeperId) || {};
+    return `${k.folder_path || ''}${k.file_name || ''}`;
+  };
+
   const head = document.createElement('div');
   head.style.cssText = 'display:flex;align-items:center;gap:10px;flex-wrap:wrap;';
   const title = document.createElement('div');
@@ -4434,7 +4456,6 @@ function _renderDuplicateGroup(group) {
   const deleteBtn = document.createElement('button');
   deleteBtn.className = 'secondary-btn duplicates-group-delete';
   deleteBtn.style.cssText = 'font-size:11px;padding:3px 10px;color:#e4384e;border-color:#e4384e44;';
-  deleteBtn.textContent = `Delete ${nonKeeperIds.length} non-keeper${nonKeeperIds.length === 1 ? '' : 's'}`;
   deleteBtn.title = 'Opens a confirm dialog; backup is created before any delete';
   const toggle = document.createElement('button');
   toggle.className = 'secondary-btn';
@@ -4446,39 +4467,126 @@ function _renderDuplicateGroup(group) {
   head.appendChild(toggle);
   div.appendChild(head);
 
-  deleteBtn.addEventListener('click', () => _openDuplicatesConfirm({
-    track_ids: nonKeeperIds,
-    label: `${group.copies.length - nonKeeperIds.length} keeper + ${nonKeeperIds.length} non-keeper${nonKeeperIds.length === 1 ? '' : 's'}`,
-    meta: ` of ${_esc(group.artist || '?')} — ${_esc(group.title || '?')}`,
-    onSuccess: () => div.remove(),
-  }));
-
   const table = document.createElement('div');
   table.style.cssText = 'display:none;margin-top:10px;font-size:12px;font-family:var(--mono);';
-  // Use a key map so the keeper row gets highlighted; mirrors the Python
-  // is_keeper flag (which the SSE event already includes).
+
+  // Re-paint everything that depends on the current keeper: dataset (for
+  // the bulk-delete walk), the delete-button label, the row highlight +
+  // same-path chips. Called on initial render and on every radio change.
+  function _refresh() {
+    const nk = _nonKeepers();
+    div.dataset.nonKeeperIds = JSON.stringify(nk);
+    deleteBtn.textContent = `Delete ${nk.length} non-keeper${nk.length === 1 ? '' : 's'}`;
+    deleteBtn.disabled = nk.length === 0;
+    const keeperPath = _keeperPath();
+    table.querySelectorAll('.dup-copy-row').forEach((row) => {
+      const tid = Number(row.dataset.trackId);
+      const isKeeper = tid === currentKeeperId;
+      row.style.background = isKeeper
+        ? 'color-mix(in srgb, var(--green) 12%, transparent)' : '';
+      row.style.fontWeight = isKeeper ? '600' : '';
+      const star = row.querySelector('.dup-keeper-star');
+      if (star) star.style.visibility = isKeeper ? 'visible' : 'hidden';
+      // Same-path chip: a NON-keeper whose file path matches the keeper's
+      // is safe to delete (no orphan file); a distinct-path non-keeper
+      // leaves an audio file on disk. The keeper itself shows no chip.
+      const chip = row.querySelector('.dup-path-chip');
+      if (chip) {
+        const c = group.copies.find(x => x.track_id === tid) || {};
+        const samePath = `${c.folder_path || ''}${c.file_name || ''}` === keeperPath;
+        if (isKeeper) {
+          chip.style.display = 'none';
+        } else if (samePath) {
+          chip.style.display = '';
+          chip.textContent = '🗂 same file as keeper';
+          chip.style.color = 'var(--muted)';
+        } else {
+          chip.style.display = '';
+          chip.textContent = '📁 distinct file — stays on disk';
+          chip.style.color = 'var(--amber, #c98a00)';
+        }
+      }
+    });
+  }
+
   for (const c of group.copies) {
     const row = document.createElement('div');
-    row.style.cssText = 'display:flex;gap:10px;padding:4px 6px;border-radius:4px;'
-      + (c.is_keeper ? 'background:color-mix(in srgb, var(--green) 12%, transparent);font-weight:600;' : '');
-    row.innerHTML =
-      `<span style="min-width:80px;">id ${c.track_id}</span>` +
+    row.className = 'dup-copy-row';
+    row.dataset.trackId = c.track_id;
+    row.style.cssText = 'display:flex;gap:10px;align-items:center;padding:4px 6px;border-radius:4px;flex-wrap:wrap;';
+    // "Keep" radio (WS2 override). One radio group per duplicate group via
+    // a name keyed on the group's DOM identity.
+    const radioLabel = document.createElement('label');
+    radioLabel.style.cssText = 'display:inline-flex;align-items:center;gap:3px;cursor:pointer;min-width:54px;';
+    const radio = document.createElement('input');
+    radio.type = 'radio';
+    radio.name = `dup-keeper-${div.dataset.groupKey}`;
+    radio.value = String(c.track_id);
+    radio.checked = c.track_id === currentKeeperId;
+    radio.className = 'dup-keeper-radio';
+    radio.addEventListener('change', () => {
+      if (radio.checked) { currentKeeperId = c.track_id; _refresh(); }
+    });
+    const radioText = document.createElement('span');
+    radioText.style.cssText = 'font-size:11px;';
+    radioText.textContent = 'Keep';
+    radioLabel.appendChild(radio);
+    radioLabel.appendChild(radioText);
+
+    const meta = document.createElement('span');
+    meta.style.cssText = 'display:flex;gap:10px;flex-wrap:wrap;align-items:baseline;';
+    meta.innerHTML =
+      `<span style="min-width:84px;">id ${c.track_id}</span>` +
+      `<span style="min-width:48px;">${_fmtDur(c.duration)}</span>` +
       `<span style="min-width:60px;">${(c.bpm || 0).toFixed(2)} BPM</span>` +
-      `<span style="min-width:40px;">${_esc(c.key || '—')}</span>` +
-      `<span style="min-width:50px;">${c.existing_hot_cues || 0} cues</span>` +
-      `<span style="min-width:50px;">${c.play_count || 0} plays</span>` +
-      `<span style="min-width:120px;">${_esc((c.last_played || '—').slice(0, 19))}</span>` +
-      `<span>${_esc(c.source || '—')}</span>` +
-      (c.is_keeper ? `<span style="color:var(--green);margin-left:auto;">★ keeper</span>` : '');
+      `<span style="min-width:36px;">${_esc(c.key || '—')}</span>` +
+      `<span style="min-width:48px;">${c.existing_hot_cues || 0} cues</span>` +
+      `<span style="min-width:48px;">${c.play_count || 0} plays</span>` +
+      (c.bitrate ? `<span style="min-width:60px;">${c.bitrate} kbps</span>` : '') +
+      `<span style="min-width:110px;">${_esc((c.last_played || '—').slice(0, 19))}</span>`;
+
+    const star = document.createElement('span');
+    star.className = 'dup-keeper-star';
+    star.style.cssText = 'color:var(--green);';
+    star.textContent = '★ keeper';
+
+    const chip = document.createElement('span');
+    chip.className = 'dup-path-chip';
+    chip.style.cssText = 'font-size:11px;margin-left:auto;';
+
+    row.appendChild(radioLabel);
+    row.appendChild(meta);
+    row.appendChild(chip);
+    row.appendChild(star);
     table.appendChild(row);
   }
   div.appendChild(table);
+
+  deleteBtn.addEventListener('click', () => {
+    const nk = _nonKeepers();
+    const keeperPath = _keeperPath();
+    const distinct = group.copies.filter(
+      c => c.track_id !== currentKeeperId &&
+        `${c.folder_path || ''}${c.file_name || ''}` !== keeperPath
+    ).length;
+    _openDuplicatesConfirm({
+      track_ids: nk,
+      label: `1 keeper + ${nk.length} non-keeper${nk.length === 1 ? '' : 's'}`,
+      meta: ` of ${_esc(group.artist || '?')} — ${_esc(group.title || '?')}`,
+      audioNote: distinct > 0
+        ? `${distinct} distinct audio file${distinct === 1 ? '' : 's'} will remain on disk.`
+        : 'All deleted rows share the keeper\'s audio file — no orphan files.',
+      onSuccess: () => { _onTracksDeleted(nk); div.remove(); },
+    });
+  });
 
   toggle.addEventListener('click', () => {
     const isOpen = table.style.display !== 'none';
     table.style.display = isOpen ? 'none' : '';
     toggle.textContent = isOpen ? 'Show details' : 'Hide details';
   });
+
+  _refresh();
   return div;
 }
 
@@ -4545,27 +4653,38 @@ async function scanDuplicates() {
             });
             summary.innerHTML = '';
             const textEl = document.createElement('div');
+            textEl.id = 'duplicates-summary-text';
             textEl.style.cssText = 'flex:1;';
             textEl.innerHTML =
               `<strong>${s.groups.toLocaleString()} duplicate group${s.groups === 1 ? '' : 's'}</strong> ` +
               `· ${s.surplus.toLocaleString()} surplus copies of ${s.scanned.toLocaleString()} scanned tracks` +
               (s.skipped_empty > 0 ? ` · ${s.skipped_empty.toLocaleString()} empty-metadata tracks skipped` : '');
             const bulkBtn = document.createElement('button');
+            bulkBtn.id = 'duplicates-bulk-delete-btn';
             bulkBtn.className = 'primary';
             bulkBtn.style.cssText = 'font-size:12px;padding:4px 12px;background:#e4384e;border-color:#e4384e;';
             bulkBtn.textContent = `Delete all ${allNonKeepers.length} non-keepers`;
-            bulkBtn.addEventListener('click', () => _openDuplicatesConfirm({
-              track_ids: allNonKeepers,
-              label: `${s.groups} keepers + ${allNonKeepers.length} non-keepers`,
-              meta: ' across the whole library',
-              onSuccess: () => {
-                // Re-scan after a successful bulk delete — the cheapest
-                // way to keep the UI consistent with the now-shrunken DB.
-                summary.style.display = 'none';
-                list.innerHTML = '';
-                scanDuplicates();
-              },
-            }));
+            bulkBtn.addEventListener('click', () => {
+              // Re-collect at click time — per-group keeper-radio changes
+              // may have shifted which ids are non-keepers since the scan.
+              const ids = [];
+              list.querySelectorAll('.duplicates-group').forEach(g => {
+                try { ids.push(...JSON.parse(g.dataset.nonKeeperIds || '[]')); }
+                catch (_) {}
+              });
+              _openDuplicatesConfirm({
+                track_ids: ids,
+                label: `${list.querySelectorAll('.duplicates-group').length} keepers + ${ids.length} non-keepers`,
+                meta: ' across the whole library',
+                onSuccess: () => {
+                  _onTracksDeleted(ids);
+                  // Re-scan to reflect the now-shrunken DB ground truth.
+                  summary.style.display = 'none';
+                  list.innerHTML = '';
+                  scanDuplicates();
+                },
+              });
+            });
             summary.style.display = 'flex';
             summary.style.alignItems = 'center';
             summary.style.gap = '10px';
@@ -4593,65 +4712,273 @@ async function scanDuplicates() {
 
 let _duplicatesConfirmPending = null;
 let _duplicatesPrimaryEnableTimer = null;
+let _duplicatesDeleteAbort = null;   // WS5 — AbortController for the in-flight SSE delete
+let _duplicatesDeleting = false;      // true while a delete SSE stream is running
 
-function _openDuplicatesConfirm({ track_ids, label, meta, onSuccess }) {
+// WS7 — centralised library-state invalidation. Every destructive delete
+// (per-group or bulk) calls this with the deleted ids so the rest of the
+// app doesn't keep stale references that 404 or mis-scope later. Surgical
+// (O(deleted)) — avoids a full /api/tracks refetch that would reset the
+// Cues-tab scroll + selection.
+function _onTracksDeleted(ids) {
+  if (!ids || !ids.length) return;
+  const gone = new Set(ids.map(Number));
+  if (Array.isArray(window.parsedTracks)) {
+    parsedTracks = parsedTracks.filter(t => !gone.has(Number(t.id)));
+  }
+  if (window.parsedTracksById && typeof parsedTracksById.delete === 'function') {
+    gone.forEach(id => parsedTracksById.delete(String(id)));
+  }
+  if (window.healthData) {
+    gone.forEach(id => { delete healthData[String(id)]; });
+  }
+  // Refresh the duplicates summary counter + the bulk-delete label so they
+  // stay honest after a per-group delete shrinks the set.
+  _refreshDuplicatesSummaryAfterDelete();
+}
+
+// Recompute the bulk "Delete all N non-keepers" label + the summary counter
+// from the remaining .duplicates-group cards in the DOM.
+function _refreshDuplicatesSummaryAfterDelete() {
+  const list = document.getElementById('duplicates-list');
+  if (!list) return;
+  const cards = Array.from(list.querySelectorAll('.duplicates-group'));
+  let surplus = 0;
+  for (const c of cards) {
+    try { surplus += JSON.parse(c.dataset.nonKeeperIds || '[]').length; } catch (_) {}
+  }
+  const bulkBtn = document.getElementById('duplicates-bulk-delete-btn');
+  if (bulkBtn) {
+    bulkBtn.textContent = `Delete all ${surplus} non-keepers`;
+    bulkBtn.disabled = surplus === 0;
+  }
+  const textEl = document.getElementById('duplicates-summary-text');
+  if (textEl) {
+    textEl.innerHTML =
+      `<strong>${cards.length.toLocaleString()} duplicate group${cards.length === 1 ? '' : 's'}</strong> ` +
+      `· ${surplus.toLocaleString()} surplus copies remaining`;
+  }
+  if (cards.length === 0) {
+    const summary = document.getElementById('duplicates-summary');
+    const empty = document.getElementById('duplicates-empty');
+    if (summary) summary.style.display = 'none';
+    if (empty) empty.style.display = '';
+  }
+}
+
+// WS8 — focus trap: keep Tab/Shift+Tab cycling between the two modal
+// buttons. Installed on open, removed on close.
+let _duplicatesTrapHandler = null;
+function _installDuplicatesFocusTrap() {
+  const cancel = document.getElementById('duplicates-confirm-cancel');
+  const go = document.getElementById('duplicates-confirm-go');
+  _duplicatesTrapHandler = (ev) => {
+    if (ev.key !== 'Tab') return;
+    const focusables = [cancel, go].filter(b => b && !b.disabled);
+    if (focusables.length === 0) { ev.preventDefault(); return; }
+    const first = focusables[0], last = focusables[focusables.length - 1];
+    if (ev.shiftKey && document.activeElement === first) {
+      ev.preventDefault(); last.focus();
+    } else if (!ev.shiftKey && document.activeElement === last) {
+      ev.preventDefault(); first.focus();
+    } else if (!focusables.includes(document.activeElement)) {
+      ev.preventDefault(); first.focus();
+    }
+  };
+  document.getElementById('duplicates-confirm')
+    ?.addEventListener('keydown', _duplicatesTrapHandler);
+}
+function _removeDuplicatesFocusTrap() {
+  if (_duplicatesTrapHandler) {
+    document.getElementById('duplicates-confirm')
+      ?.removeEventListener('keydown', _duplicatesTrapHandler);
+    _duplicatesTrapHandler = null;
+  }
+}
+
+function _openDuplicatesConfirm({ track_ids, label, meta, audioNote, onSuccess }) {
   if (!track_ids || track_ids.length === 0) return;
   _duplicatesConfirmPending = { track_ids, onSuccess };
   const modal = document.getElementById('duplicates-confirm');
   const backdrop = document.getElementById('duplicates-confirm-backdrop');
   const countEl = document.getElementById('duplicates-confirm-count');
   const metaEl = document.getElementById('duplicates-confirm-meta');
+  const audioEl = document.getElementById('duplicates-confirm-audio');
   const goBtn = document.getElementById('duplicates-confirm-go');
+  const progress = document.getElementById('duplicates-confirm-progress');
   countEl.textContent = `Delete ${track_ids.length} non-keeper${track_ids.length === 1 ? '' : 's'}`;
   metaEl.innerHTML = `<br><span style="color:var(--muted);font-size:12px;">${label || ''}${meta || ''}</span>`;
+  if (audioEl) {
+    if (audioNote) { audioEl.textContent = audioNote; audioEl.style.display = ''; }
+    else audioEl.style.display = 'none';
+  }
+  if (progress) progress.style.display = 'none';
   modal.setAttribute('aria-hidden', 'false');
   backdrop.setAttribute('aria-hidden', 'false');
   goBtn.disabled = true;
   goBtn.textContent = 'Delete';
+  document.getElementById('duplicates-confirm-cancel').textContent = 'Cancel';
   // Defeat accidental Enter held over from the previous focus target.
   clearTimeout(_duplicatesPrimaryEnableTimer);
-  _duplicatesPrimaryEnableTimer = setTimeout(() => {
-    goBtn.disabled = false;
-  }, 250);
+  _duplicatesPrimaryEnableTimer = setTimeout(() => { goBtn.disabled = false; }, 250);
+  _installDuplicatesFocusTrap();
   // Default focus to Cancel as the second safety layer.
   document.getElementById('duplicates-confirm-cancel').focus();
 }
 
 function _closeDuplicatesConfirm() {
+  // If a delete is in flight, ESC/Cancel aborts it (WS8). The backend
+  // honours the disconnect and the pre-delete backup still restores the
+  // pre-session state, so an abort is always safe.
+  if (_duplicatesDeleting && _duplicatesDeleteAbort) {
+    _duplicatesDeleteAbort.abort();
+    return; // the SSE consumer's finally closes the modal + toasts
+  }
   _duplicatesConfirmPending = null;
   clearTimeout(_duplicatesPrimaryEnableTimer);
+  _removeDuplicatesFocusTrap();
   document.getElementById('duplicates-confirm').setAttribute('aria-hidden', 'true');
   document.getElementById('duplicates-confirm-backdrop').setAttribute('aria-hidden', 'true');
 }
 
 async function _runDuplicatesDelete() {
-  if (!_duplicatesConfirmPending) return;
+  if (!_duplicatesConfirmPending || _duplicatesDeleting) return;
   const { track_ids, onSuccess } = _duplicatesConfirmPending;
   const goBtn = document.getElementById('duplicates-confirm-go');
+  const cancelBtn = document.getElementById('duplicates-confirm-cancel');
+  const progress = document.getElementById('duplicates-confirm-progress');
+  const fill = document.getElementById('duplicates-confirm-progress-fill');
+  const progLabel = document.getElementById('duplicates-confirm-progress-label');
+
+  _duplicatesDeleting = true;
+  _duplicatesDeleteAbort = new AbortController();
   goBtn.disabled = true;
   goBtn.textContent = 'Deleting…';
+  cancelBtn.textContent = 'Cancel delete';   // ESC/Cancel now aborts the op
+  if (progress) progress.style.display = '';
+
+  let summary = null;
   try {
     const r = await fetch('/api/duplicates/delete', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ track_ids, dry_run: false }),
+      signal: _duplicatesDeleteAbort.signal,
     });
     if (!r.ok) {
       const e = await r.json().catch(() => ({}));
       throw new Error(e.detail || r.statusText);
     }
-    const body = await r.json();
-    _closeDuplicatesConfirm();
-    showToast(
-      `Deleted ${body.deleted} of ${track_ids.length} tracks.` +
-      (body.backup_path ? ` Backup: ${body.backup_path}` : '')
-    );
-    if (typeof onSuccess === 'function') onSuccess(body);
+    const reader = r.body.getReader();
+    const decoder = new TextDecoder();
+    let buf = '';
+    const total = track_ids.length;
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buf += decoder.decode(value, { stream: true });
+      const lines = buf.split('\n');
+      buf = lines.pop();
+      for (const line of lines) {
+        if (!line.startsWith('data: ')) continue;
+        const ev = JSON.parse(line.slice(6));
+        if (ev.done) {
+          summary = ev.summary;
+        } else if (typeof ev.processed === 'number') {
+          const pct = total ? Math.min(100, ev.processed / total * 100) : 100;
+          if (fill) fill.style.width = `${pct}%`;
+          if (progLabel) progLabel.textContent =
+            `Deleted ${ev.deleted} of ${total}…`;
+        }
+      }
+    }
+    // Stream ended.
+    _duplicatesDeleting = false;
+    _duplicatesDeleteAbort = null;
+    _removeDuplicatesFocusTrap();
+    document.getElementById('duplicates-confirm').setAttribute('aria-hidden', 'true');
+    document.getElementById('duplicates-confirm-backdrop').setAttribute('aria-hidden', 'true');
+    _duplicatesConfirmPending = null;
+
+    const s = summary || { deleted: 0, cancelled: false, backup_path: null };
+    _showDuplicatesUndoToast(s, track_ids.length);
+    if (typeof onSuccess === 'function') onSuccess(s);
   } catch (e) {
-    goBtn.disabled = false;
-    goBtn.textContent = 'Delete';
-    showToast(`Delete failed: ${e.message || e}`);
+    _duplicatesDeleting = false;
+    const aborted = e && e.name === 'AbortError';
+    _duplicatesDeleteAbort = null;
+    _removeDuplicatesFocusTrap();
+    document.getElementById('duplicates-confirm').setAttribute('aria-hidden', 'true');
+    document.getElementById('duplicates-confirm-backdrop').setAttribute('aria-hidden', 'true');
+    _duplicatesConfirmPending = null;
+    if (aborted) {
+      // The backend commits rows staged before the disconnect, so SOME
+      // may have been deleted. Safest move: re-scan so the panel reflects
+      // ground truth, and tell the user the backup is intact.
+      showToast('Delete cancelled — backup is intact. Re-scanning…');
+      const list = document.getElementById('duplicates-list');
+      const summaryEl = document.getElementById('duplicates-summary');
+      if (list) list.innerHTML = '';
+      if (summaryEl) summaryEl.style.display = 'none';
+      scanDuplicates();
+    } else {
+      showToast(`Delete failed: ${e.message || e}`);
+    }
   }
+}
+
+// WS5 — success toast with an inline "Undo this delete" button that
+// restores the backup the delete just created. showToast renders plain
+// text, so we build a richer transient banner pinned to the duplicates
+// summary for 30s.
+function _showDuplicatesUndoToast(summary, requested) {
+  const deleted = summary.deleted || 0;
+  const cancelled = !!summary.cancelled;
+  const backupPath = summary.backup_path || null;
+  const base = cancelled
+    ? `Cancelled — ${deleted} of ${requested} deleted.`
+    : `Deleted ${deleted} of ${requested} tracks.`;
+  if (!backupPath) { showToast(base); return; }
+
+  // Inline banner above the summary with an Undo button.
+  const host = document.getElementById('duplicates-summary');
+  if (!host) { showToast(`${base} Backup saved.`); return; }
+  let banner = document.getElementById('duplicates-undo-banner');
+  if (banner) banner.remove();
+  banner = document.createElement('div');
+  banner.id = 'duplicates-undo-banner';
+  banner.style.cssText = 'display:flex;align-items:center;gap:10px;font-size:12px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:8px 10px;margin-bottom:10px;';
+  const text = document.createElement('span');
+  text.style.flex = '1';
+  text.textContent = `${base} Backup: ${backupPath.split('/').pop()}`;
+  const undoBtn = document.createElement('button');
+  undoBtn.className = 'secondary-btn';
+  undoBtn.style.cssText = 'font-size:11px;padding:3px 10px;';
+  undoBtn.textContent = 'Undo this delete';
+  undoBtn.addEventListener('click', async () => {
+    undoBtn.disabled = true;
+    undoBtn.textContent = 'Restoring…';
+    try {
+      const r = await fetch('/api/restore', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ filename: backupPath.split('/').pop() }),
+      });
+      if (!r.ok) { const e = await r.json().catch(() => ({})); throw new Error(e.detail || r.statusText); }
+      banner.remove();
+      showToast('Restored from backup. Reload to see the recovered tracks.');
+    } catch (e) {
+      undoBtn.disabled = false;
+      undoBtn.textContent = 'Undo this delete';
+      showToast(`Restore failed: ${e.message || e}`);
+    }
+  });
+  banner.appendChild(text);
+  banner.appendChild(undoBtn);
+  host.parentNode.insertBefore(banner, host);
+  // Auto-dismiss after 30s — the backup is still in /api/backups if the
+  // user wants it later.
+  setTimeout(() => { banner.remove(); }, 30000);
 }
 
 (function _wireDuplicatesConfirm() {

@@ -110,19 +110,30 @@ def _full(track_id, artist, title, *, plays=0, hot_cues=0, last_played=None,
 
 
 class TestPickKeeper:
-    def test_highest_play_count_wins(self):
-        assert pick_keeper([_track(1, plays=2), _track(2, plays=5)]) == 2
+    # Heuristic order (phase 3 WS2): cues → plays → last_played → bitrate → -id.
 
-    def test_falls_back_to_hot_cues_when_plays_tied(self):
+    def test_most_hot_cues_wins_even_against_more_plays(self):
+        # The grill's Scenario B: a freshly-prepped re-import (8 cues, 0
+        # plays) must beat the heavily-played old copy with auto-cues —
+        # cue-prep is the #1 signal now.
         assert (
             pick_keeper([
-                _track(1, plays=3, hot_cues=2),
-                _track(2, plays=3, hot_cues=8),
+                _track(1, plays=50, hot_cues=0),  # old, played, auto-cues
+                _track(2, plays=0, hot_cues=8),   # new, prepped
             ])
             == 2
         )
 
-    def test_falls_back_to_last_played_when_plays_and_cues_tied(self):
+    def test_highest_play_count_wins_when_cues_tied(self):
+        assert (
+            pick_keeper([
+                _track(1, plays=2, hot_cues=4),
+                _track(2, plays=5, hot_cues=4),
+            ])
+            == 2
+        )
+
+    def test_last_played_when_cues_and_plays_tied(self):
         assert (
             pick_keeper([
                 _track(1, plays=3, hot_cues=4, last_played="2024-01-01 00:00:00"),
@@ -131,13 +142,21 @@ class TestPickKeeper:
             == 2
         )
 
-    def test_track_id_breaks_ties(self):
-        # Two truly identical copies — the lower track_id wins so a re-scan
-        # always returns the same keeper.
+    def test_bitrate_breaks_tie_before_track_id(self):
+        # Same cues/plays/last_played — the 320 kbps copy beats the 192,
+        # even though the 192 has the lower track_id.
+        a = _track(1, plays=3, hot_cues=4, last_played="2025-01-01 00:00:00")
+        a.bitrate = 192
+        b = _track(2, plays=3, hot_cues=4, last_played="2025-01-01 00:00:00")
+        b.bitrate = 320
+        assert pick_keeper([a, b]) == 2
+
+    def test_track_id_breaks_final_tie(self):
+        # Everything equal (incl. bitrate=0) — the lower track_id wins so a
+        # re-scan always returns the same keeper.
         assert pick_keeper([_track(7), _track(3), _track(5)]) == 3
 
     def test_missing_last_played_loses_against_a_date(self):
-        # A row with a date beats a row without one (other fields equal).
         assert (
             pick_keeper([
                 _track(1, plays=0, hot_cues=0, last_played=None),
@@ -169,7 +188,7 @@ class TestFindDuplicateGroups:
         assert groups[0].artist == "Ed Longo"
         assert groups[0].title == "New Life"
         assert len(groups[0].copies) == 2
-        assert groups[0].keeper_id == 1  # higher play count wins
+        assert groups[0].keeper_id == 1  # cues tied (0) → higher play count wins
 
     def test_case_and_whitespace_insensitive_match(self):
         tracks = [

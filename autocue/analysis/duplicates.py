@@ -130,10 +130,18 @@ class DuplicateGroup:
                     "source": c.source,
                     "duration": c.duration,
                     "bitrate": c.bitrate,
+                    # Raw path columns so the frontend can RE-compute
+                    # same-path when the user picks a different keeper via
+                    # the WS2 radio. localhost-only, single-user tool —
+                    # the path is the user's own library, not sensitive.
+                    "folder_path": c.folder_path,
+                    "file_name": c.file_name,
                     # `same_path_as_keeper` flags rows whose audio file
                     # is shared with the keeper — deleting that row
                     # leaves the keeper's audio intact. Distinct-path
-                    # rows surface an orphan audio file on disk.
+                    # rows surface an orphan audio file on disk. This is
+                    # the BACKEND keeper's view; the frontend recomputes
+                    # it live against the user-chosen keeper.
                     "same_path_as_keeper": (
                         f"{c.folder_path}{c.file_name}" == keeper_path
                     ),
@@ -147,20 +155,32 @@ class DuplicateGroup:
 def pick_keeper(copies: Iterable[TrackProjection]) -> int:
     """Choose the row most likely to be the user's "real" copy.
 
-    Heuristic (largest tuple wins via ``max``):
-      1. highest play_count — reflects actual DJ use
-      2. most existing hot cues — preserves cue-prep work
+    Heuristic (largest tuple wins via ``max``), reordered in phase 3 (WS2)
+    so cue-prep work outranks play history — the grill surfaced that a
+    freshly-prepped re-import (8 hand-placed cues, 0 plays) should beat
+    the old 50-play copy with auto-cues, because the prepped copy is the
+    one the DJ will actually reach for next:
+
+      1. most existing hot cues — preserves cue-prep work (NEW #1)
+      2. highest play_count — reflects actual DJ use
       3. most recent last_played — newer ISO-date string wins; missing
          (``None``) becomes ``""`` which loses against any real date
-      4. smallest track_id — deterministic tie-break (negated so larger
+      4. highest bitrate — a 320 kbps re-import beats the 192 kbps
+         original (phase 3; 0 = unknown loses, which is correct on
+         libraries where Rekordbox didn't populate BitRate)
+      5. smallest track_id — deterministic tie-break (negated so larger
          ``-track_id`` = smaller ``track_id`` wins ties)
+
+    The user can still override the suggestion per-group via the
+    "Set as keeper" radio in the UI; this is only the default.
     """
     return max(
         copies,
         key=lambda c: (
-            c.play_count or 0,
             c.existing_hot_cues or 0,
+            c.play_count or 0,
             c.last_played or "",
+            c.bitrate or 0,
             -c.track_id,
         ),
     ).track_id

@@ -3381,14 +3381,21 @@ class TestApplyInvalidatesMixability:
 
 class TestDuplicatesEndpoint:
     @staticmethod
-    def _make_content(track_id, *, title="", artist="", bpm_int=12000, play_count=0):
+    def _make_content(track_id, *, title="", artist="", bpm_int=12000,
+                      play_count=0, length=200, bitrate=320,
+                      folder_path="/music/", file_name="t.mp3"):
         c = MagicMock()
         c.ID = track_id
         c.Title = title
         c.ArtistName = artist
         c.BPM = bpm_int
         c.DJPlayCount = play_count
-        c.FolderPath = ""  # _classify_source treats empty as streaming
+        # Phase 3 WS1 — the scan route now projects these; a bare MagicMock
+        # attr would JSON-fail, so set real values.
+        c.Length = length
+        c.BitRate = bitrate
+        c.FolderPath = folder_path
+        c.FileNameL = file_name
         c.Key = None
         return c
 
