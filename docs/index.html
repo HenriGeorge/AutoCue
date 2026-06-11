@@ -2706,6 +2706,28 @@ autocue --library --mode bar --bars-interval 8 --start-bar 1</pre>
     <div id="duplicates-list" style="display:flex;flex-direction:column;gap:8px;"></div>
   </section>
 
+  <!-- Confirm modal for the duplicate-delete action (phase 2). Mirrors the
+       Discover download-confirm modal: primary disabled for 250ms after open
+       to defeat accidental Enter while the user is still reading. -->
+  <div id="duplicates-confirm-backdrop" class="disc-v2-detail-backdrop" aria-hidden="true"></div>
+  <div id="duplicates-confirm" class="disc-v2-dl-confirm" role="dialog" aria-modal="true"
+       aria-labelledby="duplicates-confirm-heading" aria-describedby="duplicates-confirm-body"
+       aria-hidden="true">
+    <h3 id="duplicates-confirm-heading" style="margin:0 0 8px;font-size:16px;">Delete duplicate tracks?</h3>
+    <p id="duplicates-confirm-body" style="margin:0 0 12px;font-size:13px;color:var(--muted);">
+      <strong id="duplicates-confirm-count">—</strong>
+      <span id="duplicates-confirm-meta"></span>
+    </p>
+    <p style="margin:0 0 12px;font-size:12px;color:var(--muted);">
+      A backup of <code>master.db</code> is created before any delete.
+      If you regret this, restore the backup from the Cues tab.
+    </p>
+    <div style="display:flex;gap:8px;justify-content:flex-end;align-items:center;">
+      <button id="duplicates-confirm-cancel" class="secondary-btn">Cancel</button>
+      <button id="duplicates-confirm-go" class="primary" disabled>Delete</button>
+    </div>
+  </div>
+
   <!-- Cue Library Tools (local mode only) -->
   <section id="cue-tools-section" class="panel-card" style="display:none">
     <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px;">
@@ -4385,6 +4407,12 @@ function _renderDuplicateGroup(group) {
   const div = document.createElement('div');
   div.className = 'duplicates-group panel-card';
   div.style.cssText = 'padding:10px 12px;border:1px solid var(--border);border-radius:8px;background:var(--surface);';
+  div.dataset.groupKey = `${(group.artist || '').toLowerCase()}|||${(group.title || '').toLowerCase()}`;
+  // Stash the non-keeper ids for the per-group delete button — the array
+  // is small (≤ 7 per group in the live data) and the click handler reads
+  // it on demand without re-parsing the DOM.
+  const nonKeeperIds = group.copies.filter(c => !c.is_keeper).map(c => c.track_id);
+  div.dataset.nonKeeperIds = JSON.stringify(nonKeeperIds);
   const head = document.createElement('div');
   head.style.cssText = 'display:flex;align-items:center;gap:10px;flex-wrap:wrap;';
   const title = document.createElement('div');
@@ -4403,14 +4431,27 @@ function _renderDuplicateGroup(group) {
   const countChip = document.createElement('span');
   countChip.style.cssText = 'font-size:11px;background:var(--amber, #c98a00)22;color:var(--amber, #c98a00);border:1px solid var(--amber, #c98a00)55;border-radius:9999px;padding:2px 8px;font-weight:600;';
   countChip.textContent = `${group.copies.length} copies`;
+  const deleteBtn = document.createElement('button');
+  deleteBtn.className = 'secondary-btn duplicates-group-delete';
+  deleteBtn.style.cssText = 'font-size:11px;padding:3px 10px;color:#e4384e;border-color:#e4384e44;';
+  deleteBtn.textContent = `Delete ${nonKeeperIds.length} non-keeper${nonKeeperIds.length === 1 ? '' : 's'}`;
+  deleteBtn.title = 'Opens a confirm dialog; backup is created before any delete';
   const toggle = document.createElement('button');
   toggle.className = 'secondary-btn';
   toggle.style.cssText = 'font-size:11px;padding:3px 10px;';
   toggle.textContent = 'Show details';
   head.appendChild(title);
   head.appendChild(countChip);
+  head.appendChild(deleteBtn);
   head.appendChild(toggle);
   div.appendChild(head);
+
+  deleteBtn.addEventListener('click', () => _openDuplicatesConfirm({
+    track_ids: nonKeeperIds,
+    label: `${group.copies.length - nonKeeperIds.length} keeper + ${nonKeeperIds.length} non-keeper${nonKeeperIds.length === 1 ? '' : 's'}`,
+    meta: ` of ${_esc(group.artist || '?')} — ${_esc(group.title || '?')}`,
+    onSuccess: () => div.remove(),
+  }));
 
   const table = document.createElement('div');
   table.style.cssText = 'display:none;margin-top:10px;font-size:12px;font-family:var(--mono);';
@@ -4495,10 +4536,41 @@ async function scanDuplicates() {
             empty.style.display = '';
           } else {
             summary.style.display = '';
-            summary.innerHTML =
+            // Collect every non-keeper across every group so the bulk
+            // delete button can fire one POST instead of N.
+            const allNonKeepers = [];
+            list.querySelectorAll('.duplicates-group').forEach(g => {
+              try { allNonKeepers.push(...JSON.parse(g.dataset.nonKeeperIds || '[]')); }
+              catch (_) {}
+            });
+            summary.innerHTML = '';
+            const textEl = document.createElement('div');
+            textEl.style.cssText = 'flex:1;';
+            textEl.innerHTML =
               `<strong>${s.groups.toLocaleString()} duplicate group${s.groups === 1 ? '' : 's'}</strong> ` +
               `· ${s.surplus.toLocaleString()} surplus copies of ${s.scanned.toLocaleString()} scanned tracks` +
               (s.skipped_empty > 0 ? ` · ${s.skipped_empty.toLocaleString()} empty-metadata tracks skipped` : '');
+            const bulkBtn = document.createElement('button');
+            bulkBtn.className = 'primary';
+            bulkBtn.style.cssText = 'font-size:12px;padding:4px 12px;background:#e4384e;border-color:#e4384e;';
+            bulkBtn.textContent = `Delete all ${allNonKeepers.length} non-keepers`;
+            bulkBtn.addEventListener('click', () => _openDuplicatesConfirm({
+              track_ids: allNonKeepers,
+              label: `${s.groups} keepers + ${allNonKeepers.length} non-keepers`,
+              meta: ' across the whole library',
+              onSuccess: () => {
+                // Re-scan after a successful bulk delete — the cheapest
+                // way to keep the UI consistent with the now-shrunken DB.
+                summary.style.display = 'none';
+                list.innerHTML = '';
+                scanDuplicates();
+              },
+            }));
+            summary.style.display = 'flex';
+            summary.style.alignItems = 'center';
+            summary.style.gap = '10px';
+            summary.appendChild(textEl);
+            summary.appendChild(bulkBtn);
           }
         }
       }
@@ -4511,6 +4583,96 @@ async function scanDuplicates() {
     statusEl.style.display = 'none';
   }
 }
+
+// ── Duplicates: destructive delete (phase 2) ─────────────────────────────────
+//
+// All deletes route through this single confirm modal. The primary button is
+// disabled for 250ms after open so an accidental Enter on the previous-focused
+// element can't fire delete by mistake — mirrors the Discover download-confirm
+// pattern. The actual POST happens in _runDuplicatesDelete.
+
+let _duplicatesConfirmPending = null;
+let _duplicatesPrimaryEnableTimer = null;
+
+function _openDuplicatesConfirm({ track_ids, label, meta, onSuccess }) {
+  if (!track_ids || track_ids.length === 0) return;
+  _duplicatesConfirmPending = { track_ids, onSuccess };
+  const modal = document.getElementById('duplicates-confirm');
+  const backdrop = document.getElementById('duplicates-confirm-backdrop');
+  const countEl = document.getElementById('duplicates-confirm-count');
+  const metaEl = document.getElementById('duplicates-confirm-meta');
+  const goBtn = document.getElementById('duplicates-confirm-go');
+  countEl.textContent = `Delete ${track_ids.length} non-keeper${track_ids.length === 1 ? '' : 's'}`;
+  metaEl.innerHTML = `<br><span style="color:var(--muted);font-size:12px;">${label || ''}${meta || ''}</span>`;
+  modal.setAttribute('aria-hidden', 'false');
+  backdrop.setAttribute('aria-hidden', 'false');
+  goBtn.disabled = true;
+  goBtn.textContent = 'Delete';
+  // Defeat accidental Enter held over from the previous focus target.
+  clearTimeout(_duplicatesPrimaryEnableTimer);
+  _duplicatesPrimaryEnableTimer = setTimeout(() => {
+    goBtn.disabled = false;
+  }, 250);
+  // Default focus to Cancel as the second safety layer.
+  document.getElementById('duplicates-confirm-cancel').focus();
+}
+
+function _closeDuplicatesConfirm() {
+  _duplicatesConfirmPending = null;
+  clearTimeout(_duplicatesPrimaryEnableTimer);
+  document.getElementById('duplicates-confirm').setAttribute('aria-hidden', 'true');
+  document.getElementById('duplicates-confirm-backdrop').setAttribute('aria-hidden', 'true');
+}
+
+async function _runDuplicatesDelete() {
+  if (!_duplicatesConfirmPending) return;
+  const { track_ids, onSuccess } = _duplicatesConfirmPending;
+  const goBtn = document.getElementById('duplicates-confirm-go');
+  goBtn.disabled = true;
+  goBtn.textContent = 'Deleting…';
+  try {
+    const r = await fetch('/api/duplicates/delete', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ track_ids, dry_run: false }),
+    });
+    if (!r.ok) {
+      const e = await r.json().catch(() => ({}));
+      throw new Error(e.detail || r.statusText);
+    }
+    const body = await r.json();
+    _closeDuplicatesConfirm();
+    showToast(
+      `Deleted ${body.deleted} of ${track_ids.length} tracks.` +
+      (body.backup_path ? ` Backup: ${body.backup_path}` : '')
+    );
+    if (typeof onSuccess === 'function') onSuccess(body);
+  } catch (e) {
+    goBtn.disabled = false;
+    goBtn.textContent = 'Delete';
+    showToast(`Delete failed: ${e.message || e}`);
+  }
+}
+
+(function _wireDuplicatesConfirm() {
+  // Wire the modal's buttons exactly once at parse time — the IDs are
+  // static and the listeners are idempotent against the
+  // _duplicatesConfirmPending state, so re-binding on every panel render
+  // would just leak listeners.
+  document.getElementById('duplicates-confirm-cancel')
+    ?.addEventListener('click', _closeDuplicatesConfirm);
+  document.getElementById('duplicates-confirm-go')
+    ?.addEventListener('click', _runDuplicatesDelete);
+  document.getElementById('duplicates-confirm-backdrop')
+    ?.addEventListener('click', _closeDuplicatesConfirm);
+  document.addEventListener('keydown', (ev) => {
+    if (ev.key !== 'Escape') return;
+    if (document.getElementById('duplicates-confirm')
+        ?.getAttribute('aria-hidden') === 'false') {
+      _closeDuplicatesConfirm();
+    }
+  });
+})();
 
 function _renderHealthSummary(s) {
   const summary   = document.getElementById('health-summary');

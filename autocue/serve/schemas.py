@@ -176,6 +176,20 @@ class DeleteResponse(BaseModel):
     backup_path: str | None
 
 
+class DuplicatesDeleteResponse(BaseModel):
+    """Response from POST /api/duplicates/delete.
+
+    Phase 2 — destructive delete with backup + Rekordbox-closed guard. The
+    user's existing /api/restore IS the undo path; ``backup_path`` is
+    surfaced so the toast can show "Backup: <path>" right next to the
+    success count.
+    """
+    deleted: int
+    skipped: int
+    dry_run: bool
+    backup_path: str | None
+
+
 class ColorTracksRequest(BaseModel):
     track_ids: list[int]
     dry_run: bool = False

@@ -3488,3 +3488,98 @@ class TestDuplicatesEndpoint:
         events = self._sse_payloads(r.text)
         groups = [e["group"] for e in events if "group" in e]
         assert [len(g["copies"]) for g in groups] == [3, 2]
+
+
+# ---------------------------------------------------------------------------
+# POST /api/duplicates/delete — phase 2 destructive path
+# ---------------------------------------------------------------------------
+
+class TestDuplicatesDeleteEndpoint:
+    def _content(self, track_id, title="X"):
+        c = MagicMock()
+        c.ID = track_id
+        c.Title = title
+        return c
+
+    def _db_with_contents(self, contents):
+        db = MagicMock()
+        lookup = {int(c.ID): c for c in contents}
+
+        def get_content(**kwargs):
+            if "ID" in kwargs:
+                return lookup.get(int(kwargs["ID"]))
+            return None
+
+        db.get_content.side_effect = get_content
+        db._db_dir = "/tmp/autocue-duplicates-delete-test"
+        # session is the SQLAlchemy session used by db_writer's savepoint.
+        # delete_tracks() will exercise it via begin_nested + commit; the
+        # MagicMock returns truthy nested savepoint objects automatically.
+        return db
+
+    def test_dry_run_reports_count_without_writing(self):
+        db = self._db_with_contents([self._content(1), self._content(2)])
+        client = _make_client(db)
+        r = client.post(
+            "/api/duplicates/delete",
+            json={"track_ids": [1, 2], "dry_run": True},
+        )
+        assert r.status_code == 200, r.text
+        body = r.json()
+        assert body["deleted"] == 2
+        assert body["dry_run"] is True
+        assert body["backup_path"] is None  # backup is skipped on dry_run
+        # No actual db.delete() call should have happened.
+        assert db.delete.call_count == 0
+
+    def test_rekordbox_running_returns_409(self):
+        db = self._db_with_contents([self._content(1)])
+        client = _make_client(db)
+        # Patch the cached _rb_running helper used at the route layer.
+        with patch("autocue.serve.routes._rb_running", return_value=True):
+            r = client.post(
+                "/api/duplicates/delete",
+                json={"track_ids": [1], "dry_run": False},
+            )
+        assert r.status_code == 409
+        assert "Rekordbox" in r.json()["detail"]
+
+    def test_rekordbox_running_still_allowed_for_dry_run(self):
+        # Dry-run is read-only — no need to block when Rekordbox is up.
+        db = self._db_with_contents([self._content(1)])
+        client = _make_client(db)
+        with patch("autocue.serve.routes._rb_running", return_value=True):
+            r = client.post(
+                "/api/duplicates/delete",
+                json={"track_ids": [1], "dry_run": True},
+            )
+        assert r.status_code == 200
+
+    def test_backup_failure_aborts_with_500(self):
+        db = self._db_with_contents([self._content(1)])
+        client = _make_client(db)
+        with patch("autocue.serve.routes._rb_running", return_value=False), \
+             patch("autocue.db_writer.backup_database",
+                   side_effect=RuntimeError("disk full")):
+            r = client.post(
+                "/api/duplicates/delete",
+                json={"track_ids": [1], "dry_run": False},
+            )
+        assert r.status_code == 500
+        assert "Backup failed" in r.json()["detail"]
+        # No deletes should have happened.
+        assert db.delete.call_count == 0
+
+    def test_empty_track_id_list_returns_zero_no_backup(self):
+        db = self._db_with_contents([])
+        client = _make_client(db)
+        with patch("autocue.serve.routes._rb_running", return_value=False):
+            r = client.post(
+                "/api/duplicates/delete",
+                json={"track_ids": [], "dry_run": False},
+            )
+        assert r.status_code == 200, r.text
+        body = r.json()
+        assert body["deleted"] == 0
+        # Backup is skipped when no track_ids — short-circuit early.
+        assert body["backup_path"] is None
