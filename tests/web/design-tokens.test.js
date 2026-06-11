@@ -14,29 +14,34 @@
 
 import { describe, it, expect } from 'vitest'
 import { readFileSync } from 'node:fs'
-import { resolve } from 'node:path'
+import { resolve, dirname } from 'node:path'
+import { fileURLToPath } from 'node:url'
 
+const __dirname = dirname(fileURLToPath(import.meta.url))
 const root = resolve(__dirname, '..', '..')
 const html = readFileSync(resolve(root, 'docs/index.html'), 'utf8')
 
-// All custom properties DEFINED anywhere in the app's <style> (name before `:`).
-function definedTokens(css) {
+// Extract every custom-property DECLARATION (`--name:`) from CSS. Strips
+// `/* ... */` comments first so a `--token:` inside a comment can't count as a
+// definition; uses a global match (not line-anchored) because both the app and
+// the vendored files pack several tokens per line (e.g. `--cue-a:…; --cue-b:…;`).
+// `var(--x)` is never matched — there's no `:` after the name in a reference.
+function extractTokens(css) {
+  const stripped = css.replace(/\/\*[\s\S]*?\*\//g, '')
   const out = new Set()
   const re = /(--[a-z0-9-]+)\s*:/gi
   let m
-  while ((m = re.exec(css))) out.add(m[1])
+  while ((m = re.exec(stripped))) out.add(m[1])
   return out
+}
+
+function definedTokens(css) {
+  return extractTokens(css)
 }
 
 // Token NAMES declared in a vendored token file (left-hand side only).
 function declaredTokens(file) {
-  const css = readFileSync(resolve(root, file), 'utf8')
-  const out = new Set()
-  for (const line of css.split('\n')) {
-    const m = line.match(/^\s*(--[a-z0-9-]+)\s*:/i)
-    if (m) out.add(m[1])
-  }
-  return out
+  return extractTokens(readFileSync(resolve(root, file), 'utf8'))
 }
 
 const appTokens = definedTokens(html)
