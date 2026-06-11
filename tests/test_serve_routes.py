@@ -3536,10 +3536,53 @@ class TestDuplicatesDeleteEndpoint:
     @staticmethod
     def _reset_backup_session():
         # WS6 session-window state is module-level — reset between tests
-        # so one test's backup doesn't leak into the next.
+        # so one test's backup doesn't leak into the next. Also defensively
+        # release the Q9 inflight lock in case a prior test left it held.
         from autocue.serve import routes
         routes._duplicates_backup_session["path"] = None
         routes._duplicates_backup_session["stamp"] = 0.0
+        if routes._duplicates_delete_inflight.locked():
+            try:
+                routes._duplicates_delete_inflight.release()
+            except RuntimeError:
+                pass
+
+    def test_concurrent_real_delete_returns_409(self):
+        """Q9 — a second real delete while one holds the inflight lock 409s.
+        Simulated by pre-acquiring the module lock (a real concurrent
+        request would hold it from the first delete's duration)."""
+        self._reset_backup_session()
+        from autocue.serve import routes as routes_mod
+        db = self._db_with_contents([self._content(1)])
+        client = _make_client(db)
+        routes_mod._duplicates_delete_inflight.acquire()
+        try:
+            with patch("autocue.serve.routes._rb_running", return_value=False):
+                r = client.post(
+                    "/api/duplicates/delete",
+                    json={"track_ids": [1], "dry_run": False},
+                )
+            assert r.status_code == 409
+            assert "already running" in r.json()["detail"]
+        finally:
+            routes_mod._duplicates_delete_inflight.release()
+
+    def test_dry_run_does_not_require_the_inflight_lock(self):
+        """Dry-run is read-only — it must succeed even while a real delete
+        holds the lock."""
+        self._reset_backup_session()
+        from autocue.serve import routes as routes_mod
+        db = self._db_with_contents([self._content(1)])
+        client = _make_client(db)
+        routes_mod._duplicates_delete_inflight.acquire()
+        try:
+            r = client.post(
+                "/api/duplicates/delete",
+                json={"track_ids": [1], "dry_run": True},
+            )
+            assert r.status_code == 200
+        finally:
+            routes_mod._duplicates_delete_inflight.release()
 
     def test_dry_run_reports_count_without_writing(self):
         self._reset_backup_session()

@@ -2094,6 +2094,18 @@ _DUPLICATES_BACKUP_WINDOW_S = 30.0
 _duplicates_backup_session: dict = {"path": None, "stamp": 0.0}
 _duplicates_backup_lock = _threading.Lock()
 
+# Q9 (grill) — concurrency guard. get_db returns a single shared
+# app.state.db (one SQLAlchemy session) across every request, so two
+# concurrent deletes would issue begin_nested/commit on the SAME session
+# and corrupt the transaction. This is a pre-existing app-wide condition
+# (all write endpoints share the session), but the duplicates SSE delete
+# runs up to ~60 s for an 863-row bulk vs the sub-second existing writes,
+# which dramatically widens the window where a second tab's delete can
+# land mid-transaction. A non-blocking lock that 409s the second request
+# closes that amplified window without an app-wide session refactor.
+# Dry-run is read-only and never acquires the lock.
+_duplicates_delete_inflight = _threading.Lock()
+
 
 def _session_backup(db) -> str:
     """Create — or reuse — the delete-session backup. Raises on failure."""
@@ -2172,11 +2184,25 @@ async def duplicates_delete(req: DeleteRequest, request: Request, db=Depends(get
             409, "Rekordbox is running — close it before deleting tracks"
         )
 
+    # Q9 — refuse a concurrent real delete (shared session corruption).
+    # Dry-run is read-only and skips the lock. Acquired here so the 409
+    # fires BEFORE the backup; released in the SSE generator's finally so
+    # a client disconnect mid-stream can't leak the lock.
+    holds_lock = False
+    if not req.dry_run and req.track_ids:
+        if not _duplicates_delete_inflight.acquire(blocking=False):
+            raise HTTPException(
+                409, "Another duplicate-delete is already running — wait for it to finish",
+            )
+        holds_lock = True
+
     backup_path = None
     if not req.dry_run and req.track_ids:
         try:
             backup_path = _session_backup(db)
         except Exception as e:
+            if holds_lock:
+                _duplicates_delete_inflight.release()
             raise HTTPException(500, f"Backup failed — aborting: {e}")
 
     cancel = _threading.Event()
@@ -2196,70 +2222,79 @@ async def duplicates_delete(req: DeleteRequest, request: Request, db=Depends(get
     asyncio.create_task(_poll_disconnect_async())
 
     def event_stream():
-        total = len(req.track_ids)
-        yield f"data: {_json.dumps({'total': total, 'backup_path': backup_path})}\n\n"
+        try:
+            total = len(req.track_ids)
+            yield f"data: {_json.dumps({'total': total, 'backup_path': backup_path})}\n\n"
 
-        # delete_tracks runs synchronously in this generator (the request
-        # thread). progress_cb pushes events onto a queue drained between
-        # rows — for a single-threaded generator we can emit directly.
-        progress_events: list = []
+            # delete_tracks runs synchronously in this generator (the request
+            # thread). progress_cb pushes events onto a queue drained between
+            # rows — for a single-threaded generator we can emit directly.
+            progress_events: list = []
 
-        def _progress(processed, deleted, skipped):
-            progress_events.append(
-                {"processed": processed, "deleted": deleted, "skipped": skipped}
-            )
+            def _progress(processed, deleted, skipped):
+                progress_events.append(
+                    {"processed": processed, "deleted": deleted, "skipped": skipped}
+                )
 
-        # NOTE: delete_tracks is synchronous and fast per row (~1-3 ms);
-        # we run it in slices so the generator can yield progress
-        # between batches without a second thread. Slice size 25 keeps
-        # the SSE chatter at ~35 events for an 863-row bulk delete.
-        BATCH = 25
-        agg = {"deleted": 0, "skipped": 0, "dry_run": req.dry_run, "cancelled": False}
-        for i in range(0, total, BATCH):
-            if cancel.is_set():
-                agg["cancelled"] = True
-                break
-            batch = req.track_ids[i : i + BATCH]
-            result = delete_tracks(
-                db, batch, dry_run=req.dry_run, cancel=cancel, progress_cb=_progress,
-            )
-            agg["deleted"] += result["deleted"]
-            agg["skipped"] += result["skipped"]
-            agg["cancelled"] = agg["cancelled"] or result["cancelled"]
-            processed_so_far = min(i + BATCH, total)
+            # NOTE: delete_tracks is synchronous and fast per row (~1-3 ms);
+            # we run it in slices so the generator can yield progress
+            # between batches without a second thread. Slice size 25 keeps
+            # the SSE chatter at ~35 events for an 863-row bulk delete.
+            BATCH = 25
+            agg = {"deleted": 0, "skipped": 0, "dry_run": req.dry_run, "cancelled": False}
+            for i in range(0, total, BATCH):
+                if cancel.is_set():
+                    agg["cancelled"] = True
+                    break
+                batch = req.track_ids[i : i + BATCH]
+                result = delete_tracks(
+                    db, batch, dry_run=req.dry_run, cancel=cancel, progress_cb=_progress,
+                )
+                agg["deleted"] += result["deleted"]
+                agg["skipped"] += result["skipped"]
+                agg["cancelled"] = agg["cancelled"] or result["cancelled"]
+                processed_so_far = min(i + BATCH, total)
+                yield (
+                    "data: "
+                    + _json.dumps({
+                        "processed": processed_so_far
+                        if not agg["cancelled"] else i + len(progress_events),
+                        "deleted": agg["deleted"],
+                        "skipped": agg["skipped"],
+                    })
+                    + "\n\n"
+                )
+                progress_events.clear()
+                if agg["cancelled"]:
+                    break
+
+            # Setting the Event terminates the disconnect-poll task at its next
+            # 200 ms tick. Do NOT call poll_task.cancel() here — this generator
+            # runs on a threadpool thread (Starlette iterates sync generators
+            # off-loop) and Task.cancel() is not thread-safe cross-thread.
+            cancel.set()
             yield (
                 "data: "
                 + _json.dumps({
-                    "processed": processed_so_far
-                    if not agg["cancelled"] else i + len(progress_events),
-                    "deleted": agg["deleted"],
-                    "skipped": agg["skipped"],
+                    "done": True,
+                    "summary": {
+                        "deleted": agg["deleted"],
+                        "skipped": agg["skipped"],
+                        "dry_run": req.dry_run,
+                        "cancelled": agg["cancelled"],
+                        "backup_path": backup_path,
+                    },
                 })
                 + "\n\n"
             )
-            progress_events.clear()
-            if agg["cancelled"]:
-                break
-
-        # Setting the Event terminates the disconnect-poll task at its next
-        # 200 ms tick. Do NOT call poll_task.cancel() here — this generator
-        # runs on a threadpool thread (Starlette iterates sync generators
-        # off-loop) and Task.cancel() is not thread-safe cross-thread.
-        cancel.set()
-        yield (
-            "data: "
-            + _json.dumps({
-                "done": True,
-                "summary": {
-                    "deleted": agg["deleted"],
-                    "skipped": agg["skipped"],
-                    "dry_run": req.dry_run,
-                    "cancelled": agg["cancelled"],
-                    "backup_path": backup_path,
-                },
-            })
-            + "\n\n"
-        )
+        finally:
+            # Q9 — release the concurrency lock on EVERY exit path
+            # (normal completion, cancel, or a GeneratorExit raised when
+            # the client disconnects mid-stream). Without the finally a
+            # disconnect would leak the lock and 409 every future delete.
+            cancel.set()
+            if holds_lock:
+                _duplicates_delete_inflight.release()
 
     return StreamingResponse(
         event_stream(),
