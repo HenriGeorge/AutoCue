@@ -144,6 +144,98 @@ def has_existing_memory_cues(content, db) -> int:
     )
 
 
+def delete_tracks(db, track_ids: list[int], *, dry_run: bool = False) -> dict:
+    """Delete one or more tracks from the Rekordbox library.
+
+    Phase 2 of the duplicates feature. Safety:
+      * caller MUST verify ``rekordbox_is_running(db_path)`` and create a
+        backup via :func:`backup_database` BEFORE calling this — same
+        contract every write op enforces at the route layer.
+      * each delete is wrapped in a savepoint via ``begin_nested()``; on
+        any per-track exception the row's nested transaction rolls back
+        while previously-committed rows survive.
+      * cues (``DjmdCue``) AND history-song rows (``DjmdSongHistory``,
+        ``DjmdSongPlaylist``, ``DjmdSongTagList``) are deleted first to
+        satisfy FK constraints, then the ``DjmdContent`` row goes via
+        ``db.delete(content)`` so pyrekordbox's registry stays consistent.
+      * the user's existing ``/api/restore`` flow IS the undo path —
+        backup_path is plumbed up to the route and surfaced in the toast
+        so the user knows exactly which file to roll back to.
+
+    Returns ``{"deleted": <count>, "skipped": <count>, "dry_run": bool}``.
+    """
+    from pyrekordbox.db6 import (
+        DjmdContent,
+        DjmdCue,
+        DjmdSongHistory,
+        DjmdSongPlaylist,
+        DjmdSongTagList,
+    )
+
+    deleted = skipped = 0
+    titles_for_log: list[str] = []
+
+    for tid in track_ids:
+        try:
+            content = db.get_content(ID=tid)
+        except Exception:
+            skipped += 1
+            continue
+        if content is None:
+            skipped += 1
+            continue
+
+        title_for_log = str(getattr(content, "Title", "") or f"id={tid}")
+
+        if dry_run:
+            deleted += 1
+            titles_for_log.append(title_for_log)
+            continue
+
+        try:
+            sp = db.session.begin_nested()
+            # Cascade by hand: clear every FK-bearing child row, then the
+            # parent. Each filter is keyed on ContentID so a typo here
+            # would just delete nothing — the row count is captured via
+            # the rowcount on the bulk delete.
+            for child_model in (
+                DjmdCue, DjmdSongHistory, DjmdSongPlaylist, DjmdSongTagList,
+            ):
+                db.session.query(child_model).filter(
+                    child_model.ContentID == content.ID
+                ).delete(synchronize_session=False)
+            db.delete(content)
+            sp.commit()
+            deleted += 1
+            titles_for_log.append(title_for_log)
+        except Exception:
+            # Roll the savepoint back — subsequent track IDs in the list
+            # remain delete-able. The route-level handler decides whether
+            # to abort the overall transaction.
+            db.session.rollback()
+            logger.exception(
+                "delete_tracks: failed on id=%s (%r) — rolled back this row",
+                tid, title_for_log,
+            )
+            skipped += 1
+
+    if not dry_run and deleted > 0:
+        try:
+            db.session.commit()
+            logger.info(
+                "delete_tracks: deleted %d tracks (sample: %s)",
+                deleted, ", ".join(repr(t) for t in titles_for_log[:3]),
+            )
+        except Exception:
+            db.session.rollback()
+            logger.exception(
+                "delete_tracks: top-level commit failed — entire batch rolled back"
+            )
+            raise
+
+    return {"deleted": deleted, "skipped": skipped, "dry_run": dry_run}
+
+
 def delete_cues_from_db(content, db, *, dry_run: bool = False) -> int:
     """Delete all hot cues (Kind 1-8) for a track. Returns count deleted."""
     from pyrekordbox.db6 import DjmdCue

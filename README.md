@@ -497,6 +497,7 @@ The local server exposes a full REST API at `http://localhost:7432`.
 |---|---|---|
 | GET | `/api/health` | SSE — library-wide health scan (`?playlist_id=N&limit=N`) |
 | GET | `/api/duplicates` | SSE — duplicate-track scan, groups by (artist, title) and picks a keeper. Read-only |
+| POST | `/api/duplicates/delete` | Delete N tracks identified by the scan. Rekordbox-closed guard + backup before write |
 | GET | `/api/classify` | SSE — library-wide classification (`?playlist_id=N`) |
 | POST | `/api/transitions/score` | Transition score for two tracks |
 | POST | `/api/setbuilder` | Build a DJ set by beam search |
@@ -559,9 +560,9 @@ The local server exposes a full REST API at `http://localhost:7432`.
 
 ```bash
 pip install -e ".[dev]"              # install with test deps
-pytest                               # run all 1422 Python tests
+pytest                               # run all 1427 Python tests
 npm install                          # one-time: install JS test deps
-npm test                             # run 626 Vitest tests for the web app
+npm test                             # run 633 Vitest tests for the web app
 
 autocue serve --no-browser           # start local server without opening browser
 autocue --library --dry-run          # preview CLI output without writing

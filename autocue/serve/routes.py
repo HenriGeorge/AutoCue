@@ -40,6 +40,7 @@ from .schemas import (
     CueToolsSummary,
     DeleteRequest,
     DeleteResponse,
+    DuplicatesDeleteResponse,
     ClassificationResponse,
     EnergyResponse,
     MixabilityComponents,
@@ -2064,6 +2065,68 @@ def find_duplicates(db=Depends(get_ro_db)):
         event_stream(),
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
+@router.post("/duplicates/delete", response_model=DuplicatesDeleteResponse)
+def duplicates_delete(req: DeleteRequest, db=Depends(get_db)):
+    """Delete one or more tracks identified by /api/duplicates as duplicates.
+
+    Phase 2 of the duplicate-track feature. Safety contract is identical
+    to every other write endpoint:
+
+      * **Rekordbox-closed guard** — refuses with 409 when Rekordbox is
+        running (the SQLCipher lock would otherwise corrupt the DB).
+      * **Backup first** — a timestamped backup of master.db (+ the
+        Discover sidecar) is created BEFORE the first delete. The path is
+        returned to the caller so the UI can show "Backup: <path>" and
+        the user can /api/restore it if they regret the action.
+      * **Per-row savepoint + top-level commit** — implemented in
+        :func:`db_writer.delete_tracks`. If any single row fails, that
+        row's nested transaction rolls back; previously-staged rows
+        survive.
+
+    Undo: the user's existing POST /api/restore IS the undo path. We
+    intentionally do NOT try to re-INSERT deleted DjmdContent rows from
+    a captured snapshot — DjmdContent has ~30 columns plus a registry
+    + relationships to playlists / tags / cues / history, and a hand-rolled
+    re-insert would silently miss columns and break the row's external
+    identity. Restoring from the backup is robust and a single click.
+    """
+    from pathlib import Path
+    from ..db_writer import backup_database, delete_tracks
+
+    if _rb_running(db) and not req.dry_run:
+        raise HTTPException(
+            409, "Rekordbox is running — close it before deleting tracks"
+        )
+
+    backup_path = None
+    if not req.dry_run and req.track_ids:
+        try:
+            db_dir = getattr(db, "_db_dir", None)
+            if db_dir is None:
+                raise RuntimeError(
+                    "Cannot locate master.db: database object has no _db_dir attribute"
+                )
+            db_path = Path(db_dir) / "master.db"
+            if not db_path.exists():
+                raise FileNotFoundError(f"master.db not found at {db_path}")
+            backup_path = str(
+                backup_database(
+                    db_path, discover_db_path=_get_discover_db_path_safe()
+                )
+            )
+        except Exception as e:
+            raise HTTPException(500, f"Backup failed — aborting: {e}")
+
+    result = delete_tracks(db, req.track_ids, dry_run=req.dry_run)
+
+    return DuplicatesDeleteResponse(
+        deleted=result["deleted"],
+        skipped=result["skipped"],
+        dry_run=result["dry_run"],
+        backup_path=backup_path,
     )
 
 

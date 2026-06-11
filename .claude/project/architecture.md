@@ -204,6 +204,7 @@ POST /api/color-tracks-stream (SSE)       POST /api/cue-tools-stream (SSE)
 ```
 GET  /api/health (SSE, ?playlist_id=N&limit=N)
 GET  /api/duplicates (SSE)
+POST /api/duplicates/delete
 GET  /api/classify (SSE, ?playlist_id=N)
 POST /api/transitions/score
 POST /api/setbuilder                      GET  /api/setbuilder/alternatives
