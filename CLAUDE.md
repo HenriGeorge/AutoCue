@@ -7,6 +7,14 @@ When doing browser testing or UI verification with Chrome DevTools tools:
 - **Screenshots are pre-approved** — take them freely without asking permission. `mcp__plugin_chrome-devtools-mcp_chrome-devtools__take_screenshot` is always allowed.
 - Save screenshots to `/var/folders/kg/k03ymsv51sjd109wm__rfyt40000gn/T/` (the allowed temp dir).
 
+## Design reference
+
+For any UI / visual work in `docs/index.html`, follow the design system at:
+**https://claude.ai/design/p/78d834e0-b83e-458a-a7f5-e38fa01d17ce?via=share** —
+the source of truth for colours, typography, spacing, and component styling.
+The link is auth-gated (the user must open it); match its tokens and patterns
+when adding or restyling UI rather than inventing new ones.
+
 ## What this project is
 
 AutoCue places hot cues on Rekordbox 7 tracks automatically and analyses a DJ library, across three surfaces:
