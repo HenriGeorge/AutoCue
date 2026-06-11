@@ -222,3 +222,76 @@ class TestDeleteTracksCascade:
                 child.ContentID == "1"
             ).count()
             assert n == 1
+
+
+class TestDeleteTracksCancellation:
+    """Phase 3 WS4 — the cancel Event + progress_cb hooks on delete_tracks."""
+
+    def test_cancel_event_stops_mid_batch(self, real_db):
+        """Set the cancel Event from inside progress_cb after 2 rows —
+        the remaining rows must survive, and the result must carry
+        cancelled=True with the partial counts."""
+        import threading
+        from autocue.db_writer import delete_tracks
+
+        db, session = real_db
+        for tid in (1, 2, 3, 4, 5):
+            _seed_content_row(session, tid)
+        session.commit()
+
+        cancel = threading.Event()
+
+        def progress(processed, deleted, skipped):
+            if processed >= 2:
+                cancel.set()
+
+        result = delete_tracks(
+            db, [1, 2, 3, 4, 5], dry_run=False,
+            cancel=cancel, progress_cb=progress,
+        )
+
+        assert result["cancelled"] is True
+        assert result["deleted"] == 2
+        # Rows 3-5 survive.
+        for tid in ("3", "4", "5"):
+            assert session.query(t.DjmdContent).filter(
+                t.DjmdContent.ID == tid
+            ).first() is not None, f"track {tid} should have survived the cancel"
+        # Rows 1-2 are gone AND committed (partial progress durable).
+        for tid in ("1", "2"):
+            assert session.query(t.DjmdContent).filter(
+                t.DjmdContent.ID == tid
+            ).first() is None
+
+    def test_progress_cb_called_per_row(self, real_db):
+        from autocue.db_writer import delete_tracks
+
+        db, session = real_db
+        for tid in (1, 2, 3):
+            _seed_content_row(session, tid)
+        session.commit()
+
+        calls = []
+        delete_tracks(
+            db, [1, 2, 3], dry_run=True,
+            progress_cb=lambda p, d, s: calls.append((p, d, s)),
+        )
+        assert calls == [(1, 1, 0), (2, 2, 0), (3, 3, 0)]
+
+    def test_cancel_before_first_row_deletes_nothing(self, real_db):
+        import threading
+        from autocue.db_writer import delete_tracks
+
+        db, session = real_db
+        _seed_content_row(session, 1)
+        session.commit()
+
+        cancel = threading.Event()
+        cancel.set()  # already cancelled before the call
+
+        result = delete_tracks(db, [1], dry_run=False, cancel=cancel)
+        assert result["cancelled"] is True
+        assert result["deleted"] == 0
+        assert session.query(t.DjmdContent).filter(
+            t.DjmdContent.ID == "1"
+        ).first() is not None

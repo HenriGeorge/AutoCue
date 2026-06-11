@@ -26,15 +26,40 @@ from typing import Iterable
 _WS_RE = re.compile(r"\s+")
 
 
-def normalize_key(artist: str | None, title: str | None) -> str:
+def _duration_bucket(duration: float | None) -> int:
+    """Bucket a track duration into a 5-second slot.
+
+    Phase 3: stops "Album Mix 4:12" from grouping with "Extended Mix 6:48"
+    just because they share an (artist, title). Within ±5 s (one full
+    bucket span on either side) two tracks still collide — which is the
+    realistic noise floor for ID3 vs container-vs-stream length
+    rounding. Returns 0 when duration is unknown so phase 1 / phase 2
+    callers (which never projected duration) keep the same bucket key
+    and don't see a behaviour change.
+    """
+    if not duration or duration <= 0:
+        return 0
+    return int(round(float(duration) / 5.0))
+
+
+def normalize_key(
+    artist: str | None,
+    title: str | None,
+    duration: float | None = None,
+) -> str:
     """Build the dedup key for a track.
 
     Lowercase + trim + collapse internal whitespace so trailing spaces and
     capitalisation don't fool the bucket. The format is
-    ``"<artist>|||<title>"`` — the triple-pipe separator is chosen because
-    it does not legally appear in Rekordbox metadata.
+    ``"<artist>|||<title>|||<duration_bucket>"`` — the triple-pipe
+    separator is chosen because it does not legally appear in Rekordbox
+    metadata. The duration bucket is ``round(duration / 5)``; ``None``
+    or non-positive durations bucket to ``0`` so existing callers that
+    omit ``duration`` keep their original key shape.
 
-    Returns ``""`` when both fields are empty (caller should skip the row).
+    Returns ``""`` when artist + title are both empty (caller should
+    skip the row — empty-metadata streaming tracks would otherwise mix
+    into one fake bucket regardless of duration).
     """
     a = (artist or "").lower().strip()
     t = (title or "").lower().strip()
@@ -42,7 +67,7 @@ def normalize_key(artist: str | None, title: str | None) -> str:
     t = _WS_RE.sub(" ", t)
     if not a and not t:
         return ""
-    return f"{a}|||{t}"
+    return f"{a}|||{t}|||{_duration_bucket(duration)}"
 
 
 @dataclass
@@ -62,6 +87,15 @@ class TrackProjection:
     play_count: int = 0
     last_played: str | None = None  # ISO date string or None
     source: str = "file"             # "file" | "streaming" | "unknown"
+    # Phase 3 — used by both the grouping key (duration_bucket) and the
+    # keeper heuristic (bitrate as a tiebreaker before track_id).
+    duration: float = 0.0            # seconds; 0 = unknown
+    bitrate: int = 0                 # kbps; 0 = unknown
+    # Path columns echoed back to the client so the UI can render the
+    # same-path-as-keeper vs distinct-file chip per row without an
+    # additional round-trip.
+    folder_path: str = ""
+    file_name: str = ""
 
 
 @dataclass
@@ -72,6 +106,16 @@ class DuplicateGroup:
     keeper_id: int = 0     # track_id picked by the keeper heuristic below
 
     def to_dict(self) -> dict:
+        # The keeper's full file path drives the frontend's same-path vs
+        # distinct-file chip per row. Compute it once here so the JSON
+        # consumer doesn't have to scan the copies for is_keeper=True.
+        keeper = next(
+            (c for c in self.copies if c.track_id == self.keeper_id),
+            self.copies[0] if self.copies else None,
+        )
+        keeper_path = (
+            f"{keeper.folder_path}{keeper.file_name}" if keeper else ""
+        )
         return {
             "artist": self.artist,
             "title": self.title,
@@ -84,6 +128,23 @@ class DuplicateGroup:
                     "play_count": c.play_count,
                     "last_played": c.last_played,
                     "source": c.source,
+                    "duration": c.duration,
+                    "bitrate": c.bitrate,
+                    # Raw path columns so the frontend can RE-compute
+                    # same-path when the user picks a different keeper via
+                    # the WS2 radio. localhost-only, single-user tool —
+                    # the path is the user's own library, not sensitive.
+                    "folder_path": c.folder_path,
+                    "file_name": c.file_name,
+                    # `same_path_as_keeper` flags rows whose audio file
+                    # is shared with the keeper — deleting that row
+                    # leaves the keeper's audio intact. Distinct-path
+                    # rows surface an orphan audio file on disk. This is
+                    # the BACKEND keeper's view; the frontend recomputes
+                    # it live against the user-chosen keeper.
+                    "same_path_as_keeper": (
+                        f"{c.folder_path}{c.file_name}" == keeper_path
+                    ),
                     "is_keeper": c.track_id == self.keeper_id,
                 }
                 for c in self.copies
@@ -94,20 +155,32 @@ class DuplicateGroup:
 def pick_keeper(copies: Iterable[TrackProjection]) -> int:
     """Choose the row most likely to be the user's "real" copy.
 
-    Heuristic (largest tuple wins via ``max``):
-      1. highest play_count — reflects actual DJ use
-      2. most existing hot cues — preserves cue-prep work
+    Heuristic (largest tuple wins via ``max``), reordered in phase 3 (WS2)
+    so cue-prep work outranks play history — the grill surfaced that a
+    freshly-prepped re-import (8 hand-placed cues, 0 plays) should beat
+    the old 50-play copy with auto-cues, because the prepped copy is the
+    one the DJ will actually reach for next:
+
+      1. most existing hot cues — preserves cue-prep work (NEW #1)
+      2. highest play_count — reflects actual DJ use
       3. most recent last_played — newer ISO-date string wins; missing
          (``None``) becomes ``""`` which loses against any real date
-      4. smallest track_id — deterministic tie-break (negated so larger
+      4. highest bitrate — a 320 kbps re-import beats the 192 kbps
+         original (phase 3; 0 = unknown loses, which is correct on
+         libraries where Rekordbox didn't populate BitRate)
+      5. smallest track_id — deterministic tie-break (negated so larger
          ``-track_id`` = smaller ``track_id`` wins ties)
+
+    The user can still override the suggestion per-group via the
+    "Set as keeper" radio in the UI; this is only the default.
     """
     return max(
         copies,
         key=lambda c: (
-            c.play_count or 0,
             c.existing_hot_cues or 0,
+            c.play_count or 0,
             c.last_played or "",
+            c.bitrate or 0,
             -c.track_id,
         ),
     ).track_id
@@ -128,7 +201,7 @@ def find_duplicate_groups(
     """
     buckets: dict[str, list[TrackProjection]] = collections.defaultdict(list)
     for t in tracks:
-        key = normalize_key(t.artist, t.title)
+        key = normalize_key(t.artist, t.title, t.duration)
         if not key:
             continue
         buckets[key].append(t)

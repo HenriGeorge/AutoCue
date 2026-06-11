@@ -40,7 +40,6 @@ from .schemas import (
     CueToolsSummary,
     DeleteRequest,
     DeleteResponse,
-    DuplicatesDeleteResponse,
     ClassificationResponse,
     EnergyResponse,
     MixabilityComponents,
@@ -2029,6 +2028,19 @@ def find_duplicates(db=Depends(get_ro_db)):
                     key_str = str(getattr(k, "ScaleName", "") or "")
             except Exception:
                 pass
+            # Phase 3 — duration + bitrate flow into the grouping key
+            # (duration_bucket) and the keeper heuristic (bitrate as a
+            # tiebreaker before track_id). FolderPath + FileNameL are
+            # echoed back so the UI can render the same-path-as-keeper
+            # chip per row without an extra round-trip.
+            try:
+                duration = float(getattr(row, "Length", 0) or 0)
+            except (TypeError, ValueError):
+                duration = 0.0
+            try:
+                bitrate = int(getattr(row, "BitRate", 0) or 0)
+            except (TypeError, ValueError):
+                bitrate = 0
             projections.append(
                 TrackProjection(
                     track_id=int(row.ID),
@@ -2040,6 +2052,10 @@ def find_duplicates(db=Depends(get_ro_db)):
                     play_count=int(getattr(row, "DJPlayCount", 0) or 0),
                     last_played=last_played_map.get(str(row.ID)),
                     source=_classify_source(getattr(row, "FolderPath", None)),
+                    duration=duration,
+                    bitrate=bitrate,
+                    folder_path=(getattr(row, "FolderPath", None) or ""),
+                    file_name=(getattr(row, "FileNameL", None) or ""),
                 )
             )
 
@@ -2068,65 +2084,222 @@ def find_duplicates(db=Depends(get_ro_db)):
     )
 
 
-@router.post("/duplicates/delete", response_model=DuplicatesDeleteResponse)
-def duplicates_delete(req: DeleteRequest, db=Depends(get_db)):
-    """Delete one or more tracks identified by /api/duplicates as duplicates.
+# WS6 (phase 3) — per-session backup window. Repeated per-group deletes
+# inside this window reuse the FIRST backup of the session instead of
+# stacking a new ~50 MB master.db copy per click. The reused backup
+# reflects the state before the session's first delete, so restoring it
+# rolls back the whole session — which matches the user's mental model
+# of "undo my duplicate cleanup".
+_DUPLICATES_BACKUP_WINDOW_S = 30.0
+_duplicates_backup_session: dict = {"path": None, "stamp": 0.0}
+_duplicates_backup_lock = _threading.Lock()
 
-    Phase 2 of the duplicate-track feature. Safety contract is identical
-    to every other write endpoint:
+# Q9 (grill) — concurrency guard. get_db returns a single shared
+# app.state.db (one SQLAlchemy session) across every request, so two
+# concurrent deletes would issue begin_nested/commit on the SAME session
+# and corrupt the transaction. This is a pre-existing app-wide condition
+# (all write endpoints share the session), but the duplicates SSE delete
+# runs up to ~60 s for an 863-row bulk vs the sub-second existing writes,
+# which dramatically widens the window where a second tab's delete can
+# land mid-transaction. A non-blocking lock that 409s the second request
+# closes that amplified window without an app-wide session refactor.
+# Dry-run is read-only and never acquires the lock.
+_duplicates_delete_inflight = _threading.Lock()
 
-      * **Rekordbox-closed guard** — refuses with 409 when Rekordbox is
-        running (the SQLCipher lock would otherwise corrupt the DB).
-      * **Backup first** — a timestamped backup of master.db (+ the
-        Discover sidecar) is created BEFORE the first delete. The path is
-        returned to the caller so the UI can show "Backup: <path>" and
-        the user can /api/restore it if they regret the action.
-      * **Per-row savepoint + top-level commit** — implemented in
-        :func:`db_writer.delete_tracks`. If any single row fails, that
-        row's nested transaction rolls back; previously-staged rows
-        survive.
 
-    Undo: the user's existing POST /api/restore IS the undo path. We
-    intentionally do NOT try to re-INSERT deleted DjmdContent rows from
-    a captured snapshot — DjmdContent has ~30 columns plus a registry
-    + relationships to playlists / tags / cues / history, and a hand-rolled
-    re-insert would silently miss columns and break the row's external
-    identity. Restoring from the backup is robust and a single click.
-    """
+def _session_backup(db) -> str:
+    """Create — or reuse — the delete-session backup. Raises on failure."""
+    import time as _time
     from pathlib import Path
-    from ..db_writer import backup_database, delete_tracks
+    from ..db_writer import backup_database
+
+    with _duplicates_backup_lock:
+        now = _time.monotonic()
+        prev_path = _duplicates_backup_session["path"]
+        prev_stamp = _duplicates_backup_session["stamp"]
+        if (
+            prev_path is not None
+            and (now - prev_stamp) < _DUPLICATES_BACKUP_WINDOW_S
+            and Path(prev_path).exists()
+        ):
+            # Same delete session — slide the window so a steady stream
+            # of per-group clicks stays in one session.
+            _duplicates_backup_session["stamp"] = now
+            return prev_path
+
+        db_dir = getattr(db, "_db_dir", None)
+        if db_dir is None:
+            raise RuntimeError(
+                "Cannot locate master.db: database object has no _db_dir attribute"
+            )
+        db_path = Path(db_dir) / "master.db"
+        if not db_path.exists():
+            raise FileNotFoundError(f"master.db not found at {db_path}")
+        backup_path = str(
+            backup_database(db_path, discover_db_path=_get_discover_db_path_safe())
+        )
+        _duplicates_backup_session["path"] = backup_path
+        _duplicates_backup_session["stamp"] = now
+        return backup_path
+
+
+@router.post("/duplicates/delete")
+async def duplicates_delete(req: DeleteRequest, request: Request, db=Depends(get_db)):
+    """Delete tracks identified by /api/duplicates — SSE stream (WS4).
+
+    Events:
+      * ``{"total": N, "backup_path": "..."}`` — emitted first (backup
+        already taken; null on dry-run)
+      * ``{"processed": n, "deleted": d, "skipped": s}`` — per row
+      * ``{"done": true, "summary": {deleted, skipped, dry_run,
+        cancelled, backup_path}}`` — terminal event
+
+    Safety contract is identical to every other write endpoint:
+
+      * **Rekordbox-closed guard** — 409 when Rekordbox is running
+        (read-only dry-run exempt).
+      * **Backup first** — per-session (30 s window, WS6): repeated
+        per-group deletes reuse the first backup so restoring it rolls
+        back the whole session; a new session starts a fresh backup.
+      * **Per-row savepoint + top-level commit** — in
+        :func:`db_writer.delete_tracks`.
+      * **Cancellation** — mirrors the generate-apply-stream pattern
+        (issue #104 / TASK-041): an asyncio task polls
+        ``request.is_disconnected()`` and sets a ``threading.Event``
+        that the sync delete loop checks per row. Rows committed
+        before the cancel survive (the backup still restores to
+        pre-session state).
+
+    Undo: POST /api/restore against the returned backup_path.
+    """
+    import asyncio
+    import json as _json
+    import queue as _queue
+    import threading as _threading
+    from fastapi.responses import StreamingResponse
+    from ..db_writer import delete_tracks
 
     if _rb_running(db) and not req.dry_run:
         raise HTTPException(
             409, "Rekordbox is running — close it before deleting tracks"
         )
 
+    # Q9 — refuse a concurrent real delete (shared session corruption).
+    # Dry-run is read-only and skips the lock. Acquired here so the 409
+    # fires BEFORE the backup; released in the SSE generator's finally so
+    # a client disconnect mid-stream can't leak the lock.
+    holds_lock = False
+    if not req.dry_run and req.track_ids:
+        if not _duplicates_delete_inflight.acquire(blocking=False):
+            raise HTTPException(
+                409, "Another duplicate-delete is already running — wait for it to finish",
+            )
+        holds_lock = True
+
     backup_path = None
     if not req.dry_run and req.track_ids:
         try:
-            db_dir = getattr(db, "_db_dir", None)
-            if db_dir is None:
-                raise RuntimeError(
-                    "Cannot locate master.db: database object has no _db_dir attribute"
-                )
-            db_path = Path(db_dir) / "master.db"
-            if not db_path.exists():
-                raise FileNotFoundError(f"master.db not found at {db_path}")
-            backup_path = str(
-                backup_database(
-                    db_path, discover_db_path=_get_discover_db_path_safe()
-                )
-            )
+            backup_path = _session_backup(db)
         except Exception as e:
+            if holds_lock:
+                _duplicates_delete_inflight.release()
             raise HTTPException(500, f"Backup failed — aborting: {e}")
 
-    result = delete_tracks(db, req.track_ids, dry_run=req.dry_run)
+    cancel = _threading.Event()
 
-    return DuplicatesDeleteResponse(
-        deleted=result["deleted"],
-        skipped=result["skipped"],
-        dry_run=result["dry_run"],
-        backup_path=backup_path,
+    async def _poll_disconnect_async() -> None:
+        try:
+            while not cancel.is_set():
+                if await request.is_disconnected():
+                    cancel.set()
+                    return
+                await asyncio.sleep(0.2)
+        except asyncio.CancelledError:
+            return
+
+    # async-def route ⇒ a loop is running; create_task is the non-deprecated
+    # form (get_event_loop() inside a running loop warns on 3.12+).
+    asyncio.create_task(_poll_disconnect_async())
+
+    def event_stream():
+        try:
+            total = len(req.track_ids)
+            yield f"data: {_json.dumps({'total': total, 'backup_path': backup_path})}\n\n"
+
+            # delete_tracks runs synchronously in this generator (the request
+            # thread). progress_cb pushes events onto a queue drained between
+            # rows — for a single-threaded generator we can emit directly.
+            progress_events: list = []
+
+            def _progress(processed, deleted, skipped):
+                progress_events.append(
+                    {"processed": processed, "deleted": deleted, "skipped": skipped}
+                )
+
+            # NOTE: delete_tracks is synchronous and fast per row (~1-3 ms);
+            # we run it in slices so the generator can yield progress
+            # between batches without a second thread. Slice size 25 keeps
+            # the SSE chatter at ~35 events for an 863-row bulk delete.
+            BATCH = 25
+            agg = {"deleted": 0, "skipped": 0, "dry_run": req.dry_run, "cancelled": False}
+            for i in range(0, total, BATCH):
+                if cancel.is_set():
+                    agg["cancelled"] = True
+                    break
+                batch = req.track_ids[i : i + BATCH]
+                result = delete_tracks(
+                    db, batch, dry_run=req.dry_run, cancel=cancel, progress_cb=_progress,
+                )
+                agg["deleted"] += result["deleted"]
+                agg["skipped"] += result["skipped"]
+                agg["cancelled"] = agg["cancelled"] or result["cancelled"]
+                processed_so_far = min(i + BATCH, total)
+                yield (
+                    "data: "
+                    + _json.dumps({
+                        "processed": processed_so_far
+                        if not agg["cancelled"] else i + len(progress_events),
+                        "deleted": agg["deleted"],
+                        "skipped": agg["skipped"],
+                    })
+                    + "\n\n"
+                )
+                progress_events.clear()
+                if agg["cancelled"]:
+                    break
+
+            # Setting the Event terminates the disconnect-poll task at its next
+            # 200 ms tick. Do NOT call poll_task.cancel() here — this generator
+            # runs on a threadpool thread (Starlette iterates sync generators
+            # off-loop) and Task.cancel() is not thread-safe cross-thread.
+            cancel.set()
+            yield (
+                "data: "
+                + _json.dumps({
+                    "done": True,
+                    "summary": {
+                        "deleted": agg["deleted"],
+                        "skipped": agg["skipped"],
+                        "dry_run": req.dry_run,
+                        "cancelled": agg["cancelled"],
+                        "backup_path": backup_path,
+                    },
+                })
+                + "\n\n"
+            )
+        finally:
+            # Q9 — release the concurrency lock on EVERY exit path
+            # (normal completion, cancel, or a GeneratorExit raised when
+            # the client disconnects mid-stream). Without the finally a
+            # disconnect would leak the lock and 409 every future delete.
+            cancel.set()
+            if holds_lock:
+                _duplicates_delete_inflight.release()
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
 
 
