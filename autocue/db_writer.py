@@ -164,11 +164,34 @@ def delete_tracks(db, track_ids: list[int], *, dry_run: bool = False) -> dict:
 
     Returns ``{"deleted": <count>, "skipped": <count>, "dry_run": bool}``.
     """
+    # Every pyrekordbox table that has a ContentID FK to DjmdContent.ID.
+    # If this list drops a table, the corresponding child rows orphan when
+    # the parent goes — silently when SQLite's FK enforcement is off (the
+    # default on Rekordbox's SQLCipher DB), or with an IntegrityError when
+    # it's on. We started with 4 here and missed 9; restoring the full set.
+    # Verified via:
+    #
+    #   for name in dir(pyrekordbox.db6.tables):
+    #     cls = getattr(t, name)
+    #     if 'ContentID' in [c.name for c in cls.__table__.columns]: ...
+    #
+    # If pyrekordbox adds a new ContentID-bearing table in a future
+    # release, the integration test in tests/test_duplicates_integration.py
+    # will surface the orphan rows on the next pytest run.
     from pyrekordbox.db6 import (
+        ContentActiveCensor,
+        ContentCue,
+        ContentFile,
+        DjmdActiveCensor,
         DjmdContent,
         DjmdCue,
+        DjmdMixerParam,
         DjmdSongHistory,
+        DjmdSongHotCueBanklist,
+        DjmdSongMyTag,
         DjmdSongPlaylist,
+        DjmdSongRelatedTracks,
+        DjmdSongSampler,
         DjmdSongTagList,
     )
 
@@ -199,7 +222,21 @@ def delete_tracks(db, track_ids: list[int], *, dry_run: bool = False) -> dict:
             # would just delete nothing — the row count is captured via
             # the rowcount on the bulk delete.
             for child_model in (
-                DjmdCue, DjmdSongHistory, DjmdSongPlaylist, DjmdSongTagList,
+                # Cue / waveform / fingerprint side
+                DjmdCue,
+                ContentCue,
+                ContentActiveCensor,
+                ContentFile,
+                DjmdActiveCensor,
+                DjmdSongHotCueBanklist,
+                DjmdMixerParam,
+                DjmdSongSampler,
+                # Play / library / tagging side
+                DjmdSongHistory,
+                DjmdSongPlaylist,
+                DjmdSongTagList,
+                DjmdSongMyTag,
+                DjmdSongRelatedTracks,
             ):
                 db.session.query(child_model).filter(
                     child_model.ContentID == content.ID
