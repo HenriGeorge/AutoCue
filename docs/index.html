@@ -975,6 +975,21 @@
       color: rgba(0,0,0,.72); white-space: nowrap; overflow: hidden;
       pointer-events: none; line-height: 1;
     }
+    /* Existing hot-cue position markers overlaid on the phrase strip
+       (Skipped cards): a high-contrast vertical line, readable over any
+       phrase-segment colour, with a slot-letter cap at the top. Cue name +
+       time live in the title (hover). */
+    .phrase-cue-tick {
+      position: absolute; top: 0; height: 100%; width: 2px; z-index: 2;
+      transform: translateX(-1px); background: #fff;
+      box-shadow: 0 0 0 1px rgba(0,0,0,.6); cursor: default;
+    }
+    .phrase-cue-tick > .phrase-cue-slot {
+      position: absolute; top: 0; left: 1px; transform: translateX(-50%);
+      font-size: 7px; font-weight: 700; line-height: 1; padding: 1px 1px 0;
+      color: #fff; background: rgba(0,0,0,.72); border-radius: 2px;
+      white-space: nowrap; pointer-events: none;
+    }
 
     /* misc badges */
     .skipped-badge {
@@ -3978,7 +3993,7 @@ function pickCueColor(cue) {
   return CUE_COLORS[safeSlot];
 }
 
-function buildPhraseStrip(phrases, totalTime) {
+function buildPhraseStrip(phrases, totalTime, cueTicks) {
   if (!phrases.length || !totalTime) return null;
   const strip = document.createElement('div');
   strip.className = 'phrase-strip';
@@ -4003,6 +4018,26 @@ function buildPhraseStrip(phrases, totalTime) {
       seg.appendChild(lbl);
     }
     strip.appendChild(seg);
+  }
+  // Overlay existing hot-cue positions as tick marks (Skipped cards merge the
+  // #163 existing-cue chips into the strip so both fit the fixed 160px card).
+  // Name/time go in the title (hover); the slot letter caps the tick.
+  if (Array.isArray(cueTicks)) {
+    for (const ec of cueTicks) {
+      const startSec = ec.start || 0;
+      if (startSec < 0 || startSec > totalTime) continue;
+      const leftPct = (startSec / totalTime) * 100;
+      const slotLetter = ec.num === -1 ? 'M' : (ec.num >= 0 && ec.num <= 7 ? String.fromCharCode(65 + ec.num) : '?');
+      const tick = document.createElement('div');
+      tick.className = 'phrase-cue-tick';
+      tick.style.left = `${leftPct}%`;
+      tick.title = `${slotLetter === 'M' ? 'Memory cue' : 'Slot ' + slotLetter}${ec.name ? ' — ' + ec.name : ''} @ ${fmtTime(startSec)}`;
+      const slot = document.createElement('span');
+      slot.className = 'phrase-cue-slot';
+      slot.textContent = slotLetter;
+      tick.appendChild(slot);
+      strip.appendChild(tick);
+    }
   }
   return strip;
 }
@@ -10897,6 +10932,52 @@ async function _renderEnergySparkline(container) {
   }
 }
 
+// Append the "Phrase structure" strip — a visualization of the track's
+// phrase layout (intro / verse / drop / outro …). It describes the TRACK,
+// not what AutoCue would write, so it belongs on BOTH the cue-gen path and
+// the Skipped path (a skipped track still has phrase structure worth seeing).
+// `opts.notes` controls the "no phrase data" / "no ANLZ" informational
+// lines — on for the regular path, OFF for skipped cards to keep them
+// within the fixed 160px card height (TASK-033). With lazy phrase loading
+// the strip appears once the viewport fetch populates phraseCueState and
+// _updateTrackCardCues rebuilds the card.
+function _appendPhraseStrip(cardMain, track, opts) {
+  opts = opts || {};
+  if (analysisMode !== 'phrase') return false;
+  if (phraseCueState[track.id]?.length && track.totalTime > 0) {
+    // `compact` drops the "Phrase structure" caption — used on Skipped cards
+    // where the #163 existing-cue chips already consume most of the fixed
+    // 160px (TASK-033), so the ~24px caption+margins would push the strip
+    // out of the visible box. The coloured segments are self-describing.
+    if (!opts.compact) {
+      const stripLabel = document.createElement('div');
+      stripLabel.style.cssText = 'font-size:10px;color:var(--muted);margin-top:6px;margin-bottom:2px;text-transform:uppercase;letter-spacing:.05em;';
+      stripLabel.textContent = 'Phrase structure';
+      cardMain.appendChild(stripLabel);
+    }
+    // `cueTicks` overlays existing hot-cue positions on the strip (Skipped
+    // cards merge the #163 chips here so both structure + cues fit 160px).
+    const strip = buildPhraseStrip(phraseCueState[track.id], track.totalTime, opts.cueTicks);
+    if (strip) {
+      if (opts.compact) strip.style.marginTop = '4px';
+      cardMain.appendChild(strip);
+      return true;
+    }
+    return false;
+  } else if (opts.notes && !localMode) {
+    const note = document.createElement('p');
+    note.style.cssText = 'font-size:12px;color:var(--muted);margin-top:4px;';
+    note.textContent = '⬡ No ANLZ data — drop the analysis folder above to enable phrase analysis';
+    cardMain.appendChild(note);
+  } else if (opts.notes && !track.hasPhrase) {
+    const note = document.createElement('p');
+    note.style.cssText = 'font-size:12px;color:var(--muted);margin-top:4px;';
+    note.textContent = '⬡ No phrase data — track has not been analyzed by Rekordbox';
+    cardMain.appendChild(note);
+  }
+  return false;
+}
+
 // Append the per-track "intelligence" widgets (sparkline, mix score chip,
 // classification chip, similar-tracks button + panels) to `cardMain`. No-op
 // when not in localMode (the data behind these widgets is local-server
@@ -11194,12 +11275,23 @@ function buildTrackCard(track, cues, willSkip, opts = {}) {
     skipped.textContent = `Skipped — has ${track.existingHotCues} existing hot cue${track.existingHotCues !== 1 ? 's' : ''}`;
     cardMain.appendChild(skipped);
 
-    // Render the existing cues so the user can see WHAT was already on the
-    // track (positions, names, slot letters), not just an opaque count.
-    // No "replaced" badge because nothing will be replaced — we're skipping.
+    // Phrase structure strip with the existing hot-cue positions overlaid as
+    // ticks (the chosen "merge" layout). The strip describes the track and the
+    // ticks show WHERE its existing cues sit — both in one 16px row, so both
+    // fit the fixed 160px card (TASK-033). `compact` drops the caption;
+    // `notes:false` skips the "no data" lines. Auto-cue badges stay hidden —
+    // those ARE the skipped generation outcome. With lazy phrase loading the
+    // strip appears once the viewport fetch lands and _updateTrackCardCues
+    // rebuilds the card.
+    const stripRendered = _appendPhraseStrip(cardMain, track, {
+      notes: false, compact: true, cueTicks: track.existingCueDetails,
+    });
+
+    // Fallback: when there's NO phrase data (no strip), keep the #163 chip row
+    // so the existing cues are still shown — names, slot letters, positions.
     // Cap at SKIPPED_CHIP_LIMIT and add a "+N more" indicator so the row stays
     // single-line inside the Virtualizer's fixed 160px card height (TASK-033).
-    if (track.existingCueDetails && track.existingCueDetails.length > 0) {
+    if (!stripRendered && track.existingCueDetails && track.existingCueDetails.length > 0) {
       const SKIPPED_CHIP_LIMIT = 9;  // 8 hot cues (A-H) + memory cue
       const chipsRow = document.createElement('div');
       chipsRow.className = 'existing-cues-row';
@@ -11334,26 +11426,7 @@ function buildTrackCard(track, cues, willSkip, opts = {}) {
     cardMain.appendChild(chipsRow);
   }
 
-  if (analysisMode === 'phrase') {
-    if (phraseCueState[track.id]?.length && track.totalTime > 0) {
-      const stripLabel = document.createElement('div');
-      stripLabel.style.cssText = 'font-size:10px;color:var(--muted);margin-top:6px;margin-bottom:2px;text-transform:uppercase;letter-spacing:.05em;';
-      stripLabel.textContent = 'Phrase structure';
-      cardMain.appendChild(stripLabel);
-      const strip = buildPhraseStrip(phraseCueState[track.id], track.totalTime);
-      if (strip) cardMain.appendChild(strip);
-    } else if (!localMode) {
-      const note = document.createElement('p');
-      note.style.cssText = 'font-size:12px;color:var(--muted);margin-top:4px;';
-      note.textContent = '⬡ No ANLZ data — drop the analysis folder above to enable phrase analysis';
-      cardMain.appendChild(note);
-    } else if (!track.hasPhrase) {
-      const note = document.createElement('p');
-      note.style.cssText = 'font-size:12px;color:var(--muted);margin-top:4px;';
-      note.textContent = '⬡ No phrase data — track has not been analyzed by Rekordbox';
-      cardMain.appendChild(note);
-    }
-  }
+  _appendPhraseStrip(cardMain, track, { notes: true });
 
   // Energy sparkline + mixability + classification + similar tracks — the
   // "intelligence" widgets that describe the TRACK itself (not what AutoCue
@@ -11432,11 +11505,14 @@ function _updateTrackCardCues(trackId) {
   const track = parsedTracksById.get(tid);
   if (!track) return;
   const skipExisting = document.getElementById('skip-existing-cues')?.checked;
-  if (skipExisting && track.existingHotCues > 0) return; // skipped card; nothing to refresh
+  const willSkip = !!(skipExisting && track.existingHotCues > 0);
   // Replay the cue computation from renderTracks's inner computeCues — limited to
   // the phrase-mode branch since this entry point only fires while phrase cues land.
+  // Skipped cards get NO auto-cue badges (cues stays []) — they only rebuild to
+  // surface the phrase structure strip, which buildTrackCard reads straight
+  // from phraseCueState in its willSkip branch.
   let cues = [];
-  if (analysisMode === 'phrase' && phraseCueState[track.id]?.length) {
+  if (!willSkip && analysisMode === 'phrase' && phraseCueState[track.id]?.length) {
     cues = phraseCueState[track.id].map(c => ({
       slot: c.slot, posSec: c.position_ms / 1000,
       label: c.label, isPhrase: true, name: c.name || '',
@@ -11444,8 +11520,10 @@ function _updateTrackCardCues(trackId) {
       phraseBars: c.phrase_bars ?? 0,
     }));
   }
-  if (!cues.length) return; // nothing to render (no phrase data yet for this track)
-  const willSkip = false;
+  // Nothing new to show: non-skipped card with no cues yet, OR skipped card
+  // whose phrase data hasn't loaded (the strip would be empty).
+  const hasPhrase = !!(phraseCueState[track.id]?.length);
+  if (willSkip ? !hasPhrase : !cues.length) return;
 
   // Album mode (or any non-virtualized render): patch via _cardMap.
   const albumCard = _cardMap.get(tid);
