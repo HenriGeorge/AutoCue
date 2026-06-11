@@ -3491,7 +3491,7 @@ class TestDuplicatesEndpoint:
 
 
 # ---------------------------------------------------------------------------
-# POST /api/duplicates/delete — phase 2 destructive path
+# POST /api/duplicates/delete — phase 2/3 destructive path (SSE since WS4)
 # ---------------------------------------------------------------------------
 
 class TestDuplicatesDeleteEndpoint:
@@ -3517,7 +3517,25 @@ class TestDuplicatesDeleteEndpoint:
         # MagicMock returns truthy nested savepoint objects automatically.
         return db
 
+    @staticmethod
+    def _sse(body):
+        import json as _json
+        return [
+            _json.loads(line[6:])
+            for line in body.splitlines()
+            if line.startswith("data: ")
+        ]
+
+    @staticmethod
+    def _reset_backup_session():
+        # WS6 session-window state is module-level — reset between tests
+        # so one test's backup doesn't leak into the next.
+        from autocue.serve import routes
+        routes._duplicates_backup_session["path"] = None
+        routes._duplicates_backup_session["stamp"] = 0.0
+
     def test_dry_run_reports_count_without_writing(self):
+        self._reset_backup_session()
         db = self._db_with_contents([self._content(1), self._content(2)])
         client = _make_client(db)
         r = client.post(
@@ -3525,14 +3543,34 @@ class TestDuplicatesDeleteEndpoint:
             json={"track_ids": [1, 2], "dry_run": True},
         )
         assert r.status_code == 200, r.text
-        body = r.json()
-        assert body["deleted"] == 2
-        assert body["dry_run"] is True
-        assert body["backup_path"] is None  # backup is skipped on dry_run
+        events = self._sse(r.text)
+        # First event: total + backup_path (null on dry-run).
+        assert events[0]["total"] == 2
+        assert events[0]["backup_path"] is None
+        # Terminal event carries the summary.
+        summary = events[-1]["summary"]
+        assert events[-1]["done"] is True
+        assert summary["deleted"] == 2
+        assert summary["dry_run"] is True
+        assert summary["cancelled"] is False
         # No actual db.delete() call should have happened.
         assert db.delete.call_count == 0
 
+    def test_progress_events_emitted_between_total_and_done(self):
+        self._reset_backup_session()
+        db = self._db_with_contents([self._content(i) for i in range(1, 4)])
+        client = _make_client(db)
+        r = client.post(
+            "/api/duplicates/delete",
+            json={"track_ids": [1, 2, 3], "dry_run": True},
+        )
+        events = self._sse(r.text)
+        progress = [e for e in events if "processed" in e and "done" not in e]
+        assert len(progress) >= 1, f"no progress events in {events}"
+        assert progress[-1]["deleted"] == 3
+
     def test_rekordbox_running_returns_409(self):
+        self._reset_backup_session()
         db = self._db_with_contents([self._content(1)])
         client = _make_client(db)
         # Patch the cached _rb_running helper used at the route layer.
@@ -3545,6 +3583,7 @@ class TestDuplicatesDeleteEndpoint:
         assert "Rekordbox" in r.json()["detail"]
 
     def test_rekordbox_running_still_allowed_for_dry_run(self):
+        self._reset_backup_session()
         # Dry-run is read-only — no need to block when Rekordbox is up.
         db = self._db_with_contents([self._content(1)])
         client = _make_client(db)
@@ -3556,6 +3595,7 @@ class TestDuplicatesDeleteEndpoint:
         assert r.status_code == 200
 
     def test_backup_failure_aborts_with_500(self):
+        self._reset_backup_session()
         db = self._db_with_contents([self._content(1)])
         client = _make_client(db)
         with patch("autocue.serve.routes._rb_running", return_value=False), \
@@ -3571,6 +3611,7 @@ class TestDuplicatesDeleteEndpoint:
         assert db.delete.call_count == 0
 
     def test_empty_track_id_list_returns_zero_no_backup(self):
+        self._reset_backup_session()
         db = self._db_with_contents([])
         client = _make_client(db)
         with patch("autocue.serve.routes._rb_running", return_value=False):
@@ -3579,7 +3620,59 @@ class TestDuplicatesDeleteEndpoint:
                 json={"track_ids": [], "dry_run": False},
             )
         assert r.status_code == 200, r.text
-        body = r.json()
-        assert body["deleted"] == 0
+        events = self._sse(r.text)
+        assert events[-1]["summary"]["deleted"] == 0
         # Backup is skipped when no track_ids — short-circuit early.
-        assert body["backup_path"] is None
+        assert events[0]["backup_path"] is None
+
+    def test_backup_session_window_reuses_path(self, tmp_path):
+        """WS6 — two deletes inside the 30s window share ONE backup."""
+        self._reset_backup_session()
+        backup_file = tmp_path / "master_backup_1.db"
+        backup_file.write_bytes(b"fake")
+        db = self._db_with_contents([self._content(1), self._content(2)])
+        client = _make_client(db)
+        # NOTE: pathlib.Path.exists is patched globally so both the
+        # master.db existence check AND the session-window's reuse check
+        # (Path(prev_path).exists()) succeed against the fake paths.
+        with patch("autocue.serve.routes._rb_running", return_value=False), \
+             patch("autocue.db_writer.backup_database",
+                   return_value=backup_file) as mock_backup, \
+             patch("pathlib.Path.exists", return_value=True):
+            r1 = client.post(
+                "/api/duplicates/delete",
+                json={"track_ids": [1], "dry_run": False},
+            )
+            r2 = client.post(
+                "/api/duplicates/delete",
+                json={"track_ids": [2], "dry_run": False},
+            )
+        e1 = self._sse(r1.text)
+        e2 = self._sse(r2.text)
+        assert e1[0]["backup_path"] == e2[0]["backup_path"]
+        # backup_database called exactly ONCE across the two requests.
+        assert mock_backup.call_count == 1
+
+    def test_backup_session_window_expires(self, tmp_path):
+        """WS6 — a delete after the window expires starts a NEW backup."""
+        self._reset_backup_session()
+        backup_file = tmp_path / "master_backup_1.db"
+        backup_file.write_bytes(b"fake")
+        db = self._db_with_contents([self._content(1), self._content(2)])
+        client = _make_client(db)
+        from autocue.serve import routes as routes_mod
+        with patch("autocue.serve.routes._rb_running", return_value=False), \
+             patch("autocue.db_writer.backup_database",
+                   return_value=backup_file) as mock_backup, \
+             patch("pathlib.Path.exists", return_value=True):
+            client.post(
+                "/api/duplicates/delete",
+                json={"track_ids": [1], "dry_run": False},
+            )
+            # Simulate >30s elapsed by back-dating the session stamp.
+            routes_mod._duplicates_backup_session["stamp"] -= 31.0
+            client.post(
+                "/api/duplicates/delete",
+                json={"track_ids": [2], "dry_run": False},
+            )
+        assert mock_backup.call_count == 2

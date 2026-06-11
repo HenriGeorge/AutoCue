@@ -144,7 +144,14 @@ def has_existing_memory_cues(content, db) -> int:
     )
 
 
-def delete_tracks(db, track_ids: list[int], *, dry_run: bool = False) -> dict:
+def delete_tracks(
+    db,
+    track_ids: list[int],
+    *,
+    dry_run: bool = False,
+    cancel=None,
+    progress_cb=None,
+) -> dict:
     """Delete one or more tracks from the Rekordbox library.
 
     Phase 2 of the duplicates feature. Safety:
@@ -162,7 +169,20 @@ def delete_tracks(db, track_ids: list[int], *, dry_run: bool = False) -> dict:
         backup_path is plumbed up to the route and surfaced in the toast
         so the user knows exactly which file to roll back to.
 
-    Returns ``{"deleted": <count>, "skipped": <count>, "dry_run": bool}``.
+    Phase 3 (WS4) adds two optional hooks:
+      * ``cancel`` — a ``threading.Event``-like object. Checked at the
+        top of every row; when set, the loop stops, rows staged so far
+        still get the top-level commit, and the result carries
+        ``cancelled=True`` plus the partial counts. The backup taken
+        before the call still reflects the pre-delete state, so a
+        cancel is always safely restorable.
+      * ``progress_cb(processed, deleted, skipped)`` — called after
+        every row (including skipped rows) so an SSE caller can emit
+        live progress. Exceptions raised by the callback are NOT
+        swallowed — a broken callback should fail loudly in tests.
+
+    Returns ``{"deleted": int, "skipped": int, "dry_run": bool,
+    "cancelled": bool}``.
     """
     # Every pyrekordbox table that has a ContentID FK to DjmdContent.ID.
     # If this list drops a table, the corresponding child rows orphan when
@@ -195,17 +215,32 @@ def delete_tracks(db, track_ids: list[int], *, dry_run: bool = False) -> dict:
         DjmdSongTagList,
     )
 
-    deleted = skipped = 0
+    deleted = skipped = processed = 0
+    cancelled = False
     titles_for_log: list[str] = []
 
+    def _notify():
+        if progress_cb is not None:
+            progress_cb(processed, deleted, skipped)
+
     for tid in track_ids:
+        if cancel is not None and cancel.is_set():
+            cancelled = True
+            logger.info(
+                "delete_tracks: cancelled after %d/%d rows",
+                processed, len(track_ids),
+            )
+            break
+        processed += 1
         try:
             content = db.get_content(ID=tid)
         except Exception:
             skipped += 1
+            _notify()
             continue
         if content is None:
             skipped += 1
+            _notify()
             continue
 
         title_for_log = str(getattr(content, "Title", "") or f"id={tid}")
@@ -213,6 +248,7 @@ def delete_tracks(db, track_ids: list[int], *, dry_run: bool = False) -> dict:
         if dry_run:
             deleted += 1
             titles_for_log.append(title_for_log)
+            _notify()
             continue
 
         try:
@@ -255,13 +291,15 @@ def delete_tracks(db, track_ids: list[int], *, dry_run: bool = False) -> dict:
                 tid, title_for_log,
             )
             skipped += 1
+        _notify()
 
     if not dry_run and deleted > 0:
         try:
             db.session.commit()
             logger.info(
-                "delete_tracks: deleted %d tracks (sample: %s)",
+                "delete_tracks: deleted %d tracks (sample: %s)%s",
                 deleted, ", ".join(repr(t) for t in titles_for_log[:3]),
+                " [cancelled mid-batch]" if cancelled else "",
             )
         except Exception:
             db.session.rollback()
@@ -270,7 +308,12 @@ def delete_tracks(db, track_ids: list[int], *, dry_run: bool = False) -> dict:
             )
             raise
 
-    return {"deleted": deleted, "skipped": skipped, "dry_run": dry_run}
+    return {
+        "deleted": deleted,
+        "skipped": skipped,
+        "dry_run": dry_run,
+        "cancelled": cancelled,
+    }
 
 
 def delete_cues_from_db(content, db, *, dry_run: bool = False) -> int:
