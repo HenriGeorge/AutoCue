@@ -261,7 +261,12 @@ look it up. The general structure:
 │   │   ├── .category-chip[data-track-id]   (warmup/build/peak/…)
 │   │   ├── .track-timeline  (primary cue positions)
 │   │   └── .preview-timeline  (secondary — when pendingCues[id] exists)
-│   └── .skipped-badge  (when willSkip is true)
+│   └── .skipped-badge  (when willSkip is true) →
+│         .phrase-strip + .phrase-cue-tick * N  (phrase mode: existing hot-cue
+│           positions merged onto the strip as ticks, slot letter + name on
+│           hover; both fit the fixed 160px card)
+│         .existing-cues-row  (fallback only when the track has NO phrase data)
+│         + the same intelligence widgets as a normal card
 └── .similar-panel  (collapsed; populated on demand by _toggleSimilarPanel)
 ```
 
