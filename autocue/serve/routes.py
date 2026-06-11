@@ -2029,6 +2029,19 @@ def find_duplicates(db=Depends(get_ro_db)):
                     key_str = str(getattr(k, "ScaleName", "") or "")
             except Exception:
                 pass
+            # Phase 3 — duration + bitrate flow into the grouping key
+            # (duration_bucket) and the keeper heuristic (bitrate as a
+            # tiebreaker before track_id). FolderPath + FileNameL are
+            # echoed back so the UI can render the same-path-as-keeper
+            # chip per row without an extra round-trip.
+            try:
+                duration = float(getattr(row, "Length", 0) or 0)
+            except (TypeError, ValueError):
+                duration = 0.0
+            try:
+                bitrate = int(getattr(row, "BitRate", 0) or 0)
+            except (TypeError, ValueError):
+                bitrate = 0
             projections.append(
                 TrackProjection(
                     track_id=int(row.ID),
@@ -2040,6 +2053,10 @@ def find_duplicates(db=Depends(get_ro_db)):
                     play_count=int(getattr(row, "DJPlayCount", 0) or 0),
                     last_played=last_played_map.get(str(row.ID)),
                     source=_classify_source(getattr(row, "FolderPath", None)),
+                    duration=duration,
+                    bitrate=bitrate,
+                    folder_path=(getattr(row, "FolderPath", None) or ""),
+                    file_name=(getattr(row, "FileNameL", None) or ""),
                 )
             )
 

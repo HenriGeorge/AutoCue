@@ -16,12 +16,16 @@ from autocue.analysis.duplicates import (
 
 class TestNormalizeKey:
     def test_lowercases_and_strips(self):
-        assert normalize_key(" Ed Longo  ", " New Life  ") == "ed longo|||new life"
+        # Trailing `|||0` is the duration_bucket — 0 when duration is omitted.
+        assert (
+            normalize_key(" Ed Longo  ", " New Life  ")
+            == "ed longo|||new life|||0"
+        )
 
     def test_collapses_internal_whitespace(self):
         assert (
             normalize_key("Gia    Margaret", "Apathy  (Original Mix)")
-            == "gia margaret|||apathy (original mix)"
+            == "gia margaret|||apathy (original mix)|||0"
         )
 
     def test_both_empty_returns_empty_string(self):
@@ -31,12 +35,47 @@ class TestNormalizeKey:
     def test_one_side_empty_still_returns_key(self):
         # Classical / various-artist tracks with empty artist must still
         # group on title alone.
-        assert normalize_key("", "Symphony No. 9") == "|||symphony no. 9"
-        assert normalize_key("Daft Punk", "") == "daft punk|||"
+        assert normalize_key("", "Symphony No. 9") == "|||symphony no. 9|||0"
+        assert normalize_key("Daft Punk", "") == "daft punk||||||0"
 
     def test_case_insensitive(self):
         assert normalize_key("DAFT PUNK", "GET LUCKY") == normalize_key(
             "Daft Punk", "Get Lucky"
+        )
+
+    def test_duration_omitted_keeps_phase2_behaviour(self):
+        # When the caller doesn't pass `duration`, the bucket falls to 0
+        # and two same-artist+title tracks still collide. Phase 1/2
+        # callers (and the JS frontend's vendored helper) never produced
+        # a duration; they must keep grouping.
+        a = normalize_key("X", "Y")
+        b = normalize_key("X", "Y", duration=None)
+        c = normalize_key("X", "Y", duration=0)
+        assert a == b == c
+
+    def test_duration_within_5s_groups(self):
+        # Two ID3-tagged copies of the same song will often disagree on
+        # length by ±1–2 s due to encoder rounding. They must still
+        # bucket together.
+        assert (
+            normalize_key("X", "Y", duration=240.4)
+            == normalize_key("X", "Y", duration=241.6)
+        )
+
+    def test_duration_separates_distinct_mixes(self):
+        # Same (artist, title) but materially different durations →
+        # different keys. Album mix 4:12 vs extended mix 6:48.
+        assert (
+            normalize_key("X", "Y", duration=252.0)  # 4:12
+            != normalize_key("X", "Y", duration=408.0)  # 6:48
+        )
+
+    def test_duration_negative_buckets_as_unknown(self):
+        # Defensive: a bogus negative duration shouldn't error and
+        # shouldn't accidentally create its own bucket.
+        assert (
+            normalize_key("X", "Y", duration=-10.0)
+            == normalize_key("X", "Y", duration=None)
         )
 
 
@@ -52,7 +91,9 @@ def _track(track_id, *, plays=0, hot_cues=0, last_played=None):
     )
 
 
-def _full(track_id, artist, title, *, plays=0, hot_cues=0, last_played=None, source="file"):
+def _full(track_id, artist, title, *, plays=0, hot_cues=0, last_played=None,
+          source="file", duration=0.0, bitrate=0,
+          folder_path="", file_name=""):
     return TrackProjection(
         track_id=track_id,
         artist=artist,
@@ -61,6 +102,10 @@ def _full(track_id, artist, title, *, plays=0, hot_cues=0, last_played=None, sou
         existing_hot_cues=hot_cues,
         last_played=last_played,
         source=source,
+        duration=duration,
+        bitrate=bitrate,
+        folder_path=folder_path,
+        file_name=file_name,
     )
 
 
@@ -184,3 +229,38 @@ class TestFindDuplicateGroups:
         group = find_duplicate_groups(tracks)[0]
         assert group.artist == "Ed Longo"
         assert group.title == "New Life"
+
+    def test_distinct_durations_do_not_collapse(self):
+        # The 4:12 album cut and the 6:48 extended mix of the "same"
+        # song must not merge — different audio, different intent.
+        tracks = [
+            _full(1, "X", "Y", duration=252.0),
+            _full(2, "X", "Y", duration=408.0),
+        ]
+        assert find_duplicate_groups(tracks) == []
+
+    def test_close_durations_still_collapse(self):
+        # Two imports of the same song with encoder-rounded durations.
+        tracks = [
+            _full(1, "X", "Y", duration=240.4),
+            _full(2, "X", "Y", duration=241.6),
+        ]
+        assert len(find_duplicate_groups(tracks)) == 1
+
+    def test_to_dict_emits_same_path_chip(self):
+        # Same FolderPath+FileNameL across two copies → same-path chip
+        # true; deleting the non-keeper leaves no orphan file on disk.
+        tracks = [
+            _full(1, "X", "Y", duration=240.0,
+                  folder_path="/lib/", file_name="song.mp3", plays=5),
+            _full(2, "X", "Y", duration=240.0,
+                  folder_path="/lib/", file_name="song.mp3", plays=1),
+            _full(3, "X", "Y", duration=240.0,
+                  folder_path="/other/", file_name="song.mp3", plays=0),
+        ]
+        d = find_duplicate_groups(tracks)[0].to_dict()
+        chips = {c["track_id"]: c["same_path_as_keeper"] for c in d["copies"]}
+        # Track 1 wins keeper (most plays) → it's the same-path baseline.
+        assert chips[1] is True
+        assert chips[2] is True  # also /lib/song.mp3
+        assert chips[3] is False  # /other/song.mp3 — distinct file
