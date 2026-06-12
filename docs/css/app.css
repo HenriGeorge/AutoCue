@@ -2708,3 +2708,35 @@
     #wb-rail-health .rh-fix { transition: none; }
   }
   /* ── /v2: workbench polish ──────────────────────────────────────────────── */
+  /* ── v2: consent gradient (review-unlocks-apply, design-H "Stagehand") ─── */
+  /* Evidence region inside the shared _confirmDialog. Collapsed until the user
+     clicks "Review N items"; reveal arms the destructive primary (250ms guard).
+     Additive: legacy confirm dialogs never render .confirm-evidence. */
+  .confirm-evidence {
+    display: none;
+    margin: 4px 0 16px;
+    padding-left: 11px;
+    border-left: 2px solid var(--border);
+    font-size: 12.5px;
+    line-height: 1.55;
+    color: var(--text);
+    animation: fadeSlideIn 0.18s ease-out both;
+  }
+  .confirm-evidence.open { display: block; }
+  .confirm-evidence-line { margin: 2px 0; }
+  .confirm-evidence-line.danger { color: var(--danger); }
+  .confirm-evidence-line .mono { font-family: var(--font-mono, var(--mono)); }
+  .confirm-evidence-foot {
+    margin-top: 6px;
+    font-size: 11.5px;
+    color: var(--muted);
+  }
+  /* The "Review N items" toggle reads as a quiet secondary until expanded. */
+  .confirm-review-btn[aria-expanded="true"] {
+    background: var(--surface-2);
+    border-color: var(--border-hover);
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .confirm-evidence { animation: none; }
+  }
+  /* ── /v2: consent gradient ────────────────────────────────────────────── */

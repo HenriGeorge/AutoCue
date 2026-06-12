@@ -136,14 +136,34 @@ function _dismissToast(el) {
   el.addEventListener('animationend', () => el.remove(), { once: true });
 }
 
+// ── Consent gradient: review-unlocks-apply gate (design-H "Stagehand") ──────────
+// Pure verdict helper for the review-required path: the destructive primary may
+// only enable once the user has (a) revealed the evidence AND (b) waited out the
+// 250ms accidental-Enter guard measured FROM the reveal. Kept pure + exported so
+// it is unit-testable without a DOM. When reviewRequired is false the gate is a
+// no-op (legacy callers are byte-identical).
+function _consentCanConfirm(reviewRequired, reviewed, elapsedSinceReveal) {
+  if (!reviewRequired) return true;          // legacy path — handled by the 250ms timer alone
+  return reviewed === true && elapsedSinceReveal >= 250;
+}
+
 // ── Styled confirm dialog ───────────────────────────────────────────────────────
 // Async replacement for window.confirm. Mirrors the duplicates-delete modal's
 // safety choreography: primary disabled 250ms after open (defeats accidental
 // Enter), Cancel default-focused, two-button focus trap, Esc/backdrop cancel.
-// opts: { confirmLabel?: string, danger?: boolean }
+// opts: { confirmLabel?: string, danger?: boolean,
+//         reviewRequired?: boolean, evidence?: HTMLElement|string }
+//
+// reviewRequired (default false, OPT-IN): the "review unlocks apply" consent
+// gradient. When true, the primary stays disabled and reads "Review to enable"
+// until the user clicks "Review N items" to reveal the evidence; only AFTER the
+// reveal does the 250ms-then-enable timer start and the label flip to the real
+// destructive label. Legacy callers that omit reviewRequired are unaffected.
 function _confirmDialog(message, opts = {}) {
   return new Promise((resolve) => {
     document.getElementById('app-confirm-modal')?.remove();
+    const reviewRequired = opts.reviewRequired === true && opts.evidence != null;
+    const confirmLabel = opts.confirmLabel || 'Confirm';
     const overlay = document.createElement('div');
     overlay.id = 'app-confirm-modal';
     overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:1300;display:flex;align-items:center;justify-content:center;';
@@ -155,17 +175,29 @@ function _confirmDialog(message, opts = {}) {
     const msg = document.createElement('div');
     msg.style.cssText = 'font-size:13px;line-height:1.6;margin-bottom:16px;white-space:pre-line;';
     msg.textContent = message;
+
+    // Evidence region — collapsed until the user opts to review (review-required only)
+    let evidenceWrap = null;
+    let reviewBtn = null;
+    let reviewed = false;
+    if (reviewRequired) {
+      evidenceWrap = document.createElement('div');
+      evidenceWrap.className = 'confirm-evidence';        // hidden until .open
+      evidenceWrap.setAttribute('aria-hidden', 'true');
+      if (typeof opts.evidence === 'string') evidenceWrap.innerHTML = opts.evidence;
+      else evidenceWrap.appendChild(opts.evidence);
+    }
+
     const row = document.createElement('div');
-    row.style.cssText = 'display:flex;gap:8px;justify-content:flex-end;';
+    row.style.cssText = 'display:flex;gap:8px;justify-content:flex-end;align-items:center;';
     const cancelBtn = document.createElement('button');
     cancelBtn.className = 'secondary-btn';
     cancelBtn.textContent = 'Cancel';
     const goBtn = document.createElement('button');
     goBtn.className = 'primary';
-    goBtn.textContent = opts.confirmLabel || 'Confirm';
     if (opts.danger) goBtn.style.cssText = 'background:var(--danger);border-color:var(--danger);color:#fff;';
     goBtn.disabled = true;
-    setTimeout(() => { goBtn.disabled = false; }, 250);
+
     const prevFocus = document.activeElement;
     const done = (val) => {
       document.removeEventListener('keydown', onKey, true);
@@ -173,20 +205,69 @@ function _confirmDialog(message, opts = {}) {
       if (prevFocus && typeof prevFocus.focus === 'function') { try { prevFocus.focus(); } catch (_) {} }
       resolve(val);
     };
+
+    if (reviewRequired) {
+      // The primary announces the gate ("review unlocks apply"). Only AFTER the
+      // user reveals the evidence does the destructive label + 250ms timer apply.
+      goBtn.textContent = 'Review to enable';
+      goBtn.setAttribute('aria-disabled', 'true');
+      goBtn.title = 'Destructive — review the evidence first';
+      const reviewedCount = (typeof opts.reviewCount === 'number' && opts.reviewCount > 0)
+        ? opts.reviewCount : null;
+      reviewBtn = document.createElement('button');
+      reviewBtn.className = 'secondary-btn confirm-review-btn';
+      reviewBtn.setAttribute('aria-expanded', 'false');
+      reviewBtn.textContent = reviewedCount ? `Review ${reviewedCount} item${reviewedCount === 1 ? '' : 's'}` : 'Review';
+      const reveal = () => {
+        if (reviewed) {                                   // toggle closed
+          evidenceWrap.classList.remove('open');
+          evidenceWrap.setAttribute('aria-hidden', 'true');
+          reviewBtn.setAttribute('aria-expanded', 'false');
+          reviewBtn.textContent = reviewedCount ? `Review ${reviewedCount} item${reviewedCount === 1 ? '' : 's'}` : 'Review';
+          // Note: once unlocked the primary stays unlocked — consent was given.
+          return;
+        }
+        reviewed = true;
+        evidenceWrap.classList.add('open');
+        evidenceWrap.setAttribute('aria-hidden', 'false');
+        reviewBtn.setAttribute('aria-expanded', 'true');
+        reviewBtn.textContent = 'Hide';
+        // Now arm the destructive button: real label + 250ms accidental-Enter guard
+        goBtn.textContent = confirmLabel;
+        goBtn.title = '';
+        setTimeout(() => {
+          goBtn.disabled = false;
+          goBtn.removeAttribute('aria-disabled');
+        }, 250);
+      };
+      reviewBtn.addEventListener('click', reveal);
+    } else {
+      goBtn.textContent = confirmLabel;
+      setTimeout(() => { goBtn.disabled = false; }, 250);
+    }
+
+    const focusables = () => reviewRequired ? [cancelBtn, reviewBtn, goBtn] : [cancelBtn, goBtn];
     const onKey = (e) => {
       if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); done(false); }
       else if (e.key === 'Tab') {
         e.preventDefault();
-        (document.activeElement === cancelBtn ? goBtn : cancelBtn).focus();
+        const list = focusables();
+        const i = list.indexOf(document.activeElement);
+        const next = e.shiftKey
+          ? list[(i - 1 + list.length) % list.length]
+          : list[(i + 1) % list.length];
+        next.focus();
       }
     };
     document.addEventListener('keydown', onKey, true);
     cancelBtn.addEventListener('click', () => done(false));
-    goBtn.addEventListener('click', () => done(true));
+    goBtn.addEventListener('click', () => { if (!goBtn.disabled) done(true); });
     overlay.addEventListener('click', (e) => { if (e.target === overlay) done(false); });
+    if (reviewRequired) row.appendChild(reviewBtn);
     row.appendChild(cancelBtn);
     row.appendChild(goBtn);
     box.appendChild(msg);
+    if (evidenceWrap) box.appendChild(evidenceWrap);
     box.appendChild(row);
     overlay.appendChild(box);
     document.body.appendChild(overlay);
