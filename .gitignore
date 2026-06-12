@@ -28,3 +28,6 @@ node_modules/
 .claude/worktrees/
 .claude/session-logs/
 
+
+# Figma exports — derived artifacts, cloud-versioned; repo source of truth is docs/index.html tokens
+*.fig
