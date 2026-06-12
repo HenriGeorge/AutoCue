@@ -102,6 +102,14 @@ function updateSelectionBar() {
       void c.offsetWidth;
       c.classList.add('count-pop');
     }
+    // P1 T6: contextual relabel only — the apply button states its target.
+    // (P2 replaces this whole bar with the global action dock; do not grow it.)
+    const abApply = document.getElementById('action-bar-apply');
+    if (abApply && !abApply.disabled) {
+      abApply.textContent = visible
+        ? `Apply to ${count.toLocaleString()} track${count === 1 ? '' : 's'}`
+        : 'Apply to Rekordbox';
+    }
   }
 }
 
