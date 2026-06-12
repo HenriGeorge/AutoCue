@@ -404,6 +404,21 @@
       </div>
     </details>
     </div><!-- /#filter-bar -->
+    <!-- P2 workbench: sticky dense-grid column header (visible only in wb-active).
+         Aligned to .wb-row's grid columns; pinned inside #tracks-sticky so it
+         rides the document-level sticky bar (TASK-037). -->
+    <div id="wb-grid-head" class="wb-row" aria-hidden="true">
+      <div class="wb-c-ck"></div>
+      <div class="wb-c-idx">#</div>
+      <div class="wb-c-title">Title / Artist</div>
+      <div class="wb-c-bpm">BPM</div>
+      <div class="wb-c-key">Key</div>
+      <div class="wb-c-energy">Energy</div>
+      <div class="wb-c-mix">Mix</div>
+      <div class="wb-c-class">Class</div>
+      <div class="wb-c-cues">Cues</div>
+      <div class="wb-c-more"></div>
+    </div>
     </div><!-- /#tracks-sticky -->
     <div id="track-list"></div>
   </section>

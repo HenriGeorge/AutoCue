@@ -2429,3 +2429,117 @@
   /* Restore button shouldn't push to the far right inside the toolbar group */
   #wb-topbar-tools #restore-btn { margin-left: 0 !important; }
   @media (max-width: 720px) { #wb-topbar-tools { padding: 8px 16px; gap: 12px; } }
+
+  /* ── v2: workbench grid ─────────────────────────────────────────────────
+     The dense thin-row grid (design-Z) that the workbench centre uses instead
+     of the 160px cards. .wb-row is BOTH the data rows (built by buildWbRow in
+     06-render.js) and the sticky #wb-grid-head column header — same grid
+     template so the columns line up. Visible only in body.wb-active. */
+  .wb-row {
+    display: grid;
+    grid-template-columns: 34px 28px minmax(150px, 1fr) 60px 44px 64px 50px 78px 92px 30px;
+    align-items: center;
+    column-gap: 0;
+  }
+  /* Sticky column header — rides #tracks-sticky (document scroll, TASK-037). */
+  #wb-grid-head { display: none; }
+  body.wb-active #wb-grid-head {
+    display: grid;
+    font-size: 10px; font-weight: 600; text-transform: uppercase;
+    letter-spacing: .07em; color: var(--muted-soft);
+    border-bottom: 1px solid var(--border);
+    user-select: none;
+  }
+  body.wb-active #wb-grid-head > div { padding: 8px 7px; white-space: nowrap; overflow: hidden; }
+  body.wb-active #wb-grid-head .wb-c-idx,
+  body.wb-active #wb-grid-head .wb-c-bpm,
+  body.wb-active #wb-grid-head .wb-c-mix { text-align: right; }
+
+  /* Data rows — fixed height so the Virtualizer window stays O(1) (TASK-033). */
+  body.wb-active #track-list.virtualized .track-card.wb-row {
+    height: 46px;
+    box-sizing: border-box;
+    border-bottom: 1px solid var(--border);
+    border-radius: 0;
+    background: none;
+    box-shadow: none;
+    padding: 0;
+    margin: 0;
+    cursor: default;
+    transition: background .12s;
+  }
+  body.wb-active .wb-row > div { padding: 0 7px; overflow: hidden; white-space: nowrap; min-width: 0; }
+  body.wb-active .wb-row:hover { background: var(--surface); }
+  body.wb-active .wb-row.selected { background: var(--surface); }
+  body.wb-active .wb-row.wb-focused {
+    background: var(--green-wash, color-mix(in srgb, var(--green) 8%, transparent));
+    box-shadow: inset 2px 0 0 var(--green);
+  }
+
+  /* Cells */
+  .wb-row .wb-c-ck { display: flex; justify-content: center; }
+  .wb-row .wb-c-ck input { accent-color: var(--green); cursor: pointer; margin: 0; }
+  .wb-row .wb-c-idx {
+    font-family: var(--font-mono, var(--mono));
+    font-size: 11px; color: var(--muted-soft); text-align: right;
+  }
+  .wb-row .wb-c-title { display: flex; flex-direction: column; justify-content: center; line-height: 1.25; min-width: 0; }
+  .wb-row .wb-c-title .wb-tt { font-size: 13px; font-weight: 600; letter-spacing: -.2px; overflow: hidden; text-overflow: ellipsis; }
+  .wb-row .wb-c-title .wb-tt.untitled { color: var(--muted); font-style: italic; font-weight: 500; }
+  .wb-row .wb-c-title .wb-ta { font-size: 11px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; }
+  .wb-row .wb-c-bpm {
+    font-family: var(--font-mono, var(--mono));
+    font-size: 12px; text-align: right; color: var(--green); font-weight: 500;
+  }
+  .wb-row .wb-c-key { display: flex; }
+  .wb-row .wb-key-chip {
+    font-family: var(--font-mono, var(--mono));
+    font-size: 10.5px; border: 1px solid var(--border); border-radius: var(--radius-sm, 4px);
+    padding: 1px 5px; color: var(--text); white-space: nowrap;
+  }
+  /* Energy sparkline cell — fixed-size box so the SVG reads offsetWidth right. */
+  .wb-row .wb-c-energy { overflow: hidden; }
+  .wb-row .wb-c-energy .energy-sparkline { display: block; width: 56px; height: 18px; }
+  .wb-row .wb-c-energy .energy-sparkline svg { display: block; width: 56px; height: 18px; }
+  .wb-row .wb-c-energy .energy-sparkline .loading { font-size: 10px; color: var(--muted-soft); letter-spacing: -1px; }
+  /* The legacy sparkline appends an energy-profile label — too wide for the cell. */
+  .wb-row .wb-c-energy .energy-sparkline > span:not(.loading):not(.no-data) { display: none; }
+  .wb-row .wb-c-energy .no-data { font-size: 9px; color: var(--muted-soft); }
+
+  /* Mix chip — flatten the legacy pill into a bare NN/100 number, green ≥80. */
+  .wb-row .wb-c-mix { font-family: var(--font-mono, var(--mono)); font-size: 12px; text-align: right; color: var(--text); }
+  .wb-row .wb-c-mix .mix-score-chip {
+    background: none !important; border: none !important; padding: 0 !important;
+    font-family: var(--font-mono, var(--mono)); font-size: 12px; color: inherit;
+  }
+  .wb-row .wb-c-mix .mix-score-chip.hi { color: var(--green); font-weight: 600; }
+  .wb-row .wb-c-mix .mix-score-chip.no-data { color: var(--muted-soft); font-size: 10px; }
+  .wb-row .wb-c-mix .mix-breakdown { display: none; }
+
+  /* Class chip — compact bordered pill. */
+  .wb-row .wb-c-class { overflow: visible; }
+  .wb-row .wb-c-class .category-chip {
+    font-size: 9.5px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em;
+    border: 1px solid var(--border); border-radius: var(--radius-sm, 4px); padding: 2px 6px;
+    color: var(--muted); display: inline-block; white-space: nowrap; line-height: 1.2;
+  }
+  .wb-row .wb-c-class .category-chip.loading { color: var(--muted-soft); border-color: transparent; }
+
+  /* Cue state — "● N ready" green vs "— no cues" muted. */
+  .wb-row .wb-c-cues { font-size: 11px; display: flex; align-items: center; }
+  .wb-row .wb-cues-ready { color: var(--green); font-weight: 600; }
+  .wb-row .wb-cues-ready::before { content: '●'; font-size: 8px; margin-right: 5px; vertical-align: 1px; }
+  .wb-row .wb-cues-none { color: var(--muted-soft); }
+
+  /* Overflow / play affordance. */
+  .wb-row .wb-c-more { display: flex; justify-content: center; }
+  .wb-row .wb-more-btn {
+    background: none; border: none; color: var(--muted-soft); padding: 3px;
+    border-radius: 6px; cursor: pointer; display: inline-flex; align-items: center; justify-content: center;
+  }
+  .wb-row .wb-more-btn svg { width: 14px; height: 14px; }
+  .wb-row .wb-more-btn:hover { background: var(--surface-2, var(--surface2)); color: var(--text); }
+  @media (prefers-reduced-motion: reduce) {
+    body.wb-active #track-list.virtualized .track-card.wb-row { transition: none; }
+  }
+  /* ── /v2: workbench grid ──────────────────────────────────────────────── */

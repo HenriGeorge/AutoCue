@@ -37,6 +37,8 @@ const REQUIRED_SELECTORS: string[] = [
   "#mini-waveform",
   // Sticky track filter bar
   "#tracks-sticky",
+  // P2 workbench dense-grid column header (in DOM always; hidden until body.wb-active)
+  "#wb-grid-head",
 ];
 
 test.describe("selectors exist in docs/index.html", () => {

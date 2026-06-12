@@ -413,13 +413,17 @@ async function _renderMixabilityChip(chip, breakdown) {
     const r = await fetch(`/api/tracks/${trackId}/mixability`);
     if (!r.ok) throw new Error('fetch failed');
     const d = await r.json();
+    // P2 workbench: in the dense grid the mix cell wants a bare "NN/100"
+    // (green ≥80), not the "Mix NN/100" pill. Additive — legacy cards aren't
+    // inside .wb-c-mix so they keep the original "Mix " prefix + pill styling.
+    const wbMix = !!(chip.parentNode && chip.parentNode.classList && chip.parentNode.classList.contains('wb-c-mix'));
     if (d.score === null || d.score === undefined) {
       chip.textContent = 'No phrase data';
       chip.className = 'mix-score-chip no-data';
       return;
     }
-    chip.className = 'mix-score-chip';
-    _animateCount(chip, d.score, 'Mix ', '/100');
+    chip.className = 'mix-score-chip' + (wbMix && d.score >= 80 ? ' hi' : '');
+    _animateCount(chip, d.score, wbMix ? '' : 'Mix ', '/100');
     const comp = d.components || {};
     const rows = [
       { label: 'Intro', key: 'intro', extra: d.intro_bars > 0 ? `${d.intro_bars} bars` : '' },
@@ -1072,6 +1076,171 @@ function buildTrackCard(track, cues, willSkip, opts = {}) {
   return card;
 }
 
+// ── P2 workbench dense thin-row grid (TASK part 2b) ──────────────────────────
+// Fixed-height grid row matching docs/design/mockups/design-Z-endstate.html.
+// Columns: checkbox · # · title/artist · BPM · KEY · ENERGY · MIX · CLASS ·
+// CUES · ⋯. Shares the `.track-card` class + `data-track-id` so the inspector
+// click-capture (v2/workbench/inspector.js) and selection machinery keep
+// working. The MIX / CLASS / ENERGY cells reuse the SAME lazy-load containers
+// the legacy cards use (`.energy-sparkline`, `.mix-score-chip[data-track-id]`,
+// `.category-chip[data-track-id]`) so renderTracks' existing IntersectionObservers
+// wire them with no extra plumbing. Height MUST stay uniform (WB_ROW_H) — the
+// Virtualizer computes its window O(1) from itemHeight (TASK-033).
+var WB_ROW_H = 46;
+
+function buildWbRow(track, cues, willSkip, rowIndex) {
+  const row = document.createElement('div');
+  row.className = 'track-card wb-row';
+  row.dataset.testid = 'track-card';
+  row.dataset.trackId = track.id;
+  if (track.colorName) row.dataset.color = track.colorName;
+
+  // ── checkbox (bulk select) — wired exactly like buildTrackCard's ──
+  const ckCell = document.createElement('div');
+  ckCell.className = 'wb-c-ck';
+  if (localMode) {
+    const cb = document.createElement('input');
+    cb.type = 'checkbox';
+    cb.className = 'track-select-cb';
+    cb.checked = selectedTrackIds.has(track.id);
+    if (selectedTrackIds.has(track.id)) row.classList.add('selected');
+    cb.setAttribute('aria-label', 'Select ' + (track.name || ('track ' + track.id)));
+    cb.addEventListener('change', e => {
+      e.stopPropagation();
+      if (e.target.checked) { selectedTrackIds.add(track.id); row.classList.add('selected'); }
+      else { selectedTrackIds.delete(track.id); row.classList.remove('selected'); }
+      updateSelectionBar();
+    });
+    ckCell.appendChild(cb);
+  }
+  row.appendChild(ckCell);
+
+  // ── # index (mono) ──
+  const idx = document.createElement('div');
+  idx.className = 'wb-c-idx';
+  idx.textContent = (typeof rowIndex === 'number') ? String(rowIndex + 1).padStart(2, '0') : '';
+  row.appendChild(idx);
+
+  // ── title / artist (stacked) ──
+  const title = document.createElement('div');
+  title.className = 'wb-c-title';
+  const tt = document.createElement('span');
+  tt.className = 'wb-tt';
+  if (!track.name && track.source === 'streaming') {
+    tt.textContent = '— Untitled streaming track —';
+    tt.classList.add('untitled');
+  } else {
+    tt.textContent = track.name || '(untitled)';
+  }
+  tt.title = track.name || '';
+  const ta = document.createElement('span');
+  ta.className = 'wb-ta';
+  ta.textContent = track.artist || '';
+  ta.title = track.artist || '';
+  title.appendChild(tt);
+  title.appendChild(ta);
+  row.appendChild(title);
+
+  // ── BPM (mono, one decimal) ──
+  const bpm = document.createElement('div');
+  bpm.className = 'wb-c-bpm';
+  bpm.textContent = (Number(track.bpm) > 0) ? Number(track.bpm).toFixed(1) : '—';
+  row.appendChild(bpm);
+
+  // ── KEY (Camelot chip) ──
+  const keyCell = document.createElement('div');
+  keyCell.className = 'wb-c-key';
+  if (track.key) {
+    const chip = document.createElement('span');
+    chip.className = 'wb-key-chip';
+    chip.textContent = track.key;
+    keyCell.appendChild(chip);
+  }
+  row.appendChild(keyCell);
+
+  // ── ENERGY (lazy sparkline container — same class the observers watch) ──
+  const energyCell = document.createElement('div');
+  energyCell.className = 'wb-c-energy';
+  if (localMode) {
+    const spark = document.createElement('div');
+    spark.className = 'energy-sparkline';
+    spark.dataset.trackId = track.id;
+    const loading = document.createElement('span');
+    loading.className = 'loading';
+    loading.textContent = '▁▂▃▄';
+    spark.appendChild(loading);
+    energyCell.appendChild(spark);
+  }
+  row.appendChild(energyCell);
+
+  // ── MIX (NN/100, green ≥80 — lazy chip the observers watch) ──
+  const mixCell = document.createElement('div');
+  mixCell.className = 'wb-c-mix';
+  if (localMode) {
+    const mixChip = document.createElement('span');
+    mixChip.className = 'mix-score-chip loading';
+    mixChip.textContent = '…';
+    mixChip.dataset.trackId = track.id;
+    const mixBreakdown = document.createElement('div');
+    mixBreakdown.className = 'mix-breakdown';
+    mixChip._breakdown = mixBreakdown;
+    mixCell.appendChild(mixChip);
+    mixCell.appendChild(mixBreakdown);
+  }
+  row.appendChild(mixCell);
+
+  // ── CLASS (lazy classification chip the observers watch) ──
+  const classCell = document.createElement('div');
+  classCell.className = 'wb-c-class';
+  if (localMode) {
+    const catChip = document.createElement('span');
+    catChip.className = 'category-chip loading';
+    catChip.textContent = '·';
+    catChip.dataset.trackId = track.id;
+    catChip._isCategoryChip = true;
+    classCell.appendChild(catChip);
+  }
+  row.appendChild(classCell);
+
+  // ── CUES (cue-state) ──
+  const cueCell = document.createElement('div');
+  cueCell.className = 'wb-c-cues';
+  const n = Number(track.existingHotCues) || 0;
+  const cueState = document.createElement('span');
+  if (n > 0) {
+    cueState.className = 'wb-cues-ready';
+    cueState.textContent = n + ' ready';
+    cueState.title = n + ' existing hot cue' + (n !== 1 ? 's' : '');
+  } else {
+    cueState.className = 'wb-cues-none';
+    cueState.textContent = '— no cues';
+  }
+  cueCell.appendChild(cueState);
+  row.appendChild(cueCell);
+
+  // ── ⋯ overflow menu (plays the track for now; full menu is P2 T5) ──
+  const more = document.createElement('div');
+  more.className = 'wb-c-more';
+  const moreBtn = document.createElement('button');
+  moreBtn.type = 'button';
+  moreBtn.className = 'wb-more-btn';
+  moreBtn.setAttribute('aria-label', 'Play ' + (track.name || 'track'));
+  moreBtn.innerHTML = (nowPlayingId === track.id && !audioPlayer.paused) ? SVG_PAUSE : SVG_PLAY;
+  moreBtn.addEventListener('click', e => {
+    e.stopPropagation();
+    if (localMode && !audioState[track.id]) {
+      ensureLocalAudio(track).then(() => togglePlayTrack(track.id));
+    } else {
+      togglePlayTrack(track.id);
+    }
+  });
+  more.appendChild(moreBtn);
+  row.appendChild(more);
+
+  if (nowPlayingId === track.id && !audioPlayer.paused) row.classList.add('now-playing');
+  return row;
+}
+
 function _computeSettingsFingerprint() {
   var s = getSettings();
   var skipExisting = document.getElementById('skip-existing-cues').checked;
@@ -1080,7 +1249,11 @@ function _computeSettingsFingerprint() {
   // per-card updates via _updateTrackCardCues handle phrase-cue arrivals;
   // including phraseTotal here caused the per-batch storm fixed in feat/phrase-storm-orphans.
   console.assert(parsedTracksById.size === parsedTracks.length, 'parsedTracksById drift');
-  return s.barsInterval + '|' + s.startBar + '|' + s.maxCues + '|' + skipExisting + '|' + mcMode + '|' + analysisMode + '|' + Object.keys(pendingCues).length + '|' + Object.keys(healthData).length;
+  // wb-active flips the row builder (160px card ↔ 46px wb-row) + itemHeight;
+  // include it so the card↔row transition forces a clean rebuild (no stale
+  // FLIP snapshots taken against the other row geometry).
+  var wb = document.body.classList.contains('wb-active') ? 'wb' : '0';
+  return s.barsInterval + '|' + s.startBar + '|' + s.maxCues + '|' + skipExisting + '|' + mcMode + '|' + analysisMode + '|' + Object.keys(pendingCues).length + '|' + Object.keys(healthData).length + '|' + wb;
 }
 
 // Surgical per-card update — used by loadPhraseFromServer to refresh ONE card
@@ -1413,7 +1586,15 @@ function renderTracks() {
     // above) is invisible to Virtualizer.attach() — it would render the flat
     // window on top of the orphan .album-group children and never recover the
     // memory. Clear it explicitly on the album → flat transition. (Issue #114.)
-    if (list.querySelector('.album-group')) {
+    //
+    // Also clear a leftover `.empty-state` node: when the page first renders
+    // with zero tracks the `!parsedTracks.length` branch appends a "No library
+    // loaded" empty-state into #track-list. In workbench mode the album branch
+    // is skipped, so tracks-loaded re-renders take THIS flat path — which used
+    // to leave that in-flow empty-state in place, bleeding through the
+    // absolute-positioned virtualized rows. (Genuinely-empty libraries return
+    // early at the top of renderTracks, so this only prunes the stale node.)
+    if (list.querySelector('.album-group') || list.querySelector('.empty-state')) {
       list.innerHTML = '';
       _cardMap.clear();
       _albumGroupCache.clear();
@@ -1480,6 +1661,12 @@ function renderTracks() {
       }, { rootMargin: '200px' });
     }
 
+    // P2 workbench: the centre is the dense thin-row grid (design-Z), not the
+    // 160px cards. Same Virtualizer, same observers — just a different row
+    // builder + a smaller uniform itemHeight (WB_ROW_H). Flag OFF → 160px cards.
+    const wbActive = document.body.classList.contains('wb-active');
+    const rowHeight = wbActive ? WB_ROW_H : CARD_HEIGHT_PX;
+
     const renderItem = function(index, recycledNode) {
       const track = sorted[index];
       if (!track) return null;
@@ -1487,7 +1674,9 @@ function renderTracks() {
       const willSkip = skipExisting && track.existingHotCues > 0;
       // Rebuilding the card subtree per render is simpler than 20-field surgical
       // updates and still wins big: only ~viewport+buffer cards exist at all.
-      const card = buildTrackCard(track, cues, willSkip, {});
+      const card = wbActive
+        ? buildWbRow(track, cues, willSkip, index)
+        : buildTrackCard(track, cues, willSkip, {});
       const isSelected = selectedTrackIds.has(track.id) || selectedTrackIds.has(String(track.id));
       card.classList.toggle('selected', isSelected);
       if (recycledNode && recycledNode.parentNode) {
@@ -1520,7 +1709,7 @@ function renderTracks() {
     if (Virtualizer.isAttached()) Virtualizer.detach();
     Virtualizer.attach({
       container: list,
-      itemHeight: CARD_HEIGHT_PX,
+      itemHeight: rowHeight,
       totalCount: sorted.length,
       renderItem: renderItem,
       onWindowChange: onWindowChange,
