@@ -44,6 +44,10 @@ const REQUIRED_SELECTORS: string[] = [
   "#wb-dupes-pane",
   "#wb-dupes-rescan",
   "#wb-dupes-bulk-delete",
+  // P3 restore sheet — A-layer undo off the status sentence (hidden until a delete)
+  "#status-restore",
+  "#wb-restore-sheet",
+  "#wb-restore-go",
 ];
 
 test.describe("selectors exist in docs/index.html", () => {

@@ -145,6 +145,25 @@
       "safeOnRealDb": false
     },
     {
+      "id": "status-restore",
+      "kind": "button",
+      "skipSweep": true,
+      "skipReason": "P3 status fact — hidden until a duplicates delete writes a backup; click opens the restore sheet"
+    },
+    {
+      "id": "wb-restore-go",
+      "kind": "button",
+      "safeOnRealDb": false,
+      "skipSweep": true,
+      "skipReason": "P3 restore sheet — POSTs /api/restore; hidden until a delete; covered by v2-duplicates-place.spec"
+    },
+    {
+      "id": "wb-restore-dismiss",
+      "kind": "button",
+      "skipSweep": true,
+      "skipReason": "P3 restore sheet — dismisses the sheet; hidden until a delete"
+    },
+    {
       "id": "duplicates-confirm-cancel",
       "kind": "button",
       "safeOnRealDb": false

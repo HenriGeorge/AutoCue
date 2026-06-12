@@ -2791,6 +2791,21 @@
   @media (prefers-reduced-motion: reduce) {
     .wb-dup-undo-drain { transition: none; }
   }
+  /* Restore sheet (R8): a small panel dropping from the status sentence. */
+  .wb-restore-sheet {
+    position: absolute; z-index: 60; margin-top: 8px; max-width: 360px;
+    display: flex; flex-direction: column; gap: 10px;
+    padding: 14px 16px; background: var(--surface); border: 1px solid var(--border);
+    border-radius: var(--radius-lg); box-shadow: var(--shadow-lg, 0 8px 28px rgba(0,0,0,.18));
+    font-size: 13px;
+  }
+  .wb-restore-sheet[hidden] { display: none; }
+  .wb-restore-line { font-weight: 600; }
+  .wb-restore-path {
+    font-family: var(--font-mono); font-size: 11px; color: var(--muted);
+    word-break: break-all;
+  }
+  .wb-restore-actions { display: flex; align-items: center; gap: 8px; }
   /* ── /v2: duplicates place ─────────────────────────────────────────────── */
   /* ── v2: consent gradient (review-unlocks-apply, design-H "Stagehand") ─── */
   /* Evidence region inside the shared _confirmDialog. Collapsed until the user

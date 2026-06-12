@@ -347,3 +347,105 @@ describe('P3 T4 — duplicates restyle is token-clean + class-driven', () => {
     expect(css).toMatch(/--danger:\s*#/)
   })
 })
+
+/**
+ * T5 — restore as a status-sentence sheet (R8). The sheet listens for the
+ * autocue:duplicates-deleted event (T1 seam) and POSTs /api/restore for the
+ * just-written backup. The legacy in-view banner is untouched (convenience).
+ */
+function _restoreDom() {
+  document.body.className = ''
+  document.body.innerHTML = `
+    <div id="app-status">
+      <span class="status-sep" id="status-sep-restore" hidden>·</span>
+      <button id="status-restore" hidden><span class="status-text"></span></button>
+    </div>
+    <div id="wb-restore-sheet" hidden>
+      <div id="wb-restore-heading"></div>
+      <div><span id="wb-restore-file"></span></div>
+      <button id="wb-restore-go" class="primary">Restore from backup</button>
+      <button id="wb-restore-dismiss">Dismiss</button>
+    </div>`
+}
+
+function _fireDeleted(detail) {
+  window.dispatchEvent(new CustomEvent('autocue:duplicates-deleted', { detail }))
+}
+
+describe('P3 T5 — restore sheet (R8)', () => {
+  let mod
+  beforeEach(async () => {
+    _restoreDom()
+    mod = await import('../../docs/js/v2/restore-sheet.js')
+    mod.initRestoreSheet()
+    vi.restoreAllMocks()
+    // Reset module state from any prior test via the dismiss handler.
+    document.getElementById('wb-restore-dismiss').click()
+    _restoreDom()
+    mod.initRestoreSheet()
+  })
+
+  it('shows the status fact when a delete reports a backup_path', () => {
+    _fireDeleted({ deleted: 3, requested: 3, cancelled: false, backup_path: '/x/master_20260612.db' })
+    expect(document.getElementById('status-restore').hidden).toBe(false)
+    expect(document.getElementById('status-restore').textContent).toContain('3 deleted')
+    expect(document.getElementById('status-sep-restore').hidden).toBe(false)
+    // Sheet stays closed until the fact is clicked.
+    expect(document.getElementById('wb-restore-sheet').hidden).toBe(true)
+  })
+
+  it('shows NOTHING when the delete reports no backup_path (cancelled-before-write)', () => {
+    _fireDeleted({ deleted: 0, requested: 2, cancelled: true, backup_path: null })
+    expect(document.getElementById('status-restore').hidden).toBe(true)
+    expect(document.getElementById('wb-restore-sheet').hidden).toBe(true)
+  })
+
+  it('clicking the fact opens the sheet with the mono backup basename', () => {
+    _fireDeleted({ deleted: 5, backup_path: '/Users/x/.autocue/backups/master_20260612.db' })
+    document.getElementById('status-restore').click()
+    expect(document.getElementById('wb-restore-sheet').hidden).toBe(false)
+    expect(document.getElementById('wb-restore-file').textContent).toBe('master_20260612.db')
+  })
+
+  it('Restore POSTs /api/restore with the backup basename and hides on success', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => ({}) })
+    vi.stubGlobal('fetch', fetchMock)
+    window.showToast = vi.fn()
+    _fireDeleted({ deleted: 4, backup_path: '/a/b/master_99.db' })
+    document.getElementById('status-restore').click()
+    document.getElementById('wb-restore-go').click()
+    await Promise.resolve(); await Promise.resolve()
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    const [url, opts] = fetchMock.mock.calls[0]
+    expect(url).toBe('/api/restore')
+    expect(opts.method).toBe('POST')
+    expect(JSON.parse(opts.body)).toEqual({ filename: 'master_99.db' })
+    await Promise.resolve()
+    expect(document.getElementById('wb-restore-sheet').hidden).toBe(true)
+    expect(document.getElementById('status-restore').hidden).toBe(true)
+  })
+
+  it('a failed restore keeps the sheet open and re-enables the button', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: false, statusText: 'boom', json: async () => ({ detail: 'locked' }) })
+    vi.stubGlobal('fetch', fetchMock)
+    window.showToast = vi.fn()
+    _fireDeleted({ deleted: 1, backup_path: '/a/master_1.db' })
+    document.getElementById('status-restore').click()
+    const go = document.getElementById('wb-restore-go')
+    go.click()
+    await Promise.resolve(); await Promise.resolve(); await Promise.resolve()
+    expect(document.getElementById('wb-restore-sheet').hidden).toBe(false)
+    expect(go.disabled).toBe(false)
+    expect(window.showToast).toHaveBeenCalled()
+  })
+
+  it('the fact + sheet expire after the 30s backup window', () => {
+    vi.useFakeTimers()
+    _fireDeleted({ deleted: 2, backup_path: '/a/master_2.db' })
+    expect(document.getElementById('status-restore').hidden).toBe(false)
+    vi.advanceTimersByTime(30000)
+    expect(document.getElementById('status-restore').hidden).toBe(true)
+    expect(document.getElementById('status-sep-restore').hidden).toBe(true)
+    vi.useRealTimers()
+  })
+})

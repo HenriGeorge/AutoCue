@@ -75,6 +75,21 @@
     <button type="button" class="status-item" id="status-rb" data-tip="Rekordbox process state — must be closed before applying"><span class="status-text">Rekordbox ?</span></button>
     <span class="status-sep status-warmup-sep" style="display:none">·</span>
     <span class="status-item status-warmup-item" id="status-warmup" data-tip="Sidecar analysis cache hydration" style="display:none"><span class="status-text">Indexing <span id="warmup-progress-text">0 / 0</span></span></span>
+    <!-- P3 (R8): transient restore fact — appears after a duplicates delete,
+         opens the restore sheet, expires with the 30s backup window. -->
+    <span class="status-sep" id="status-sep-restore" hidden>·</span>
+    <button type="button" class="status-item" id="status-restore" data-tip="Undo the last delete from its backup" hidden><span class="status-text"></span></button>
+  </div>
+  <!-- P3 (R8): restore sheet — the canonical A-layer emergency exit off the
+       status sentence (the in-view duplicates banner is the convenience copy).
+       Owned by docs/js/v2/restore-sheet.js. -->
+  <div id="wb-restore-sheet" class="wb-restore-sheet" hidden role="dialog" aria-modal="false" aria-labelledby="wb-restore-heading">
+    <div id="wb-restore-heading" class="wb-restore-line"></div>
+    <div class="wb-restore-path"><span id="wb-restore-file"></span></div>
+    <div class="wb-restore-actions">
+      <button type="button" id="wb-restore-go" class="primary">Restore from backup</button>
+      <button type="button" id="wb-restore-dismiss" class="secondary-btn">Dismiss</button>
+    </div>
   </div>
 </div>
 <!-- AutoCue 2.0 workbench toolbar: global controls (playlist / analysis mode /
