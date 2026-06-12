@@ -1,0 +1,870 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AutoCue 2.0 — End State (Design Z)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+/* ════════════════════════════════════════════════════════════
+   AutoCue design tokens — verbatim from docs/design/tokens
+   ════════════════════════════════════════════════════════════ */
+:root{
+  --bg:#fafafa; --surface:#ffffff; --surface-2:#f2f2f2; --border:#e8e8e8; --border-hover:#c8c8c8;
+  --text:#1a1a1a; --muted:#737373; --muted-soft:#a3a3a3;
+  --green:#159a05; --green-dim:#0f6e03; --green-wash:rgba(21,154,5,.08); --green-ring:rgba(21,154,5,.14);
+  --ink:#0a0a0a; --ink-hover:#2a2a2a; --on-ink:#fafafa;
+  --danger:#e74c3c; --warn:#f0801a; --warn-amber:#ffa000; --rating:#f0b429;
+  --cue-a:#18a80c; --cue-b:#2246e0; --cue-c:#0099bb; --cue-d:#c07800;
+  --cue-e:#c84800; --cue-f:#c02010; --cue-g:#c8006a; --cue-h:#9900cc;
+  --shadow-sm:0 1px 3px rgba(0,0,0,.06),0 0 0 1px rgba(0,0,0,.03);
+  --shadow-md:0 4px 14px rgba(0,0,0,.08),0 0 0 1px rgba(0,0,0,.04);
+  --shadow-lg:0 10px 32px rgba(0,0,0,.18),0 2px 8px rgba(0,0,0,.08);
+  --glass-bg:rgba(255,255,255,.86);
+  --font-sans:'Inter',-apple-system,BlinkMacSystemFont,sans-serif;
+  --font-mono:'JetBrains Mono',ui-monospace,monospace;
+}
+html.dark{
+  --bg:#0c0a09; --surface:#1c1917; --surface-2:#231f1d; --border:#292524; --border-hover:#3d3830;
+  --text:#fafaf9; --muted:#a8a29e; --muted-soft:#78716c;
+  --green:#28e214; --green-dim:#1a9a0d; --green-wash:rgba(40,226,20,.08); --green-ring:rgba(40,226,20,.14);
+  --ink:#fafafa; --ink-hover:#e2e2e2; --on-ink:#0a0a0a;
+  --cue-a:#28e214; --cue-b:#305aff; --cue-c:#00e0ff; --cue-d:#ffa000;
+  --cue-e:#ff6400; --cue-f:#e0301e; --cue-g:#f51e8c; --cue-h:#e600ff;
+  --shadow-sm:0 1px 3px rgba(0,0,0,.3);
+  --shadow-md:0 4px 12px rgba(0,0,0,.3);
+  --shadow-lg:0 10px 32px rgba(0,0,0,.45),0 2px 8px rgba(0,0,0,.3);
+  --glass-bg:rgba(12,10,9,.80);
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%}
+body{
+  background:var(--bg);color:var(--text);font-family:var(--font-sans);
+  font-size:14px;line-height:1.5;-webkit-font-smoothing:antialiased;overflow:hidden;
+}
+button{font-family:inherit;cursor:pointer}
+input{font-family:inherit}
+.mono{font-family:var(--font-mono)}
+.eyebrow{font-size:10px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--muted-soft)}
+::-webkit-scrollbar{width:10px;height:10px}
+::-webkit-scrollbar-thumb{background:var(--border-hover);border-radius:5px;border:2px solid var(--bg)}
+::-webkit-scrollbar-track{background:transparent}
+
+/* ── shared primitives ───────────────────────────────────── */
+.ghost-pill{
+  border:1px solid var(--border);background:var(--surface);color:var(--muted);
+  border-radius:999px;padding:6px 14px;font-size:12.5px;font-weight:500;transition:all .18s ease;
+}
+.ghost-pill:hover{border-color:var(--border-hover);color:var(--text);transform:translateY(-1px)}
+.chip{font-family:var(--font-mono);font-size:11px;border:1px solid var(--border);border-radius:4px;padding:1.5px 6px;color:var(--muted);display:inline-block}
+.chip.bpm{color:var(--green);background:var(--green-wash);border-color:transparent;font-weight:500}
+.chip.key{font-weight:500}
+.cue-badge{
+  font-family:var(--font-mono);font-size:10px;font-weight:600;border-radius:4px;padding:1.5px 6px;
+  border:1.5px solid;transition:transform .15s ease;display:inline-block;
+}
+.cue-badge:hover{transform:scale(1.08)}
+.cue-badge .cb-label{font-family:var(--font-sans);font-weight:500;opacity:.85;margin-left:4px}
+
+/* ════════ GLOBAL · status sentence header ════════ */
+#status-line{
+  height:52px;display:flex;align-items:center;gap:16px;padding:0 20px;
+  background:var(--glass-bg);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);
+  border-bottom:1px solid var(--border);position:relative;z-index:40;flex:none;
+}
+#brand{display:flex;align-items:center;gap:10px}
+#brand .tile{width:32px;height:32px;border-radius:8px;background:var(--surface-2);border:1px solid var(--border);display:grid;place-items:center}
+#brand .word{font-weight:700;font-size:15px;letter-spacing:-.2px}
+#brand .word span{color:var(--muted);font-weight:500}
+#sentence{flex:1;text-align:center;font-size:13px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#sentence .fact{background:none;border:none;color:var(--muted);font-size:13px;font-family:var(--font-sans);padding:2px 4px;border-radius:4px;transition:color .15s,background .15s}
+#sentence .fact .num{font-family:var(--font-mono);color:var(--text);font-weight:500}
+#sentence .fact:hover{color:var(--text);background:var(--surface-2)}
+#sentence .sep{color:var(--muted-soft);margin:0 4px}
+.rb-dot{display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--green);margin-right:5px;vertical-align:1px}
+#top-right{display:flex;align-items:center;gap:10px}
+#cmdk-hint{
+  display:flex;align-items:center;gap:8px;background:var(--surface);border:1px solid var(--border);
+  border-radius:999px;padding:6px 14px;font-size:12.5px;color:var(--muted);
+  transition:border-color .18s,color .18s,transform .18s,box-shadow .18s;
+}
+#cmdk-hint:hover{border-color:var(--border-hover);color:var(--text);transform:translateY(-1px);box-shadow:var(--shadow-sm)}
+#cmdk-hint kbd{font-family:var(--font-mono);font-size:11px;background:var(--surface-2);border:1px solid var(--border);border-radius:4px;padding:1px 6px;color:var(--text)}
+#theme-toggle{width:32px;height:32px;border-radius:999px;border:1px solid var(--border);background:var(--surface);color:var(--muted);display:grid;place-items:center;transition:border-color .18s,color .18s}
+#theme-toggle:hover{border-color:var(--border-hover);color:var(--text)}
+
+/* ════════ GLOBAL · workbench toolbar strip ════════ */
+#toolbar-strip{
+  height:42px;display:flex;align-items:center;gap:10px;padding:0 20px;flex:none;
+  background:var(--surface);border-bottom:1px solid var(--border);position:relative;z-index:35;
+  font-size:12.5px;color:var(--muted);
+}
+#toolbar-strip .ts-label{font-weight:500}
+.ts-select{
+  display:inline-flex;align-items:center;gap:6px;border:1px solid var(--border);background:var(--surface);
+  color:var(--text);border-radius:8px;padding:4px 10px;font-size:12.5px;font-weight:500;
+  transition:border-color .18s;
+}
+.ts-select:hover{border-color:var(--border-hover)}
+.ts-select svg{color:var(--muted-soft)}
+.ts-restore{border:1px solid var(--border);background:transparent;color:var(--muted);border-radius:999px;padding:4px 13px;font-size:12px;font-weight:500;transition:all .18s;display:inline-flex;align-items:center;gap:6px}
+.ts-restore:hover{border-color:var(--border-hover);color:var(--text)}
+.ts-sep{width:1px;height:18px;background:var(--border)}
+.ts-modegroup{display:inline-flex;border:1px solid var(--border);border-radius:999px;padding:2px;background:var(--surface-2)}
+.ts-mode{border:none;background:transparent;color:var(--muted);border-radius:999px;padding:4px 13px;font-size:12px;font-weight:600;transition:all .16s;display:inline-flex;align-items:center;gap:5px}
+.ts-mode.active{background:var(--surface);color:var(--text);box-shadow:var(--shadow-sm)}
+.ts-mode.active.phrase{color:var(--green)}
+
+/* ════════ SHELL ════════ */
+#shell{display:grid;grid-template-columns:224px 1fr 360px;flex:1;min-height:0;overflow:hidden}
+
+/* ── LEFT RAIL ── */
+#lib-rail{background:var(--surface);border-right:1px solid var(--border);overflow-y:auto;padding:12px 8px 24px;display:flex;flex-direction:column}
+.rail-eyebrow{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.08em;color:var(--muted-soft);padding:14px 10px 6px}
+.rail-eyebrow:first-child{padding-top:2px}
+.crate{
+  width:100%;display:flex;align-items:center;gap:8px;text-align:left;background:transparent;border:0;
+  border-left:2px solid transparent;border-radius:0 8px 8px 0;padding:6px 9px 6px 11px;
+  font-size:12.5px;font-weight:500;color:var(--muted);transition:background .15s,color .15s;
+}
+.crate:hover{background:var(--surface-2);color:var(--text)}
+.crate.active{background:var(--green-wash);color:var(--text);border-left-color:var(--green);font-weight:600}
+.crate .ico{flex:none;width:14px;text-align:center;color:var(--muted-soft);font-size:11px}
+.crate.active .ico{color:var(--green)}
+.crate .lbl{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.crate .cnt{font-family:var(--font-mono);font-size:11px;color:var(--muted-soft)}
+.crate.active .cnt{color:var(--green);font-weight:600}
+.saved .ico{font-size:10px}
+
+/* health-ring rail card */
+#rail-health{margin:18px 8px 0;padding:14px 14px 13px;border:1px solid var(--border);border-radius:16px;background:var(--surface);box-shadow:var(--shadow-sm)}
+.rh-top{display:flex;align-items:center;gap:13px}
+.rh-ring{position:relative;width:64px;height:64px;flex:none}
+.rh-ring svg{transform:rotate(-90deg)}
+.rh-track{stroke:var(--surface-2)}
+.rh-fill{stroke:var(--green);stroke-linecap:round;transition:stroke-dashoffset 1.1s cubic-bezier(.22,1,.36,1)}
+.rh-center{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center}
+.rh-score{font-family:var(--font-mono);font-size:19px;font-weight:700;letter-spacing:-.02em;line-height:1}
+.rh-denom{font-family:var(--font-mono);font-size:8px;color:var(--muted-soft);margin-top:1px}
+.rh-meta .rh-eyebrow{font-size:9.5px;font-weight:600;text-transform:uppercase;letter-spacing:.08em;color:var(--muted-soft)}
+.rh-meta .rh-state{font-size:12px;font-weight:600;margin-top:2px}
+.rh-lede{font-size:11.5px;color:var(--muted);line-height:1.45;margin:11px 0 11px}
+.rh-lede .mono{font-size:11px;color:var(--text)}
+.rh-fix{width:100%;background:var(--ink);color:var(--on-ink);border:none;border-radius:999px;padding:8px 0;font-size:12.5px;font-weight:600;box-shadow:var(--shadow-sm);transition:background .18s,transform .15s,box-shadow .15s;display:flex;align-items:center;justify-content:center;gap:6px}
+.rh-fix:hover{background:var(--ink-hover);transform:translateY(-1px);box-shadow:var(--shadow-md)}
+.rh-fix:focus-visible{outline:3px solid var(--green-ring);outline-offset:2px}
+
+/* ── CENTER GRID ── */
+#grid-panel{display:flex;flex-direction:column;min-width:0;background:var(--bg);overflow:hidden}
+#grid-toolbar{display:flex;align-items:center;gap:10px;padding:10px 16px;border-bottom:1px solid var(--border);flex:none}
+#crate-title{font-size:14.5px;font-weight:600;letter-spacing:-.01em}
+#crate-count{font-family:var(--font-mono);font-size:12px;color:var(--muted)}
+#grid-toolbar .spacer{flex:1}
+#grid-toolbar .gt-search{display:flex;align-items:center;gap:7px;border:1px solid var(--border);border-radius:999px;padding:5px 13px;background:var(--surface);color:var(--muted-soft);font-size:12px}
+#grid-toolbar .gt-search svg{color:var(--muted-soft)}
+#grid-toolbar .gt-search input{border:none;outline:none;background:none;color:var(--text);width:118px;font-size:12.5px}
+
+/* batch toolbar (selection mode) */
+#batch-bar{display:none;align-items:center;gap:10px;padding:9px 16px;border-bottom:1px solid var(--border);background:var(--green-wash);flex:none}
+#batch-bar.show{display:flex}
+#batch-bar .bb-count{font-size:12.5px;font-weight:600}
+#batch-bar .bb-count .mono{color:var(--green)}
+.bb-verb{border:1px solid var(--border);background:var(--surface);color:var(--text);border-radius:999px;padding:5px 13px;font-size:12px;font-weight:500;transition:all .16s;display:inline-flex;align-items:center;gap:5px}
+.bb-verb:hover{border-color:var(--border-hover);transform:translateY(-1px)}
+.bb-verb svg{color:var(--muted-soft)}
+#batch-bar .spacer{flex:1}
+.bb-clear{background:none;border:none;color:var(--muted);font-size:12px;text-decoration:underline}
+.bb-clear:hover{color:var(--text)}
+.bb-apply{background:var(--ink);color:var(--on-ink);border:none;border-radius:999px;padding:7px 18px;font-size:12.5px;font-weight:600;box-shadow:var(--shadow-sm);transition:background .18s,transform .15s,box-shadow .15s}
+.bb-apply:hover{background:var(--ink-hover);transform:translateY(-1px);box-shadow:var(--shadow-md)}
+
+#grid-scroll{flex:1;overflow-y:auto;min-height:0;padding-bottom:80px}
+.grid-cols{display:grid;grid-template-columns:34px 28px minmax(150px,1fr) 60px 44px 64px 50px 78px 92px 30px;align-items:center}
+#grid-head{
+  position:sticky;top:0;z-index:10;background:var(--glass-bg);backdrop-filter:blur(14px);
+  -webkit-backdrop-filter:blur(14px);
+  border-bottom:1px solid var(--border);font-size:10px;font-weight:600;text-transform:uppercase;
+  letter-spacing:.07em;color:var(--muted-soft);
+}
+#grid-head>div{padding:8px 7px;user-select:none;white-space:nowrap}
+#grid-head .sortable{cursor:pointer}
+#grid-head .sortable:hover,#grid-head .sorted{color:var(--text)}
+#grid-head .arrow{font-size:9px;color:var(--green)}
+.num-col{text-align:right}
+.head-ck{display:flex;justify-content:center}
+.head-ck input{accent-color:var(--green);cursor:pointer}
+.trow{border-bottom:1px solid var(--border);transition:background .12s;height:44px;cursor:default;position:relative}
+.trow:hover{background:var(--surface)}
+.trow.focused{background:var(--green-wash);box-shadow:inset 2px 0 0 var(--green)}
+.trow.selected{background:var(--surface)}
+.trow>div{padding:0 7px;overflow:hidden;white-space:nowrap}
+.trow .ck{display:flex;justify-content:center}
+.trow .ck input{accent-color:var(--green);cursor:pointer}
+.trow .idx{font-family:var(--font-mono);font-size:11px;color:var(--muted-soft);text-align:right}
+.t-title{display:flex;flex-direction:column;justify-content:center;line-height:1.25;min-width:0}
+.t-title .tt-line{display:flex;align-items:center;gap:6px;min-width:0}
+.t-title .tt{font-size:13px;font-weight:600;letter-spacing:-.2px;overflow:hidden;text-overflow:ellipsis}
+.t-title .ta{font-size:11px;color:var(--muted);overflow:hidden;text-overflow:ellipsis}
+.cell-bpm{font-family:var(--font-mono);font-size:12px;text-align:right;color:var(--green);font-weight:500}
+.cell-key{display:flex}
+.cell-key .chip{font-size:10.5px}
+.cell-mix{font-family:var(--font-mono);font-size:12px;text-align:right}
+.cell-mix .den{color:var(--muted-soft);font-size:10px}
+.cell-mix.hi{color:var(--green);font-weight:600}
+.class-chip{font-size:9.5px;font-weight:600;text-transform:uppercase;letter-spacing:.04em;border:1px solid var(--border);border-radius:4px;padding:2px 6px;color:var(--muted);display:inline-block;white-space:nowrap}
+.cell-cues{font-size:11px;display:flex;align-items:center}
+.cues-ready{color:var(--green);font-weight:600}
+.cues-ready::before{content:'●';font-size:8px;margin-right:5px;vertical-align:1px}
+.cues-have{color:var(--muted)}
+.cues-have::before{content:'✓';margin-right:4px;color:var(--green)}
+.cues-none{color:var(--muted-soft)}
+.spark{display:block}
+.spark polyline{stroke:var(--green);stroke-width:1.5;fill:none;opacity:.9}
+.spark path.fill{fill:var(--green-wash);stroke:none}
+/* proposal stamp */
+.prop-stamp{font-family:var(--font-sans);font-size:8.5px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--warn-amber);border:1px solid var(--warn-amber);border-radius:4px;padding:1px 5px;background:rgba(255,160,0,.08);white-space:nowrap;flex:none}
+.approve-tick{width:20px;height:20px;border-radius:50%;border:1.5px solid var(--border);background:var(--surface);display:grid;place-items:center;color:var(--muted-soft);transition:all .15s;flex:none}
+.approve-tick:hover{border-color:var(--green);color:var(--green)}
+.approve-tick.on{border-color:var(--green);background:var(--green);color:#fff}
+html.dark .approve-tick.on{color:var(--on-ink)}
+.cell-more{display:flex;justify-content:center;color:var(--muted-soft)}
+.cell-more button{background:none;border:none;color:inherit;padding:2px;border-radius:6px}
+.cell-more button:hover{background:var(--surface-2);color:var(--text)}
+#kbd-hints{flex:none;display:flex;gap:16px;align-items:center;padding:6px 16px;border-top:1px solid var(--border);background:var(--surface);font-size:11px;color:var(--muted-soft)}
+#kbd-hints kbd{font-family:var(--font-mono);font-size:10px;border:1px solid var(--border);border-radius:4px;padding:0 5px;background:var(--surface-2);color:var(--muted);margin-right:3px}
+
+/* ── RIGHT INSPECTOR ── */
+#inspector{background:var(--surface);border-left:1px solid var(--border);overflow-y:auto;padding:16px 16px 90px}
+.insp-eyebrow{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.08em;color:var(--muted-soft);margin:20px 0 9px}
+.insp-eyebrow:first-child{margin-top:2px}
+#insp-title{font-size:16px;font-weight:700;letter-spacing:-.2px;line-height:1.3}
+#insp-artist{font-size:13px;color:var(--muted);margin-top:2px}
+#insp-chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}
+.insp-chip{font-family:var(--font-mono);font-size:11.5px;border:1px solid var(--border);border-radius:4px;padding:2px 7px;color:var(--muted)}
+.insp-chip.bpm{color:var(--green);background:var(--green-wash);border-color:transparent;font-weight:500}
+.energy-wrap{border:1px solid var(--border);border-radius:12px;padding:10px 10px 5px}
+.energy-wrap svg{display:block;width:100%}
+.energy-meta{display:flex;justify-content:space-between;font-family:var(--font-mono);font-size:10px;color:var(--muted-soft);padding:5px 2px 2px}
+/* scores */
+.score-head{display:flex;align-items:baseline;gap:8px;margin-bottom:10px}
+.score-big{font-family:var(--font-mono);font-size:26px;font-weight:700;letter-spacing:-.02em}
+.score-big.hi{color:var(--green)}
+.score-den{font-family:var(--font-mono);font-size:12px;color:var(--muted-soft)}
+.score-cls{margin-left:auto}
+.bd-row{display:grid;grid-template-columns:62px 1fr 30px;align-items:center;gap:9px;margin-bottom:6px;font-size:11.5px;color:var(--muted)}
+.bd-bar{height:5px;background:var(--surface-2);border-radius:999px;overflow:hidden}
+.bd-bar i{display:block;height:100%;background:var(--green);border-radius:999px;transition:width .7s cubic-bezier(.22,1,.36,1)}
+.bd-bar i.warn{background:var(--warn-amber)}
+.bd-val{font-family:var(--font-mono);font-size:11px;text-align:right;color:var(--text)}
+/* phrase strip */
+#phrase-strip{position:relative;height:48px;margin-top:6px}
+.ph-seg{
+  position:absolute;top:18px;height:18px;background:var(--surface-2);border:1px solid var(--border);
+  border-radius:3px;overflow:hidden;font-size:8.5px;font-weight:600;text-transform:uppercase;
+  letter-spacing:.04em;color:var(--muted);display:flex;align-items:center;justify-content:center;white-space:nowrap;
+}
+.ph-seg.drop{background:var(--green-wash);border-color:var(--green-ring);color:var(--green-dim)}
+html.dark .ph-seg.drop{color:var(--green)}
+.cue-tick{position:absolute;top:13px;width:2px;height:28px;border-radius:1px}
+.cue-tick-lbl{position:absolute;top:0;transform:translateX(-50%);font-family:var(--font-mono);font-size:8.5px;font-weight:600;line-height:1;border:1px solid;border-radius:3px;padding:1px 3px}
+/* cue list */
+.cue-rows{display:flex;flex-direction:column;gap:6px}
+.cue-row{display:flex;align-items:baseline;gap:8px;font-size:12px}
+.cue-letter{font-family:var(--font-mono);font-size:10px;font-weight:600;flex:none;border:1.5px solid;border-radius:4px;padding:1px 5px;line-height:1.3}
+.cue-name{font-weight:600;font-size:12px;flex:none;width:58px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.cue-time{font-family:var(--font-mono);font-size:11px;color:var(--muted);flex:none;width:42px}
+.cue-why{color:var(--muted);line-height:1.4;font-size:11.5px}
+/* transition card */
+#transition-card{border:1px solid var(--border);border-radius:12px;padding:12px 13px}
+#trans-head{display:flex;align-items:center;gap:7px;font-size:11.5px;color:var(--muted)}
+#trans-head .anchor{font-weight:600;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#trans-head .anchor-ico{color:var(--muted-soft)}
+#trans-score-row{display:flex;align-items:baseline;gap:8px;margin:8px 0 6px}
+#trans-score{font-family:var(--font-mono);font-size:25px;font-weight:600}
+#trans-score.good{color:var(--green)}
+#trans-score-den{font-family:var(--font-mono);font-size:12px;color:var(--muted-soft)}
+.trans-pair{font-family:var(--font-mono);font-size:12px;color:var(--text);font-weight:500}
+.trans-reason{font-size:11.5px;color:var(--muted);line-height:1.5}
+.trans-reason::before{content:'→ ';color:var(--muted-soft)}
+.trans-tip{margin-top:9px;font-size:11.5px;background:var(--surface-2);border-radius:8px;padding:8px 10px;line-height:1.45;display:flex;gap:7px}
+.trans-tip .bulb{flex:none}
+#trans-none{font-size:12px;color:var(--muted-soft);line-height:1.5}
+/* similar */
+.sim-row{
+  width:100%;display:flex;align-items:center;gap:10px;text-align:left;background:transparent;
+  border:1px solid var(--border);border-radius:8px;padding:8px 10px;margin-bottom:6px;
+  transition:all .15s;color:var(--text);
+}
+.sim-row:hover{border-color:var(--border-hover);box-shadow:var(--shadow-sm);transform:translateY(-1px)}
+.sim-main{flex:1;min-width:0}
+.sim-t{font-size:12px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.sim-a{font-size:11px;color:var(--muted)}
+.sim-meta{font-family:var(--font-mono);font-size:10.5px;color:var(--muted);white-space:nowrap;text-align:right;line-height:1.4}
+.sim-meta b{color:var(--green);font-weight:600}
+
+/* ════════ GLOBAL · ink-pill action dock ════════ */
+#action-dock{position:fixed;left:224px;right:360px;bottom:18px;z-index:30;display:flex;justify-content:center;pointer-events:none}
+#action-dock .inner{
+  pointer-events:auto;display:flex;align-items:center;gap:16px;
+  background:var(--glass-bg);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);
+  border:1px solid var(--border);border-radius:999px;padding:8px 10px 8px 22px;box-shadow:var(--shadow-lg);
+}
+#dock-caption{font-family:var(--font-mono);font-size:12px;color:var(--muted)}
+#dock-caption b{color:var(--text);font-weight:600}
+#dock-pill{
+  border:none;border-radius:999px;background:var(--ink);color:var(--on-ink);
+  font-size:14px;font-weight:600;padding:11px 26px;
+  transition:background .18s,transform .18s,box-shadow .18s,opacity .18s;
+}
+#dock-pill:hover:not(:disabled){background:var(--ink-hover);transform:translateY(-1px);box-shadow:var(--shadow-md)}
+#dock-pill:active:not(:disabled){transform:translateY(0)}
+#dock-pill:disabled{opacity:.35;cursor:default}
+
+/* ════════ toast ════════ */
+#toast{
+  position:fixed;right:20px;bottom:84px;z-index:60;background:var(--glass-bg);backdrop-filter:blur(16px);
+  border:1px solid var(--border);border-radius:12px;padding:12px 16px;box-shadow:var(--shadow-lg);
+  font-size:13px;display:flex;align-items:center;gap:10px;max-width:400px;
+  transform:translateY(12px);opacity:0;pointer-events:none;transition:all .25s ease;
+}
+#toast.show{transform:translateY(0);opacity:1}
+#toast .tick{color:var(--green);font-weight:700}
+
+@media (prefers-reduced-motion: reduce){*{transition:none!important;animation:none!important}}
+</style>
+</head>
+<body>
+
+<!-- ════════ GLOBAL · status sentence header ════════ -->
+<header id="status-line">
+  <div id="brand">
+    <span class="tile">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--green)" stroke-width="2.4" stroke-linecap="round">
+        <line x1="4" y1="10" x2="4" y2="14"/><line x1="8" y1="6" x2="8" y2="18"/>
+        <line x1="12" y1="9" x2="12" y2="15"/><line x1="16" y1="4" x2="16" y2="20"/>
+        <line x1="20" y1="11" x2="20" y2="13"/>
+      </svg>
+    </span>
+    <span class="word">AutoCue <span>2.0</span></span>
+  </div>
+  <p id="sentence">
+    <button class="fact"><span class="num">2,928</span> tracks</button><span class="sep">·</span><button class="fact"><span class="num">1</span> needs cues</button><span class="sep">·</span><button class="fact">health <span class="num">84/100</span></button><span class="sep">·</span><button class="fact"><span class="rb-dot"></span>Rekordbox closed</button>
+  </p>
+  <div id="top-right">
+    <button id="cmdk-hint" type="button" aria-label="Open command palette">Type a command <kbd>⌘K</kbd></button>
+    <button id="theme-toggle" type="button" aria-label="Toggle theme">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+    </button>
+  </div>
+</header>
+
+<!-- ════════ GLOBAL · workbench toolbar strip ════════ -->
+<div id="toolbar-strip">
+  <span class="ts-label">Playlist:</span>
+  <button class="ts-select" type="button">All tracks
+    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+  </button>
+  <button class="ts-restore" type="button">
+    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg>
+    Restore backup…
+  </button>
+  <div class="ts-sep"></div>
+  <span class="ts-label">Analysis mode:</span>
+  <div class="ts-modegroup" id="mode-group">
+    <button class="ts-mode" type="button" data-am="bar">Bar intervals</button>
+    <button class="ts-mode active phrase" type="button" data-am="phrase">✨ Phrase analysis</button>
+  </div>
+</div>
+
+<!-- ════════ SHELL ════════ -->
+<div id="shell">
+
+  <!-- ── LEFT RAIL ── -->
+  <nav id="lib-rail" aria-label="Crates">
+    <div class="rail-eyebrow">Crates</div>
+    <button class="crate active" data-crate="all"><span class="ico">▤</span><span class="lbl">All tracks</span><span class="cnt">2,928</span></button>
+    <button class="crate" data-crate="nocues"><span class="ico">◌</span><span class="lbl">No cues yet</span><span class="cnt">1</span></button>
+    <button class="crate" data-crate="phrase"><span class="ico">✨</span><span class="lbl">Phrase-ready</span><span class="cnt">2,789</span></button>
+    <button class="crate" data-crate="hicues"><span class="ico">✓</span><span class="lbl">Already cued</span><span class="cnt">2,927</span></button>
+
+    <div class="rail-eyebrow">Playlists</div>
+    <button class="crate" data-crate="pl-warehouse"><span class="ico">♪</span><span class="lbl">Warehouse · Mar 14</span><span class="cnt">62</span></button>
+    <button class="crate" data-crate="pl-clubtools"><span class="ico">♪</span><span class="lbl">Club Tools</span><span class="cnt">148</span></button>
+    <button class="crate" data-crate="pl-openers"><span class="ico">♪</span><span class="lbl">Deep Openers</span><span class="cnt">41</span></button>
+
+    <div class="rail-eyebrow">Saved filters</div>
+    <button class="crate saved" data-crate="sf1"><span class="ico">⛯</span><span class="lbl">130+ BPM · 9A–11A</span><span class="cnt">213</span></button>
+    <button class="crate saved" data-crate="sf2"><span class="ico">⛯</span><span class="lbl">Closers &lt;120</span><span class="cnt">87</span></button>
+
+    <!-- health-ring rail card -->
+    <div id="rail-health">
+      <div class="rh-top">
+        <div class="rh-ring">
+          <svg width="64" height="64" viewBox="0 0 64 64" aria-hidden="true">
+            <circle class="rh-track" cx="32" cy="32" r="27" fill="none" stroke-width="6"/>
+            <circle class="rh-fill" id="rh-fill" cx="32" cy="32" r="27" fill="none" stroke-width="6"
+                    stroke-dasharray="169.6" stroke-dashoffset="169.6"/>
+          </svg>
+          <div class="rh-center">
+            <span class="rh-score" id="rh-score">0</span><span class="rh-denom">/100</span>
+          </div>
+        </div>
+        <div class="rh-meta">
+          <div class="rh-eyebrow">Library health</div>
+          <div class="rh-state">Almost gig-ready</div>
+        </div>
+      </div>
+      <p class="rh-lede"><span class="mono">1</span> track needs cues — fixable at <strong>phrase quality</strong>. No duplicates, full beat-grid coverage.</p>
+      <button class="rh-fix" type="button" id="rh-fix">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+        Fix it
+      </button>
+    </div>
+  </nav>
+
+  <!-- ── CENTER GRID ── -->
+  <section id="grid-panel">
+    <div id="grid-toolbar">
+      <span id="crate-title">All tracks</span>
+      <span id="crate-count">2,928 tracks · sorted by BPM</span>
+      <span class="spacer"></span>
+      <span class="gt-search">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+        <input type="text" placeholder="Filter…" aria-label="Filter tracks">
+      </span>
+    </div>
+
+    <!-- batch toolbar (shown when ≥1 selected) -->
+    <div id="batch-bar">
+      <span class="bb-count"><span class="mono" id="bb-n">2</span> tracks selected</span>
+      <button class="bb-verb" type="button">Auto-tag
+        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+      </button>
+      <button class="bb-verb" type="button">Enrich comments</button>
+      <button class="bb-verb" type="button">Preview cues</button>
+      <span class="spacer"></span>
+      <button class="bb-clear" type="button" id="bb-clear">Clear</button>
+      <button class="bb-apply" type="button" id="bb-apply">Apply to 2 tracks</button>
+    </div>
+
+    <div id="grid-scroll">
+      <div id="grid-head" class="grid-cols">
+        <div class="head-ck"><input type="checkbox" id="head-check" aria-label="Select all"></div>
+        <div class="num-col">#</div>
+        <div class="sortable">Title / Artist</div>
+        <div class="sortable num-col sorted">BPM <span class="arrow">▼</span></div>
+        <div class="sortable">Key</div>
+        <div>Energy</div>
+        <div class="sortable num-col">Mix</div>
+        <div class="sortable">Class</div>
+        <div class="sortable">Cues</div>
+        <div></div>
+      </div>
+      <div id="grid-body"></div>
+    </div>
+
+    <div id="kbd-hints">
+      <span><kbd>↑</kbd><kbd>↓</kbd> navigate</span>
+      <span><kbd>X</kbd> select</span>
+      <span><kbd>⌘K</kbd> search &amp; commands</span>
+      <span><kbd>Esc</kbd> clear</span>
+    </div>
+  </section>
+
+  <!-- ── RIGHT INSPECTOR ── -->
+  <aside id="inspector" aria-label="Track inspector">
+    <div id="insp-body"></div>
+  </aside>
+</div>
+
+<!-- ════════ GLOBAL · ink-pill action dock ════════ -->
+<div id="action-dock">
+  <div class="inner">
+    <span id="dock-caption"></span>
+    <button id="dock-pill" type="button">Apply to Rekordbox</button>
+  </div>
+</div>
+
+<div id="toast" role="status" aria-live="polite"><span class="tick">✓</span><span id="toast-msg"></span></div>
+
+<script>
+'use strict';
+const $=s=>document.querySelector(s);
+const CUE_VARS={A:'--cue-a',B:'--cue-b',C:'--cue-c',D:'--cue-d',E:'--cue-e',F:'--cue-f',G:'--cue-g',H:'--cue-h'};
+const cueColor=l=>`var(${CUE_VARS[l]})`;
+function fmtTime(s){return Math.floor(s/60)+':'+String(Math.round(s%60)).padStart(2,'0');}
+function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;');}
+function camelot(k){const m=/(\d+)([AB])/.exec(k);return{n:+m[1],l:m[2]};}
+function camelotDist(a,b){const A=camelot(a),B=camelot(b);let dn=Math.abs(A.n-B.n);dn=Math.min(dn,12-dn);return dn+(A.l===B.l?0:1);}
+function camelotRel(a,b){
+  const A=camelot(a),B=camelot(b);
+  if(a===b)return'same key';
+  if(A.n===B.n)return'parallel (same number)';
+  let dn=Math.abs(A.n-B.n);dn=Math.min(dn,12-dn);
+  if(dn===1&&A.l===B.l)return'adjacent — harmonic';
+  return dn+' steps apart';
+}
+
+let toastTimer;
+function toast(html){
+  $('#toast-msg').innerHTML=html;$('#toast').classList.add('show');
+  clearTimeout(toastTimer);toastTimer=setTimeout(()=>$('#toast').classList.remove('show'),3200);
+}
+
+/* ════════ theme ════════ */
+$('#theme-toggle').addEventListener('click',()=>{
+  document.documentElement.classList.toggle('dark');
+  // re-tint inspector cue badges
+  renderInspector(lib.focusedId);
+  paintRail();
+});
+
+/* ════════ health rail ring ════════ */
+const RH_CIRC=2*Math.PI*27;let rhScore=0;
+function countTo(el,from,to,ms){
+  let start=null;
+  function step(t){if(!start)start=t;const p=Math.min((t-start)/ms,1),e=1-Math.pow(1-p,3);
+    el.textContent=Math.round(from+(to-from)*e);if(p<1)requestAnimationFrame(step);}
+  requestAnimationFrame(step);
+}
+function setRailHealth(score){
+  $('#rh-fill').style.strokeDashoffset=(RH_CIRC*(1-score/100)).toFixed(2);
+  countTo($('#rh-score'),rhScore,score,1100);rhScore=score;
+}
+window.addEventListener('load',()=>setTimeout(()=>setRailHealth(84),160));
+
+/* ════════ data ════════ */
+const PHRASE_T=[
+  [['Intro',8],['Build',16],['Drop',16,1],['Break',8],['Drop',16,1],['Outro',10]],
+  [['Intro',16],['Verse',16],['Build',8],['Drop',24,1],['Outro',16]],
+  [['Intro',8],['Groove',24],['Break',8],['Drop',24,1],['Outro',14]],
+];
+/* realistic techno / melodic-house crate, sorted by BPM ascending-ish for grid */
+const LIB=[
+  {id:1, title:'Last Tram Home',         artist:'Mireille Fontaine', bpm:118.0, key:'3A',  dur:478, cls:'closing', mix:61, cuesHave:8, phrase:true,  pt:2},
+  {id:2, title:'Gravel & Honey',         artist:'Hollis Grade',      bpm:119.4, key:'6A',  dur:397, cls:'warmup',  mix:67, cuesHave:8, phrase:true,  pt:2},
+  {id:3, title:'Sodium Light',           artist:'Yumi Katto',        bpm:120.2, key:'4B',  dur:444, cls:'warmup',  mix:71, cuesHave:8, phrase:true,  pt:1},
+  {id:4, title:'Afterglow Protocol',     artist:'Nadia Volkov',      bpm:121.5, key:'12A', dur:368, cls:'warmup',  mix:69, cuesHave:0, phrase:true,  pt:2, proposal:true},
+  {id:5, title:'Plastic Empathy',        artist:'Moiré Club',        bpm:122.8, key:'5A',  dur:389, cls:'warmup',  mix:74, cuesHave:8, phrase:true,  pt:0},
+  {id:6, title:'Salt Cathedral Dub',     artist:'Jonas Aker',        bpm:123.0, key:'7B',  dur:433, cls:'warmup',  mix:76, cuesHave:8, phrase:true,  pt:0},
+  {id:7, title:'Concrete Lullaby',       artist:'Sasha Marlowe',     bpm:124.5, key:'8B',  dur:371, cls:'warmup',  mix:82, cuesHave:8, phrase:true,  pt:1},
+  {id:8, title:'Fern Static',            artist:'Lia Mercer',        bpm:125.7, key:'8A',  dur:380, cls:'build',   mix:79, cuesHave:8, phrase:true,  pt:0},
+  {id:9, title:'Vermillion Drift',       artist:'Roman Lindau',      bpm:126.0, key:'8A',  dur:402, cls:'build',   mix:86, cuesHave:8, phrase:true,  pt:0, focus:true},
+  {id:10,title:'Copper Veins',           artist:'Dario Skala',       bpm:127.4, key:'8B',  dur:405, cls:'build',   mix:81, cuesHave:8, phrase:true,  pt:0},
+  {id:11,title:'Night Bus to Tbilisi',   artist:'Levan Iro',         bpm:128.0, key:'9A',  dur:455, cls:'build',   mix:84, cuesHave:0, phrase:true,  pt:1, proposal:true},
+  {id:12,title:'Rotor Prayer',           artist:'Bram Verhoeven',    bpm:130.0, key:'9B',  dur:411, cls:'peak',    mix:85, cuesHave:8, phrase:true,  pt:2},
+  {id:13,title:'Acid Cathedral',         artist:'Volta Cabral',      bpm:132.3, key:'9A',  dur:418, cls:'peak',    mix:91, cuesHave:8, phrase:true,  pt:0},
+  {id:14,title:'Tunnel Arithmetic',      artist:'Otto Brandt',       bpm:133.5, key:'11A', dur:426, cls:'peak',    mix:88, cuesHave:8, phrase:true,  pt:1},
+  {id:15,title:'Hyaline',                artist:'Ada Reiss',         bpm:136.1, key:'10A', dur:362, cls:'peak',    mix:90, cuesHave:8, phrase:true,  pt:0},
+];
+const CLASS_LBL={warmup:'Warmup',build:'Build',peak:'Peak',after_hours:'After hrs',closing:'Closing'};
+function energyCurve(t){
+  const n=26,out=[];
+  for(let i=0;i<n;i++){
+    const x=i/(n-1);let base;
+    switch(t.cls){
+      case 'warmup':base=.22+.34*x;break;
+      case 'build':base=.30+.50*x;break;
+      case 'peak':base=.56+.40*Math.sin(Math.PI*Math.min(1,x*1.12));break;
+      case 'after_hours':base=.42+.10*Math.sin(x*6);break;
+      default:base=.66-.40*x;
+    }
+    out.push(Math.max(.05,Math.min(.98,base+.07*Math.sin(i*(1.7+t.id*.37))+.04*Math.sin(i*.9+t.id))));
+  }
+  return out;
+}
+LIB.forEach(t=>{t.energy=energyCurve(t);t.eAvg=t.energy.reduce((a,b)=>a+b,0)/t.energy.length;});
+function buildStructure(t){
+  const tpl=PHRASE_T[t.pt],total=tpl.reduce((a,s)=>a+s[1],0);
+  let acc=0;
+  const segs=tpl.map(s=>{const seg={name:s[0],from:acc/total,to:(acc+s[1])/total,drop:!!s[2]};acc+=s[1];return seg;});
+  const why={Intro:'first downbeat — load point',Verse:'phrase start — early mix-in',Build:'energy ramp begins',
+    Drop:'phrase: drop start',Break:'breakdown — tension reset',Groove:'main groove begins',Outro:'outro start — mix-out window'};
+  const letters='ABCDEFGH',cues=[];
+  segs.forEach(seg=>{if(cues.length<7)cues.push({letter:letters[cues.length],name:seg.name,pos:seg.from,why:why[seg.name]||'phrase boundary'});});
+  cues.push({letter:letters[cues.length],name:'Warn',pos:Math.max(.9,segs[segs.length-1].from+.04),why:'16 bars before end — mix-out warning'});
+  return{segs,cues};
+}
+LIB.forEach(t=>{const s=buildStructure(t);t.segs=s.segs;t.cues=s.cues;});
+function similarOf(t){
+  return LIB.filter(o=>o.id!==t.id)
+    .map(o=>{const d=Math.abs(o.bpm-t.bpm)+camelotDist(t.key,o.key)*3+Math.abs(o.eAvg-t.eAvg)*10;
+      return{o,score:Math.max(60,Math.round(100-d*4.5))};})
+    .sort((a,b)=>b.score-a.score).slice(0,3);
+}
+
+const lib={focusedId:9,prevFocusedId:13,selected:new Set([7,9])};
+
+/* ════════ sparkline ════════ */
+function sparkSVG(energy,w,h){
+  const pts=energy.map((e,i)=>`${(i/(energy.length-1)*w).toFixed(1)},${(h-e*(h-2)-1).toFixed(1)}`);
+  return `<svg class="spark" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none"><path class="fill" d="M0,${h} L${pts.join(' L')} L${w},${h} Z"/><polyline points="${pts.join(' ')}"/></svg>`;
+}
+
+/* ════════ GRID ════════ */
+function cueCellHTML(t){
+  if(t.proposal){
+    const on=lib.selected.has(t.id)||t.id===4; // demo: a couple pre-approved
+    return `<span class="prop-stamp">Proposal</span>`;
+  }
+  if(t.cuesHave>=8)return `<span class="cues-ready">8 ready</span>`;
+  if(t.cuesHave>0)return `<span class="cues-have">${t.cuesHave} cues</span>`;
+  return `<span class="cues-none">— no cues</span>`;
+}
+function paintRail(){/* rail static; placeholder for theme refresh hook */}
+function renderGrid(){
+  const body=$('#grid-body');
+  body.innerHTML=LIB.map((t,i)=>{
+    const sel=lib.selected.has(t.id);
+    const foc=t.id===lib.focusedId;
+    const mixHi=t.mix>=80?'hi':'';
+    const propRight=t.proposal
+      ? `<div class="cell-more"><button class="approve-tick ${ (t.id===4)?'on':''}" data-approve="${t.id}" aria-label="Approve proposed cues">✓</button></div>`
+      : `<div class="cell-more"><button aria-label="More"><svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg></button></div>`;
+    return `<div class="trow grid-cols ${foc?'focused':''} ${sel?'selected':''}" data-id="${t.id}">
+      <div class="ck"><input type="checkbox" data-ck="${t.id}" ${sel?'checked':''} aria-label="Select ${esc(t.title)}"></div>
+      <div class="idx">${String(i+1).padStart(2,'0')}</div>
+      <div class="t-title">
+        <div class="tt-line"><span class="tt">${esc(t.title)}</span></div>
+        <span class="ta">${esc(t.artist)}</span>
+      </div>
+      <div class="cell-bpm">${t.bpm.toFixed(1)}</div>
+      <div class="cell-key"><span class="chip key">${t.key}</span></div>
+      <div>${sparkSVG(t.energy,56,18)}</div>
+      <div class="cell-mix ${mixHi}">${t.mix}<span class="den">/100</span></div>
+      <div><span class="class-chip">${CLASS_LBL[t.cls]}</span></div>
+      <div class="cell-cues">${cueCellHTML(t)}</div>
+      ${propRight}
+    </div>`;
+  }).join('');
+  // wire rows
+  body.querySelectorAll('.trow').forEach(row=>{
+    row.addEventListener('click',e=>{
+      if(e.target.closest('input,button'))return;
+      focusTrack(+row.dataset.id);
+    });
+  });
+  body.querySelectorAll('input[data-ck]').forEach(ck=>{
+    ck.addEventListener('change',()=>{
+      const id=+ck.dataset.ck;
+      if(ck.checked)lib.selected.add(id);else lib.selected.delete(id);
+      syncSelection();
+    });
+  });
+  body.querySelectorAll('[data-approve]').forEach(b=>{
+    b.addEventListener('click',e=>{e.stopPropagation();b.classList.toggle('on');
+      toast(b.classList.contains('on')?'Cues for <b>'+LIB.find(x=>x.id==b.dataset.approve).title+'</b> approved — pending write':'Approval cleared');
+    });
+  });
+}
+function focusTrack(id){
+  if(id===lib.focusedId)return;
+  lib.prevFocusedId=lib.focusedId;lib.focusedId=id;
+  document.querySelectorAll('.trow').forEach(r=>r.classList.toggle('focused',+r.dataset.id===id));
+  renderInspector(id);
+  // scroll inspector to top
+  $('#inspector').scrollTop=0;
+}
+
+/* ════════ selection / batch bar ════════ */
+function syncSelection(){
+  const n=lib.selected.size;
+  const bar=$('#batch-bar');
+  if(n>0){bar.classList.add('show');$('#bb-n').textContent=n;$('#bb-apply').textContent='Apply to '+n+' track'+(n===1?'':'s');}
+  else bar.classList.remove('show');
+  document.querySelectorAll('.trow').forEach(r=>r.classList.toggle('selected',lib.selected.has(+r.dataset.id)));
+  document.querySelectorAll('input[data-ck]').forEach(ck=>ck.checked=lib.selected.has(+ck.dataset.ck));
+  updateDock();
+}
+$('#bb-clear').addEventListener('click',()=>{lib.selected.clear();syncSelection();});
+$('#head-check').addEventListener('change',e=>{
+  if(e.target.checked)LIB.forEach(t=>lib.selected.add(t.id));else lib.selected.clear();
+  syncSelection();
+});
+$('#bb-apply').addEventListener('click',()=>toast('Applied auto-tags + cues to <b>'+lib.selected.size+'</b> tracks · backup saved'));
+
+/* ════════ INSPECTOR ════════ */
+function renderInspector(id){
+  const t=LIB.find(x=>x.id===id);if(!t)return;
+  const prev=LIB.find(x=>x.id===lib.prevFocusedId);
+  const W=328,H=92;
+  // energy curve big
+  const pts=t.energy.map((e,i)=>`${(i/(t.energy.length-1)*W).toFixed(1)},${(H-e*(H-6)-3).toFixed(1)}`);
+  const energySVG=`<svg width="100%" height="${H}" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">
+    <path d="M0,${H} L${pts.join(' L')} L${W},${H} Z" fill="var(--green-wash)"/>
+    <polyline points="${pts.join(' ')}" fill="none" stroke="var(--green)" stroke-width="1.8"/>
+  </svg>`;
+  // phrase strip
+  const stripW=328;
+  const segHTML=t.segs.map(s=>{
+    const left=(s.from*stripW),w=((s.to-s.from)*stripW);
+    return `<div class="ph-seg ${s.drop?'drop':''}" style="left:${left.toFixed(1)}px;width:${(w-2).toFixed(1)}px">${s.name}</div>`;
+  }).join('');
+  const tickHTML=t.cues.map(c=>{
+    const x=c.pos*stripW;const col=cueColor(c.letter);
+    return `<div class="cue-tick" style="left:${x.toFixed(1)}px;background:${col}"></div>
+      <div class="cue-tick-lbl" style="left:${x.toFixed(1)}px;color:${col};border-color:${col};background:color-mix(in srgb, ${col} 8%, transparent)">${c.letter}</div>`;
+  }).join('');
+  // cue list
+  const cueRows=t.cues.map(c=>{
+    const col=cueColor(c.letter);
+    return `<div class="cue-row">
+      <span class="cue-letter" style="color:${col};border-color:${col};background:color-mix(in srgb, ${col} 8%, transparent)">${c.letter}</span>
+      <span class="cue-name">${c.name}</span>
+      <span class="cue-time mono">${fmtTime(c.pos*t.dur)}</span>
+      <span class="cue-why">${c.why}</span>
+    </div>`;
+  }).join('');
+  // breakdown bars (deterministic-ish from mix)
+  const bd=[
+    ['Intro',  Math.min(100,t.mix+12),0],
+    ['Outro',  Math.min(100,t.mix+4),0],
+    ['Energy', Math.max(40,t.mix-6),0],
+    ['Vocals', t.cls==='peak'?52:74, t.cls==='peak'?1:0],
+    ['Structure',Math.min(100,t.mix+8),0],
+  ];
+  const bdHTML=bd.map(([k,v,w])=>`<div class="bd-row"><span>${k}</span><span class="bd-bar"><i class="${w?'warn':''}" style="width:0%" data-w="${v}"></i></span><span class="bd-val">${v}</span></div>`).join('');
+  // transition
+  let transHTML;
+  if(prev){
+    const dn=Math.abs(prev.bpm-t.bpm).toFixed(1);
+    const rel=camelotRel(prev.key,t.key);
+    const eHold=Math.abs(prev.eAvg-t.eAvg)<.12?'energy holds':(t.eAvg>prev.eAvg?'energy lifts':'energy eases');
+    const score=Math.max(58,Math.round(100-camelotDist(prev.key,t.key)*7-Math.abs(prev.bpm-t.bpm)*2.2-Math.abs(prev.eAvg-t.eAvg)*18));
+    const good=score>=80;
+    transHTML=`<div id="transition-card">
+      <div id="trans-head"><span class="anchor-ico">⚓</span><span>from</span><span class="anchor">${esc(prev.title)}</span></div>
+      <div id="trans-score-row"><span class="trans-pair">${prev.key}→${t.key}</span><span id="trans-score" class="${good?'good':''}">${score}</span><span id="trans-score-den">/100</span></div>
+      <div class="trans-reason">${prev.key}→${t.key} ${rel} · <b class="mono">${dn}</b> BPM · ${eHold}</div>
+      <div class="trans-tip"><span class="bulb">💡</span><span>Nudge pitch +${dn} BPM and EQ-kill lows before <b>${esc(t.title)}</b>’s first drop lands — blend over 16 bars.</span></div>
+    </div>`;
+  }else{
+    transHTML=`<div id="transition-card"><div id="trans-none">No anchor yet — focus another track first, then return here to score the transition between them.</div></div>`;
+  }
+  // similar
+  const sims=similarOf(t).map(({o,score})=>`<button class="sim-row">
+    <div class="sim-main"><div class="sim-t">${esc(o.title)}</div><div class="sim-a">${esc(o.artist)}</div></div>
+    <div class="sim-meta">${o.bpm.toFixed(1)} · ${o.key}<br><b>≈ ${score}</b></div>
+  </button>`).join('');
+
+  const cueState = t.proposal
+    ? `<span class="prop-stamp" style="margin-left:8px">Proposal · not written</span>`
+    : `<span style="margin-left:8px;color:var(--green);font-size:11px;font-weight:600">● 8 ready</span>`;
+
+  $('#insp-body').innerHTML=`
+    <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px">
+      <div style="min-width:0">
+        <div id="insp-title">${esc(t.title)}</div>
+        <div id="insp-artist">${esc(t.artist)}</div>
+      </div>
+    </div>
+    <div id="insp-chips">
+      <span class="insp-chip bpm">${t.bpm.toFixed(1)} BPM</span>
+      <span class="insp-chip">${t.key}</span>
+      <span class="insp-chip">${fmtTime(t.dur)}</span>
+      <span class="insp-chip">${CLASS_LBL[t.cls]}</span>
+      ${t.proposal?'<span class="prop-stamp">Proposal · not written</span>':''}
+    </div>
+
+    <div class="insp-eyebrow">Energy curve</div>
+    <div class="energy-wrap">
+      ${energySVG}
+      <div class="energy-meta"><span>0:00</span><span>peak ${Math.round(Math.max(...t.energy)*100)}%</span><span>${fmtTime(t.dur)}</span></div>
+    </div>
+
+    <div class="insp-eyebrow">Scores</div>
+    <div class="score-head">
+      <span class="score-big ${t.mix>=80?'hi':''}">${t.mix}</span><span class="score-den">/100 mix</span>
+      <span class="score-cls"><span class="class-chip">${CLASS_LBL[t.cls]}</span></span>
+    </div>
+    <div id="breakdown">${bdHTML}</div>
+
+    <div class="insp-eyebrow">Phrase structure ${cueState}</div>
+    <div id="phrase-strip">${segHTML}${tickHTML}</div>
+
+    <div class="insp-eyebrow">Cues — A–H, named by phrase</div>
+    <div class="cue-rows">${cueRows}</div>
+
+    <div class="insp-eyebrow">Anchor transition</div>
+    ${transHTML}
+
+    <div class="insp-eyebrow">Similar tracks</div>
+    ${sims}
+  `;
+  // wire similar rows -> focus
+  $('#insp-body').querySelectorAll('.sim-row').forEach((row,i)=>{
+    const o=similarOf(t)[i].o;
+    row.addEventListener('click',()=>{focusTrack(o.id);
+      document.querySelectorAll('.trow').forEach(r=>{if(+r.dataset.id===o.id)r.scrollIntoView({block:'center',behavior:'smooth'});});
+    });
+  });
+  // animate breakdown bars
+  requestAnimationFrame(()=>{
+    $('#insp-body').querySelectorAll('.bd-bar i').forEach(i=>{i.style.width=i.dataset.w+'%';});
+  });
+}
+
+/* ════════ action dock ════════ */
+function updateDock(){
+  const n=lib.selected.size;
+  const cap=$('#dock-caption'),pill=$('#dock-pill');
+  const pendingProposals=LIB.filter(t=>t.proposal).length;
+  if(n>0){
+    cap.innerHTML=`<b>${n}</b> selected · auto-tag + cues queued`;
+    pill.textContent='Apply to '+n+' track'+(n===1?'':'s');
+  }else{
+    cap.innerHTML=`<b>${pendingProposals}</b> proposed cues · backup saved before write`;
+    pill.textContent='Apply to Rekordbox';
+  }
+}
+$('#dock-pill').addEventListener('click',()=>{
+  const n=lib.selected.size;
+  toast(n>0?'Writing cues to <b>'+n+'</b> tracks…':'Writing <b>'+LIB.filter(t=>t.proposal).length+'</b> proposed cues to Rekordbox…');
+});
+
+/* ════════ crate clicks ════════ */
+document.querySelectorAll('.crate').forEach(c=>{
+  c.addEventListener('click',()=>{
+    document.querySelectorAll('.crate').forEach(x=>x.classList.remove('active'));
+    c.classList.add('active');
+    $('#crate-title').textContent=c.querySelector('.lbl').textContent;
+    $('#crate-count').textContent=c.querySelector('.cnt').textContent+' tracks · sorted by BPM';
+  });
+});
+
+/* ════════ analysis-mode toggle ════════ */
+$('#mode-group').querySelectorAll('.ts-mode').forEach(b=>{
+  b.addEventListener('click',()=>{
+    $('#mode-group').querySelectorAll('.ts-mode').forEach(x=>{x.classList.remove('active');x.classList.toggle('phrase',false);});
+    b.classList.add('active');if(b.dataset.am==='phrase')b.classList.add('phrase');
+    toast('Analysis mode: <b>'+(b.dataset.am==='phrase'?'✨ Phrase analysis':'Bar intervals')+'</b>');
+  });
+});
+// restore phrase styling on the phrase button initially
+$('#mode-group [data-am="phrase"]').classList.add('phrase');
+
+/* ════════ rail Fix it ════════ */
+$('#rh-fix').addEventListener('click',()=>{
+  // focus the no-cues / proposal track
+  focusTrack(11);
+  document.querySelectorAll('.trow').forEach(r=>{if(+r.dataset.id===11)r.scrollIntoView({block:'center',behavior:'smooth'});});
+  toast('1 track needs cues — focus it, review the proposed A–H, then <b>Apply to Rekordbox</b>');
+});
+
+/* ════════ ⌘K hint ════════ */
+$('#cmdk-hint').addEventListener('click',()=>toast('⌘K palette — search tracks or type <b>fix</b>, <b>duplicates</b>, <b>build set</b>…'));
+
+/* ════════ init ════════ */
+renderGrid();
+renderInspector(lib.focusedId);
+syncSelection();
+updateDock();
+// nudge focused row into a sensible position
+window.addEventListener('load',()=>{
+  const r=document.querySelector('.trow.focused');if(r)r.scrollIntoView({block:'center'});
+});
+</script>
+</body>
+</html>

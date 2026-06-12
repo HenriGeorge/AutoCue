@@ -1,0 +1,818 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AutoCue — Crate Console (Design B: Pro Workbench)</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
+
+/* ════════ AutoCue tokens — light (ElevenLabs clean) ════════ */
+:root {
+  --bg:#fafafa; --surface:#ffffff; --surface-2:#f2f2f2; --border:#e8e8e8; --border-hover:#c8c8c8;
+  --text:#1a1a1a; --muted:#737373; --muted-soft:#a3a3a3;
+  --green:#159a05; --green-dim:#0f6e03; --green-wash:rgba(21,154,5,.08); --green-ring:rgba(21,154,5,.14);
+  --ink:#0a0a0a; --ink-hover:#2a2a2a; --on-ink:#fafafa;
+  --danger:#e74c3c; --warn:#f0801a; --rating:#f0b429;
+  --cue-a:#18a80c; --cue-b:#2246e0; --cue-c:#0099bb; --cue-d:#c07800;
+  --cue-e:#c84800; --cue-f:#c02010; --cue-g:#c8006a; --cue-h:#9900cc;
+  --shadow-sm:0 1px 3px rgba(0,0,0,.06),0 0 0 1px rgba(0,0,0,.03);
+  --shadow-md:0 4px 14px rgba(0,0,0,.08),0 0 0 1px rgba(0,0,0,.04);
+  --shadow-lg:0 10px 32px rgba(0,0,0,.18),0 2px 8px rgba(0,0,0,.08);
+  --glass-bg:rgba(255,255,255,.86);
+  --font-sans:'Inter',-apple-system,sans-serif;
+  --font-mono:'JetBrains Mono',ui-monospace,monospace;
+}
+/* ════════ dark (warm stone) ════════ */
+html.dark {
+  --bg:#0c0a09; --surface:#1c1917; --surface-2:#231f1d; --border:#292524; --border-hover:#3d3830;
+  --text:#fafaf9; --muted:#a8a29e; --muted-soft:#78716c;
+  --green:#28e214; --green-dim:#1a9a0d; --green-wash:rgba(40,226,20,.08); --green-ring:rgba(40,226,20,.14);
+  --ink:#fafafa; --ink-hover:#e2e2e2; --on-ink:#0a0a0a;
+  --cue-a:#28e214; --cue-b:#305aff; --cue-c:#00e0ff; --cue-d:#ffa000;
+  --cue-e:#ff6400; --cue-f:#e0301e; --cue-g:#f51e8c; --cue-h:#e600ff;
+  --shadow-sm:0 1px 3px rgba(0,0,0,.3);
+  --shadow-md:0 4px 12px rgba(0,0,0,.3);
+  --shadow-lg:0 10px 32px rgba(0,0,0,.45),0 2px 8px rgba(0,0,0,.3);
+  --glass-bg:rgba(12,10,9,.80);
+}
+
+* { margin:0; padding:0; box-sizing:border-box; }
+html, body { height:100%; }
+body {
+  font-family:var(--font-sans); font-size:14px; color:var(--text); background:var(--bg);
+  overflow:hidden; -webkit-font-smoothing:antialiased;
+}
+button { font-family:inherit; cursor:pointer; }
+::-webkit-scrollbar { width:10px; height:10px; }
+::-webkit-scrollbar-thumb { background:var(--border-hover); border-radius:5px; border:2px solid var(--bg); }
+::-webkit-scrollbar-track { background:transparent; }
+
+/* ════════ Top chrome ════════ */
+#topbar {
+  height:52px; display:flex; align-items:center; gap:16px; padding:0 16px;
+  background:var(--surface); border-bottom:1px solid var(--border); position:relative; z-index:30;
+}
+.brand { display:flex; align-items:center; gap:10px; }
+.brand-tile {
+  width:32px; height:32px; border-radius:8px; background:var(--surface-2);
+  display:flex; align-items:center; justify-content:center; flex:none;
+}
+.brand-name { font-weight:700; font-size:15px; letter-spacing:-.01em; }
+.brand-mode { font-size:10px; text-transform:uppercase; letter-spacing:.08em; color:var(--muted); font-weight:600; margin-left:2px; }
+#global-search {
+  flex:1; max-width:440px; display:flex; align-items:center; gap:8px;
+  background:var(--surface-2); border:1px solid var(--border); border-radius:8px; padding:6px 10px;
+  transition:border-color .15s;
+}
+#global-search:focus-within { border-color:var(--green); box-shadow:0 0 0 3px var(--green-ring); }
+#global-search svg { color:var(--muted-soft); flex:none; }
+#global-search input {
+  flex:1; border:0; background:transparent; outline:none; font:inherit; font-size:13px; color:var(--text);
+}
+#global-search kbd {
+  font-family:var(--font-mono); font-size:10px; color:var(--muted-soft);
+  border:1px solid var(--border); border-radius:4px; padding:1px 5px; background:var(--surface);
+}
+#status-strip { display:flex; align-items:center; gap:10px; margin-left:auto; font-size:12px; color:var(--muted); white-space:nowrap; }
+.status-dot { width:7px; height:7px; border-radius:50%; background:var(--green); display:inline-block; margin-right:5px; }
+.status-num { font-family:var(--font-mono); color:var(--text); }
+.status-sep { color:var(--border-hover); }
+#theme-toggle {
+  border:1px solid var(--border); background:var(--surface); color:var(--muted);
+  border-radius:999px; padding:5px 12px; font-size:12px; font-weight:500; transition:all .18s ease;
+}
+#theme-toggle:hover { border-color:var(--border-hover); color:var(--text); transform:translateY(-1px); }
+
+/* ════════ Workbench shell ════════ */
+#workbench {
+  display:grid; grid-template-columns:224px 1fr 364px;
+  height:calc(100vh - 52px);
+}
+
+/* ════════ Left rail ════════ */
+#rail {
+  background:var(--surface); border-right:1px solid var(--border);
+  overflow-y:auto; padding:14px 10px 60px;
+}
+.rail-eyebrow {
+  font-size:10px; font-weight:600; text-transform:uppercase; letter-spacing:.08em;
+  color:var(--muted-soft); padding:14px 10px 6px;
+}
+.rail-eyebrow:first-child { padding-top:2px; }
+.crate {
+  width:100%; display:flex; align-items:center; gap:8px; text-align:left;
+  background:transparent; border:0; border-left:2px solid transparent; border-radius:0 8px 8px 0;
+  padding:6px 10px 6px 12px; font-size:13px; font-weight:500; color:var(--muted);
+  transition:background .15s, color .15s;
+}
+.crate:hover { background:var(--surface-2); color:var(--text); }
+.crate.active { background:var(--green-wash); color:var(--text); border-left-color:var(--green); font-weight:600; }
+.crate .ico { flex:none; width:14px; text-align:center; color:var(--muted-soft); font-size:12px; }
+.crate.active .ico { color:var(--green); }
+.crate .lbl { flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.crate .cnt { font-family:var(--font-mono); font-size:11px; color:var(--muted-soft); }
+.crate.active .cnt { color:var(--green); font-weight:600; }
+.rail-health { margin:18px 10px 0; padding:10px 12px; border:1px solid var(--border); border-radius:12px; }
+.rail-health .hl { font-size:10px; text-transform:uppercase; letter-spacing:.08em; color:var(--muted-soft); font-weight:600; margin-bottom:6px; }
+.rail-health .hv { font-family:var(--font-mono); font-size:18px; font-weight:600; }
+.rail-health .hv span { font-size:11px; color:var(--muted-soft); font-weight:400; }
+.rail-health .bar { height:4px; border-radius:2px; background:var(--surface-2); margin-top:8px; overflow:hidden; }
+.rail-health .bar i { display:block; height:100%; width:78%; background:var(--green); border-radius:2px; }
+
+/* ════════ Center: grid ════════ */
+#grid-panel { position:relative; display:flex; flex-direction:column; min-width:0; background:var(--bg); }
+#grid-toolbar {
+  display:flex; align-items:center; gap:10px; padding:10px 16px;
+  border-bottom:1px solid var(--border); background:var(--bg); flex:none;
+}
+#crate-title { font-size:15px; font-weight:600; letter-spacing:-.01em; }
+#crate-count { font-family:var(--font-mono); font-size:12px; color:var(--muted); }
+#grid-toolbar .spacer { flex:1; }
+.tool-pill {
+  border:1px solid var(--border); background:var(--surface); color:var(--muted);
+  border-radius:999px; padding:5px 14px; font-size:12px; font-weight:500; transition:all .18s ease;
+}
+.tool-pill:hover { border-color:var(--border-hover); color:var(--text); transform:translateY(-1px); }
+
+#grid-scroll { flex:1; overflow-y:auto; min-height:0; }
+.grid-cols { display:grid; grid-template-columns:36px 30px minmax(180px,1fr) 72px 52px 80px 64px 96px 84px 56px; align-items:center; }
+#grid-head {
+  position:sticky; top:0; z-index:10; background:var(--glass-bg); backdrop-filter:blur(14px);
+  border-bottom:1px solid var(--border);
+  font-size:10px; font-weight:600; text-transform:uppercase; letter-spacing:.08em; color:var(--muted-soft);
+}
+#grid-head > div { padding:8px 8px; user-select:none; white-space:nowrap; }
+#grid-head .sortable { cursor:pointer; }
+#grid-head .sortable:hover { color:var(--text); }
+#grid-head .sorted { color:var(--text); }
+#grid-head .arrow { font-size:9px; }
+.num-col { text-align:right; }
+
+.trow {
+  border-bottom:1px solid var(--border); cursor:default; transition:background .12s;
+  position:relative; height:42px;
+}
+.trow:hover { background:var(--surface); }
+.trow.focused { background:var(--green-wash); box-shadow:inset 2px 0 0 var(--green); }
+.trow.checked { background:var(--surface); }
+.trow.checked.focused { background:var(--green-wash); }
+.trow > div { padding:0 8px; overflow:hidden; white-space:nowrap; }
+.trow .ck { display:flex; justify-content:center; }
+.trow .ck input { accent-color:var(--green); cursor:pointer; }
+.trow .idx { font-family:var(--font-mono); font-size:11px; color:var(--muted-soft); text-align:right; }
+.trow .idx .playing { color:var(--green); }
+.t-title { display:flex; flex-direction:column; justify-content:center; line-height:1.25; min-width:0; }
+.t-title .tt { font-size:13px; font-weight:600; letter-spacing:-.2px; overflow:hidden; text-overflow:ellipsis; }
+.t-title .ta { font-size:11px; color:var(--muted); overflow:hidden; text-overflow:ellipsis; }
+.chip-bpm {
+  font-family:var(--font-mono); font-size:11.5px; font-weight:500; color:var(--green);
+  background:var(--green-wash); border-radius:4px; padding:2px 6px; display:inline-block;
+}
+.chip-key {
+  font-family:var(--font-mono); font-size:11.5px; color:var(--text);
+  border:1px solid var(--border); border-radius:4px; padding:1.5px 6px; display:inline-block;
+}
+.cell-mix { font-family:var(--font-mono); font-size:12px; text-align:right; color:var(--text); }
+.cell-mix .den { color:var(--muted-soft); font-size:10px; }
+.cell-mix.hi { color:var(--green); font-weight:600; }
+.class-chip {
+  font-size:10px; font-weight:600; text-transform:uppercase; letter-spacing:.05em;
+  border:1px solid var(--border); border-radius:4px; padding:2px 6px; color:var(--muted); display:inline-block;
+}
+.cell-cues { font-size:11px; }
+.cues-ready { color:var(--green); font-weight:600; }
+.cues-ready::before { content:'●'; font-size:8px; margin-right:5px; vertical-align:1px; }
+.cues-have { color:var(--muted); }
+.cues-have::before { content:'✓'; margin-right:4px; }
+.cell-time { font-family:var(--font-mono); font-size:11.5px; color:var(--muted); text-align:right; }
+.spark { display:block; }
+.spark polyline { stroke:var(--green); stroke-width:1.5; fill:none; opacity:.85; }
+.spark path.fill { fill:var(--green-wash); stroke:none; }
+
+#kbd-hints {
+  flex:none; display:flex; gap:18px; align-items:center; padding:6px 16px;
+  border-top:1px solid var(--border); background:var(--surface); font-size:11px; color:var(--muted-soft);
+}
+#kbd-hints kbd {
+  font-family:var(--font-mono); font-size:10px; border:1px solid var(--border);
+  border-radius:4px; padding:0 5px; background:var(--surface-2); color:var(--muted); margin-right:4px;
+}
+
+/* ════════ Batch bar ════════ */
+#batch-bar {
+  position:absolute; left:50%; bottom:46px; transform:translate(-50%, 16px); opacity:0; pointer-events:none;
+  display:flex; align-items:center; gap:12px;
+  background:var(--glass-bg); backdrop-filter:blur(16px);
+  border:1px solid var(--border); border-radius:999px; padding:8px 10px 8px 18px;
+  box-shadow:var(--shadow-lg); z-index:20; transition:transform .22s ease, opacity .22s ease;
+}
+#batch-bar.show { transform:translate(-50%, 0); opacity:1; pointer-events:auto; }
+#batch-count { font-size:13px; white-space:nowrap; }
+#batch-count strong { font-family:var(--font-mono); }
+#batch-clear { border:0; background:none; color:var(--muted); font-size:12px; text-decoration:underline; padding:0 4px; }
+#batch-clear:hover { color:var(--text); }
+.btn-secondary {
+  border:1px solid var(--border); background:var(--surface); color:var(--text);
+  border-radius:999px; padding:8px 18px; font-size:13px; font-weight:500; transition:all .18s ease;
+}
+.btn-secondary:hover { border-color:var(--border-hover); transform:translateY(-1px); box-shadow:var(--shadow-sm); }
+.btn-primary {
+  border:0; background:var(--ink); color:var(--on-ink);
+  border-radius:999px; padding:9px 20px; font-size:13px; font-weight:600; transition:all .18s ease;
+}
+.btn-primary:hover { background:var(--ink-hover); transform:translateY(-1px); box-shadow:var(--shadow-md); }
+.btn-primary:active { transform:translateY(0); }
+
+/* ════════ Right inspector ════════ */
+#inspector {
+  background:var(--surface); border-left:1px solid var(--border);
+  overflow-y:auto; padding:18px 18px 80px;
+}
+#insp-empty { color:var(--muted-soft); font-size:13px; text-align:center; padding:80px 20px; line-height:1.7; }
+#insp-empty kbd { font-family:var(--font-mono); font-size:11px; border:1px solid var(--border); border-radius:4px; padding:0 5px; }
+.insp-eyebrow {
+  font-size:10px; font-weight:600; text-transform:uppercase; letter-spacing:.08em;
+  color:var(--muted-soft); margin:22px 0 8px;
+}
+#insp-title { font-size:17px; font-weight:700; letter-spacing:-.2px; line-height:1.3; }
+#insp-artist { font-size:13px; color:var(--muted); margin-top:2px; }
+#insp-chips { display:flex; flex-wrap:wrap; gap:6px; margin-top:10px; }
+.insp-chip-mix { font-family:var(--font-mono); font-size:11.5px; border:1px solid var(--border); border-radius:4px; padding:2px 7px; }
+#insp-preview-flag {
+  display:none; align-items:center; gap:6px; margin-top:10px;
+  font-size:11px; color:var(--green); font-weight:600;
+}
+#insp-preview-flag.on { display:flex; }
+.energy-wrap { border:1px solid var(--border); border-radius:12px; padding:10px 10px 6px; }
+.energy-wrap svg { display:block; width:100%; }
+.energy-meta { display:flex; justify-content:space-between; font-family:var(--font-mono); font-size:10px; color:var(--muted-soft); padding:4px 2px 2px; }
+
+/* phrase strip */
+#phrase-strip { position:relative; height:46px; margin-top:4px; }
+.ph-seg {
+  position:absolute; top:18px; height:16px; background:var(--surface-2);
+  border:1px solid var(--border); border-radius:3px; overflow:hidden;
+  font-size:8.5px; font-weight:600; text-transform:uppercase; letter-spacing:.04em;
+  color:var(--muted); display:flex; align-items:center; justify-content:center; white-space:nowrap;
+}
+.ph-seg.drop { background:var(--green-wash); border-color:var(--green-ring); color:var(--green-dim); }
+html.dark .ph-seg.drop { color:var(--green); }
+.cue-tick { position:absolute; top:14px; width:2px; height:24px; border-radius:1px; }
+.cue-tick-lbl {
+  position:absolute; top:0; transform:translateX(-50%);
+  font-family:var(--font-mono); font-size:8.5px; font-weight:600; line-height:1;
+  border:1px solid; border-radius:3px; padding:1px 3px;
+}
+.cue-rows { margin-top:12px; display:flex; flex-direction:column; gap:5px; }
+.cue-row { display:flex; align-items:baseline; gap:8px; font-size:12px; }
+.cue-letter {
+  font-family:var(--font-mono); font-size:10px; font-weight:600; flex:none;
+  border:1.5px solid; border-radius:4px; padding:1px 5px; line-height:1.3;
+}
+.cue-time { font-family:var(--font-mono); font-size:11px; color:var(--muted); flex:none; width:42px; }
+.cue-why { color:var(--muted); line-height:1.4; }
+
+/* transition card */
+#transition-card { border:1px solid var(--border); border-radius:12px; padding:12px; }
+#trans-head { display:flex; align-items:center; gap:8px; font-size:12px; color:var(--muted); }
+#trans-head .anchor { font-weight:600; color:var(--text); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+#trans-score-row { display:flex; align-items:baseline; gap:8px; margin:8px 0 6px; }
+#trans-score { font-family:var(--font-mono); font-size:26px; font-weight:600; letter-spacing:-.01em; }
+#trans-score.good { color:var(--green); }
+#trans-score-den { font-family:var(--font-mono); font-size:12px; color:var(--muted-soft); }
+.trans-reason { font-size:12px; color:var(--muted); line-height:1.5; }
+.trans-reason::before { content:'→ '; color:var(--muted-soft); }
+.trans-tip { margin-top:8px; font-size:12px; color:var(--text); background:var(--surface-2); border-radius:8px; padding:7px 10px; line-height:1.45; }
+#trans-none { font-size:12px; color:var(--muted-soft); line-height:1.5; }
+
+/* similar tracks */
+.sim-row {
+  width:100%; display:flex; align-items:center; gap:10px; text-align:left;
+  background:transparent; border:1px solid var(--border); border-radius:8px;
+  padding:7px 10px; margin-bottom:6px; transition:all .15s; color:var(--text);
+}
+.sim-row:hover { border-color:var(--border-hover); box-shadow:var(--shadow-sm); transform:translateY(-1px); }
+.sim-main { flex:1; min-width:0; }
+.sim-t { font-size:12px; font-weight:600; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.sim-a { font-size:11px; color:var(--muted); }
+.sim-meta { font-family:var(--font-mono); font-size:10.5px; color:var(--muted); white-space:nowrap; }
+.sim-meta b { color:var(--green); font-weight:500; }
+
+/* toast */
+#toast {
+  position:fixed; right:20px; bottom:20px; z-index:50;
+  background:var(--glass-bg); backdrop-filter:blur(16px); border:1px solid var(--border);
+  border-radius:12px; padding:12px 16px; box-shadow:var(--shadow-lg); font-size:13px;
+  display:flex; align-items:center; gap:10px; max-width:380px;
+  transform:translateY(12px); opacity:0; pointer-events:none; transition:all .25s ease;
+}
+#toast.show { transform:translateY(0); opacity:1; }
+#toast .tick { color:var(--green); font-weight:700; }
+
+@media (prefers-reduced-motion: reduce) {
+  * { transition:none !important; animation:none !important; }
+}
+</style>
+</head>
+<body>
+
+<!-- ════════ Top chrome ════════ -->
+<header id="topbar">
+  <div class="brand">
+    <div class="brand-tile">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--green)" stroke-width="2.4" stroke-linecap="round">
+        <line x1="4" y1="14" x2="4" y2="18"/><line x1="8" y1="9" x2="8" y2="18"/>
+        <line x1="12" y1="5" x2="12" y2="18"/><line x1="16" y1="11" x2="16" y2="18"/><line x1="20" y1="7" x2="20" y2="18"/>
+      </svg>
+    </div>
+    <span class="brand-name">AutoCue</span>
+    <span class="brand-mode">Console</span>
+  </div>
+
+  <div id="global-search">
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
+    <input id="search-input" type="text" placeholder="Search title or artist…" autocomplete="off">
+    <kbd>/</kbd>
+  </div>
+
+  <div id="status-strip">
+    <span><span class="status-dot"></span>DB connected</span>
+    <span class="status-sep">·</span>
+    <span><span class="status-num" id="status-track-count">15</span> tracks</span>
+    <span class="status-sep">·</span>
+    <span>Rekordbox <strong style="color:var(--text);font-weight:600">closed</strong> ✓</span>
+  </div>
+  <button id="theme-toggle" type="button">◐ Theme</button>
+</header>
+
+<div id="workbench">
+
+  <!-- ════════ Left rail ════════ -->
+  <nav id="rail" aria-label="Sources and crates">
+    <div class="rail-eyebrow">Source</div>
+    <button class="crate active" data-crate="all"><span class="ico">▤</span><span class="lbl">All tracks</span><span class="cnt" data-cnt="all"></span></button>
+
+    <div class="rail-eyebrow">Smart Crates</div>
+    <button class="crate" data-crate="nocues"><span class="ico">◌</span><span class="lbl">No cues yet</span><span class="cnt" data-cnt="nocues"></span></button>
+    <button class="crate" data-crate="phrase"><span class="ico">✨</span><span class="lbl">Phrase-ready</span><span class="cnt" data-cnt="phrase"></span></button>
+    <button class="crate" data-crate="hicues"><span class="ico">✓</span><span class="lbl">Already cued</span><span class="cnt" data-cnt="hicues"></span></button>
+    <button class="crate" data-crate="mix80"><span class="ico">≈</span><span class="lbl">Mix 80+</span><span class="cnt" data-cnt="mix80"></span></button>
+    <button class="crate" data-crate="peak"><span class="ico">▲</span><span class="lbl">Peak-time</span><span class="cnt" data-cnt="peak"></span></button>
+
+    <div class="rail-eyebrow">Playlists</div>
+    <button class="crate" data-crate="pl-warehouse"><span class="ico">♪</span><span class="lbl">Warehouse · Mar 14</span><span class="cnt" data-cnt="pl-warehouse"></span></button>
+    <button class="crate" data-crate="pl-clubtools"><span class="ico">♪</span><span class="lbl">Club Tools</span><span class="cnt" data-cnt="pl-clubtools"></span></button>
+    <button class="crate" data-crate="pl-openers"><span class="ico">♪</span><span class="lbl">Deep Openers</span><span class="cnt" data-cnt="pl-openers"></span></button>
+
+    <div class="rail-eyebrow">Saved Filters</div>
+    <button class="crate" data-crate="sf-130"><span class="ico">⚲</span><span class="lbl">130+ BPM · 9A–11A</span><span class="cnt" data-cnt="sf-130"></span></button>
+    <button class="crate" data-crate="sf-closers"><span class="ico">⚲</span><span class="lbl">Closers under 120</span><span class="cnt" data-cnt="sf-closers"></span></button>
+
+    <div class="rail-health">
+      <div class="hl">Library health</div>
+      <div class="hv">78<span>/100</span></div>
+      <div class="bar"><i></i></div>
+    </div>
+  </nav>
+
+  <!-- ════════ Center grid ════════ -->
+  <section id="grid-panel">
+    <div id="grid-toolbar">
+      <span id="crate-title">All tracks</span>
+      <span id="crate-count"></span>
+      <span class="spacer"></span>
+      <button class="tool-pill" type="button" onclick="selectAllVisible()">Select all</button>
+      <button class="tool-pill" type="button">Columns ▾</button>
+    </div>
+
+    <div id="grid-scroll">
+      <div id="grid-head" class="grid-cols">
+        <div></div>
+        <div class="num-col">#</div>
+        <div class="sortable" data-sort="title">Title <span class="arrow"></span></div>
+        <div class="sortable num-col" data-sort="bpm">BPM <span class="arrow"></span></div>
+        <div class="sortable" data-sort="key">Key <span class="arrow"></span></div>
+        <div class="sortable" data-sort="energy">Energy <span class="arrow"></span></div>
+        <div class="sortable num-col" data-sort="mix">Mix <span class="arrow"></span></div>
+        <div class="sortable" data-sort="cls">Class <span class="arrow"></span></div>
+        <div class="sortable" data-sort="cues">Cues <span class="arrow"></span></div>
+        <div class="sortable num-col" data-sort="dur">Time <span class="arrow"></span></div>
+      </div>
+      <div id="grid-body"></div>
+    </div>
+
+    <div id="kbd-hints">
+      <span><kbd>↑</kbd><kbd>↓</kbd> navigate</span>
+      <span><kbd>Space</kbd> preview</span>
+      <span><kbd>X</kbd> select</span>
+      <span><kbd>⇧ Click</kbd> range</span>
+      <span><kbd>⌘A</kbd> select visible</span>
+      <span><kbd>Esc</kbd> clear</span>
+      <span><kbd>/</kbd> search</span>
+    </div>
+
+    <!-- batch bar -->
+    <div id="batch-bar" aria-hidden="true">
+      <span id="batch-count"><strong>0</strong> selected</span>
+      <button id="batch-clear" type="button" onclick="clearSelection()">Clear</button>
+      <button class="btn-secondary" type="button" onclick="showToast('Preview built for ' + state.selected.size + ' tracks — nothing written yet')">Preview cues</button>
+      <button class="btn-primary" type="button" onclick="applySelected()">Apply to Rekordbox</button>
+    </div>
+  </section>
+
+  <!-- ════════ Right inspector ════════ -->
+  <aside id="inspector" aria-label="Track inspector">
+    <div id="insp-empty">
+      Select a track to inspect it.<br><br>
+      <kbd>↑</kbd> <kbd>↓</kbd> to move through the grid ·<br>
+      <kbd>Space</kbd> to preview · <kbd>X</kbd> to select
+    </div>
+    <div id="insp-body" style="display:none"></div>
+  </aside>
+
+</div>
+
+<div id="toast"><span class="tick">✓</span><span id="toast-msg"></span></div>
+
+<script>
+'use strict';
+/* ════════════════════ Data ════════════════════ */
+const CLASSES = { warmup:'Warmup', build:'Build', peak:'Peak', after_hours:'After hours', closing:'Closing' };
+const CUE_VARS = { A:'--cue-a', B:'--cue-b', C:'--cue-c', D:'--cue-d', E:'--cue-e', F:'--cue-f', G:'--cue-g', H:'--cue-h' };
+
+// phrase templates: [name, weight, isDrop]
+const PHRASE_T = [
+  [['Intro',8],['Verse',16],['Build',8],['Drop',16,1],['Break',8],['Drop',16,1],['Outro',10]],
+  [['Intro',16],['Verse',16],['Build',8],['Drop',24,1],['Outro',16]],
+  [['Intro',8],['Groove',24],['Break',8],['Drop',24,1],['Outro',14]],
+];
+
+const TRACKS = [
+  { id:1,  title:'Vermillion Drift',   artist:'Roman Lindau',      bpm:126.0, key:'8A',  dur:402, cls:'build',       mix:78, cuesHave:0, phrase:true,  pls:['pl-warehouse'], pt:0 },
+  { id:2,  title:'Concrete Lullaby',   artist:'Sasha Marlowe',     bpm:124.5, key:'8B',  dur:371, cls:'warmup',      mix:82, cuesHave:0, phrase:true,  pls:['pl-openers'],   pt:1 },
+  { id:3,  title:'Acid Cathedral',     artist:'Volta Cabral',      bpm:132.3, key:'9A',  dur:418, cls:'peak',        mix:91, cuesHave:8, phrase:true,  pls:['pl-warehouse'], pt:0 },
+  { id:4,  title:'Night Bus to Tbilisi', artist:'Levan Iro',       bpm:128.0, key:'7A',  dur:455, cls:'build',       mix:74, cuesHave:0, phrase:false, pls:['pl-clubtools'], pt:2 },
+  { id:5,  title:'Plastic Empathy',    artist:'Moiré Club',        bpm:122.8, key:'5A',  dur:389, cls:'warmup',      mix:67, cuesHave:0, phrase:true,  pls:['pl-openers'],   pt:1 },
+  { id:6,  title:'Hyaline',            artist:'Ada Reiss',         bpm:136.1, key:'10A', dur:362, cls:'peak',        mix:88, cuesHave:8, phrase:true,  pls:['pl-warehouse'], pt:0 },
+  { id:7,  title:'Rotor Prayer',       artist:'Bram Verhoeven',    bpm:130.0, key:'9B',  dur:411, cls:'peak',        mix:85, cuesHave:0, phrase:true,  pls:['pl-warehouse'], pt:2 },
+  { id:8,  title:'Sodium Light',       artist:'Yumi Katto',        bpm:120.2, key:'4B',  dur:444, cls:'after_hours', mix:71, cuesHave:0, phrase:false, pls:['pl-clubtools'], pt:1 },
+  { id:9,  title:'Gravel & Honey',     artist:'Hollis Grade',      bpm:118.4, key:'6A',  dur:397, cls:'after_hours', mix:63, cuesHave:3, phrase:true,  pls:['pl-openers'],   pt:2 },
+  { id:10, title:'Fern Static',        artist:'Lia Mercer',        bpm:125.7, key:'8A',  dur:380, cls:'build',       mix:79, cuesHave:0, phrase:true,  pls:['pl-clubtools'], pt:0 },
+  { id:11, title:'Tunnel Arithmetic',  artist:'Otto Brandt',       bpm:133.5, key:'11A', dur:426, cls:'peak',        mix:86, cuesHave:0, phrase:true,  pls:['pl-warehouse'], pt:1 },
+  { id:12, title:'Last Tram Home',     artist:'Mireille Fontaine', bpm:116.0, key:'3A',  dur:478, cls:'closing',     mix:58, cuesHave:0, phrase:false, pls:['pl-clubtools'], pt:2 },
+  { id:13, title:'Copper Veins',       artist:'Dario Skala',       bpm:127.4, key:'8B',  dur:405, cls:'build',       mix:81, cuesHave:8, phrase:true,  pls:['pl-warehouse'], pt:0 },
+  { id:14, title:'Salt Cathedral Dub', artist:'Jonas Aker',        bpm:123.0, key:'7B',  dur:433, cls:'warmup',      mix:76, cuesHave:0, phrase:true,  pls:['pl-openers'],   pt:1 },
+  { id:15, title:'Afterglow Protocol', artist:'Nadia Volkov',      bpm:121.5, key:'12A', dur:368, cls:'closing',     mix:69, cuesHave:0, phrase:true,  pls:['pl-clubtools'], pt:2 },
+];
+
+/* deterministic energy curve per class */
+function energyCurve(t) {
+  const n = 24, out = [];
+  for (let i = 0; i < n; i++) {
+    const x = i / (n - 1);
+    let base;
+    switch (t.cls) {
+      case 'warmup':      base = 0.22 + 0.33 * x; break;
+      case 'build':       base = 0.30 + 0.50 * x; break;
+      case 'peak':        base = 0.55 + 0.40 * Math.sin(Math.PI * Math.min(1, x * 1.15)); break;
+      case 'after_hours': base = 0.42 + 0.10 * Math.sin(x * 6); break;
+      default:            base = 0.68 - 0.42 * x; break; // closing
+    }
+    const jitter = 0.07 * Math.sin(i * (1.7 + t.id * 0.37)) + 0.04 * Math.sin(i * 0.9 + t.id);
+    out.push(Math.max(0.05, Math.min(0.98, base + jitter)));
+  }
+  return out;
+}
+TRACKS.forEach(t => { t.energy = energyCurve(t); t.eAvg = t.energy.reduce((a,b)=>a+b,0)/t.energy.length; });
+
+/* phrase segments + proposed cues from template */
+function buildStructure(t) {
+  const tpl = PHRASE_T[t.pt];
+  const total = tpl.reduce((a,s)=>a+s[1],0);
+  let acc = 0;
+  const segs = tpl.map(s => {
+    const seg = { name:s[0], from:acc/total, to:(acc+s[1])/total, drop:!!s[2] };
+    acc += s[1]; return seg;
+  });
+  const why = {
+    Intro:'first downbeat — load point', Verse:'phrase start — early mix-in',
+    Build:'energy ramp begins', Drop:'phrase: drop start', Break:'breakdown — tension reset',
+    Groove:'main groove begins', Outro:'outro start — mix-out window',
+  };
+  const letters = 'ABCDEFGH';
+  const cues = [];
+  segs.forEach(seg => {
+    if (cues.length >= 7) return;
+    cues.push({ letter:letters[cues.length], pos:seg.from, why:(why[seg.name]||'phrase boundary') });
+  });
+  cues.push({ letter:letters[cues.length], pos:Math.max(0.9, segs[segs.length-1].from + 0.04), why:'16 bars before end — mix-out warning' });
+  return { segs, cues };
+}
+TRACKS.forEach(t => { const s = buildStructure(t); t.segs = s.segs; t.cues = s.cues; });
+
+function similarOf(t) {
+  return TRACKS.filter(o => o.id !== t.id)
+    .map(o => ({ o, d: Math.abs(o.bpm - t.bpm) + camelotDist(t.key, o.key) * 3 + Math.abs(o.eAvg - t.eAvg) * 10 }))
+    .sort((a,b)=>a.d-b.d).slice(0,3).map(x=>x.o);
+}
+function camelot(k){ return { n: parseInt(k,10), l: k.slice(-1) }; }
+function camelotDist(a,b){
+  const A = camelot(a), B = camelot(b);
+  let dn = Math.abs(A.n - B.n); dn = Math.min(dn, 12 - dn);
+  return dn + (A.l === B.l ? 0 : 1);
+}
+
+/* ════════════════════ State ════════════════════ */
+const state = {
+  crate:'all', search:'', sort:{ key:null, dir:1 },
+  focusedId:null, prevFocusedId:null, selected:new Set(),
+  previewingId:null, visible:[],
+};
+
+const CRATES = {
+  all:          { label:'All tracks',           fn:()=>true },
+  nocues:       { label:'No cues yet',          fn:t=>t.cuesHave===0 },
+  phrase:       { label:'Phrase-ready',         fn:t=>t.phrase },
+  hicues:       { label:'Already cued',         fn:t=>t.cuesHave>0 },
+  mix80:        { label:'Mix 80+',              fn:t=>t.mix>=80 },
+  peak:         { label:'Peak-time',            fn:t=>t.cls==='peak' },
+  'pl-warehouse':{ label:'Warehouse · Mar 14',  fn:t=>t.pls.includes('pl-warehouse') },
+  'pl-clubtools':{ label:'Club Tools',          fn:t=>t.pls.includes('pl-clubtools') },
+  'pl-openers': { label:'Deep Openers',         fn:t=>t.pls.includes('pl-openers') },
+  'sf-130':     { label:'130+ BPM · 9A–11A',    fn:t=>t.bpm>=130 && ['9A','10A','11A'].includes(t.key) },
+  'sf-closers': { label:'Closers under 120',    fn:t=>t.cls==='closing'||t.bpm<120 },
+};
+
+/* ════════════════════ Helpers ════════════════════ */
+const $ = s => document.querySelector(s);
+const cueColor = l => `var(${CUE_VARS[l]})`;
+function fmtTime(s){ return Math.floor(s/60) + ':' + String(Math.round(s%60)).padStart(2,'0'); }
+function esc(s){ return s.replace(/&/g,'&amp;').replace(/</g,'&lt;'); }
+
+function sparkSVG(energy, w, h) {
+  const pts = energy.map((e,i)=>`${(i/(energy.length-1)*w).toFixed(1)},${(h - e*(h-2)).toFixed(1)}`);
+  return `<svg class="spark" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}">`
+    + `<path class="fill" d="M0,${h} L${pts.join(' L')} L${w},${h} Z"/>`
+    + `<polyline points="${pts.join(' ')}"/></svg>`;
+}
+
+/* ════════════════════ Grid render ════════════════════ */
+function visibleTracks() {
+  let rows = TRACKS.filter(CRATES[state.crate].fn);
+  if (state.search) {
+    const q = state.search.toLowerCase();
+    rows = rows.filter(t => (t.title + ' ' + t.artist).toLowerCase().includes(q));
+  }
+  const { key, dir } = state.sort;
+  if (key) {
+    const get = {
+      title:t=>t.title.toLowerCase(), bpm:t=>t.bpm, key:t=>camelot(t.key).n*2+(camelot(t.key).l==='B'?1:0),
+      energy:t=>t.eAvg, mix:t=>t.mix, cls:t=>t.cls, cues:t=>t.cuesHave, dur:t=>t.dur,
+    }[key];
+    rows = rows.slice().sort((a,b)=> (get(a)<get(b)?-1:get(a)>get(b)?1:0) * dir);
+  }
+  return rows;
+}
+
+function renderGrid() {
+  state.visible = visibleTracks();
+  const body = $('#grid-body');
+  body.innerHTML = state.visible.map((t,i) => {
+    const cuesCell = t.cuesHave > 0
+      ? `<span class="cues-have">${t.cuesHave} cue${t.cuesHave>1?'s':''}</span>`
+      : `<span class="cues-ready">${t.cues.length} ready</span>`;
+    const playing = state.previewingId === t.id;
+    return `<div class="trow grid-cols ${state.focusedId===t.id?'focused':''} ${state.selected.has(t.id)?'checked':''}" data-id="${t.id}">
+      <div class="ck"><input type="checkbox" ${state.selected.has(t.id)?'checked':''} aria-label="Select ${esc(t.title)}"></div>
+      <div class="idx">${playing ? '<span class="playing">▶</span>' : i+1}</div>
+      <div class="t-title"><span class="tt">${esc(t.title)}</span><span class="ta">${esc(t.artist)}</span></div>
+      <div class="num-col"><span class="chip-bpm">${t.bpm.toFixed(1)}</span></div>
+      <div><span class="chip-key">${t.key}</span></div>
+      <div>${sparkSVG(t.energy, 60, 16)}</div>
+      <div class="cell-mix ${t.mix>=80?'hi':''}">${t.mix}<span class="den">/100</span></div>
+      <div><span class="class-chip">${CLASSES[t.cls]}</span></div>
+      <div class="cell-cues">${cuesCell}</div>
+      <div class="cell-time">${fmtTime(t.dur)}</div>
+    </div>`;
+  }).join('');
+  $('#crate-title').textContent = CRATES[state.crate].label;
+  $('#crate-count').textContent = state.visible.length + ' of ' + TRACKS.length + ' tracks';
+  // sort arrows
+  document.querySelectorAll('#grid-head .sortable').forEach(el => {
+    const on = el.dataset.sort === state.sort.key;
+    el.classList.toggle('sorted', on);
+    el.querySelector('.arrow').textContent = on ? (state.sort.dir > 0 ? '▲' : '▼') : '';
+  });
+  renderBatchBar();
+}
+
+/* ════════════════════ Rail counts ════════════════════ */
+function renderRailCounts() {
+  document.querySelectorAll('[data-cnt]').forEach(el => {
+    el.textContent = TRACKS.filter(CRATES[el.dataset.cnt].fn).length;
+  });
+}
+
+/* ════════════════════ Inspector ════════════════════ */
+function inspect(id, keepPrev) {
+  if (!keepPrev && state.focusedId && state.focusedId !== id) state.prevFocusedId = state.focusedId;
+  state.focusedId = id;
+  renderGrid();
+  renderInspector();
+  const row = document.querySelector(`.trow[data-id="${id}"]`);
+  if (row) row.scrollIntoView({ block:'nearest' });
+}
+
+function renderInspector() {
+  const t = TRACKS.find(x => x.id === state.focusedId);
+  $('#insp-empty').style.display = t ? 'none' : 'block';
+  $('#insp-body').style.display = t ? 'block' : 'none';
+  if (!t) return;
+
+  /* energy curve — large */
+  const W = 312, H = 88;
+  const pts = t.energy.map((e,i)=>`${(i/(t.energy.length-1)*W).toFixed(1)},${(H-6 - e*(H-14)).toFixed(1)}`);
+  const energySVG = `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">
+    <path d="M0,${H} L${pts.join(' L')} L${W},${H} Z" fill="var(--green-wash)"/>
+    <polyline points="${pts.join(' ')}" fill="none" stroke="var(--green)" stroke-width="2" stroke-linejoin="round"/>
+  </svg>`;
+
+  /* phrase strip + cue ticks */
+  const segsHTML = t.segs.map(s =>
+    `<div class="ph-seg ${s.drop?'drop':''}" style="left:${(s.from*100).toFixed(2)}%; width:calc(${((s.to-s.from)*100).toFixed(2)}% - 2px)">${s.name}</div>`
+  ).join('');
+  const ticksHTML = t.cues.map(c =>
+    `<div class="cue-tick" style="left:${(c.pos*100).toFixed(2)}%; background:${cueColor(c.letter)}"></div>
+     <div class="cue-tick-lbl" style="left:${(c.pos*100).toFixed(2)}%; color:${cueColor(c.letter)}; border-color:${cueColor(c.letter)}; background:color-mix(in srgb, ${cueColor(c.letter)} 8%, transparent)">${c.letter}</div>`
+  ).join('');
+  const cueRows = t.cues.map(c =>
+    `<div class="cue-row">
+      <span class="cue-letter" style="color:${cueColor(c.letter)}; border-color:${cueColor(c.letter)}; background:color-mix(in srgb, ${cueColor(c.letter)} 8%, transparent)">${c.letter}</span>
+      <span class="cue-time">${fmtTime(c.pos * t.dur)}</span>
+      <span class="cue-why">${c.why}</span>
+    </div>`
+  ).join('');
+
+  /* transition vs previously focused */
+  const prev = TRACKS.find(x => x.id === state.prevFocusedId && x.id !== t.id);
+  let transHTML;
+  if (prev) {
+    const bpmDiff = Math.abs(prev.bpm - t.bpm);
+    const kd = camelotDist(prev.key, t.key);
+    const eJump = t.eAvg - prev.eAvg;
+    const score = Math.max(4, Math.min(98, Math.round(100 - bpmDiff*6 - kd*9 - Math.abs(eJump)*28)));
+    const A = camelot(prev.key), B = camelot(t.key);
+    const keyWord = kd===0 ? 'same key — seamless'
+      : (A.n===B.n ? 'parallel (same number)' : kd===1 ? 'adjacent — harmonic' : `${kd} steps — risky`);
+    const bpmWord = bpmDiff < 1 ? 'perfect' : bpmDiff <= 3 ? 'easy nudge' : 'big jump';
+    const eWord = Math.abs(eJump) < .06 ? 'Energy holds steady'
+      : eJump > 0 ? `Energy lifts (+${Math.round(eJump*100)}%)` : `Energy drops slightly (${Math.round(eJump*100)}%)`;
+    const tip = bpmDiff < 1
+      ? 'Beatmatch as-is — blend over 16–32 bars through the outro.'
+      : `Nudge pitch ${(t.bpm>prev.bpm?'+':'−')}${bpmDiff.toFixed(1)} BPM — blend over 8–16 bars, EQ-kill lows before the incoming drop lands.`;
+    transHTML = `
+      <div id="trans-head">⚓<span class="anchor">${esc(prev.title)}</span><span>→ this track</span></div>
+      <div id="trans-score-row"><span id="trans-score" class="${score>=75?'good':''}">${score}</span><span id="trans-score-den">/100</span></div>
+      <div class="trans-reason">${bpmDiff.toFixed(1)} BPM difference — ${bpmWord}</div>
+      <div class="trans-reason">${prev.key}→${t.key} — ${keyWord}</div>
+      <div class="trans-reason">${eWord}</div>
+      <div class="trans-tip">💡 ${tip}</div>`;
+  } else {
+    transHTML = `<div id="trans-none">No anchor yet — inspect another track first, then come back. The last track you inspected becomes the ⚓ anchor for transition scoring.</div>`;
+  }
+
+  /* similar tracks */
+  const simHTML = similarOf(t).map(o =>
+    `<button class="sim-row" type="button" onclick="inspect(${o.id})">
+      <span class="sim-main"><span class="sim-t">${esc(o.title)}</span><br><span class="sim-a">${esc(o.artist)}</span></span>
+      <span class="sim-meta"><b>${o.bpm.toFixed(1)}</b> · ${o.key} · ${o.mix}/100</span>
+    </button>`
+  ).join('');
+
+  const cueState = t.cuesHave > 0
+    ? `<span class="insp-chip-mix" style="color:var(--muted)">✓ ${t.cuesHave} existing cues — will skip</span>`
+    : `<span class="insp-chip-mix" style="color:var(--green); border-color:var(--green-ring); background:var(--green-wash)">● ${t.cues.length} cues ready to write</span>`;
+
+  $('#insp-body').innerHTML = `
+    <div id="insp-title">${esc(t.title)}</div>
+    <div id="insp-artist">${esc(t.artist)} · ${fmtTime(t.dur)}</div>
+    <div id="insp-chips">
+      <span class="chip-bpm">${t.bpm.toFixed(1)} BPM</span>
+      <span class="chip-key">${t.key}</span>
+      <span class="class-chip">${CLASSES[t.cls]}</span>
+      <span class="insp-chip-mix">Mix ${t.mix}/100</span>
+      ${cueState}
+    </div>
+    <div id="insp-preview-flag" class="${state.previewingId===t.id?'on':''}">▶ Previewing — Space to stop</div>
+
+    <div class="insp-eyebrow">Energy</div>
+    <div class="energy-wrap">${energySVG}
+      <div class="energy-meta"><span>0:00</span><span>avg ${(t.eAvg*100).toFixed(0)}%</span><span>${fmtTime(t.dur)}</span></div>
+    </div>
+
+    <div class="insp-eyebrow">Structure &amp; proposed cues</div>
+    <div id="phrase-strip">${segsHTML}${ticksHTML}</div>
+    <div class="cue-rows">${cueRows}</div>
+
+    <div class="insp-eyebrow">Transition</div>
+    <div id="transition-card">${transHTML}</div>
+
+    <div class="insp-eyebrow">≈ Similar tracks</div>
+    ${simHTML}
+  `;
+}
+
+/* ════════════════════ Selection / batch bar ════════════════════ */
+function renderBatchBar() {
+  const n = state.selected.size;
+  const bar = $('#batch-bar');
+  bar.classList.toggle('show', n > 0);
+  bar.setAttribute('aria-hidden', n === 0 ? 'true' : 'false');
+  $('#batch-count').innerHTML = `<strong>${n}</strong> selected`;
+}
+function toggleSelect(id) {
+  state.selected.has(id) ? state.selected.delete(id) : state.selected.add(id);
+  renderGrid();
+}
+function clearSelection() { state.selected.clear(); renderGrid(); }
+function selectAllVisible() { state.visible.forEach(t => state.selected.add(t.id)); renderGrid(); }
+function applySelected() {
+  const n = state.selected.size;
+  const cues = [...state.selected].reduce((a,id)=>a+TRACKS.find(t=>t.id===id).cues.length, 0);
+  showToast(`Applied ${cues} hot cues to ${n} track${n>1?'s':''} — backup saved before write`);
+  clearSelection();
+}
+let lastRowClickId = null;
+
+/* ════════════════════ Toast ════════════════════ */
+let toastTimer;
+function showToast(msg) {
+  $('#toast-msg').textContent = msg;
+  $('#toast').classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(()=> $('#toast').classList.remove('show'), 3200);
+}
+
+/* ════════════════════ Events ════════════════════ */
+$('#grid-body').addEventListener('click', e => {
+  const row = e.target.closest('.trow'); if (!row) return;
+  const id = +row.dataset.id;
+  if (e.target.matches('input[type=checkbox]')) { toggleSelect(id); return; }
+  if (e.shiftKey && lastRowClickId != null) {
+    const ids = state.visible.map(t=>t.id);
+    const a = ids.indexOf(lastRowClickId), b = ids.indexOf(id);
+    if (a > -1 && b > -1) ids.slice(Math.min(a,b), Math.max(a,b)+1).forEach(x=>state.selected.add(x));
+    renderGrid(); return;
+  }
+  lastRowClickId = id;
+  inspect(id);
+});
+
+document.querySelectorAll('.crate').forEach(btn => btn.addEventListener('click', () => {
+  document.querySelectorAll('.crate').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  state.crate = btn.dataset.crate;
+  renderGrid();
+}));
+
+document.querySelectorAll('#grid-head .sortable').forEach(el => el.addEventListener('click', () => {
+  const k = el.dataset.sort;
+  if (state.sort.key === k) state.sort.dir *= -1; else state.sort = { key:k, dir:1 };
+  renderGrid();
+}));
+
+$('#search-input').addEventListener('input', e => { state.search = e.target.value.trim(); renderGrid(); });
+
+$('#theme-toggle').addEventListener('click', () => document.documentElement.classList.toggle('dark'));
+
+document.addEventListener('keydown', e => {
+  const inInput = /INPUT|SELECT|TEXTAREA/.test(document.activeElement.tagName);
+  if (e.key === '/' && !inInput) { e.preventDefault(); $('#search-input').focus(); return; }
+  if (e.key === 'Escape') {
+    if (inInput) { document.activeElement.blur(); return; }
+    clearSelection(); return;
+  }
+  if (inInput) return;
+  if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'a') { e.preventDefault(); selectAllVisible(); return; }
+  const ids = state.visible.map(t=>t.id);
+  const i = ids.indexOf(state.focusedId);
+  if (e.key === 'ArrowDown') { e.preventDefault(); inspect(ids[Math.min(ids.length-1, i+1)] ?? ids[0]); }
+  else if (e.key === 'ArrowUp') { e.preventDefault(); inspect(ids[Math.max(0, i-1)] ?? ids[0]); }
+  else if (e.key.toLowerCase() === 'x' && state.focusedId) { toggleSelect(state.focusedId); }
+  else if (e.key === ' ' && state.focusedId) {
+    e.preventDefault();
+    state.previewingId = state.previewingId === state.focusedId ? null : state.focusedId;
+    renderGrid(); renderInspector();
+  }
+});
+
+/* ════════════════════ Boot ════════════════════ */
+renderRailCounts();
+renderGrid();
+inspect(3);          // open with a track inspected so the panel sells itself
+state.prevFocusedId = 7;  // …and an anchor so transition scoring shows
+renderInspector();
+</script>
+</body>
+</html>

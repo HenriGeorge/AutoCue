@@ -1,0 +1,805 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AutoCue — Pre-Flight (Design C)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+/* ════════════════════════════════════════════════════════════════
+   AutoCue design tokens — lifted verbatim from docs/design/tokens
+   ════════════════════════════════════════════════════════════════ */
+:root {
+  --bg:            #fafafa;
+  --surface:       #ffffff;
+  --surface-2:     #f2f2f2;
+  --border:        #e8e8e8;
+  --border-hover:  #c8c8c8;
+  --text:          #1a1a1a;
+  --muted:         #737373;
+  --muted-soft:    #a3a3a3;
+  --green:         #159a05;
+  --green-dim:     #0f6e03;
+  --green-wash:    rgba(21,154,5,.08);
+  --green-ring:    rgba(21,154,5,.14);
+  --ink:           #0a0a0a;
+  --ink-hover:     #2a2a2a;
+  --on-ink:        #fafafa;
+  --danger:        #e74c3c;
+  --warn:          #f0801a;
+  --warn-amber:    #ffa000;
+  --cue-a: #18a80c;  --cue-b: #2246e0;  --cue-c: #0099bb;
+  --cue-d: #c07800;  --cue-e: #c84800;  --cue-f: #c02010;
+  --cue-g: #c8006a;  --cue-h: #9900cc;
+  --shadow-sm: 0 1px 3px rgba(0,0,0,.06), 0 0 0 1px rgba(0,0,0,.03);
+  --shadow-md: 0 4px 14px rgba(0,0,0,.08), 0 0 0 1px rgba(0,0,0,.04);
+  --shadow-lg: 0 10px 32px rgba(0,0,0,.18), 0 2px 8px rgba(0,0,0,.08);
+  --glass-bg:  rgba(255,255,255,.86);
+  --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, monospace;
+  --radius-sm: 4px;   /* data chips */
+  --radius-md: 8px;   /* inputs */
+  --radius-lg: 12px;  /* panels */
+  --radius-xl: 16px;  /* elevated cards */
+  --radius-pill: 999px;
+}
+html.dark {
+  --bg:            #0c0a09;
+  --surface:       #1c1917;
+  --surface-2:     #231f1d;
+  --border:        #292524;
+  --border-hover:  #3d3830;
+  --text:          #fafaf9;
+  --muted:         #a8a29e;
+  --muted-soft:    #78716c;
+  --green:         #28e214;
+  --green-dim:     #1a9a0d;
+  --green-wash:    rgba(40,226,20,.08);
+  --green-ring:    rgba(40,226,20,.14);
+  --ink:           #fafafa;
+  --ink-hover:     #e2e2e2;
+  --on-ink:        #0a0a0a;
+  --cue-a: #28e214;  --cue-b: #305aff;  --cue-c: #00e0ff;
+  --cue-d: #ffa000;  --cue-e: #ff6400;  --cue-f: #e0301e;
+  --cue-g: #f51e8c;  --cue-h: #e600ff;
+  --shadow-sm: 0 1px 3px rgba(0,0,0,.3);
+  --shadow-md: 0 4px 12px rgba(0,0,0,.3);
+  --shadow-lg: 0 10px 32px rgba(0,0,0,.45), 0 2px 8px rgba(0,0,0,.3);
+  --glass-bg:  rgba(12,10,9,.80);
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html { scroll-behavior: smooth; }
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-sans);
+  font-size: 14px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  transition: background .3s ease, color .3s ease;
+}
+button { font-family: inherit; cursor: pointer; }
+.mono { font-family: var(--font-mono); }
+
+/* ── Top bar ─────────────────────────────────────────────── */
+#top-bar {
+  position: sticky; top: 0; z-index: 50;
+  background: var(--glass-bg);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  border-bottom: 1px solid var(--border);
+}
+.top-inner {
+  max-width: 900px; margin: 0 auto; padding: 12px 24px;
+  display: flex; align-items: center; gap: 14px;
+}
+.brand { display: flex; align-items: center; gap: 10px; }
+.brand-tile {
+  width: 32px; height: 32px; border-radius: 8px;
+  background: var(--surface-2); border: 1px solid var(--border);
+  display: grid; place-items: center;
+}
+.brand-name { font-weight: 700; font-size: 15px; letter-spacing: -.2px; }
+.status-strip {
+  display: flex; align-items: center; gap: 8px;
+  font-size: 12px; color: var(--muted); margin-left: 6px;
+}
+.status-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--green); display: inline-block; }
+.status-sep { color: var(--muted-soft); }
+.top-actions { margin-left: auto; display: flex; align-items: center; gap: 8px; }
+
+.ghost-pill {
+  background: transparent; color: var(--muted);
+  border: 1px solid var(--border); border-radius: var(--radius-pill);
+  padding: 7px 16px; font-size: 13px; font-weight: 500;
+  transition: border-color .18s ease, color .18s ease, transform .15s ease;
+}
+.ghost-pill:hover { border-color: var(--border-hover); color: var(--text); transform: translateY(-1px); }
+.icon-pill {
+  width: 34px; height: 34px; padding: 0; display: grid; place-items: center;
+  background: transparent; color: var(--muted);
+  border: 1px solid var(--border); border-radius: var(--radius-pill);
+  transition: border-color .18s ease, color .18s ease;
+}
+.icon-pill:hover { border-color: var(--border-hover); color: var(--text); }
+
+/* ── Layout ──────────────────────────────────────────────── */
+main { max-width: 900px; margin: 0 auto; padding: 40px 24px 80px; }
+
+.eyebrow {
+  font-size: 11px; font-weight: 600; letter-spacing: .08em;
+  text-transform: uppercase; color: var(--muted-soft);
+}
+
+/* ── Hero: health dial ───────────────────────────────────── */
+#hero {
+  display: grid; grid-template-columns: 280px 1fr; gap: 40px;
+  align-items: center;
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--radius-xl); box-shadow: var(--shadow-sm);
+  padding: 36px 40px;
+  animation: fadeUp .35s ease-out;
+  transition: background .3s ease, border-color .3s ease;
+}
+@keyframes fadeUp { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+
+.ring-wrap { position: relative; width: 224px; height: 224px; margin: 0 auto; }
+.ring-wrap svg { transform: rotate(-90deg); }
+.ring-track { stroke: var(--surface-2); }
+.ring-fill {
+  stroke: var(--green);
+  stroke-linecap: round;
+  transition: stroke-dashoffset 1.2s cubic-bezier(.22,1,.36,1), stroke .3s ease;
+}
+.ring-center {
+  position: absolute; inset: 0;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 2px;
+}
+.ring-score { font-family: var(--font-mono); font-size: 48px; font-weight: 700; letter-spacing: -.02em; line-height: 1; }
+.ring-denom { font-family: var(--font-mono); font-size: 14px; color: var(--muted); }
+.ring-label { font-size: 11px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--muted-soft); margin-top: 6px; }
+.ring-delta {
+  position: absolute; top: 10px; right: -6px;
+  font-family: var(--font-mono); font-size: 13px; font-weight: 600;
+  color: var(--green); background: var(--green-wash);
+  border: 1px solid var(--green); border-radius: var(--radius-sm);
+  padding: 2px 7px; opacity: 0; transform: translateY(6px);
+  transition: opacity .3s ease, transform .3s ease;
+}
+.ring-delta.show { opacity: 1; transform: translateY(0); }
+
+.hero-right h1 { font-size: 28px; font-weight: 600; letter-spacing: -.01em; margin: 4px 0 4px; }
+.hero-sub { color: var(--muted); font-size: 14px; margin-bottom: 18px; }
+.hero-sub .mono { font-size: 13px; }
+
+.deductions { display: flex; flex-direction: column; gap: 8px; }
+.ded-row {
+  display: flex; align-items: center; gap: 10px; font-size: 13px;
+  transition: opacity .4s ease;
+}
+.ded-row.cleared { opacity: .45; }
+.ded-row.cleared .ded-text { text-decoration: line-through; }
+.ded-pts {
+  font-family: var(--font-mono); font-size: 12px; font-weight: 600;
+  color: var(--warn); background: rgba(240,128,26,.08);
+  border: 1px solid var(--warn); border-radius: var(--radius-sm);
+  padding: 1px 6px; min-width: 38px; text-align: center;
+}
+.ded-row.cleared .ded-pts { color: var(--green); border-color: var(--green); background: var(--green-wash); }
+.ded-text { color: var(--text); }
+.ded-count { font-family: var(--font-mono); color: var(--muted); font-size: 12px; }
+
+/* ── Fix stack ───────────────────────────────────────────── */
+#fix-stack { margin-top: 36px; }
+.stack-head { display: flex; align-items: baseline; gap: 12px; margin-bottom: 14px; }
+.stack-head h2 { font-size: 17px; font-weight: 600; letter-spacing: -.01em; }
+.stack-head .stack-count { font-family: var(--font-mono); font-size: 12px; color: var(--muted); }
+
+.fix-item {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--radius-xl); box-shadow: var(--shadow-sm);
+  margin-bottom: 12px; overflow: hidden;
+  transition: border-color .18s ease, box-shadow .18s ease, background .3s ease;
+}
+.fix-item:hover { border-color: var(--border-hover); box-shadow: var(--shadow-md); }
+.fix-item.open { border-color: var(--border-hover); box-shadow: var(--shadow-md); }
+.fix-item.done { opacity: .8; }
+
+.fix-summary {
+  width: 100%; display: flex; align-items: center; gap: 16px;
+  padding: 18px 22px; background: none; border: none; text-align: left;
+  color: var(--text); font-size: 14px;
+}
+.fix-rank {
+  width: 28px; height: 28px; flex: none; border-radius: 50%;
+  border: 1px solid var(--border); background: var(--surface-2);
+  display: grid; place-items: center;
+  font-family: var(--font-mono); font-size: 12px; font-weight: 600; color: var(--muted);
+}
+.fix-item.done .fix-rank { border-color: var(--green); background: var(--green-wash); color: var(--green); }
+.fix-title-wrap { flex: 1; min-width: 0; }
+.fix-title { font-weight: 600; font-size: 15px; letter-spacing: -.2px; }
+.fix-title .mono { font-size: 14px; }
+.fix-meta { font-size: 12px; color: var(--muted); margin-top: 2px; }
+.fix-gain {
+  font-family: var(--font-mono); font-size: 12px; font-weight: 600;
+  color: var(--green); background: var(--green-wash);
+  border: 1px solid var(--green); border-radius: var(--radius-sm);
+  padding: 2px 8px; flex: none;
+}
+.fix-chevron { color: var(--muted-soft); flex: none; transition: transform .22s ease; }
+.fix-item.open .fix-chevron { transform: rotate(180deg); }
+.fix-done-chip {
+  display: none; font-size: 12px; font-weight: 600; color: var(--green);
+  align-items: center; gap: 5px; flex: none;
+}
+.fix-item.done .fix-done-chip { display: inline-flex; }
+.fix-item.done .fix-gain, .fix-item.done .fix-chevron { display: none; }
+
+.fix-body {
+  max-height: 0; overflow: hidden;
+  transition: max-height .35s ease;
+}
+.fix-item.open .fix-body { max-height: 900px; }
+.fix-body-inner { border-top: 1px solid var(--border); padding: 20px 22px 22px; }
+
+/* review controls */
+.review-toolbar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 14px; }
+.qual-chip {
+  border-radius: var(--radius-pill); border: 1px solid var(--border);
+  background: transparent; color: var(--muted);
+  padding: 6px 14px; font-size: 12.5px; font-weight: 500;
+  transition: all .18s ease;
+}
+.qual-chip:hover { border-color: var(--border-hover); color: var(--text); }
+.qual-chip.active {
+  border-color: var(--green); color: var(--green); background: var(--green-wash);
+}
+.qual-chip .mono { font-size: 11.5px; }
+.review-note { margin-left: auto; font-size: 12px; color: var(--muted); }
+
+/* track review rows */
+.review-list { border: 1px solid var(--border); border-radius: var(--radius-lg); overflow: hidden; }
+.rt-row {
+  display: grid; grid-template-columns: 1fr auto auto; gap: 6px 16px;
+  align-items: center; padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+  transition: background .3s ease;
+}
+.rt-row:last-child { border-bottom: none; }
+.rt-name { font-size: 14px; font-weight: 700; letter-spacing: -.2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.rt-artist { font-size: 12px; color: var(--muted); }
+.rt-data { display: flex; align-items: center; gap: 6px; }
+.chip {
+  font-family: var(--font-mono); font-size: 11px; font-weight: 600;
+  border-radius: var(--radius-sm); padding: 2px 7px;
+  border: 1px solid var(--border); color: var(--muted); background: var(--surface-2);
+}
+.chip.bpm { color: var(--green); border-color: var(--green); background: var(--green-wash); }
+.chip.tier-phrase { color: var(--green); border-color: var(--green); background: var(--green-wash); font-family: var(--font-sans); font-weight: 600; }
+.chip.tier-bar { color: var(--warn); border-color: var(--warn); background: rgba(240,128,26,.08); font-family: var(--font-sans); font-weight: 600; }
+.rt-cues { display: flex; gap: 4px; grid-column: 1 / -1; }
+.cue-badge {
+  font-family: var(--font-mono); font-size: 10px; font-weight: 600;
+  border-radius: var(--radius-sm); padding: 2px 6px;
+  border: 1.5px solid; transition: transform .15s ease;
+}
+.cue-badge:hover { transform: scale(1.08); }
+.cue-badge .cb-label { font-family: var(--font-sans); font-weight: 500; opacity: .85; margin-left: 4px; }
+.cue-a-c { color: var(--cue-a); border-color: var(--cue-a); background: color-mix(in srgb, var(--cue-a) 8%, transparent); }
+.cue-b-c { color: var(--cue-b); border-color: var(--cue-b); background: color-mix(in srgb, var(--cue-b) 8%, transparent); }
+.cue-c-c { color: var(--cue-c); border-color: var(--cue-c); background: color-mix(in srgb, var(--cue-c) 8%, transparent); }
+.cue-d-c { color: var(--cue-d); border-color: var(--cue-d); background: color-mix(in srgb, var(--cue-d) 8%, transparent); }
+.cue-e-c { color: var(--cue-e); border-color: var(--cue-e); background: color-mix(in srgb, var(--cue-e) 8%, transparent); }
+.cue-f-c { color: var(--cue-f); border-color: var(--cue-f); background: color-mix(in srgb, var(--cue-f) 8%, transparent); }
+.cue-g-c { color: var(--cue-g); border-color: var(--cue-g); background: color-mix(in srgb, var(--cue-g) 8%, transparent); }
+.cue-h-c { color: var(--cue-h); border-color: var(--cue-h); background: color-mix(in srgb, var(--cue-h) 8%, transparent); }
+
+.review-more { text-align: center; font-size: 12px; color: var(--muted); padding: 10px 0 0; }
+.review-more button { background: none; border: none; color: var(--muted); text-decoration: underline; font-size: 12px; }
+.review-more button:hover { color: var(--text); }
+
+/* commit row */
+.commit-row { display: flex; align-items: center; gap: 14px; margin-top: 18px; }
+.safety-note { font-size: 12px; color: var(--muted); display: flex; align-items: center; gap: 6px; }
+.safety-note .status-dot { background: var(--green); }
+.primary-pill {
+  margin-left: auto;
+  background: var(--ink); color: var(--on-ink);
+  border: none; border-radius: var(--radius-pill);
+  padding: 11px 26px; font-size: 14px; font-weight: 600;
+  transition: background .18s ease, transform .15s ease, box-shadow .15s ease, opacity .18s ease;
+  box-shadow: var(--shadow-sm);
+}
+.primary-pill:hover:not(:disabled) { background: var(--ink-hover); transform: translateY(-1px); box-shadow: var(--shadow-md); }
+.primary-pill:active:not(:disabled) { transform: translateY(0); }
+.primary-pill:disabled { opacity: .6; cursor: default; }
+.primary-pill:focus-visible { outline: 3px solid var(--green-ring); outline-offset: 2px; }
+
+/* progress */
+.apply-progress { display: none; margin-top: 16px; }
+.apply-progress.show { display: block; }
+.ap-label { display: flex; justify-content: space-between; font-size: 12px; color: var(--muted); margin-bottom: 6px; }
+.ap-label .mono { color: var(--text); }
+.ap-bar { height: 6px; background: var(--surface-2); border-radius: var(--radius-pill); overflow: hidden; }
+.ap-fill { height: 100%; width: 0%; background: var(--green); border-radius: var(--radius-pill); transition: width .12s linear; }
+
+.success-banner {
+  display: none; margin-top: 16px; padding: 12px 16px;
+  border: 1px solid var(--green); background: var(--green-wash);
+  border-radius: var(--radius-lg); font-size: 13px;
+  align-items: center; gap: 8px; color: var(--text);
+}
+.success-banner.show { display: flex; }
+.success-banner strong { color: var(--green); }
+
+/* duplicates review */
+.dup-card { border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 16px; }
+.dup-head { display: flex; align-items: baseline; gap: 10px; margin-bottom: 12px; }
+.dup-head .mono { font-size: 12px; color: var(--muted); }
+.dup-copy {
+  display: flex; align-items: center; gap: 12px; padding: 10px 12px;
+  border: 1px solid var(--border); border-radius: var(--radius-md); margin-bottom: 8px;
+  cursor: pointer; transition: border-color .18s ease, background .18s ease;
+}
+.dup-copy:hover { border-color: var(--border-hover); }
+.dup-copy.keeper { border-color: var(--green); background: var(--green-wash); }
+.dup-copy input { accent-color: var(--green); }
+.dup-name { font-weight: 700; font-size: 13.5px; letter-spacing: -.2px; }
+.dup-path { font-family: var(--font-mono); font-size: 11px; color: var(--muted); }
+.dup-stats { margin-left: auto; display: flex; gap: 6px; }
+.dup-actions { display: flex; gap: 10px; margin-top: 12px; align-items: center; }
+.dup-safety { font-size: 11.5px; color: var(--muted); }
+
+/* manual step */
+.manual-steps { font-size: 13px; color: var(--text); display: flex; flex-direction: column; gap: 8px; }
+.manual-steps li { margin-left: 18px; }
+.manual-steps .mono { font-size: 12px; }
+
+/* ── After-health cards ──────────────────────────────────── */
+#after { margin-top: 40px; }
+.after-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 14px; }
+.after-card {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--radius-xl); padding: 20px 22px;
+  box-shadow: var(--shadow-sm);
+  transition: border-color .18s ease, box-shadow .18s ease, background .3s ease;
+}
+.after-card:hover { border-color: var(--border-hover); box-shadow: var(--shadow-md); }
+.after-card h3 { font-size: 15px; font-weight: 600; letter-spacing: -.2px; margin: 8px 0 4px; }
+.after-card p { font-size: 12.5px; color: var(--muted); margin-bottom: 14px; }
+.after-icon { color: var(--muted); }
+
+/* footer link */
+.browse-row { margin-top: 36px; text-align: center; font-size: 13px; color: var(--muted); }
+.browse-row a { color: var(--text); font-weight: 500; text-decoration: underline; text-underline-offset: 3px; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { transition: none !important; animation: none !important; }
+}
+</style>
+</head>
+<body>
+
+<!-- ── Top bar ──────────────────────────────────────────────── -->
+<header id="top-bar">
+  <div class="top-inner">
+    <div class="brand">
+      <div class="brand-tile">
+        <!-- 5-bar equalizer brand mark -->
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--green)" stroke-width="2.4" stroke-linecap="round">
+          <line x1="3"  y1="10" x2="3"  y2="14"/>
+          <line x1="7.5" y1="6"  x2="7.5" y2="18"/>
+          <line x1="12" y1="3"  x2="12" y2="21"/>
+          <line x1="16.5" y1="7" x2="16.5" y2="17"/>
+          <line x1="21" y1="11" x2="21" y2="13"/>
+        </svg>
+      </div>
+      <span class="brand-name">AutoCue</span>
+    </div>
+    <div class="status-strip" aria-live="polite">
+      <span><span class="status-dot"></span> DB connected</span>
+      <span class="status-sep">·</span>
+      <span class="mono">2,789</span><span style="margin-left:-4px">tracks</span>
+      <span class="status-sep">·</span>
+      <span>Rekordbox closed</span>
+    </div>
+    <div class="top-actions">
+      <button class="ghost-pill" onclick="alert('Browse library — full searchable track list (secondary surface, one click away).')">Browse library</button>
+      <button class="icon-pill" id="theme-toggle" aria-label="Toggle theme" title="Toggle light/dark">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
+        </svg>
+      </button>
+    </div>
+  </div>
+</header>
+
+<main>
+
+  <!-- ── HERO: Library Health dial ──────────────────────────── -->
+  <section id="hero" aria-label="Library health">
+    <div class="ring-wrap">
+      <svg width="224" height="224" viewBox="0 0 224 224" aria-hidden="true">
+        <circle class="ring-track" cx="112" cy="112" r="98" fill="none" stroke-width="14"/>
+        <circle class="ring-fill" id="ring-fill" cx="112" cy="112" r="98" fill="none" stroke-width="14"
+                stroke-dasharray="615.75" stroke-dashoffset="615.75"/>
+      </svg>
+      <div class="ring-center">
+        <div><span class="ring-score" id="ring-score">0</span><span class="ring-denom">/100</span></div>
+        <div class="ring-label">Library Health</div>
+      </div>
+      <div class="ring-delta mono" id="ring-delta">+8</div>
+    </div>
+
+    <div class="hero-right">
+      <div class="eyebrow">Pre-flight check</div>
+      <h1>Almost gig-ready.</h1>
+      <p class="hero-sub">Scanned <span class="mono">2,789</span> tracks · last scan <span class="mono">2 min</span> ago · <span class="mono" id="open-issues">3</span> issues holding your score back</p>
+
+      <div class="deductions" id="deductions">
+        <div class="ded-row" id="ded-cues">
+          <span class="ded-pts">−12</span>
+          <span class="ded-text">Tracks without hot cues</span>
+          <span class="ded-count">142 tracks</span>
+        </div>
+        <div class="ded-row" id="ded-dupes">
+          <span class="ded-pts">−6</span>
+          <span class="ded-text">Duplicate copies inflating the crate</span>
+          <span class="ded-count">34 groups</span>
+        </div>
+        <div class="ded-row" id="ded-anlz">
+          <span class="ded-pts">−4</span>
+          <span class="ded-text">Missing Rekordbox analysis (no beat-grid)</span>
+          <span class="ded-count">203 tracks</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ── FIX STACK ──────────────────────────────────────────── -->
+  <section id="fix-stack" aria-label="What to fix next">
+    <div class="stack-head">
+      <h2>Fix next</h2>
+      <span class="stack-count" id="stack-count">3 steps to 100</span>
+    </div>
+
+    <!-- ① No cues -->
+    <div class="fix-item" id="fix-1">
+      <button class="fix-summary" onclick="toggleItem('fix-1')" aria-expanded="false">
+        <span class="fix-rank" id="fix-1-rank">1</span>
+        <span class="fix-title-wrap">
+          <span class="fix-title"><span class="mono">142</span> tracks have no hot cues</span>
+          <span class="fix-meta" id="fix-1-meta">✨ Phrase quality available for 117 · bar fallback for 25</span>
+        </span>
+        <span class="fix-done-chip">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+          Done
+        </span>
+        <span class="fix-gain">+12 pts</span>
+        <svg class="fix-chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+      </button>
+      <div class="fix-body">
+        <div class="fix-body-inner">
+          <div class="review-toolbar">
+            <span class="eyebrow" style="margin-right:4px">Quality</span>
+            <button class="qual-chip active">✨ Phrase <span class="mono">117</span></button>
+            <button class="qual-chip">Bar fallback <span class="mono">25</span></button>
+            <button class="qual-chip">Heuristic <span class="mono">0</span></button>
+            <span class="review-note">Preview of <span class="mono">5</span> of <span class="mono">142</span> — cue letters A–H, named by phrase</span>
+          </div>
+
+          <div class="review-list">
+            <div class="rt-row">
+              <div><div class="rt-name">Gravity (Extended Mix)</div><div class="rt-artist">Lane 8</div></div>
+              <div class="rt-data"><span class="chip bpm">122.0</span><span class="chip">8A</span></div>
+              <span class="chip tier-phrase">✨ phrase</span>
+              <div class="rt-cues">
+                <span class="cue-badge cue-a-c">A<span class="cb-label">Intro</span></span>
+                <span class="cue-badge cue-b-c">B<span class="cb-label">Build</span></span>
+                <span class="cue-badge cue-c-c">C<span class="cb-label">Drop</span></span>
+                <span class="cue-badge cue-d-c">D<span class="cb-label">Break</span></span>
+                <span class="cue-badge cue-e-c">E<span class="cb-label">Drop 2</span></span>
+                <span class="cue-badge cue-f-c">F<span class="cb-label">Outro</span></span>
+              </div>
+            </div>
+            <div class="rt-row">
+              <div><div class="rt-name">Atlas</div><div class="rt-artist">Ben Böhmer</div></div>
+              <div class="rt-data"><span class="chip bpm">121.5</span><span class="chip">9A</span></div>
+              <span class="chip tier-phrase">✨ phrase</span>
+              <div class="rt-cues">
+                <span class="cue-badge cue-a-c">A<span class="cb-label">Intro</span></span>
+                <span class="cue-badge cue-b-c">B<span class="cb-label">Verse</span></span>
+                <span class="cue-badge cue-c-c">C<span class="cb-label">Build</span></span>
+                <span class="cue-badge cue-d-c">D<span class="cb-label">Drop</span></span>
+                <span class="cue-badge cue-f-c">F<span class="cb-label">Outro</span></span>
+              </div>
+            </div>
+            <div class="rt-row">
+              <div><div class="rt-name">Voodoo (Original Mix)</div><div class="rt-artist">Adam Beyer</div></div>
+              <div class="rt-data"><span class="chip bpm">128.0</span><span class="chip">11A</span></div>
+              <span class="chip tier-bar">bar · 16</span>
+              <div class="rt-cues">
+                <span class="cue-badge cue-a-c">A<span class="cb-label">Bar 1</span></span>
+                <span class="cue-badge cue-b-c">B<span class="cb-label">Bar 17</span></span>
+                <span class="cue-badge cue-c-c">C<span class="cb-label">Bar 33</span></span>
+                <span class="cue-badge cue-d-c">D<span class="cb-label">Bar 49</span></span>
+                <span class="cue-badge cue-e-c">E<span class="cb-label">Bar 65</span></span>
+                <span class="cue-badge cue-f-c">F<span class="cb-label">Bar 81</span></span>
+                <span class="cue-badge cue-g-c">G<span class="cb-label">Bar 97</span></span>
+                <span class="cue-badge cue-h-c">H<span class="cb-label">Bar 113</span></span>
+              </div>
+            </div>
+            <div class="rt-row">
+              <div><div class="rt-name">Breathe In</div><div class="rt-artist">Yotto</div></div>
+              <div class="rt-data"><span class="chip bpm">123.0</span><span class="chip">8B</span></div>
+              <span class="chip tier-phrase">✨ phrase</span>
+              <div class="rt-cues">
+                <span class="cue-badge cue-a-c">A<span class="cb-label">Intro</span></span>
+                <span class="cue-badge cue-b-c">B<span class="cb-label">Build</span></span>
+                <span class="cue-badge cue-c-c">C<span class="cb-label">Drop</span></span>
+                <span class="cue-badge cue-d-c">D<span class="cb-label">Break</span></span>
+                <span class="cue-badge cue-e-c">E<span class="cb-label">Drop 2</span></span>
+                <span class="cue-badge cue-f-c">F<span class="cb-label">Outro</span></span>
+              </div>
+            </div>
+            <div class="rt-row">
+              <div><div class="rt-name">Opal</div><div class="rt-artist">Bicep</div></div>
+              <div class="rt-data"><span class="chip bpm">124.5</span><span class="chip">4A</span></div>
+              <span class="chip tier-phrase">✨ phrase</span>
+              <div class="rt-cues">
+                <span class="cue-badge cue-a-c">A<span class="cb-label">Intro</span></span>
+                <span class="cue-badge cue-b-c">B<span class="cb-label">Verse</span></span>
+                <span class="cue-badge cue-c-c">C<span class="cb-label">Build</span></span>
+                <span class="cue-badge cue-d-c">D<span class="cb-label">Drop</span></span>
+                <span class="cue-badge cue-e-c">E<span class="cb-label">Break</span></span>
+                <span class="cue-badge cue-f-c">F<span class="cb-label">Outro</span></span>
+              </div>
+            </div>
+          </div>
+          <div class="review-more"><button type="button">Show all 142 affected tracks ↓</button> &nbsp;·&nbsp; <button type="button">Cue settings (every 16 bars · max 8 cues · memory cues: Load Point)</button></div>
+
+          <div class="commit-row">
+            <span class="safety-note"><span class="status-dot"></span> Rekordbox closed · backup saved before write · rolls back on any failure</span>
+            <button class="primary-pill" id="apply-btn" onclick="applyFix1()">Apply to Rekordbox</button>
+          </div>
+
+          <div class="apply-progress" id="apply-progress">
+            <div class="ap-label"><span>Writing cues…</span><span class="mono" id="ap-count">0 / 142</span></div>
+            <div class="ap-bar"><div class="ap-fill" id="ap-fill"></div></div>
+          </div>
+
+          <div class="success-banner" id="success-banner">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="var(--green)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+            <span><strong>142 tracks cued</strong> — 117 at phrase quality, 25 at bar fallback. Backup saved · <a href="#" style="color:var(--text)">Undo</a></span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ② Duplicates -->
+    <div class="fix-item" id="fix-2">
+      <button class="fix-summary" onclick="toggleItem('fix-2')" aria-expanded="false">
+        <span class="fix-rank">2</span>
+        <span class="fix-title-wrap">
+          <span class="fix-title"><span class="mono">34</span> duplicate groups</span>
+          <span class="fix-meta">Keeper auto-picked by cue prep → plays → bitrate · review one group at a time</span>
+        </span>
+        <span class="fix-done-chip">Done</span>
+        <span class="fix-gain">+6 pts</span>
+        <svg class="fix-chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+      </button>
+      <div class="fix-body">
+        <div class="fix-body-inner">
+          <div class="dup-card">
+            <div class="dup-head">
+              <strong style="font-size:14px">Group <span class="mono" id="dup-n">1</span> of <span class="mono">34</span></strong>
+              <span class="mono">Innerbloom · Rüfüs Du Sol · 9:36</span>
+            </div>
+            <label class="dup-copy keeper" onclick="pickKeeper(this)">
+              <input type="radio" name="keeper" checked>
+              <div>
+                <div class="dup-name">★ Innerbloom (Original Mix)</div>
+                <div class="dup-path">~/Music/2024 buys/Innerbloom.flac</div>
+              </div>
+              <div class="dup-stats"><span class="chip">FLAC</span><span class="chip">6 cues</span><span class="chip">41 plays</span></div>
+            </label>
+            <label class="dup-copy" onclick="pickKeeper(this)">
+              <input type="radio" name="keeper">
+              <div>
+                <div class="dup-name">Innerbloom</div>
+                <div class="dup-path">~/Downloads/innerbloom(1).mp3</div>
+              </div>
+              <div class="dup-stats"><span class="chip">320 kbps</span><span class="chip">0 cues</span><span class="chip">2 plays</span></div>
+            </label>
+            <div class="dup-actions">
+              <span class="dup-safety">Backup created before the first delete · undo for 30 s</span>
+              <button class="primary-pill" style="padding:9px 20px;font-size:13px" onclick="nextDup()">Keep ★ &amp; delete 1 copy</button>
+              <button class="ghost-pill" onclick="nextDup()">Skip group</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ③ Missing analysis -->
+    <div class="fix-item" id="fix-3">
+      <button class="fix-summary" onclick="toggleItem('fix-3')" aria-expanded="false">
+        <span class="fix-rank">3</span>
+        <span class="fix-title-wrap">
+          <span class="fix-title"><span class="mono">203</span> tracks need analysis in Rekordbox</span>
+          <span class="fix-meta">Manual step — no beat-grid yet, so AutoCue can't place cues on these</span>
+        </span>
+        <span class="fix-done-chip">Done</span>
+        <span class="fix-gain">+4 pts</span>
+        <svg class="fix-chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+      </button>
+      <div class="fix-body">
+        <div class="fix-body-inner">
+          <ol class="manual-steps">
+            <li>Open Rekordbox and select the playlist <span class="chip">AutoCue · needs analysis</span> (exported for you).</li>
+            <li>Right-click → <strong>Analyze Track</strong> with <em>Phrase</em> enabled in analysis settings.</li>
+            <li>Quit Rekordbox, then re-scan here — AutoCue picks up the new beat-grids automatically.</li>
+          </ol>
+          <div class="commit-row">
+            <span class="safety-note">Re-scan takes ~<span class="mono">15 s</span> for <span class="mono">2,789</span> tracks</span>
+            <button class="ghost-pill" style="margin-left:auto">Export playlist</button>
+            <button class="primary-pill" style="padding:9px 20px;font-size:13px" onclick="alert('Would re-scan the library and refresh the dial.')">Re-scan library</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ── After your library is healthy ──────────────────────── -->
+  <section id="after" aria-label="After prep">
+    <div class="eyebrow">After your library is healthy</div>
+    <div class="after-grid">
+      <div class="after-card">
+        <svg class="after-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>
+        <h3>Build a set</h3>
+        <p>Pick an anchor track — AutoCue chains transitions by BPM, key and energy. <span class="mono">8A→8B</span>, <span class="mono">0.5</span> BPM apart.</p>
+        <button class="ghost-pill">Open set builder</button>
+      </div>
+      <div class="after-card">
+        <svg class="after-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+        <h3>Discover new releases</h3>
+        <p>Fresh tracks from artists and labels already in your crate — ranked against your taste vector.</p>
+        <button class="ghost-pill">Open Discover</button>
+      </div>
+    </div>
+  </section>
+
+  <div class="browse-row">
+    Looking for one track? <a href="#" onclick="alert('Browse library — search, filter, per-track preview. The old everything-list lives here.');return false">Browse the full library</a> — search, filters, per-track cue preview.
+  </div>
+
+</main>
+
+<script>
+/* ── Health ring ─────────────────────────────────────────── */
+var CIRC = 2 * Math.PI * 98; /* 615.75 */
+var currentScore = 0;
+
+function setRing(score) {
+  var fill = document.getElementById('ring-fill');
+  fill.style.strokeDashoffset = (CIRC * (1 - score / 100)).toFixed(2);
+}
+function countTo(el, from, to, ms) {
+  var start = null;
+  function step(t) {
+    if (!start) start = t;
+    var p = Math.min((t - start) / ms, 1);
+    var eased = 1 - Math.pow(1 - p, 3);
+    el.textContent = Math.round(from + (to - from) * eased);
+    if (p < 1) requestAnimationFrame(step);
+  }
+  requestAnimationFrame(step);
+}
+function setScore(score, ms) {
+  setRing(score);
+  countTo(document.getElementById('ring-score'), currentScore, score, ms || 1200);
+  currentScore = score;
+}
+
+/* entrance: animate 0 → 78 */
+window.addEventListener('load', function () {
+  setTimeout(function () { setScore(78, 1200); }, 150);
+});
+
+/* ── Fix-stack accordion (one open at a time) ────────────── */
+function toggleItem(id) {
+  var item = document.getElementById(id);
+  if (item.classList.contains('done')) return;
+  var wasOpen = item.classList.contains('open');
+  document.querySelectorAll('.fix-item.open').forEach(function (el) {
+    el.classList.remove('open');
+    el.querySelector('.fix-summary').setAttribute('aria-expanded', 'false');
+  });
+  if (!wasOpen) {
+    item.classList.add('open');
+    item.querySelector('.fix-summary').setAttribute('aria-expanded', 'true');
+  }
+}
+
+/* ── Apply simulation: fix item 1 ────────────────────────── */
+var applied = false;
+function applyFix1() {
+  if (applied) return;
+  applied = true;
+  var btn = document.getElementById('apply-btn');
+  btn.disabled = true;
+  btn.textContent = 'Applying…';
+
+  var prog = document.getElementById('apply-progress');
+  prog.classList.add('show');
+  var fill = document.getElementById('ap-fill');
+  var count = document.getElementById('ap-count');
+
+  var n = 0, total = 142;
+  var iv = setInterval(function () {
+    n = Math.min(n + 7, total);
+    count.textContent = n + ' / ' + total;
+    fill.style.width = (n / total * 100) + '%';
+    if (n >= total) {
+      clearInterval(iv);
+      setTimeout(finishFix1, 350);
+    }
+  }, 90);
+}
+
+function finishFix1() {
+  document.getElementById('apply-progress').classList.remove('show');
+  document.getElementById('success-banner').classList.add('show');
+  document.getElementById('apply-btn').textContent = 'Applied';
+
+  setTimeout(function () {
+    /* collapse + mark done */
+    var item = document.getElementById('fix-1');
+    item.classList.remove('open');
+    item.classList.add('done');
+    item.querySelector('.fix-summary').setAttribute('aria-expanded', 'false');
+    document.getElementById('fix-1-rank').innerHTML =
+      '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>';
+    document.getElementById('fix-1-meta').textContent =
+      '142 tracks cued — 117 phrase · 25 bar. Backup saved.';
+
+    /* dial climbs 78 → 86 */
+    setScore(86, 1200);
+    var delta = document.getElementById('ring-delta');
+    delta.classList.add('show');
+    setTimeout(function () { delta.classList.remove('show'); }, 3500);
+
+    /* deduction row clears */
+    var ded = document.getElementById('ded-cues');
+    ded.classList.add('cleared');
+    ded.querySelector('.ded-pts').textContent = '+12';
+    document.getElementById('open-issues').textContent = '2';
+    document.getElementById('stack-count').textContent = '2 steps to 100';
+  }, 1400);
+}
+
+/* ── Duplicates micro-interactions ───────────────────────── */
+function pickKeeper(label) {
+  document.querySelectorAll('.dup-copy').forEach(function (el) { el.classList.remove('keeper'); });
+  label.classList.add('keeper');
+  label.querySelector('input').checked = true;
+}
+function nextDup() {
+  var el = document.getElementById('dup-n');
+  var n = parseInt(el.textContent, 10);
+  el.textContent = Math.min(n + 1, 34);
+}
+
+/* ── Theme toggle ────────────────────────────────────────── */
+document.getElementById('theme-toggle').addEventListener('click', function () {
+  document.documentElement.classList.toggle('dark');
+});
+</script>
+</body>
+</html>

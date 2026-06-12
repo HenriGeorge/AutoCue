@@ -1,0 +1,1642 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AutoCue 2.0 — Synthesis (Design E)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+/* ════════════════════════════════════════════════════════════
+   AutoCue design tokens — lifted verbatim from docs/design/tokens
+   ════════════════════════════════════════════════════════════ */
+:root{
+  --bg:#fafafa; --surface:#ffffff; --surface-2:#f2f2f2; --border:#e8e8e8; --border-hover:#c8c8c8;
+  --text:#1a1a1a; --muted:#737373; --muted-soft:#a3a3a3;
+  --green:#159a05; --green-dim:#0f6e03; --green-wash:rgba(21,154,5,.08); --green-ring:rgba(21,154,5,.14);
+  --ink:#0a0a0a; --ink-hover:#2a2a2a; --on-ink:#fafafa;
+  --danger:#e74c3c; --warn:#f0801a; --warn-amber:#ffa000; --rating:#f0b429;
+  --cue-a:#18a80c; --cue-b:#2246e0; --cue-c:#0099bb; --cue-d:#c07800;
+  --cue-e:#c84800; --cue-f:#c02010; --cue-g:#c8006a; --cue-h:#9900cc;
+  --shadow-sm:0 1px 3px rgba(0,0,0,.06),0 0 0 1px rgba(0,0,0,.03);
+  --shadow-md:0 4px 14px rgba(0,0,0,.08),0 0 0 1px rgba(0,0,0,.04);
+  --shadow-lg:0 10px 32px rgba(0,0,0,.18),0 2px 8px rgba(0,0,0,.08);
+  --glass-bg:rgba(255,255,255,.86);
+  --font-sans:'Inter',-apple-system,BlinkMacSystemFont,sans-serif;
+  --font-mono:'JetBrains Mono',ui-monospace,monospace;
+  --zone-warmup:rgba(0,153,187,.05); --zone-build:rgba(192,120,0,.05);
+  --zone-peak:rgba(192,32,16,.05);   --zone-closing:rgba(153,0,204,.05);
+}
+html.dark{
+  --bg:#0c0a09; --surface:#1c1917; --surface-2:#231f1d; --border:#292524; --border-hover:#3d3830;
+  --text:#fafaf9; --muted:#a8a29e; --muted-soft:#78716c;
+  --green:#28e214; --green-dim:#1a9a0d; --green-wash:rgba(40,226,20,.08); --green-ring:rgba(40,226,20,.14);
+  --ink:#fafafa; --ink-hover:#e2e2e2; --on-ink:#0a0a0a;
+  --cue-a:#28e214; --cue-b:#305aff; --cue-c:#00e0ff; --cue-d:#ffa000;
+  --cue-e:#ff6400; --cue-f:#e0301e; --cue-g:#f51e8c; --cue-h:#e600ff;
+  --shadow-sm:0 1px 3px rgba(0,0,0,.3);
+  --shadow-md:0 4px 12px rgba(0,0,0,.3);
+  --shadow-lg:0 10px 32px rgba(0,0,0,.45),0 2px 8px rgba(0,0,0,.3);
+  --glass-bg:rgba(12,10,9,.80);
+  --zone-warmup:rgba(0,224,255,.05); --zone-build:rgba(255,160,0,.05);
+  --zone-peak:rgba(224,48,30,.06);   --zone-closing:rgba(230,0,255,.05);
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%}
+body{
+  background:var(--bg);color:var(--text);font-family:var(--font-sans);
+  font-size:14px;line-height:1.5;-webkit-font-smoothing:antialiased;overflow:hidden;
+}
+button{font-family:inherit;cursor:pointer}
+.mono{font-family:var(--font-mono)}
+.eyebrow{font-size:10px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--muted-soft)}
+::-webkit-scrollbar{width:10px;height:10px}
+::-webkit-scrollbar-thumb{background:var(--border-hover);border-radius:5px;border:2px solid var(--bg)}
+::-webkit-scrollbar-track{background:transparent}
+
+/* ── shared primitives ───────────────────────────────────── */
+.ghost-pill{
+  border:1px solid var(--border);background:var(--surface);color:var(--muted);
+  border-radius:999px;padding:6px 14px;font-size:12.5px;font-weight:500;transition:all .18s ease;
+}
+.ghost-pill:hover{border-color:var(--border-hover);color:var(--text);transform:translateY(-1px)}
+.chip{font-family:var(--font-mono);font-size:11px;border:1px solid var(--border);border-radius:4px;padding:1.5px 6px;color:var(--muted);display:inline-block}
+.chip.bpm{color:var(--green);background:var(--green-wash);border-color:transparent;font-weight:500}
+.chip.cat{font-family:var(--font-sans);font-size:10px;text-transform:uppercase;letter-spacing:.06em;font-weight:600}
+.cue-badge{
+  font-family:var(--font-mono);font-size:10px;font-weight:600;border-radius:4px;padding:1.5px 6px;
+  border:1.5px solid;transition:transform .15s ease;display:inline-block;
+}
+.cue-badge:hover{transform:scale(1.08)}
+.cue-badge .cb-label{font-family:var(--font-sans);font-weight:500;opacity:.85;margin-left:4px}
+
+/* ════════ GLOBAL LAYER 1 · the status sentence (from A) ════════ */
+#status-line{
+  height:52px;display:flex;align-items:center;gap:16px;padding:0 20px;
+  background:var(--glass-bg);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);
+  border-bottom:1px solid var(--border);position:relative;z-index:40;
+}
+#brand{display:flex;align-items:center;gap:10px}
+#brand .tile{width:32px;height:32px;border-radius:8px;background:var(--surface-2);border:1px solid var(--border);display:grid;place-items:center}
+#brand .word{font-weight:700;font-size:15px;letter-spacing:-.2px}
+#brand .word span{color:var(--muted);font-weight:500}
+#sentence{flex:1;text-align:center;font-size:13px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#sentence .fact{background:none;border:none;color:var(--muted);font-size:13px;font-family:var(--font-sans);padding:2px 4px;border-radius:4px;transition:color .15s,background .15s}
+#sentence .fact .num{font-family:var(--font-mono);color:var(--text);font-weight:500}
+#sentence .fact:hover{color:var(--text);background:var(--surface-2)}
+#sentence .sep{color:var(--muted-soft);margin:0 4px}
+.rb-dot{display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--green);margin-right:5px;vertical-align:1px}
+#top-right{display:flex;align-items:center;gap:10px}
+#cmdk-hint{
+  display:flex;align-items:center;gap:8px;background:var(--surface);border:1px solid var(--border);
+  border-radius:999px;padding:6px 14px;font-size:12.5px;color:var(--muted);
+  transition:border-color .18s,color .18s,transform .18s,box-shadow .18s;
+}
+#cmdk-hint:hover{border-color:var(--border-hover);color:var(--text);transform:translateY(-1px);box-shadow:var(--shadow-sm)}
+#cmdk-hint kbd{font-family:var(--font-mono);font-size:11px;background:var(--surface-2);border:1px solid var(--border);border-radius:4px;padding:1px 6px;color:var(--text)}
+#theme-toggle{width:32px;height:32px;border-radius:999px;border:1px solid var(--border);background:var(--surface);color:var(--muted);display:grid;place-items:center;transition:border-color .18s,color .18s}
+#theme-toggle:hover{border-color:var(--border-hover);color:var(--text)}
+
+/* ════════ SHELL · icon mode rail + host ════════ */
+#shell{display:flex;height:calc(100vh - 52px)}
+#mode-rail{
+  width:66px;flex:none;background:var(--surface);border-right:1px solid var(--border);
+  display:flex;flex-direction:column;align-items:center;gap:6px;padding:14px 0;
+}
+.mode-btn{
+  width:52px;border:none;background:none;border-radius:12px;padding:8px 0 6px;
+  display:flex;flex-direction:column;align-items:center;gap:3px;color:var(--muted);
+  transition:background .15s,color .15s;
+}
+.mode-btn:hover{background:var(--surface-2);color:var(--text)}
+.mode-btn.active{background:var(--green-wash);color:var(--text)}
+.mode-btn.active svg{color:var(--green)}
+.mode-btn svg{color:currentColor}
+.mode-btn .ml{font-size:9px;font-weight:600;letter-spacing:.04em}
+#mode-host{flex:1;min-width:0;position:relative}
+.mode{position:absolute;inset:0;display:none;overflow-y:auto}
+.mode.active{display:block}
+
+/* ════════ MODE 1 · HOME — pre-flight dial + fix stack (from C) ════════ */
+#mode-home .home-inner{max-width:920px;margin:0 auto;padding:32px 24px 130px}
+#hero{
+  display:grid;grid-template-columns:248px 1fr;gap:36px;align-items:center;
+  background:var(--surface);border:1px solid var(--border);border-radius:16px;
+  box-shadow:var(--shadow-sm);padding:30px 36px;animation:fadeUp .35s ease-out;
+}
+@keyframes fadeUp{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}
+.ring-wrap{position:relative;width:200px;height:200px;margin:0 auto}
+.ring-wrap svg{transform:rotate(-90deg)}
+.ring-track{stroke:var(--surface-2)}
+.ring-fill{stroke:var(--green);stroke-linecap:round;transition:stroke-dashoffset 1.2s cubic-bezier(.22,1,.36,1)}
+.ring-center{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px}
+.ring-score{font-family:var(--font-mono);font-size:42px;font-weight:700;letter-spacing:-.02em;line-height:1}
+.ring-denom{font-family:var(--font-mono);font-size:13px;color:var(--muted)}
+.ring-label{font-size:10px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--muted-soft);margin-top:6px}
+.ring-delta{
+  position:absolute;top:8px;right:-4px;font-family:var(--font-mono);font-size:13px;font-weight:600;
+  color:var(--green);background:var(--green-wash);border:1px solid var(--green);border-radius:4px;
+  padding:2px 7px;opacity:0;transform:translateY(6px);transition:opacity .3s,transform .3s;
+}
+.ring-delta.show{opacity:1;transform:translateY(0)}
+.hero-right h1{font-size:26px;font-weight:600;letter-spacing:-.01em;margin:4px 0}
+.hero-sub{color:var(--muted);font-size:13.5px;margin-bottom:16px}
+.hero-sub .mono{font-size:12.5px}
+.deductions{display:flex;flex-direction:column;gap:8px}
+.ded-row{display:flex;align-items:center;gap:10px;font-size:13px;transition:opacity .4s}
+.ded-row.cleared{opacity:.45}
+.ded-row.cleared .ded-text{text-decoration:line-through}
+.ded-pts{
+  font-family:var(--font-mono);font-size:12px;font-weight:600;color:var(--warn);
+  background:rgba(240,128,26,.08);border:1px solid var(--warn);border-radius:4px;
+  padding:1px 6px;min-width:38px;text-align:center;
+}
+.ded-row.cleared .ded-pts{color:var(--green);border-color:var(--green);background:var(--green-wash)}
+.ded-count{font-family:var(--font-mono);color:var(--muted);font-size:12px}
+#fix-stack{margin-top:32px}
+.stack-head{display:flex;align-items:baseline;gap:12px;margin-bottom:12px}
+.stack-head h2{font-size:17px;font-weight:600;letter-spacing:-.01em}
+.stack-count{font-family:var(--font-mono);font-size:12px;color:var(--muted)}
+.fix-item{
+  background:var(--surface);border:1px solid var(--border);border-radius:16px;box-shadow:var(--shadow-sm);
+  margin-bottom:12px;overflow:hidden;transition:border-color .18s,box-shadow .18s;
+}
+.fix-item:hover,.fix-item.open{border-color:var(--border-hover);box-shadow:var(--shadow-md)}
+.fix-item.done{opacity:.8}
+.fix-summary{width:100%;display:flex;align-items:center;gap:14px;padding:16px 20px;background:none;border:none;text-align:left;color:var(--text);font-size:14px}
+.fix-rank{
+  width:28px;height:28px;flex:none;border-radius:50%;border:1px solid var(--border);background:var(--surface-2);
+  display:grid;place-items:center;font-family:var(--font-mono);font-size:12px;font-weight:600;color:var(--muted);
+}
+.fix-item.done .fix-rank{border-color:var(--green);background:var(--green-wash);color:var(--green)}
+.fix-title-wrap{flex:1;min-width:0}
+.fix-title{font-weight:600;font-size:15px;letter-spacing:-.2px}
+.fix-title .mono{font-size:14px}
+.fix-meta{font-size:12px;color:var(--muted);margin-top:2px}
+.fix-gain{
+  font-family:var(--font-mono);font-size:12px;font-weight:600;color:var(--green);
+  background:var(--green-wash);border:1px solid var(--green);border-radius:4px;padding:2px 8px;flex:none;
+}
+.fix-chevron{color:var(--muted-soft);flex:none;transition:transform .22s}
+.fix-item.open .fix-chevron{transform:rotate(180deg)}
+.fix-done-chip{display:none;font-size:12px;font-weight:600;color:var(--green);align-items:center;gap:5px;flex:none}
+.fix-item.done .fix-done-chip{display:inline-flex}
+.fix-item.done .fix-gain,.fix-item.done .fix-chevron{display:none}
+.fix-body{max-height:0;overflow:hidden;transition:max-height .35s ease}
+.fix-item.open .fix-body{max-height:900px}
+.fix-body-inner{border-top:1px solid var(--border);padding:18px 20px 20px}
+.review-toolbar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:12px}
+.qual-chip{border-radius:999px;border:1px solid var(--border);background:transparent;color:var(--muted);padding:5px 13px;font-size:12px;font-weight:500;transition:all .18s}
+.qual-chip:hover{border-color:var(--border-hover);color:var(--text)}
+.qual-chip.active{border-color:var(--green);color:var(--green);background:var(--green-wash)}
+.review-note{margin-left:auto;font-size:12px;color:var(--muted)}
+.review-list{border:1px solid var(--border);border-radius:12px;overflow:hidden}
+.rt-row{
+  display:grid;grid-template-columns:1fr auto auto;gap:5px 14px;align-items:center;
+  padding:11px 14px;border-bottom:1px solid var(--border);background:var(--surface);
+}
+.rt-row:last-child{border-bottom:none}
+.rt-name{font-size:14px;font-weight:700;letter-spacing:-.2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.rt-artist{font-size:12px;color:var(--muted)}
+.rt-data{display:flex;align-items:center;gap:6px}
+.tier-phrase{color:var(--green);border-color:var(--green);background:var(--green-wash);font-family:var(--font-sans);font-weight:600}
+.tier-bar{color:var(--warn);border-color:var(--warn);background:rgba(240,128,26,.08);font-family:var(--font-sans);font-weight:600}
+.rt-cues{display:flex;gap:4px;grid-column:1/-1;flex-wrap:wrap}
+.review-more{text-align:center;font-size:12px;color:var(--muted);padding:9px 0 0}
+.review-more button{background:none;border:none;color:var(--muted);text-decoration:underline;font-size:12px}
+.review-more button:hover{color:var(--text)}
+.commit-row{display:flex;align-items:center;gap:14px;margin-top:16px}
+.safety-note{font-size:12px;color:var(--muted);display:flex;align-items:center;gap:6px}
+.primary-pill{
+  margin-left:auto;background:var(--ink);color:var(--on-ink);border:none;border-radius:999px;
+  padding:10px 24px;font-size:13.5px;font-weight:600;box-shadow:var(--shadow-sm);
+  transition:background .18s,transform .15s,box-shadow .15s,opacity .18s;
+}
+.primary-pill:hover:not(:disabled){background:var(--ink-hover);transform:translateY(-1px);box-shadow:var(--shadow-md)}
+.primary-pill:active:not(:disabled){transform:translateY(0)}
+.primary-pill:disabled{opacity:.6;cursor:default}
+.primary-pill:focus-visible{outline:3px solid var(--green-ring);outline-offset:2px}
+.apply-progress{display:none;margin-top:14px}
+.apply-progress.show{display:block}
+.ap-label{display:flex;justify-content:space-between;font-size:12px;color:var(--muted);margin-bottom:6px}
+.ap-label .mono{color:var(--text)}
+.ap-bar{height:6px;background:var(--surface-2);border-radius:999px;overflow:hidden}
+.ap-fill{height:100%;width:0%;background:var(--green);border-radius:999px;transition:width .12s linear}
+.success-banner{
+  display:none;margin-top:14px;padding:11px 15px;border:1px solid var(--green);background:var(--green-wash);
+  border-radius:12px;font-size:13px;align-items:center;gap:8px;
+}
+.success-banner.show{display:flex}
+.success-banner strong{color:var(--green)}
+.dup-copy{
+  display:flex;align-items:center;gap:12px;padding:9px 12px;border:1px solid var(--border);
+  border-radius:8px;margin-bottom:8px;cursor:pointer;transition:border-color .18s,background .18s;
+}
+.dup-copy:hover{border-color:var(--border-hover)}
+.dup-copy.keeper{border-color:var(--green);background:var(--green-wash)}
+.dup-copy input{accent-color:var(--green)}
+.dup-name{font-weight:700;font-size:13.5px;letter-spacing:-.2px}
+.dup-path{font-family:var(--font-mono);font-size:11px;color:var(--muted)}
+.dup-stats{margin-left:auto;display:flex;gap:6px}
+.manual-steps{font-size:13px;display:flex;flex-direction:column;gap:7px;list-style-position:inside}
+#after{margin-top:34px}
+.after-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:12px}
+.after-card{
+  background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:18px 20px;
+  box-shadow:var(--shadow-sm);transition:border-color .18s,box-shadow .18s;
+}
+.after-card:hover{border-color:var(--border-hover);box-shadow:var(--shadow-md)}
+.after-card h3{font-size:15px;font-weight:600;letter-spacing:-.2px;margin:8px 0 4px}
+.after-card p{font-size:12.5px;color:var(--muted);margin-bottom:12px}
+.after-icon{color:var(--muted)}
+
+/* ════════ MODE 2 · LIBRARY — workbench (from B) ════════ */
+#mode-library.active{display:grid;grid-template-columns:204px 1fr 336px;overflow:hidden}
+#lib-rail{background:var(--surface);border-right:1px solid var(--border);overflow-y:auto;padding:12px 8px 110px}
+.rail-eyebrow{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.08em;color:var(--muted-soft);padding:13px 10px 5px}
+.rail-eyebrow:first-child{padding-top:2px}
+.crate{
+  width:100%;display:flex;align-items:center;gap:8px;text-align:left;background:transparent;border:0;
+  border-left:2px solid transparent;border-radius:0 8px 8px 0;padding:5px 9px 5px 11px;
+  font-size:12.5px;font-weight:500;color:var(--muted);transition:background .15s,color .15s;
+}
+.crate:hover{background:var(--surface-2);color:var(--text)}
+.crate.active{background:var(--green-wash);color:var(--text);border-left-color:var(--green);font-weight:600}
+.crate .ico{flex:none;width:14px;text-align:center;color:var(--muted-soft);font-size:11px}
+.crate.active .ico{color:var(--green)}
+.crate .lbl{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.crate .cnt{font-family:var(--font-mono);font-size:11px;color:var(--muted-soft)}
+.crate.active .cnt{color:var(--green);font-weight:600}
+.rail-health{margin:16px 8px 0;padding:9px 11px;border:1px solid var(--border);border-radius:12px}
+.rail-health .hv{font-family:var(--font-mono);font-size:17px;font-weight:600}
+.rail-health .hv span{font-size:11px;color:var(--muted-soft);font-weight:400}
+.rail-health .bar{height:4px;border-radius:2px;background:var(--surface-2);margin-top:7px;overflow:hidden}
+.rail-health .bar i{display:block;height:100%;width:78%;background:var(--green);border-radius:2px;transition:width .8s ease}
+#grid-panel{display:flex;flex-direction:column;min-width:0;background:var(--bg);overflow:hidden}
+#grid-toolbar{display:flex;align-items:center;gap:10px;padding:9px 14px;border-bottom:1px solid var(--border);flex:none}
+#crate-title{font-size:14.5px;font-weight:600;letter-spacing:-.01em}
+#crate-count{font-family:var(--font-mono);font-size:12px;color:var(--muted)}
+#grid-toolbar .spacer{flex:1}
+#grid-scroll{flex:1;overflow-y:auto;min-height:0;padding-bottom:96px}
+.grid-cols{display:grid;grid-template-columns:32px 26px minmax(160px,1fr) 66px 46px 70px 56px 82px 78px 48px;align-items:center}
+#grid-head{
+  position:sticky;top:0;z-index:10;background:var(--glass-bg);backdrop-filter:blur(14px);
+  border-bottom:1px solid var(--border);font-size:10px;font-weight:600;text-transform:uppercase;
+  letter-spacing:.08em;color:var(--muted-soft);
+}
+#grid-head>div{padding:7px 7px;user-select:none;white-space:nowrap}
+#grid-head .sortable{cursor:pointer}
+#grid-head .sortable:hover,#grid-head .sorted{color:var(--text)}
+#grid-head .arrow{font-size:9px}
+.num-col{text-align:right}
+.trow{border-bottom:1px solid var(--border);transition:background .12s;height:42px;cursor:default}
+.trow:hover{background:var(--surface)}
+.trow.focused{background:var(--green-wash);box-shadow:inset 2px 0 0 var(--green)}
+.trow>div{padding:0 7px;overflow:hidden;white-space:nowrap}
+.trow .ck{display:flex;justify-content:center}
+.trow .ck input{accent-color:var(--green);cursor:pointer}
+.trow .idx{font-family:var(--font-mono);font-size:11px;color:var(--muted-soft);text-align:right}
+.t-title{display:flex;flex-direction:column;justify-content:center;line-height:1.25;min-width:0}
+.t-title .tt{font-size:13px;font-weight:600;letter-spacing:-.2px;overflow:hidden;text-overflow:ellipsis}
+.t-title .ta{font-size:11px;color:var(--muted);overflow:hidden;text-overflow:ellipsis}
+.cell-mix{font-family:var(--font-mono);font-size:12px;text-align:right}
+.cell-mix .den{color:var(--muted-soft);font-size:10px}
+.cell-mix.hi{color:var(--green);font-weight:600}
+.class-chip{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.05em;border:1px solid var(--border);border-radius:4px;padding:2px 6px;color:var(--muted);display:inline-block}
+.cell-cues{font-size:11px}
+.cues-ready{color:var(--green);font-weight:600}
+.cues-ready::before{content:'●';font-size:8px;margin-right:5px;vertical-align:1px}
+.cues-have{color:var(--muted)}
+.cues-have::before{content:'✓';margin-right:4px}
+.cell-time{font-family:var(--font-mono);font-size:11.5px;color:var(--muted);text-align:right}
+.spark{display:block}
+.spark polyline{stroke:var(--green);stroke-width:1.5;fill:none;opacity:.85}
+.spark path.fill{fill:var(--green-wash);stroke:none}
+#kbd-hints{flex:none;display:flex;gap:16px;align-items:center;padding:5px 14px;border-top:1px solid var(--border);background:var(--surface);font-size:11px;color:var(--muted-soft)}
+#kbd-hints kbd{font-family:var(--font-mono);font-size:10px;border:1px solid var(--border);border-radius:4px;padding:0 5px;background:var(--surface-2);color:var(--muted);margin-right:3px}
+#inspector{background:var(--surface);border-left:1px solid var(--border);overflow-y:auto;padding:16px 16px 110px}
+#insp-empty{color:var(--muted-soft);font-size:13px;text-align:center;padding:70px 18px;line-height:1.7}
+#insp-empty kbd{font-family:var(--font-mono);font-size:11px;border:1px solid var(--border);border-radius:4px;padding:0 5px}
+.insp-eyebrow{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.08em;color:var(--muted-soft);margin:20px 0 8px}
+#insp-title{font-size:16px;font-weight:700;letter-spacing:-.2px;line-height:1.3}
+#insp-artist{font-size:13px;color:var(--muted);margin-top:2px}
+#insp-chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:9px}
+.insp-chip-mix{font-family:var(--font-mono);font-size:11.5px;border:1px solid var(--border);border-radius:4px;padding:2px 7px}
+.energy-wrap{border:1px solid var(--border);border-radius:12px;padding:9px 9px 5px}
+.energy-wrap svg{display:block;width:100%}
+.energy-meta{display:flex;justify-content:space-between;font-family:var(--font-mono);font-size:10px;color:var(--muted-soft);padding:4px 2px 2px}
+#phrase-strip{position:relative;height:46px;margin-top:4px}
+.ph-seg{
+  position:absolute;top:18px;height:16px;background:var(--surface-2);border:1px solid var(--border);
+  border-radius:3px;overflow:hidden;font-size:8.5px;font-weight:600;text-transform:uppercase;
+  letter-spacing:.04em;color:var(--muted);display:flex;align-items:center;justify-content:center;white-space:nowrap;
+}
+.ph-seg.drop{background:var(--green-wash);border-color:var(--green-ring);color:var(--green-dim)}
+html.dark .ph-seg.drop{color:var(--green)}
+.cue-tick{position:absolute;top:14px;width:2px;height:24px;border-radius:1px}
+.cue-tick-lbl{position:absolute;top:0;transform:translateX(-50%);font-family:var(--font-mono);font-size:8.5px;font-weight:600;line-height:1;border:1px solid;border-radius:3px;padding:1px 3px}
+.cue-rows{margin-top:11px;display:flex;flex-direction:column;gap:5px}
+.cue-row{display:flex;align-items:baseline;gap:8px;font-size:12px}
+.cue-letter{font-family:var(--font-mono);font-size:10px;font-weight:600;flex:none;border:1.5px solid;border-radius:4px;padding:1px 5px;line-height:1.3}
+.cue-time{font-family:var(--font-mono);font-size:11px;color:var(--muted);flex:none;width:42px}
+.cue-why{color:var(--muted);line-height:1.4}
+#transition-card{border:1px solid var(--border);border-radius:12px;padding:11px 12px}
+#trans-head{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--muted)}
+#trans-head .anchor{font-weight:600;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#trans-score-row{display:flex;align-items:baseline;gap:8px;margin:7px 0 5px}
+#trans-score{font-family:var(--font-mono);font-size:25px;font-weight:600}
+#trans-score.good{color:var(--green)}
+#trans-score-den{font-family:var(--font-mono);font-size:12px;color:var(--muted-soft)}
+.trans-reason{font-size:12px;color:var(--muted);line-height:1.5}
+.trans-reason::before{content:'→ ';color:var(--muted-soft)}
+.trans-tip{margin-top:8px;font-size:12px;background:var(--surface-2);border-radius:8px;padding:7px 10px;line-height:1.45}
+#trans-none{font-size:12px;color:var(--muted-soft);line-height:1.5}
+.sim-row{
+  width:100%;display:flex;align-items:center;gap:10px;text-align:left;background:transparent;
+  border:1px solid var(--border);border-radius:8px;padding:7px 10px;margin-bottom:6px;
+  transition:all .15s;color:var(--text);
+}
+.sim-row:hover{border-color:var(--border-hover);box-shadow:var(--shadow-sm);transform:translateY(-1px)}
+.sim-main{flex:1;min-width:0}
+.sim-t{font-size:12px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.sim-a{font-size:11px;color:var(--muted)}
+.sim-meta{font-family:var(--font-mono);font-size:10.5px;color:var(--muted);white-space:nowrap}
+.sim-meta b{color:var(--green);font-weight:500}
+
+/* ════════ MODE 3 · SET — Nightboard (from D) ════════ */
+#mode-set{padding:20px 24px 130px}
+#set-toolbar{display:flex;align-items:center;gap:12px;margin-bottom:14px}
+.set-name{font-weight:600;font-size:15px;letter-spacing:-.01em;border:1px solid transparent;border-radius:8px;padding:4px 10px;background:transparent;color:var(--text);font-family:var(--font-sans)}
+.set-name:hover{border-color:var(--border-hover)}
+#set-stats{display:flex;gap:8px;align-items:center}
+.stat-chip{font-family:var(--font-mono);font-size:11px;color:var(--muted);border:1px solid var(--border);border-radius:4px;padding:2px 7px;background:var(--surface)}
+.stat-chip b{color:var(--text);font-weight:500}
+.stat-chip.health b{color:var(--green)}
+#canvas-wrap{overflow-x:auto}
+#canvas{
+  position:relative;min-width:1180px;border:1px solid var(--border);border-radius:16px;
+  background:var(--surface);box-shadow:var(--shadow-sm);padding:16px 20px 14px;overflow:hidden;
+}
+.canvas-eyebrow{font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted-soft);font-weight:600;margin-bottom:6px;display:flex;justify-content:space-between;position:relative;z-index:2}
+.canvas-eyebrow .hint{text-transform:none;letter-spacing:0;font-weight:400;font-size:11px}
+#zones{position:absolute;inset:0;display:flex;pointer-events:none}
+.zone{position:relative;height:100%}
+.zone-label{position:absolute;top:8px;left:10px;font-size:10px;letter-spacing:.08em;text-transform:uppercase;font-weight:600;color:var(--muted-soft)}
+.zone+.zone{border-left:1px dashed var(--border)}
+.z-warmup{background:var(--zone-warmup)}.z-build{background:var(--zone-build)}
+.z-peak{background:var(--zone-peak)}.z-closing{background:var(--zone-closing)}
+#arc-row{position:relative;height:76px;margin:16px 0 10px}
+#arc{position:absolute;inset:0;width:100%;height:100%}
+#timeline{position:relative;display:flex;align-items:stretch;z-index:2}
+#timeline::before{content:"";position:absolute;left:0;right:0;top:50%;height:1px;background:var(--border-hover);z-index:0}
+.tile{
+  position:relative;z-index:1;flex:1 1 0;min-width:158px;height:178px;background:var(--surface);
+  border:1px solid var(--border);border-radius:12px;display:flex;flex-direction:column;
+  padding:10px 12px 9px;gap:5px;transition:border-color .15s,box-shadow .15s,transform .15s;
+  cursor:pointer;text-align:left;
+}
+.tile:hover{border-color:var(--border-hover);box-shadow:var(--shadow-md);transform:translateY(-2px)}
+.tile.selected{border-color:var(--green);box-shadow:0 0 0 3px var(--green-ring),var(--shadow-md)}
+.tile-title{font-size:13.5px;font-weight:700;letter-spacing:-.2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tile-artist{font-size:11.5px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:-3px}
+.chips{display:flex;gap:5px;flex-wrap:wrap;align-items:center}
+.tile-energy{flex:1;min-height:0;margin:2px -2px}
+.tile-energy svg{width:100%;height:100%;display:block}
+.tile-foot{display:flex;justify-content:space-between;align-items:center;font-family:var(--font-mono);font-size:10.5px;color:var(--muted-soft)}
+.cue-ok{color:var(--green)}.cue-warn{color:var(--warn-amber)}
+.joint{
+  align-self:center;z-index:3;flex:0 0 auto;width:46px;height:46px;margin:0 -8px;border-radius:999px;
+  background:var(--surface);border:1.5px solid var(--border-hover);display:flex;flex-direction:column;
+  align-items:center;justify-content:center;font-family:var(--font-mono);font-size:13px;font-weight:700;
+  color:var(--text);box-shadow:var(--shadow-sm);transition:transform .15s,box-shadow .15s;
+}
+.joint small{font-size:8px;font-weight:400;color:var(--muted-soft);margin-top:-2px}
+.joint:hover{transform:scale(1.1);box-shadow:var(--shadow-md)}
+.joint.s-good{border-color:var(--green);color:var(--green)}
+.joint.s-ok{border-color:var(--warn-amber);color:var(--warn-amber)}
+.joint.s-bad{border-color:var(--danger);color:var(--danger)}
+.joint.open{box-shadow:0 0 0 3px var(--green-ring),var(--shadow-md)}
+#popover{
+  position:absolute;z-index:50;width:324px;background:var(--surface);border:1px solid var(--border);
+  border-radius:12px;box-shadow:var(--shadow-lg);padding:14px 16px;display:none;animation:fadeUp .25s ease-out;
+}
+#popover .po-head{display:flex;align-items:baseline;gap:8px;margin-bottom:8px}
+#popover .po-pair{font-size:13px;font-weight:600;flex:1}
+#popover .po-score{font-family:var(--font-mono);font-size:16px;font-weight:700}
+#popover .po-score small{font-size:10px;color:var(--muted);font-weight:400}
+#popover ul{list-style:none;display:flex;flex-direction:column;gap:5px;margin-bottom:12px}
+#popover li{font-size:12.5px;color:var(--muted);display:flex;gap:7px;align-items:baseline}
+#popover li::before{content:"";width:5px;height:5px;border-radius:50%;background:var(--border-hover);flex:0 0 auto;position:relative;top:-1px}
+#popover li.good::before{background:var(--green)}
+#popover li.warn::before{background:var(--warn-amber)}
+#popover li .mono{font-size:12px}
+.po-alt-label{font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted-soft);font-weight:600;margin-bottom:7px}
+.po-alt{display:flex;align-items:center;gap:9px;padding:7px 8px;border:1px solid var(--border);border-radius:8px;margin-bottom:6px;transition:border-color .15s}
+.po-alt:hover{border-color:var(--border-hover)}
+.po-alt .a-meta{flex:1;min-width:0}
+.po-alt .a-title{font-size:12.5px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.po-alt .a-sub{font-family:var(--font-mono);font-size:10.5px;color:var(--muted)}
+.po-alt .a-score{font-family:var(--font-mono);font-size:13px;font-weight:700}
+.swap-btn{border:1px solid var(--border);background:var(--surface);color:var(--muted);border-radius:999px;padding:4px 11px;font-size:11.5px;font-weight:500;transition:all .15s}
+.swap-btn:hover{border-color:var(--green);color:var(--green)}
+.po-tip{font-size:11.5px;color:var(--muted);border-top:1px solid var(--border);padding-top:9px;margin-top:4px}
+#tray{margin-top:16px}
+.tray-head{display:flex;align-items:center;gap:10px;margin-bottom:9px}
+.tray-context{font-size:12.5px;color:var(--muted)}
+.tray-context b{color:var(--text);font-weight:600}
+.tray-row{display:flex;gap:10px;overflow-x:auto;padding-bottom:2px}
+.crate-card{
+  flex:0 0 232px;border:1px solid var(--border);border-radius:12px;background:var(--surface);
+  padding:9px 11px;display:flex;flex-direction:column;gap:4px;transition:all .15s;
+}
+.crate-card:hover{border-color:var(--border-hover);box-shadow:var(--shadow-md);transform:translateY(-1px)}
+.crate-title{font-size:12.5px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.crate-artist{font-size:11px;color:var(--muted);margin-top:-3px}
+.crate-reason{font-size:11px;color:var(--muted);min-height:28px}
+.crate-reason .sim{font-family:var(--font-mono);color:var(--green);font-size:10.5px}
+.crate-foot{display:flex;align-items:center;gap:5px}
+.crate-foot .spacer{flex:1}
+.add-btn{border:1px solid var(--border);background:var(--surface);color:var(--muted);border-radius:999px;padding:3px 10px;font-size:11px;font-weight:500;transition:all .15s}
+.add-btn:hover{border-color:var(--green);color:var(--green)}
+
+/* ════════ MODE 4 · DISCOVER — slim placeholder ════════ */
+#mode-discover .dis-inner{max-width:920px;margin:0 auto;padding:32px 24px 130px}
+#mode-discover h1{font-size:24px;font-weight:600;letter-spacing:-.01em;margin:4px 0 4px}
+.dis-sub{color:var(--muted);font-size:13.5px;margin-bottom:20px}
+.dis-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
+.dis-card{
+  background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:18px 18px 16px;
+  box-shadow:var(--shadow-sm);transition:border-color .18s,box-shadow .18s;display:flex;flex-direction:column;gap:6px;
+}
+.dis-card:hover{border-color:var(--border-hover);box-shadow:var(--shadow-md)}
+.dis-card h3{font-size:15px;font-weight:700;letter-spacing:-.2px}
+.dis-artist{font-size:12.5px;color:var(--muted);margin-top:-4px}
+.dis-meta{font-family:var(--font-mono);font-size:11px;color:var(--muted)}
+.dis-reason{font-size:12px;color:var(--muted);flex:1;line-height:1.5}
+.dis-actions{display:flex;gap:6px;margin-top:6px}
+
+/* ════════ GLOBAL LAYER 2 · the single ink-pill dock (from A) ════════ */
+#action-dock{position:fixed;left:66px;right:0;bottom:22px;z-index:30;display:flex;justify-content:center;pointer-events:none}
+#action-dock .inner{
+  pointer-events:auto;display:flex;align-items:center;gap:16px;
+  background:var(--glass-bg);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);
+  border:1px solid var(--border);border-radius:999px;padding:8px 10px 8px 22px;box-shadow:var(--shadow-lg);
+}
+#dock-caption{font-family:var(--font-mono);font-size:12px;color:var(--muted)}
+#dock-caption b{color:var(--text);font-weight:600}
+#dock-pill{
+  border:none;border-radius:999px;background:var(--ink);color:var(--on-ink);
+  font-size:14px;font-weight:600;padding:11px 26px;
+  transition:background .18s,transform .18s,box-shadow .18s,opacity .18s;
+}
+#dock-pill:hover:not(:disabled){background:var(--ink-hover);transform:translateY(-1px);box-shadow:var(--shadow-md)}
+#dock-pill:active:not(:disabled){transform:translateY(0)}
+#dock-pill:disabled{opacity:.35;cursor:default}
+
+/* ════════ GLOBAL LAYER 3 · ⌘K palette (from A) ════════ */
+#veil{position:fixed;inset:0;z-index:50;display:none;background:rgba(0,0,0,.28);align-items:flex-start;justify-content:center;padding-top:11vh}
+html.dark #veil{background:rgba(0,0,0,.55)}
+#veil.open{display:flex}
+#palette{
+  width:640px;max-width:calc(100vw - 48px);background:var(--surface);border:1px solid var(--border);
+  border-radius:16px;box-shadow:var(--shadow-lg);overflow:hidden;animation:fadeUp .22s ease-out;
+}
+#pal-input-row{display:flex;align-items:center;gap:12px;padding:15px 19px;border-bottom:1px solid var(--border)}
+#pal-input-row svg{color:var(--muted-soft);flex:none}
+#pal-input{flex:1;border:none;outline:none;background:none;font-family:var(--font-sans);font-size:16px;color:var(--text)}
+#pal-input::placeholder{color:var(--muted-soft)}
+#pal-esc{font-family:var(--font-mono);font-size:10px;color:var(--muted-soft);border:1px solid var(--border);border-radius:4px;padding:2px 6px}
+#pal-list{max-height:52vh;overflow-y:auto;padding:8px}
+.pal-group{font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted-soft);font-weight:600;padding:10px 14px 4px}
+.pal-item{
+  display:flex;align-items:center;gap:12px;width:100%;background:none;border:none;border-radius:8px;
+  text-align:left;padding:9px 13px;color:var(--text);font-size:14px;transition:background .12s;
+}
+.pal-item .ico{width:28px;height:28px;border-radius:8px;flex:none;background:var(--surface-2);border:1px solid var(--border);display:grid;place-items:center;color:var(--muted)}
+.pal-item.active{background:var(--green-wash)}
+.pal-item.active .ico{border-color:var(--green);color:var(--green)}
+.pal-item .lbl{flex:1;min-width:0}
+.pal-item .lbl .main{font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.pal-item .lbl .sub{font-size:12px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:block}
+.pal-item .meta{font-family:var(--font-mono);font-size:11px;color:var(--muted);flex:none}
+.pal-item .meta.green{color:var(--green)}
+#pal-foot{display:flex;gap:18px;padding:9px 19px;border-top:1px solid var(--border);background:var(--surface-2);font-size:11px;color:var(--muted-soft)}
+#pal-foot kbd{font-family:var(--font-mono);font-size:10px;border:1px solid var(--border);border-radius:4px;padding:0 5px;background:var(--surface);color:var(--muted)}
+.pal-empty{padding:24px;text-align:center;color:var(--muted-soft);font-size:13px}
+
+/* ════════ toast ════════ */
+#toast{
+  position:fixed;right:20px;bottom:20px;z-index:60;background:var(--glass-bg);backdrop-filter:blur(16px);
+  border:1px solid var(--border);border-radius:12px;padding:12px 16px;box-shadow:var(--shadow-lg);
+  font-size:13px;display:flex;align-items:center;gap:10px;max-width:400px;
+  transform:translateY(12px);opacity:0;pointer-events:none;transition:all .25s ease;
+}
+#toast.show{transform:translateY(0);opacity:1}
+#toast .tick{color:var(--green);font-weight:700}
+#toast .mono{font-size:12px}
+
+@media (prefers-reduced-motion: reduce){*{transition:none!important;animation:none!important}}
+</style>
+</head>
+<body>
+
+<!-- ════════ GLOBAL · status sentence header ════════ -->
+<header id="status-line">
+  <div id="brand">
+    <span class="tile">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--green)" stroke-width="2.4" stroke-linecap="round">
+        <line x1="4" y1="10" x2="4" y2="14"/><line x1="8" y1="6" x2="8" y2="18"/>
+        <line x1="12" y1="9" x2="12" y2="15"/><line x1="16" y1="4" x2="16" y2="20"/>
+        <line x1="20" y1="11" x2="20" y2="13"/>
+      </svg>
+    </span>
+    <span class="word">AutoCue <span>2.0</span></span>
+  </div>
+  <p id="sentence">
+    <button class="fact" data-fact="tracks"><span class="num">2,789</span> tracks</button><span class="sep">·</span><button class="fact" data-fact="cues"><span class="num" id="fact-cues">142</span> need cues</button><span class="sep">·</span><button class="fact" data-fact="health">health <span class="num" id="fact-health">78/100</span></button><span class="sep">·</span><button class="fact" data-fact="rb"><span class="rb-dot"></span>Rekordbox closed</button>
+  </p>
+  <div id="top-right">
+    <button id="cmdk-hint" type="button" aria-label="Open command palette">Type a command <kbd>⌘K</kbd></button>
+    <button id="theme-toggle" type="button" aria-label="Toggle theme">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+    </button>
+  </div>
+</header>
+
+<div id="shell">
+
+  <!-- ════════ Mode rail ════════ -->
+  <nav id="mode-rail" aria-label="Modes">
+    <button class="mode-btn active" data-mode="home" aria-label="Home">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
+      <span class="ml">Home</span>
+    </button>
+    <button class="mode-btn" data-mode="library" aria-label="Library">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
+      <span class="ml">Library</span>
+    </button>
+    <button class="mode-btn" data-mode="set" aria-label="Set">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+      <span class="ml">Set</span>
+    </button>
+    <button class="mode-btn" data-mode="discover" aria-label="Discover">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88 16.24 7.76"/></svg>
+      <span class="ml">Discover</span>
+    </button>
+  </nav>
+
+  <div id="mode-host">
+
+    <!-- ════════ MODE · HOME ════════ -->
+    <section class="mode active" id="mode-home" aria-label="Home — pre-flight">
+      <div class="home-inner">
+
+        <section id="hero" aria-label="Library health">
+          <div class="ring-wrap">
+            <svg width="200" height="200" viewBox="0 0 200 200" aria-hidden="true">
+              <circle class="ring-track" cx="100" cy="100" r="88" fill="none" stroke-width="13"/>
+              <circle class="ring-fill" id="ring-fill" cx="100" cy="100" r="88" fill="none" stroke-width="13"
+                      stroke-dasharray="552.92" stroke-dashoffset="552.92"/>
+            </svg>
+            <div class="ring-center">
+              <div><span class="ring-score" id="ring-score">0</span><span class="ring-denom">/100</span></div>
+              <div class="ring-label">Library Health</div>
+            </div>
+            <div class="ring-delta mono" id="ring-delta">+12</div>
+          </div>
+          <div class="hero-right">
+            <div class="eyebrow">Pre-flight check</div>
+            <h1>Almost gig-ready.</h1>
+            <p class="hero-sub">Scanned <span class="mono">2,789</span> tracks · last scan <span class="mono">2 min</span> ago · <span class="mono" id="open-issues">3</span> issues holding your score back</p>
+            <div class="deductions">
+              <div class="ded-row" id="ded-cues">
+                <span class="ded-pts">−12</span><span class="ded-text">Tracks without hot cues</span><span class="ded-count">142 tracks</span>
+              </div>
+              <div class="ded-row" id="ded-dupes">
+                <span class="ded-pts">−6</span><span class="ded-text">Duplicate copies inflating the crate</span><span class="ded-count">34 groups</span>
+              </div>
+              <div class="ded-row" id="ded-anlz">
+                <span class="ded-pts">−4</span><span class="ded-text">Missing Rekordbox analysis (no beat-grid)</span><span class="ded-count">203 tracks</span>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section id="fix-stack" aria-label="What to fix next">
+          <div class="stack-head"><h2>Fix next</h2><span class="stack-count" id="stack-count">3 steps to 100</span></div>
+
+          <!-- ① cues -->
+          <div class="fix-item" id="fix-1">
+            <button class="fix-summary" onclick="toggleItem('fix-1')" aria-expanded="false">
+              <span class="fix-rank" id="fix-1-rank">1</span>
+              <span class="fix-title-wrap">
+                <span class="fix-title"><span class="mono">142</span> tracks have no hot cues</span>
+                <span class="fix-meta" id="fix-1-meta">✨ Phrase quality available for 117 · bar fallback for 25</span>
+              </span>
+              <span class="fix-done-chip">✓ Done</span>
+              <span class="fix-gain">+12 pts</span>
+              <svg class="fix-chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+            </button>
+            <div class="fix-body"><div class="fix-body-inner">
+              <div class="review-toolbar">
+                <span class="eyebrow" style="margin-right:4px">Quality</span>
+                <button class="qual-chip active">✨ Phrase <span class="mono">117</span></button>
+                <button class="qual-chip">Bar fallback <span class="mono">25</span></button>
+                <span class="review-note">Preview of <span class="mono">3</span> of <span class="mono">142</span> — cue letters A–H, named by phrase</span>
+              </div>
+              <div class="review-list">
+                <div class="rt-row">
+                  <div><div class="rt-name">Gravity (Extended Mix)</div><div class="rt-artist">Lane 8</div></div>
+                  <div class="rt-data"><span class="chip bpm">122.0</span><span class="chip">8A</span></div>
+                  <span class="chip tier-phrase">✨ phrase</span>
+                  <div class="rt-cues">
+                    <span class="cue-badge" data-cue="a">A<span class="cb-label">Intro</span></span>
+                    <span class="cue-badge" data-cue="b">B<span class="cb-label">Build</span></span>
+                    <span class="cue-badge" data-cue="c">C<span class="cb-label">Drop</span></span>
+                    <span class="cue-badge" data-cue="d">D<span class="cb-label">Break</span></span>
+                    <span class="cue-badge" data-cue="e">E<span class="cb-label">Drop 2</span></span>
+                    <span class="cue-badge" data-cue="f">F<span class="cb-label">Outro</span></span>
+                  </div>
+                </div>
+                <div class="rt-row">
+                  <div><div class="rt-name">Atlas</div><div class="rt-artist">Ben Böhmer</div></div>
+                  <div class="rt-data"><span class="chip bpm">121.5</span><span class="chip">9A</span></div>
+                  <span class="chip tier-phrase">✨ phrase</span>
+                  <div class="rt-cues">
+                    <span class="cue-badge" data-cue="a">A<span class="cb-label">Intro</span></span>
+                    <span class="cue-badge" data-cue="b">B<span class="cb-label">Verse</span></span>
+                    <span class="cue-badge" data-cue="c">C<span class="cb-label">Build</span></span>
+                    <span class="cue-badge" data-cue="d">D<span class="cb-label">Drop</span></span>
+                    <span class="cue-badge" data-cue="f">F<span class="cb-label">Outro</span></span>
+                  </div>
+                </div>
+                <div class="rt-row">
+                  <div><div class="rt-name">Voodoo (Original Mix)</div><div class="rt-artist">Adam Beyer</div></div>
+                  <div class="rt-data"><span class="chip bpm">128.0</span><span class="chip">11A</span></div>
+                  <span class="chip tier-bar">bar · 16</span>
+                  <div class="rt-cues">
+                    <span class="cue-badge" data-cue="a">A<span class="cb-label">Bar 1</span></span>
+                    <span class="cue-badge" data-cue="b">B<span class="cb-label">Bar 17</span></span>
+                    <span class="cue-badge" data-cue="c">C<span class="cb-label">Bar 33</span></span>
+                    <span class="cue-badge" data-cue="d">D<span class="cb-label">Bar 49</span></span>
+                    <span class="cue-badge" data-cue="e">E<span class="cb-label">Bar 65</span></span>
+                  </div>
+                </div>
+              </div>
+              <div class="review-more"><button type="button">Show all 142 affected tracks ↓</button> &nbsp;·&nbsp; <button type="button">Cue settings (every 16 bars · max 8 cues)</button></div>
+              <div class="commit-row">
+                <span class="safety-note"><span class="rb-dot"></span> Rekordbox closed · backup saved before write · rolls back on any failure</span>
+                <button class="primary-pill" id="apply-btn" onclick="applyFix1()">Apply to Rekordbox</button>
+              </div>
+              <div class="apply-progress" id="apply-progress">
+                <div class="ap-label"><span>Writing cues…</span><span class="mono" id="ap-count">0 / 142</span></div>
+                <div class="ap-bar"><div class="ap-fill" id="ap-fill"></div></div>
+              </div>
+              <div class="success-banner" id="success-banner">
+                <span style="color:var(--green);font-weight:700">✓</span>
+                <span><strong>142 tracks cued</strong> — 117 at phrase quality, 25 at bar fallback. Backup saved · <a href="#" style="color:var(--text)" onclick="return false">Undo</a></span>
+              </div>
+            </div></div>
+          </div>
+
+          <!-- ② duplicates -->
+          <div class="fix-item" id="fix-2">
+            <button class="fix-summary" onclick="toggleItem('fix-2')" aria-expanded="false">
+              <span class="fix-rank">2</span>
+              <span class="fix-title-wrap">
+                <span class="fix-title"><span class="mono">34</span> duplicate groups</span>
+                <span class="fix-meta">Keeper auto-picked by cue prep → plays → bitrate · review one group at a time</span>
+              </span>
+              <span class="fix-done-chip">✓ Done</span>
+              <span class="fix-gain">+6 pts</span>
+              <svg class="fix-chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+            </button>
+            <div class="fix-body"><div class="fix-body-inner">
+              <div style="display:flex;align-items:baseline;gap:10px;margin-bottom:12px">
+                <strong style="font-size:14px">Group <span class="mono" id="dup-n">1</span> of <span class="mono">34</span></strong>
+                <span class="mono" style="font-size:12px;color:var(--muted)">Innerbloom · Rüfüs Du Sol · 9:36</span>
+              </div>
+              <label class="dup-copy keeper" onclick="pickKeeper(this)">
+                <input type="radio" name="keeper" checked>
+                <div><div class="dup-name">★ Innerbloom (Original Mix)</div><div class="dup-path">~/Music/2024 buys/Innerbloom.flac</div></div>
+                <div class="dup-stats"><span class="chip">FLAC</span><span class="chip">6 cues</span><span class="chip">41 plays</span></div>
+              </label>
+              <label class="dup-copy" onclick="pickKeeper(this)">
+                <input type="radio" name="keeper">
+                <div><div class="dup-name">Innerbloom</div><div class="dup-path">~/Downloads/innerbloom(1).mp3</div></div>
+                <div class="dup-stats"><span class="chip">320 kbps</span><span class="chip">0 cues</span><span class="chip">2 plays</span></div>
+              </label>
+              <div class="commit-row" style="margin-top:12px">
+                <span class="safety-note">Backup created before the first delete · undo for 30 s</span>
+                <button class="ghost-pill" style="margin-left:auto" onclick="nextDup()">Skip group</button>
+                <button class="primary-pill" style="margin-left:0;padding:9px 20px;font-size:13px" onclick="nextDup()">Keep ★ &amp; delete 1 copy</button>
+              </div>
+            </div></div>
+          </div>
+
+          <!-- ③ missing analysis -->
+          <div class="fix-item" id="fix-3">
+            <button class="fix-summary" onclick="toggleItem('fix-3')" aria-expanded="false">
+              <span class="fix-rank">3</span>
+              <span class="fix-title-wrap">
+                <span class="fix-title"><span class="mono">203</span> tracks need analysis in Rekordbox</span>
+                <span class="fix-meta">Manual step — no beat-grid yet, so AutoCue can't place cues on these</span>
+              </span>
+              <span class="fix-done-chip">✓ Done</span>
+              <span class="fix-gain">+4 pts</span>
+              <svg class="fix-chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+            </button>
+            <div class="fix-body"><div class="fix-body-inner">
+              <ol class="manual-steps">
+                <li>Open Rekordbox and select the playlist <span class="chip">AutoCue · needs analysis</span> (exported for you).</li>
+                <li>Right-click → <strong>Analyze Track</strong> with <em>Phrase</em> enabled in analysis settings.</li>
+                <li>Quit Rekordbox, then re-scan here — AutoCue picks up the new beat-grids automatically.</li>
+              </ol>
+              <div class="commit-row">
+                <span class="safety-note">Re-scan takes ~<span class="mono">15 s</span> for <span class="mono">2,789</span> tracks</span>
+                <button class="ghost-pill" style="margin-left:auto">Export playlist</button>
+              </div>
+            </div></div>
+          </div>
+        </section>
+
+        <section id="after" aria-label="After prep">
+          <div class="eyebrow">After your library is healthy</div>
+          <div class="after-grid">
+            <div class="after-card">
+              <svg class="after-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+              <h3>Build a set</h3>
+              <p>Pick an anchor track — AutoCue chains transitions by BPM, key and energy. <span class="mono">8A→8B</span>, <span class="mono">0.5</span> BPM apart.</p>
+              <button class="ghost-pill" onclick="switchMode('set')">Open Set mode</button>
+            </div>
+            <div class="after-card">
+              <svg class="after-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88 16.24 7.76"/></svg>
+              <h3>Discover new releases</h3>
+              <p>Fresh tracks from artists and labels already in your crate — ranked against your taste vector.</p>
+              <button class="ghost-pill" onclick="switchMode('discover')">Open Discover</button>
+            </div>
+          </div>
+        </section>
+
+      </div>
+    </section>
+
+    <!-- ════════ MODE · LIBRARY ════════ -->
+    <section class="mode" id="mode-library" aria-label="Library workbench">
+      <nav id="lib-rail" aria-label="Crates">
+        <div class="rail-eyebrow">Source</div>
+        <button class="crate active" data-crate="all"><span class="ico">▤</span><span class="lbl">All tracks</span><span class="cnt" data-cnt="all"></span></button>
+        <div class="rail-eyebrow">Smart Crates</div>
+        <button class="crate" data-crate="nocues"><span class="ico">◌</span><span class="lbl">No cues yet</span><span class="cnt" data-cnt="nocues"></span></button>
+        <button class="crate" data-crate="phrase"><span class="ico">✨</span><span class="lbl">Phrase-ready</span><span class="cnt" data-cnt="phrase"></span></button>
+        <button class="crate" data-crate="hicues"><span class="ico">✓</span><span class="lbl">Already cued</span><span class="cnt" data-cnt="hicues"></span></button>
+        <button class="crate" data-crate="mix80"><span class="ico">≈</span><span class="lbl">Mix 80+</span><span class="cnt" data-cnt="mix80"></span></button>
+        <button class="crate" data-crate="peak"><span class="ico">▲</span><span class="lbl">Peak-time</span><span class="cnt" data-cnt="peak"></span></button>
+        <div class="rail-eyebrow">Playlists</div>
+        <button class="crate" data-crate="pl-warehouse"><span class="ico">♪</span><span class="lbl">Warehouse · Mar 14</span><span class="cnt" data-cnt="pl-warehouse"></span></button>
+        <button class="crate" data-crate="pl-clubtools"><span class="ico">♪</span><span class="lbl">Club Tools</span><span class="cnt" data-cnt="pl-clubtools"></span></button>
+        <button class="crate" data-crate="pl-openers"><span class="ico">♪</span><span class="lbl">Deep Openers</span><span class="cnt" data-cnt="pl-openers"></span></button>
+        <div class="rail-health">
+          <div class="eyebrow" style="margin-bottom:5px">Library health</div>
+          <div class="hv"><span id="rail-health-num">78</span><span>/100</span></div>
+          <div class="bar"><i id="rail-health-bar"></i></div>
+        </div>
+      </nav>
+
+      <section id="grid-panel">
+        <div id="grid-toolbar">
+          <span id="crate-title">All tracks</span>
+          <span id="crate-count"></span>
+          <span class="spacer"></span>
+          <button class="ghost-pill" type="button" onclick="selectAllVisible()">Select all</button>
+        </div>
+        <div id="grid-scroll">
+          <div id="grid-head" class="grid-cols">
+            <div></div>
+            <div class="num-col">#</div>
+            <div class="sortable" data-sort="title">Title <span class="arrow"></span></div>
+            <div class="sortable num-col" data-sort="bpm">BPM <span class="arrow"></span></div>
+            <div class="sortable" data-sort="key">Key <span class="arrow"></span></div>
+            <div>Energy</div>
+            <div class="sortable num-col" data-sort="mix">Mix <span class="arrow"></span></div>
+            <div class="sortable" data-sort="cls">Class <span class="arrow"></span></div>
+            <div class="sortable" data-sort="cues">Cues <span class="arrow"></span></div>
+            <div class="num-col">Time</div>
+          </div>
+          <div id="grid-body"></div>
+        </div>
+        <div id="kbd-hints">
+          <span><kbd>↑</kbd><kbd>↓</kbd> navigate</span>
+          <span><kbd>X</kbd> select</span>
+          <span><kbd>⌘K</kbd> search &amp; commands</span>
+          <span><kbd>Esc</kbd> clear</span>
+        </div>
+      </section>
+
+      <aside id="inspector" aria-label="Track inspector">
+        <div id="insp-empty">
+          Select a track to inspect it.<br><br>
+          <kbd>↑</kbd> <kbd>↓</kbd> to move through the grid ·<br>
+          <kbd>X</kbd> to select for apply
+        </div>
+        <div id="insp-body" style="display:none"></div>
+      </aside>
+    </section>
+
+    <!-- ════════ MODE · SET ════════ -->
+    <section class="mode" id="mode-set" aria-label="Set — Nightboard">
+      <div id="set-toolbar">
+        <input class="set-name" value="Saturday — Club Mira" spellcheck="false" aria-label="Set name">
+        <div id="set-stats"></div>
+      </div>
+      <div id="canvas-wrap">
+        <section id="canvas" aria-label="Set timeline">
+          <div id="zones"></div>
+          <div class="canvas-eyebrow">
+            <span>Set energy</span>
+            <span class="hint">Click a joint to inspect the transition · click a tile to re-anchor the crate tray</span>
+          </div>
+          <div id="arc-row"><svg id="arc" preserveAspectRatio="none" aria-hidden="true"></svg></div>
+          <div id="timeline"></div>
+          <div id="popover" role="dialog" aria-label="Transition detail"></div>
+        </section>
+      </div>
+      <aside id="tray" aria-label="Crate suggestions">
+        <div class="tray-head">
+          <span class="eyebrow">Crate</span>
+          <span class="tray-context" id="tray-context"></span>
+        </div>
+        <div class="tray-row" id="tray-row"></div>
+      </aside>
+    </section>
+
+    <!-- ════════ MODE · DISCOVER ════════ -->
+    <section class="mode" id="mode-discover" aria-label="Discover">
+      <div class="dis-inner">
+        <div class="eyebrow">Discover</div>
+        <h1>New releases for your crate</h1>
+        <p class="dis-sub"><span class="mono">18 new</span> from artists &amp; labels you play · per-scan budget <span class="mono">20 artist · 15 label · 10 novelty</span> · snooze any artist 1w / 1m / 3m</p>
+        <div class="dis-grid">
+          <div class="dis-card">
+            <h3>Borealis EP</h3>
+            <div class="dis-artist">Ada Reuss</div>
+            <div class="dis-meta">Hypnus · 2026 · 124.0 BPM · 9A</div>
+            <div class="dis-reason">Because you play <strong>Tension Lock</strong> — artist feeder.</div>
+            <div class="dis-actions"><button class="ghost-pill">▶ Preview</button><button class="ghost-pill">Save</button><button class="ghost-pill">💤</button></div>
+          </div>
+          <div class="dis-card">
+            <h3>Slow Static</h3>
+            <div class="dis-artist">Bruma</div>
+            <div class="dis-meta">Echocord · 2026 · 121.5 BPM · 4B</div>
+            <div class="dis-reason">Label feeder — <strong>Echocord</strong> appears 14× in your library.</div>
+            <div class="dis-actions"><button class="ghost-pill">▶ Preview</button><button class="ghost-pill">Save</button><button class="ghost-pill">💤</button></div>
+          </div>
+          <div class="dis-card">
+            <h3>Verglas</h3>
+            <div class="dis-artist">Nuage Fou</div>
+            <div class="dis-meta">Delsin · 2026 · 126.8 BPM · 7B</div>
+            <div class="dis-reason">🔁 Novelty pick — adjacent to your style graph, never played.</div>
+            <div class="dis-actions"><button class="ghost-pill">▶ Preview</button><button class="ghost-pill">Save</button><button class="ghost-pill">💤</button></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+  </div>
+</div>
+
+<!-- ════════ GLOBAL · the one ink pill ════════ -->
+<div id="action-dock">
+  <div class="inner">
+    <span id="dock-caption"></span>
+    <button id="dock-pill" type="button"></button>
+  </div>
+</div>
+
+<!-- ════════ GLOBAL · ⌘K palette ════════ -->
+<div id="veil" role="dialog" aria-modal="true" aria-label="Command palette">
+  <div id="palette">
+    <div id="pal-input-row">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+      <input id="pal-input" type="text" placeholder="Search tracks, or type a command — fix, duplicates, set, library…" autocomplete="off">
+      <span id="pal-esc">ESC</span>
+    </div>
+    <div id="pal-list"></div>
+    <div id="pal-foot">
+      <span><kbd>↑</kbd> <kbd>↓</kbd> navigate</span>
+      <span><kbd>↵</kbd> run</span>
+      <span><kbd>esc</kbd> close</span>
+      <span style="margin-left:auto">Rekordbox must be closed before any write</span>
+    </div>
+  </div>
+</div>
+
+<div id="toast" role="status" aria-live="polite"><span class="tick">✓</span><span id="toast-msg"></span></div>
+
+<script>
+'use strict';
+const $=s=>document.querySelector(s);
+const CUE_VARS={A:'--cue-a',B:'--cue-b',C:'--cue-c',D:'--cue-d',E:'--cue-e',F:'--cue-f',G:'--cue-g',H:'--cue-h'};
+const cueColor=l=>`var(${CUE_VARS[l]})`;
+function fmtTime(s){return Math.floor(s/60)+':'+String(Math.round(s%60)).padStart(2,'0');}
+function esc(s){return s.replace(/&/g,'&amp;').replace(/</g,'&lt;');}
+function camelot(k){const m=/(\d+)([AB])/.exec(k);return{n:+m[1],l:m[2]};}
+function camelotDist(a,b){const A=camelot(a),B=camelot(b);let dn=Math.abs(A.n-B.n);dn=Math.min(dn,12-dn);return dn+(A.l===B.l?0:1);}
+
+/* tint Home's static cue badges from data-cue */
+document.querySelectorAll('.cue-badge[data-cue]').forEach(el=>{
+  const c=`var(--cue-${el.dataset.cue})`;
+  el.style.color=c;el.style.borderColor=c;
+  el.style.background=`color-mix(in srgb, ${c} 8%, transparent)`;
+});
+
+/* ════════════════ global app state ════════════════ */
+const app={mode:'home',health:78,needCues:142,fix1Applied:false};
+
+let toastTimer;
+function toast(html){
+  $('#toast-msg').innerHTML=html;$('#toast').classList.add('show');
+  clearTimeout(toastTimer);toastTimer=setTimeout(()=>$('#toast').classList.remove('show'),3200);
+}
+
+/* ════════════════ mode switching ════════════════ */
+function switchMode(m){
+  app.mode=m;
+  document.querySelectorAll('.mode-btn').forEach(b=>b.classList.toggle('active',b.dataset.mode===m));
+  document.querySelectorAll('.mode').forEach(s=>s.classList.toggle('active',s.id==='mode-'+m));
+  closeSetPopover();
+  updateDock();
+}
+document.querySelectorAll('.mode-btn').forEach(b=>b.addEventListener('click',()=>switchMode(b.dataset.mode)));
+
+/* ════════════════ health (single source of truth) ════════════════ */
+const CIRC=2*Math.PI*88;let currentScore=0;
+function countTo(el,from,to,ms){
+  let start=null;
+  function step(t){if(!start)start=t;const p=Math.min((t-start)/ms,1),e=1-Math.pow(1-p,3);
+    el.textContent=Math.round(from+(to-from)*e);if(p<1)requestAnimationFrame(step);}
+  requestAnimationFrame(step);
+}
+function setHealth(score,ms){
+  $('#ring-fill').style.strokeDashoffset=(CIRC*(1-score/100)).toFixed(2);
+  countTo($('#ring-score'),currentScore,score,ms||1200);
+  currentScore=score;app.health=score;
+  $('#fact-health').textContent=score+'/100';
+  $('#rail-health-num').textContent=score;
+  $('#rail-health-bar').style.width=score+'%';
+}
+window.addEventListener('load',()=>setTimeout(()=>setHealth(78,1200),150));
+
+/* ════════════════ HOME · fix stack (from C) ════════════════ */
+function toggleItem(id){
+  const item=document.getElementById(id);
+  if(item.classList.contains('done'))return;
+  const wasOpen=item.classList.contains('open');
+  document.querySelectorAll('.fix-item.open').forEach(el=>{
+    el.classList.remove('open');el.querySelector('.fix-summary').setAttribute('aria-expanded','false');
+  });
+  if(!wasOpen){item.classList.add('open');item.querySelector('.fix-summary').setAttribute('aria-expanded','true');}
+}
+function openFix(id){
+  const item=document.getElementById(id);
+  if(!item.classList.contains('open'))toggleItem(id);
+  item.scrollIntoView({block:'center',behavior:'smooth'});
+}
+function applyFix1(){
+  if(app.fix1Applied)return;
+  app.fix1Applied=true;
+  const btn=$('#apply-btn');btn.disabled=true;btn.textContent='Applying…';
+  $('#apply-progress').classList.add('show');
+  let n=0;const total=142;
+  const iv=setInterval(()=>{
+    n=Math.min(n+7,total);
+    $('#ap-count').textContent=n+' / '+total;
+    $('#ap-fill').style.width=(n/total*100)+'%';
+    if(n>=total){clearInterval(iv);setTimeout(finishFix1,350);}
+  },90);
+  updateDock();
+}
+function finishFix1(){
+  $('#apply-progress').classList.remove('show');
+  $('#success-banner').classList.add('show');
+  $('#apply-btn').textContent='Applied';
+  setTimeout(()=>{
+    const item=$('#fix-1');
+    item.classList.remove('open');item.classList.add('done');
+    item.querySelector('.fix-summary').setAttribute('aria-expanded','false');
+    $('#fix-1-rank').textContent='✓';
+    $('#fix-1-meta').textContent='142 tracks cued — 117 phrase · 25 bar. Backup saved.';
+    setHealth(86,1200);
+    const delta=$('#ring-delta');delta.classList.add('show');
+    setTimeout(()=>delta.classList.remove('show'),3500);
+    const ded=$('#ded-cues');ded.classList.add('cleared');
+    ded.querySelector('.ded-pts').textContent='+12';
+    $('#open-issues').textContent='2';
+    $('#stack-count').textContent='2 steps to 100';
+    app.needCues=0;$('#fact-cues').textContent='0';
+    updateDock();
+  },1400);
+}
+function pickKeeper(label){
+  document.querySelectorAll('.dup-copy').forEach(el=>el.classList.remove('keeper'));
+  label.classList.add('keeper');label.querySelector('input').checked=true;
+}
+function nextDup(){const el=$('#dup-n');el.textContent=Math.min(parseInt(el.textContent,10)+1,34);}
+
+/* ════════════════ LIBRARY · data + workbench (from B) ════════════════ */
+const CLASSES={warmup:'Warmup',build:'Build',peak:'Peak',after_hours:'After hours',closing:'Closing'};
+const PHRASE_T=[
+  [['Intro',8],['Verse',16],['Build',8],['Drop',16,1],['Break',8],['Drop',16,1],['Outro',10]],
+  [['Intro',16],['Verse',16],['Build',8],['Drop',24,1],['Outro',16]],
+  [['Intro',8],['Groove',24],['Break',8],['Drop',24,1],['Outro',14]],
+];
+const LIB=[
+  {id:1,title:'Vermillion Drift',artist:'Roman Lindau',bpm:126.0,key:'8A',dur:402,cls:'build',mix:78,cuesHave:0,phrase:true,pls:['pl-warehouse'],pt:0},
+  {id:2,title:'Concrete Lullaby',artist:'Sasha Marlowe',bpm:124.5,key:'8B',dur:371,cls:'warmup',mix:82,cuesHave:0,phrase:true,pls:['pl-openers'],pt:1},
+  {id:3,title:'Acid Cathedral',artist:'Volta Cabral',bpm:132.3,key:'9A',dur:418,cls:'peak',mix:91,cuesHave:8,phrase:true,pls:['pl-warehouse'],pt:0},
+  {id:4,title:'Night Bus to Tbilisi',artist:'Levan Iro',bpm:128.0,key:'7A',dur:455,cls:'build',mix:74,cuesHave:0,phrase:false,pls:['pl-clubtools'],pt:2},
+  {id:5,title:'Plastic Empathy',artist:'Moiré Club',bpm:122.8,key:'5A',dur:389,cls:'warmup',mix:67,cuesHave:0,phrase:true,pls:['pl-openers'],pt:1},
+  {id:6,title:'Hyaline',artist:'Ada Reiss',bpm:136.1,key:'10A',dur:362,cls:'peak',mix:88,cuesHave:8,phrase:true,pls:['pl-warehouse'],pt:0},
+  {id:7,title:'Rotor Prayer',artist:'Bram Verhoeven',bpm:130.0,key:'9B',dur:411,cls:'peak',mix:85,cuesHave:0,phrase:true,pls:['pl-warehouse'],pt:2},
+  {id:8,title:'Sodium Light',artist:'Yumi Katto',bpm:120.2,key:'4B',dur:444,cls:'after_hours',mix:71,cuesHave:0,phrase:false,pls:['pl-clubtools'],pt:1},
+  {id:9,title:'Gravel & Honey',artist:'Hollis Grade',bpm:118.4,key:'6A',dur:397,cls:'after_hours',mix:63,cuesHave:3,phrase:true,pls:['pl-openers'],pt:2},
+  {id:10,title:'Fern Static',artist:'Lia Mercer',bpm:125.7,key:'8A',dur:380,cls:'build',mix:79,cuesHave:0,phrase:true,pls:['pl-clubtools'],pt:0},
+  {id:11,title:'Tunnel Arithmetic',artist:'Otto Brandt',bpm:133.5,key:'11A',dur:426,cls:'peak',mix:86,cuesHave:0,phrase:true,pls:['pl-warehouse'],pt:1},
+  {id:12,title:'Last Tram Home',artist:'Mireille Fontaine',bpm:116.0,key:'3A',dur:478,cls:'closing',mix:58,cuesHave:0,phrase:false,pls:['pl-clubtools'],pt:2},
+  {id:13,title:'Copper Veins',artist:'Dario Skala',bpm:127.4,key:'8B',dur:405,cls:'build',mix:81,cuesHave:8,phrase:true,pls:['pl-warehouse'],pt:0},
+  {id:14,title:'Salt Cathedral Dub',artist:'Jonas Aker',bpm:123.0,key:'7B',dur:433,cls:'warmup',mix:76,cuesHave:0,phrase:true,pls:['pl-openers'],pt:1},
+  {id:15,title:'Afterglow Protocol',artist:'Nadia Volkov',bpm:121.5,key:'12A',dur:368,cls:'closing',mix:69,cuesHave:0,phrase:true,pls:['pl-clubtools'],pt:2},
+];
+function energyCurve(t){
+  const n=24,out=[];
+  for(let i=0;i<n;i++){
+    const x=i/(n-1);let base;
+    switch(t.cls){
+      case 'warmup':base=.22+.33*x;break;
+      case 'build':base=.30+.50*x;break;
+      case 'peak':base=.55+.40*Math.sin(Math.PI*Math.min(1,x*1.15));break;
+      case 'after_hours':base=.42+.10*Math.sin(x*6);break;
+      default:base=.68-.42*x;
+    }
+    out.push(Math.max(.05,Math.min(.98,base+.07*Math.sin(i*(1.7+t.id*.37))+.04*Math.sin(i*.9+t.id))));
+  }
+  return out;
+}
+LIB.forEach(t=>{t.energy=energyCurve(t);t.eAvg=t.energy.reduce((a,b)=>a+b,0)/t.energy.length;});
+function buildStructure(t){
+  const tpl=PHRASE_T[t.pt],total=tpl.reduce((a,s)=>a+s[1],0);
+  let acc=0;
+  const segs=tpl.map(s=>{const seg={name:s[0],from:acc/total,to:(acc+s[1])/total,drop:!!s[2]};acc+=s[1];return seg;});
+  const why={Intro:'first downbeat — load point',Verse:'phrase start — early mix-in',Build:'energy ramp begins',
+    Drop:'phrase: drop start',Break:'breakdown — tension reset',Groove:'main groove begins',Outro:'outro start — mix-out window'};
+  const letters='ABCDEFGH',cues=[];
+  segs.forEach(seg=>{if(cues.length<7)cues.push({letter:letters[cues.length],pos:seg.from,why:why[seg.name]||'phrase boundary'});});
+  cues.push({letter:letters[cues.length],pos:Math.max(.9,segs[segs.length-1].from+.04),why:'16 bars before end — mix-out warning'});
+  return{segs,cues};
+}
+LIB.forEach(t=>{const s=buildStructure(t);t.segs=s.segs;t.cues=s.cues;});
+function similarOf(t){
+  return LIB.filter(o=>o.id!==t.id)
+    .map(o=>({o,d:Math.abs(o.bpm-t.bpm)+camelotDist(t.key,o.key)*3+Math.abs(o.eAvg-t.eAvg)*10}))
+    .sort((a,b)=>a.d-b.d).slice(0,3).map(x=>x.o);
+}
+const lib={crate:'all',sort:{key:null,dir:1},focusedId:null,prevFocusedId:null,selected:new Set(),visible:[]};
+const CRATES={
+  all:{label:'All tracks',fn:()=>true},
+  nocues:{label:'No cues yet',fn:t=>t.cuesHave===0},
+  phrase:{label:'Phrase-ready',fn:t=>t.phrase},
+  hicues:{label:'Already cued',fn:t=>t.cuesHave>0},
+  mix80:{label:'Mix 80+',fn:t=>t.mix>=80},
+  peak:{label:'Peak-time',fn:t=>t.cls==='peak'},
+  'pl-warehouse':{label:'Warehouse · Mar 14',fn:t=>t.pls.includes('pl-warehouse')},
+  'pl-clubtools':{label:'Club Tools',fn:t=>t.pls.includes('pl-clubtools')},
+  'pl-openers':{label:'Deep Openers',fn:t=>t.pls.includes('pl-openers')},
+};
+function sparkSVG(energy,w,h){
+  const pts=energy.map((e,i)=>`${(i/(energy.length-1)*w).toFixed(1)},${(h-e*(h-2)).toFixed(1)}`);
+  return `<svg class="spark" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}"><path class="fill" d="M0,${h} L${pts.join(' L')} L${w},${h} Z"/><polyline points="${pts.join(' ')}"/></svg>`;
+}
+function visibleTracks(){
+  let rows=LIB.filter(CRATES[lib.crate].fn);
+  const{key,dir}=lib.sort;
+  if(key){
+    const get={title:t=>t.title.toLowerCase(),bpm:t=>t.bpm,key:t=>camelot(t.key).n*2+(camelot(t.key).l==='B'?1:0),
+      mix:t=>t.mix,cls:t=>t.cls,cues:t=>t.cuesHave}[key];
+    rows=rows.slice().sort((a,b)=>(get(a)<get(b)?-1:get(a)>get(b)?1:0)*dir);
+  }
+  return rows;
+}
+function renderGrid(){
+  lib.visible=visibleTracks();
+  $('#grid-body').innerHTML=lib.visible.map((t,i)=>{
+    const cuesCell=t.cuesHave>0
+      ?`<span class="cues-have">${t.cuesHave} cue${t.cuesHave>1?'s':''}</span>`
+      :`<span class="cues-ready">${t.cues.length} ready</span>`;
+    return `<div class="trow grid-cols ${lib.focusedId===t.id?'focused':''}" data-id="${t.id}">
+      <div class="ck"><input type="checkbox" ${lib.selected.has(t.id)?'checked':''} aria-label="Select ${esc(t.title)}"></div>
+      <div class="idx">${i+1}</div>
+      <div class="t-title"><span class="tt">${esc(t.title)}</span><span class="ta">${esc(t.artist)}</span></div>
+      <div class="num-col"><span class="chip bpm">${t.bpm.toFixed(1)}</span></div>
+      <div><span class="chip">${t.key}</span></div>
+      <div>${sparkSVG(t.energy,58,16)}</div>
+      <div class="cell-mix ${t.mix>=80?'hi':''}">${t.mix}<span class="den">/100</span></div>
+      <div><span class="class-chip">${CLASSES[t.cls]}</span></div>
+      <div class="cell-cues">${cuesCell}</div>
+      <div class="cell-time">${fmtTime(t.dur)}</div>
+    </div>`;
+  }).join('');
+  $('#crate-title').textContent=CRATES[lib.crate].label;
+  $('#crate-count').textContent=lib.visible.length+' of 2,789 loaded';
+  document.querySelectorAll('#grid-head .sortable').forEach(el=>{
+    const on=el.dataset.sort===lib.sort.key;
+    el.classList.toggle('sorted',on);
+    el.querySelector('.arrow').textContent=on?(lib.sort.dir>0?'▲':'▼'):'';
+  });
+  updateDock();
+}
+function renderRailCounts(){
+  document.querySelectorAll('[data-cnt]').forEach(el=>{el.textContent=LIB.filter(CRATES[el.dataset.cnt].fn).length;});
+}
+function inspect(id){
+  if(lib.focusedId&&lib.focusedId!==id)lib.prevFocusedId=lib.focusedId;
+  lib.focusedId=id;
+  renderGrid();renderInspector();
+  const row=document.querySelector(`.trow[data-id="${id}"]`);
+  if(row)row.scrollIntoView({block:'nearest'});
+}
+function renderInspector(){
+  const t=LIB.find(x=>x.id===lib.focusedId);
+  $('#insp-empty').style.display=t?'none':'block';
+  $('#insp-body').style.display=t?'block':'none';
+  if(!t)return;
+  const W=296,H=84;
+  const pts=t.energy.map((e,i)=>`${(i/(t.energy.length-1)*W).toFixed(1)},${(H-6-e*(H-14)).toFixed(1)}`);
+  const energySVG=`<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">
+    <path d="M0,${H} L${pts.join(' L')} L${W},${H} Z" fill="var(--green-wash)"/>
+    <polyline points="${pts.join(' ')}" fill="none" stroke="var(--green)" stroke-width="2" stroke-linejoin="round"/></svg>`;
+  const segsHTML=t.segs.map(s=>
+    `<div class="ph-seg ${s.drop?'drop':''}" style="left:${(s.from*100).toFixed(2)}%;width:calc(${((s.to-s.from)*100).toFixed(2)}% - 2px)">${s.name}</div>`).join('');
+  const ticksHTML=t.cues.map(c=>
+    `<div class="cue-tick" style="left:${(c.pos*100).toFixed(2)}%;background:${cueColor(c.letter)}"></div>
+     <div class="cue-tick-lbl" style="left:${(c.pos*100).toFixed(2)}%;color:${cueColor(c.letter)};border-color:${cueColor(c.letter)};background:color-mix(in srgb, ${cueColor(c.letter)} 8%, transparent)">${c.letter}</div>`).join('');
+  const cueRows=t.cues.map(c=>
+    `<div class="cue-row">
+      <span class="cue-letter" style="color:${cueColor(c.letter)};border-color:${cueColor(c.letter)};background:color-mix(in srgb, ${cueColor(c.letter)} 8%, transparent)">${c.letter}</span>
+      <span class="cue-time">${fmtTime(c.pos*t.dur)}</span>
+      <span class="cue-why">${c.why}</span>
+    </div>`).join('');
+  const prev=LIB.find(x=>x.id===lib.prevFocusedId&&x.id!==t.id);
+  let transHTML;
+  if(prev){
+    const bpmDiff=Math.abs(prev.bpm-t.bpm),kd=camelotDist(prev.key,t.key),eJump=t.eAvg-prev.eAvg;
+    const score=Math.max(4,Math.min(98,Math.round(100-bpmDiff*6-kd*9-Math.abs(eJump)*28)));
+    const A=camelot(prev.key),B=camelot(t.key);
+    const keyWord=kd===0?'same key — seamless':(A.n===B.n?'parallel (same number)':kd===1?'adjacent — harmonic':kd+' steps — risky');
+    const bpmWord=bpmDiff<1?'perfect':bpmDiff<=3?'easy nudge':'big jump';
+    const eWord=Math.abs(eJump)<.06?'Energy holds steady':eJump>0?`Energy lifts (+${Math.round(eJump*100)}%)`:`Energy drops slightly (${Math.round(eJump*100)}%)`;
+    const tip=bpmDiff<1?'Beatmatch as-is — blend over 16–32 bars through the outro.'
+      :`Nudge pitch ${(t.bpm>prev.bpm?'+':'−')}${bpmDiff.toFixed(1)} BPM — blend over 8–16 bars, EQ-kill lows before the incoming drop lands.`;
+    transHTML=`
+      <div id="trans-head">⚓<span class="anchor">${esc(prev.title)}</span><span>→ this track</span></div>
+      <div id="trans-score-row"><span id="trans-score" class="${score>=75?'good':''}">${score}</span><span id="trans-score-den">/100</span></div>
+      <div class="trans-reason">${bpmDiff.toFixed(1)} BPM difference — ${bpmWord}</div>
+      <div class="trans-reason">${prev.key}→${t.key} — ${keyWord}</div>
+      <div class="trans-reason">${eWord}</div>
+      <div class="trans-tip">💡 ${tip}</div>`;
+  }else{
+    transHTML=`<div id="trans-none">No anchor yet — inspect another track first, then come back. The last track you inspected becomes the ⚓ anchor for transition scoring.</div>`;
+  }
+  const simHTML=similarOf(t).map(o=>
+    `<button class="sim-row" type="button" onclick="inspect(${o.id})">
+      <span class="sim-main"><span class="sim-t">${esc(o.title)}</span><br><span class="sim-a">${esc(o.artist)}</span></span>
+      <span class="sim-meta"><b>${o.bpm.toFixed(1)}</b> · ${o.key} · ${o.mix}/100</span>
+    </button>`).join('');
+  const cueState=t.cuesHave>0
+    ?`<span class="insp-chip-mix" style="color:var(--muted)">✓ ${t.cuesHave} existing cues — will skip</span>`
+    :`<span class="insp-chip-mix" style="color:var(--green);border-color:var(--green-ring);background:var(--green-wash)">● ${t.cues.length} cues ready to write</span>`;
+  $('#insp-body').innerHTML=`
+    <div id="insp-title">${esc(t.title)}</div>
+    <div id="insp-artist">${esc(t.artist)} · ${fmtTime(t.dur)}</div>
+    <div id="insp-chips">
+      <span class="chip bpm">${t.bpm.toFixed(1)} BPM</span>
+      <span class="chip">${t.key}</span>
+      <span class="class-chip">${CLASSES[t.cls]}</span>
+      <span class="insp-chip-mix">Mix ${t.mix}/100</span>
+      ${cueState}
+    </div>
+    <div class="insp-eyebrow">Energy</div>
+    <div class="energy-wrap">${energySVG}
+      <div class="energy-meta"><span>0:00</span><span>avg ${(t.eAvg*100).toFixed(0)}%</span><span>${fmtTime(t.dur)}</span></div>
+    </div>
+    <div class="insp-eyebrow">Structure &amp; proposed cues</div>
+    <div id="phrase-strip">${segsHTML}${ticksHTML}</div>
+    <div class="cue-rows">${cueRows}</div>
+    <div class="insp-eyebrow">Transition</div>
+    <div id="transition-card">${transHTML}</div>
+    <div class="insp-eyebrow">≈ Similar tracks</div>
+    ${simHTML}`;
+}
+function toggleSelect(id){lib.selected.has(id)?lib.selected.delete(id):lib.selected.add(id);renderGrid();}
+function selectAllVisible(){lib.visible.forEach(t=>lib.selected.add(t.id));renderGrid();}
+function clearSelection(){lib.selected.clear();renderGrid();}
+let lastRowClickId=null;
+$('#grid-body').addEventListener('click',e=>{
+  const row=e.target.closest('.trow');if(!row)return;
+  const id=+row.dataset.id;
+  if(e.target.matches('input[type=checkbox]')){toggleSelect(id);return;}
+  if(e.shiftKey&&lastRowClickId!=null){
+    const ids=lib.visible.map(t=>t.id),a=ids.indexOf(lastRowClickId),b=ids.indexOf(id);
+    if(a>-1&&b>-1)ids.slice(Math.min(a,b),Math.max(a,b)+1).forEach(x=>lib.selected.add(x));
+    renderGrid();return;
+  }
+  lastRowClickId=id;inspect(id);
+});
+document.querySelectorAll('.crate').forEach(btn=>btn.addEventListener('click',()=>{
+  document.querySelectorAll('.crate').forEach(b=>b.classList.remove('active'));
+  btn.classList.add('active');lib.crate=btn.dataset.crate;renderGrid();
+}));
+document.querySelectorAll('#grid-head .sortable').forEach(el=>el.addEventListener('click',()=>{
+  const k=el.dataset.sort;
+  if(lib.sort.key===k)lib.sort.dir*=-1;else lib.sort={key:k,dir:1};
+  renderGrid();
+}));
+
+/* ════════════════ SET · Nightboard (from D) ════════════════ */
+function mkTrack(t){
+  const total=t.phrases.reduce((s,p)=>s+p[1],0);
+  let acc=0;t.cues=[];const letters='ABCDEFGH';
+  t.phrases.forEach(p=>{if(t.cues.length<8)t.cues.push({slot:letters[t.cues.length],frac:acc/total,name:p[0]});acc+=p[1];});
+  t.totalBars=total;return t;
+}
+let SET=[
+ mkTrack({id:'t1',title:'Low Tide',artist:'Arlo Wren',bpm:121.8,key:'6A',dur:403,cat:'warmup',hasCues:true,
+   energy:[.12,.16,.20,.24,.22,.28,.33,.36,.34,.38,.42,.40],
+   phrases:[['Intro',16],['Verse',32],['Build',16],['Chorus',32],['Break',16],['Chorus',32],['Outro',16]]}),
+ mkTrack({id:'t2',title:'Warm Static',artist:'Ines Duarte',bpm:122.6,key:'7A',dur:387,cat:'warmup',hasCues:true,
+   energy:[.30,.34,.38,.44,.42,.48,.52,.50,.55,.58,.54,.48],
+   phrases:[['Intro',16],['Verse',32],['Chorus',32],['Break',16],['Build',16],['Chorus',32],['Outro',16]]}),
+ mkTrack({id:'t3',title:'Glasshouse',artist:'Pavel Kline',bpm:124.1,key:'7B',dur:421,cat:'build',hasCues:false,
+   energy:[.42,.48,.55,.60,.58,.64,.70,.66,.72,.76,.70,.62],
+   phrases:[['Intro',16],['Build',32],['Chorus',32],['Break',16],['Build',16],['Chorus',32],['Verse',16],['Outro',16]]}),
+ mkTrack({id:'t4',title:'Meridian Drive',artist:'K. Mara',bpm:125.3,key:'8B',dur:396,cat:'build',hasCues:true,
+   energy:[.58,.64,.70,.76,.72,.80,.86,.82,.88,.90,.86,.80],
+   phrases:[['Intro',16],['Build',16],['Chorus',32],['Break',16],['Build',16],['Chorus',48],['Outro',16]]}),
+ mkTrack({id:'t5',title:'Red Shift',artist:'Volta Era',bpm:126.0,key:'8A',dur:412,cat:'peak',hasCues:true,
+   energy:[.74,.80,.86,.92,.88,.94,.97,.93,.96,.92,.86,.78],
+   phrases:[['Intro',16],['Chorus',32],['Break',16],['Build',16],['Chorus',48],['Break',16],['Chorus',32],['Outro',16]]}),
+ mkTrack({id:'t6',title:'Afterglow',artist:'Sou Reyes',bpm:124.4,key:'9A',dur:438,cat:'closing',hasCues:true,
+   energy:[.62,.58,.54,.58,.52,.48,.44,.40,.36,.30,.24,.16],
+   phrases:[['Intro',32],['Verse',32],['Chorus',32],['Break',16],['Chorus',32],['Outro',32]]}),
+];
+let POOL=[
+ mkTrack({id:'p1',title:'Night Bus',artist:'Foldear',bpm:125.7,key:'8A',dur:374,cat:'peak',hasCues:true,
+   energy:[.70,.76,.82,.88,.84,.90,.94,.90,.92,.88,.82,.74],
+   phrases:[['Intro',16],['Build',16],['Chorus',32],['Break',16],['Chorus',48],['Outro',16]]}),
+ mkTrack({id:'p2',title:'Cobalt',artist:'Mirelle',bpm:126.2,key:'9A',dur:401,cat:'peak',hasCues:true,
+   energy:[.72,.78,.84,.90,.86,.92,.95,.91,.94,.90,.84,.76],
+   phrases:[['Intro',16],['Chorus',32],['Break',16],['Build',16],['Chorus',48],['Outro',16]]}),
+ mkTrack({id:'p3',title:'Paper Sun',artist:'Ada Reim',bpm:124.6,key:'8B',dur:366,cat:'build',hasCues:true,
+   energy:[.50,.56,.62,.68,.64,.70,.76,.72,.78,.80,.74,.66],
+   phrases:[['Intro',16],['Verse',32],['Build',16],['Chorus',32],['Break',16],['Chorus',32],['Outro',16]]}),
+ mkTrack({id:'p4',title:'Tunnel Vision',artist:'VLT',bpm:127.1,key:'7B',dur:389,cat:'peak',hasCues:false,
+   energy:[.76,.82,.88,.94,.90,.96,.98,.94,.96,.92,.86,.78],
+   phrases:[['Intro',16],['Build',16],['Chorus',48],['Break',16],['Chorus',32],['Outro',16]]}),
+ mkTrack({id:'p5',title:'Hourglass',artist:'Stein & Mora',bpm:123.9,key:'7A',dur:358,cat:'build',hasCues:true,
+   energy:[.46,.52,.58,.64,.60,.66,.72,.68,.74,.76,.70,.62],
+   phrases:[['Intro',16],['Verse',32],['Build',16],['Chorus',32],['Break',16],['Chorus',32],['Outro',16]]}),
+ mkTrack({id:'p6',title:'Sodium',artist:'Karst',bpm:125.1,key:'9B',dur:382,cat:'peak',hasCues:true,
+   energy:[.68,.74,.80,.86,.82,.88,.92,.88,.90,.86,.80,.72],
+   phrases:[['Intro',16],['Build',16],['Chorus',32],['Break',16],['Build',16],['Chorus',32],['Outro',16]]}),
+];
+function scoreTransition(a,b){
+  const reasons=[];let s=0;
+  const d=Math.abs(a.bpm-b.bpm).toFixed(1);
+  if(d<=0.5){s+=40;reasons.push({t:`<span class="mono">${d} BPM</span> difference — perfect`,c:'good'});}
+  else if(d<=1.0){s+=36;reasons.push({t:`<span class="mono">${d} BPM</span> difference — easy nudge`,c:'good'});}
+  else if(d<=2.0){s+=30;reasons.push({t:`<span class="mono">${d} BPM</span> difference — short pitch ride`,c:'good'});}
+  else if(d<=4.0){s+=22;reasons.push({t:`<span class="mono">${d} BPM</span> apart — blend over 8–16 bars`,c:'warn'});}
+  else{s+=10;reasons.push({t:`<span class="mono">${d} BPM</span> apart — needs half-time trick`,c:'warn'});}
+  const ka=camelot(a.key),kb=camelot(b.key),kk=`<span class="mono">${a.key}→${b.key}</span>`;
+  if(ka.n===kb.n&&ka.l===kb.l){s+=30;reasons.push({t:`${kk} — same key`,c:'good'});}
+  else if(ka.n===kb.n){s+=27;reasons.push({t:`${kk} — parallel (same number)`,c:'good'});}
+  else if(Math.abs(ka.n-kb.n)%11<=1&&ka.l===kb.l){s+=26;reasons.push({t:`${kk} — adjacent, harmonic`,c:'good'});}
+  else{s+=10;reasons.push({t:`${kk} — key clash, EQ-kill mids`,c:'warn'});}
+  const out=(a.energy[9]+a.energy[10]+a.energy[11])/3,inn=(b.energy[0]+b.energy[1]+b.energy[2])/3,
+    delta=inn-out,pct=Math.round(Math.abs(delta)*100);
+  if(delta>=0&&delta<=.18){s+=30;reasons.push({t:`Energy rises (<span class="mono">+${pct}%</span>) — momentum builds`,c:'good'});}
+  else if(delta>-.08){s+=26;reasons.push({t:`Energy holds steady`,c:'good'});}
+  else if(delta>-.22){s+=20;reasons.push({t:`Energy drops slightly (<span class="mono">−${pct}%</span>)`,c:'warn'});}
+  else{s+=12;reasons.push({t:`Energy drops hard (<span class="mono">−${pct}%</span>) — reset moment`,c:'warn'});}
+  return{score:Math.min(100,s),reasons};
+}
+const scoreClass=s=>s>=85?'s-good':s>=70?'s-ok':'s-bad';
+const scoreColor=s=>s>=85?'var(--green)':s>=70?'var(--warn-amber)':'var(--danger)';
+let setSelectedId=null,openJoint=null;
+function fmtClock(sec){const t=23*3600+sec,h=Math.floor(t/3600)%24,m=Math.floor(t%3600/60);
+  return String(h).padStart(2,'0')+':'+String(m).padStart(2,'0');}
+function setEnergySVG(t){
+  const w=100,h=40,pts=t.energy.map((e,i)=>[(i/(t.energy.length-1))*w,h-4-e*(h-8)]);
+  const line=pts.map((p,i)=>(i?'L':'M')+p[0].toFixed(1)+','+p[1].toFixed(1)).join(' ');
+  return `<svg viewBox="0 0 ${w} ${h}" preserveAspectRatio="none">
+    <path d="${line} L${w},${h} L0,${h} Z" fill="var(--green-wash)"/>
+    <path d="${line}" fill="none" stroke="var(--green)" stroke-width="1.5" vector-effect="non-scaling-stroke" stroke-linejoin="round"/></svg>`;
+}
+function renderZones(){
+  const Z=[['warmup','z-warmup',.24],['build','z-build',.28],['peak','z-peak',.30],['closing','z-closing',.18]];
+  $('#zones').innerHTML=Z.map(([n,c,f])=>`<div class="zone ${c}" style="width:${f*100}%"><span class="zone-label">${n}</span></div>`).join('');
+}
+function renderArc(){
+  const total=SET.reduce((s,t)=>s+t.dur,0),W=1000,H=76;let x=0;const pts=[];
+  SET.forEach(t=>{
+    const w=(t.dur/total)*W;
+    t.energy.forEach((e,i)=>pts.push([x+(i/(t.energy.length-1))*w,H-8-e*(H-18)]));
+    x+=w;
+  });
+  const d=pts.map((p,i)=>(i?'L':'M')+p[0].toFixed(1)+','+p[1].toFixed(1)).join(' ');
+  $('#arc').setAttribute('viewBox',`0 0 ${W} ${H}`);
+  $('#arc').innerHTML=`<path d="${d} L${W},${H} L0,${H} Z" fill="var(--green-wash)"/>
+    <path d="${d}" fill="none" stroke="var(--green)" stroke-width="1.5" vector-effect="non-scaling-stroke" stroke-linejoin="round"/>`;
+}
+function renderTimeline(){
+  const tl=$('#timeline');tl.innerHTML='';let elapsed=0;
+  SET.forEach((t,i)=>{
+    if(i>0){
+      const j=scoreTransition(SET[i-1],t);
+      const jb=document.createElement('button');
+      jb.className='joint '+scoreClass(j.score);
+      jb.setAttribute('aria-label',`Transition ${SET[i-1].title} → ${t.title}: ${j.score}/100`);
+      jb.innerHTML=`${j.score}<small>/100</small>`;
+      jb.addEventListener('click',e=>{e.stopPropagation();openJointPopover(jb,i-1);});
+      tl.appendChild(jb);
+    }
+    const el=document.createElement('button');
+    el.className='tile'+(t.id===setSelectedId?' selected':'');el.dataset.id=t.id;
+    el.innerHTML=`
+      <div class="tile-title">${t.title}</div>
+      <div class="tile-artist">${t.artist}</div>
+      <div class="chips">
+        <span class="chip bpm">${t.bpm.toFixed(1)} BPM</span>
+        <span class="chip">${t.key}</span>
+        <span class="chip cat">${t.cat}</span>
+      </div>
+      <div class="tile-energy">${setEnergySVG(t)}</div>
+      <div class="tile-foot">
+        <span>${fmtClock(elapsed)}</span>
+        <span class="${t.hasCues?'cue-ok':'cue-warn'}">${t.hasCues?t.cues.length+' cues ✓':'no cues'}</span>
+      </div>`;
+    el.addEventListener('click',()=>selectTile(t.id));
+    tl.appendChild(el);
+    elapsed+=t.dur;
+  });
+}
+function renderStats(){
+  const total=SET.reduce((s,t)=>s+t.dur,0);
+  const bpms=SET.map(t=>t.bpm),scores=SET.slice(1).map((t,i)=>scoreTransition(SET[i],t).score);
+  const avg=Math.round(scores.reduce((a,b)=>a+b,0)/scores.length);
+  const h=Math.floor(total/3600),m=Math.round(total%3600/60);
+  $('#set-stats').innerHTML=
+    `<span class="stat-chip"><b>${SET.length}</b> tracks</span>
+     <span class="stat-chip"><b>${h?h+'h '+String(m).padStart(2,'0')+'m':m+'m'}</b></span>
+     <span class="stat-chip"><b>${Math.min(...bpms).toFixed(1)}–${Math.max(...bpms).toFixed(1)}</b> BPM</span>
+     <span class="stat-chip health">avg mix <b>${avg}/100</b></span>`;
+}
+function openJointPopover(btn,idx){
+  closeSetPopover();
+  openJoint=btn;btn.classList.add('open');
+  const a=SET[idx],b=SET[idx+1],j=scoreTransition(a,b);
+  const alt=POOL.filter(p=>!SET.some(s=>s.id===p.id))
+    .map(p=>({t:p,s:scoreTransition(a,p).score})).sort((x,y)=>y.s-x.s)[0];
+  const po=$('#popover');
+  po.innerHTML=`
+    <div class="po-head">
+      <div class="po-pair">${a.title} <span style="color:var(--muted)">→</span> ${b.title}</div>
+      <div class="po-score" style="color:${scoreColor(j.score)}">${j.score}<small>/100</small></div>
+    </div>
+    <ul>${j.reasons.map(r=>`<li class="${r.c}">${r.t}</li>`).join('')}</ul>
+    <div class="po-alt-label">Swap the incoming track</div>
+    <div class="po-alt">
+      <div class="a-meta">
+        <div class="a-title">${alt.t.title} — ${alt.t.artist}</div>
+        <div class="a-sub">${alt.t.bpm.toFixed(1)} BPM · ${alt.t.key}</div>
+      </div>
+      <span class="a-score" style="color:${scoreColor(alt.s)}">${alt.s}</span>
+      <button class="swap-btn" data-swap="${alt.t.id}" data-idx="${idx}">Swap in</button>
+    </div>
+    <div class="po-tip">💡 Mix out at <b>cue ${a.cues[a.cues.length-1].slot}</b> — EQ-kill lows before <b>${b.title}</b>'s first chorus lands.</div>`;
+  const canvas=$('#canvas'),cb=canvas.getBoundingClientRect(),bb=btn.getBoundingClientRect();
+  let left=bb.left-cb.left+bb.width/2-162;
+  left=Math.max(12,Math.min(left,canvas.clientWidth-336));
+  po.style.left=left+'px';
+  po.style.top=(bb.top-cb.top+bb.height+10)+'px';
+  po.style.display='block';
+  po.querySelector('[data-swap]').addEventListener('click',e=>{
+    e.stopPropagation();
+    const sb=e.currentTarget,nt=POOL.find(p=>p.id===sb.dataset.swap),i=+sb.dataset.idx;
+    const old=SET[i+1];POOL.push(old);POOL=POOL.filter(p=>p.id!==nt.id);
+    SET[i+1]=nt;
+    closeSetPopover();renderSetAll();
+    toast(`Swapped in <b>${nt.title}</b> — joint re-scored <span class="mono" style="color:var(--green)">${scoreTransition(SET[i],nt).score}/100</span>`);
+  });
+}
+function closeSetPopover(){
+  const po=$('#popover');if(po)po.style.display='none';
+  if(openJoint){openJoint.classList.remove('open');openJoint=null;}
+}
+document.addEventListener('click',e=>{if(!e.target.closest('#popover')&&!e.target.closest('.joint'))closeSetPopover();});
+function selectTile(id){
+  setSelectedId=(setSelectedId===id)?null:id;
+  document.querySelectorAll('.tile').forEach(el=>el.classList.toggle('selected',el.dataset.id===setSelectedId));
+  renderTray();
+}
+function renderTray(){
+  const anchor=SET.find(x=>x.id===setSelectedId)||SET[SET.length-1];
+  $('#tray-context').innerHTML=`— what mixes out of <b>${anchor.title}</b>? Add onto the timeline`;
+  const ranked=POOL.filter(p=>!SET.some(s=>s.id===p.id))
+    .map(p=>{const j=scoreTransition(anchor,p);return{t:p,s:j.score,r:j.reasons};})
+    .sort((a,b)=>b.s-a.s).slice(0,6);
+  $('#tray-row').innerHTML=ranked.map(x=>{
+    const sim=(x.s/100*0.97+0.01).toFixed(2);
+    const why=x.r.slice(0,2).map(r=>r.t.replace(/<[^>]+>/g,'')).join(' · ');
+    return `<div class="crate-card">
+      <div class="crate-title">${x.t.title}</div>
+      <div class="crate-artist">${x.t.artist}</div>
+      <div class="crate-reason"><span class="sim">≈ ${sim} similar</span> — ${why}</div>
+      <div class="crate-foot">
+        <span class="chip bpm">${x.t.bpm.toFixed(1)}</span>
+        <span class="chip">${x.t.key}</span>
+        <span class="chip mono" style="color:${scoreColor(x.s)}">${x.s}/100</span>
+        <div class="spacer"></div>
+        <button class="add-btn" data-add="${x.t.id}">Add →</button>
+      </div></div>`;
+  }).join('');
+  $('#tray-row').querySelectorAll('[data-add]').forEach(b=>b.addEventListener('click',()=>{
+    const nt=POOL.find(p=>p.id===b.dataset.add);
+    POOL=POOL.filter(p=>p.id!==nt.id);
+    const ai=SET.findIndex(s=>s.id===anchor.id);
+    SET.splice(ai+1,0,nt);
+    renderSetAll();
+    toast(`<b>${nt.title}</b> placed after <b>${anchor.title}</b>`);
+  }));
+}
+function renderSetAll(){renderZones();renderArc();renderTimeline();renderStats();renderTray();updateDock();}
+function exportSet(){
+  const n=SET.reduce((s,t)=>s+(t.hasCues?t.cues.length:0),0);
+  const missing=SET.filter(t=>!t.hasCues).length;
+  toast(missing
+    ?`<span class="mono" style="color:var(--warn-amber)">${missing}</span> track needs cues — generate before export`
+    :`Set exported — <span class="mono" style="color:var(--green)">${SET.length} tracks · ${n} cues</span> → import the XML in Rekordbox`);
+}
+
+/* ════════════════ GLOBAL · action dock ════════════════ */
+function updateDock(){
+  const pill=$('#dock-pill'),cap=$('#dock-caption');
+  if(app.mode==='home'){
+    if(app.fix1Applied){
+      pill.textContent='Apply fixes';pill.disabled=false;
+      cap.innerHTML=`health <b>${app.health}/100</b> · 2 fixes left`;
+    }else{
+      pill.textContent='Apply fixes';pill.disabled=false;
+      cap.innerHTML=`<b>142</b> cues ready · <b>+12 pts</b> · backup saved before write`;
+    }
+  }else if(app.mode==='library'){
+    const n=lib.selected.size;
+    pill.textContent=`Apply to Rekordbox (${n})`;pill.disabled=n===0;
+    cap.innerHTML=n===0?'tick tracks or <b>⌘A</b> — then apply':`<b>${n}</b> selected · backup saved before write`;
+  }else if(app.mode==='set'){
+    const missing=SET.filter(t=>!t.hasCues).length;
+    pill.textContent='Export set + cues';pill.disabled=false;
+    cap.innerHTML=missing?`<b>${SET.length}</b> tracks · <b>${missing}</b> still needs cues`:`<b>${SET.length}</b> tracks · all cued ✓`;
+  }else{
+    pill.textContent='Scan new releases';pill.disabled=false;
+    cap.innerHTML='<b>18 new</b> · budget 20 artist · 15 label · 10 novelty';
+  }
+}
+$('#dock-pill').addEventListener('click',()=>{
+  if(app.mode==='home'){
+    if(!app.fix1Applied){openFix('fix-1');setTimeout(applyFix1,450);}
+    else openFix('fix-2');
+  }else if(app.mode==='library'){
+    const n=lib.selected.size;if(!n)return;
+    const cues=[...lib.selected].reduce((a,id)=>a+LIB.find(t=>t.id===id).cues.length,0);
+    toast(`Applied <b>${cues}</b> hot cues to <b>${n}</b> track${n>1?'s':''} — backup saved before write`);
+    clearSelection();
+  }else if(app.mode==='set'){
+    exportSet();
+  }else{
+    toast('Discover scan queued — <span class="mono">artist 20 · label 15 · novelty 10</span>');
+  }
+});
+
+/* ════════════════ GLOBAL · status sentence facts ════════════════ */
+$('#sentence').addEventListener('click',e=>{
+  const f=e.target.closest('.fact');if(!f)return;
+  const k=f.dataset.fact;
+  if(k==='tracks'){switchMode('library');}
+  else if(k==='cues'){switchMode('home');openFix('fix-1');}
+  else if(k==='health'){switchMode('home');$('#hero').scrollIntoView({behavior:'smooth'});}
+  else toast('<b>Rekordbox is closed</b> — safe to write. A timestamped backup is saved before each apply; any failure rolls back automatically.');
+});
+
+/* ════════════════ GLOBAL · ⌘K palette ════════════════ */
+const COMMANDS=[
+  {id:'fix-cues',group:'Suggested',icon:'✦',label:'Fix 142 tracks missing cues',
+   sub:'Home → review the preview, then apply',meta:'+12 pts',metaGreen:true},
+  {id:'duplicates',group:'Suggested',icon:'⧉',label:'Find duplicates',
+   sub:'34 groups · keeper picked by cue prep, then plays',meta:'34'},
+  {id:'set60',group:'Suggested',icon:'♪',label:'Build a 60-min set',
+   sub:'Nightboard — warmup → build → peak → closing',meta:'60:00'},
+  {id:'discover',group:'Suggested',icon:'◎',label:'Scan Discover for new releases',
+   sub:'Artists & labels you play · novelty rotation',meta:'18 new'},
+  {id:'go-home',group:'Go to',icon:'⌂',label:'Switch to Home',sub:'Pre-flight dial · fix stack',meta:''},
+  {id:'go-library',group:'Go to',icon:'≡',label:'Switch to Library',sub:'Smart crates · grid · inspector',meta:''},
+  {id:'go-set',group:'Go to',icon:'∿',label:'Switch to Set',sub:'Timeline · joints · crate tray',meta:''},
+  {id:'go-discover',group:'Go to',icon:'◎',label:'Switch to Discover',sub:'New releases for your crate',meta:''},
+];
+function trackCmds(q){
+  return LIB.filter(t=>(t.title+' '+t.artist).toLowerCase().indexOf(q)>-1)
+    .slice(0,4).map(t=>({id:'track-'+t.id,group:'Tracks',icon:'♫',label:t.title+' — '+t.artist,
+      sub:'Mix '+t.mix+'/100 · '+CLASSES[t.cls]+(t.cuesHave?' · '+t.cuesHave+' cues':' · no cues'),
+      meta:t.bpm.toFixed(1)+' · '+t.key}));
+}
+let palActive=0,palItems=[];
+function renderPalette(){
+  const q=$('#pal-input').value.trim().toLowerCase();
+  palItems=COMMANDS.filter(c=>!q||(c.label+' '+c.sub).toLowerCase().indexOf(q)>-1);
+  if(q)palItems=palItems.concat(trackCmds(q));
+  if(palActive>=palItems.length)palActive=0;
+  let html='',lastGroup='';
+  if(!palItems.length)html='<div class="pal-empty">No matches — try “fix”, “duplicates”, “set”, or a track name.</div>';
+  palItems.forEach((c,i)=>{
+    if(c.group!==lastGroup){html+='<div class="pal-group">'+c.group+'</div>';lastGroup=c.group;}
+    html+='<button class="pal-item'+(i===palActive?' active':'')+'" data-i="'+i+'">'
+      +'<span class="ico">'+c.icon+'</span>'
+      +'<span class="lbl"><span class="main">'+c.label+'</span><span class="sub">'+c.sub+'</span></span>'
+      +(c.meta?'<span class="meta'+(c.metaGreen?' green':'')+'">'+c.meta+'</span>':'')
+      +'</button>';
+  });
+  $('#pal-list').innerHTML=html;
+}
+function runCommand(id){
+  closePalette();
+  if(id==='fix-cues'){switchMode('home');setTimeout(()=>openFix('fix-1'),60);}
+  else if(id==='duplicates'){switchMode('home');setTimeout(()=>openFix('fix-2'),60);}
+  else if(id==='set60'){switchMode('set');}
+  else if(id==='discover'){switchMode('discover');}
+  else if(id.startsWith('go-')){switchMode(id.slice(3));}
+  else if(id.startsWith('track-')){switchMode('library');inspect(+id.slice(6));}
+}
+function openPalette(){
+  $('#veil').classList.add('open');palActive=0;$('#pal-input').value='';
+  renderPalette();setTimeout(()=>$('#pal-input').focus(),0);
+}
+function closePalette(){$('#veil').classList.remove('open');}
+function paletteOpen(){return $('#veil').classList.contains('open');}
+$('#cmdk-hint').addEventListener('click',openPalette);
+$('#veil').addEventListener('click',e=>{if(e.target.id==='veil')closePalette();});
+$('#pal-input').addEventListener('input',()=>{palActive=0;renderPalette();});
+$('#pal-list').addEventListener('click',e=>{
+  const btn=e.target.closest('.pal-item');if(!btn)return;
+  runCommand(palItems[+btn.dataset.i].id);
+});
+
+/* ════════════════ keyboard ════════════════ */
+document.addEventListener('keydown',e=>{
+  if((e.metaKey||e.ctrlKey)&&e.key.toLowerCase()==='k'){
+    e.preventDefault();paletteOpen()?closePalette():openPalette();return;
+  }
+  if(paletteOpen()){
+    if(e.key==='Escape')closePalette();
+    else if(e.key==='ArrowDown'){e.preventDefault();palActive=Math.min(palActive+1,palItems.length-1);renderPalette();}
+    else if(e.key==='ArrowUp'){e.preventDefault();palActive=Math.max(palActive-1,0);renderPalette();}
+    else if(e.key==='Enter'&&palItems.length){e.preventDefault();runCommand(palItems[palActive].id);}
+    return;
+  }
+  const inInput=/INPUT|SELECT|TEXTAREA/.test(document.activeElement.tagName);
+  if(e.key==='Escape'){
+    if(inInput){document.activeElement.blur();return;}
+    closeSetPopover();
+    if(app.mode==='library')clearSelection();
+    return;
+  }
+  if(inInput)return;
+  if(e.key==='/'){e.preventDefault();openPalette();return;}
+  if(app.mode!=='library')return;
+  if((e.metaKey||e.ctrlKey)&&e.key.toLowerCase()==='a'){e.preventDefault();selectAllVisible();return;}
+  const ids=lib.visible.map(t=>t.id),i=ids.indexOf(lib.focusedId);
+  if(e.key==='ArrowDown'){e.preventDefault();inspect(ids[Math.min(ids.length-1,i+1)]??ids[0]);}
+  else if(e.key==='ArrowUp'){e.preventDefault();inspect(ids[Math.max(0,i-1)]??ids[0]);}
+  else if(e.key.toLowerCase()==='x'&&lib.focusedId){toggleSelect(lib.focusedId);}
+});
+
+/* ════════════════ theme ════════════════ */
+$('#theme-toggle').addEventListener('click',()=>document.documentElement.classList.toggle('dark'));
+
+/* ════════════════ boot ════════════════ */
+renderRailCounts();renderGrid();
+inspect(3);lib.prevFocusedId=7;renderInspector();   // open with a worked example
+renderSetAll();selectTile('t5');
+updateDock();
+</script>
+</body>
+</html>

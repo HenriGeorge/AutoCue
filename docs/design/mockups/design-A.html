@@ -1,0 +1,609 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AutoCue — Crate Zero (Design A: Radical Minimalism)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+/* ============================================================
+   AutoCue tokens — lifted verbatim from docs/design/tokens
+   ============================================================ */
+:root {
+  --bg: #fafafa; --surface: #ffffff; --surface-2: #f2f2f2;
+  --border: #e8e8e8; --border-hover: #c8c8c8;
+  --text: #1a1a1a; --muted: #737373; --muted-soft: #a3a3a3;
+  --green: #159a05; --green-dim: #0f6e03;
+  --green-wash: rgba(21,154,5,.08); --green-ring: rgba(21,154,5,.14);
+  --ink: #0a0a0a; --ink-hover: #2a2a2a; --on-ink: #fafafa;
+  --danger: #e74c3c; --warn: #f0801a; --warn-amber: #ffa000; --rating: #f0b429;
+  --cue-a: #18a80c; --cue-b: #2246e0; --cue-c: #0099bb; --cue-d: #c07800;
+  --cue-e: #c84800; --cue-f: #c02010; --cue-g: #c8006a; --cue-h: #9900cc;
+  --shadow-sm: 0 1px 3px rgba(0,0,0,.06), 0 0 0 1px rgba(0,0,0,.03);
+  --shadow-md: 0 4px 14px rgba(0,0,0,.08), 0 0 0 1px rgba(0,0,0,.04);
+  --shadow-lg: 0 10px 32px rgba(0,0,0,.18), 0 2px 8px rgba(0,0,0,.08);
+  --glass-bg: rgba(255,255,255,.86);
+  --font-sans: 'Inter', -apple-system, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, monospace;
+}
+html.dark {
+  --bg: #0c0a09; --surface: #1c1917; --surface-2: #231f1d;
+  --border: #292524; --border-hover: #3d3830;
+  --text: #fafaf9; --muted: #a8a29e; --muted-soft: #78716c;
+  --green: #28e214; --green-dim: #1a9a0d;
+  --green-wash: rgba(40,226,20,.08); --green-ring: rgba(40,226,20,.14);
+  --ink: #fafafa; --ink-hover: #e2e2e2; --on-ink: #0a0a0a;
+  --cue-a: #28e214; --cue-b: #305aff; --cue-c: #00e0ff; --cue-d: #ffa000;
+  --cue-e: #ff6400; --cue-f: #e0301e; --cue-g: #f51e8c; --cue-h: #e600ff;
+  --shadow-sm: 0 1px 3px rgba(0,0,0,.3);
+  --shadow-md: 0 4px 12px rgba(0,0,0,.3);
+  --shadow-lg: 0 10px 32px rgba(0,0,0,.45), 0 2px 8px rgba(0,0,0,.3);
+  --glass-bg: rgba(12,10,9,.80);
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { background: var(--bg); color: var(--text); font-family: var(--font-sans); font-size: 14px; line-height: 1.5; }
+body { min-height: 100vh; }
+button { font-family: inherit; cursor: pointer; }
+.mono { font-family: var(--font-mono); }
+
+/* ============================================================
+   AFFORDANCE 1 — the status sentence (the entire "header")
+   ============================================================ */
+#status-line {
+  position: sticky; top: 0; z-index: 40;
+  background: var(--glass-bg); backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
+  border-bottom: 1px solid var(--border);
+  display: flex; align-items: center; gap: 16px;
+  padding: 14px 28px;
+}
+#brand { display: flex; align-items: center; gap: 10px; }
+#brand .tile {
+  width: 32px; height: 32px; border-radius: 8px; background: var(--surface-2);
+  display: grid; place-items: center; border: 1px solid var(--border);
+}
+#brand svg { display: block; }
+#brand .word { font-weight: 700; font-size: 15px; letter-spacing: -0.2px; }
+#sentence { flex: 1; text-align: center; font-size: 13px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#sentence .fact {
+  background: none; border: none; color: var(--muted); font-size: 13px;
+  font-family: var(--font-sans); padding: 2px 4px; border-radius: 4px;
+  transition: color .15s, background .15s;
+}
+#sentence .fact .num { font-family: var(--font-mono); color: var(--text); font-weight: 500; }
+#sentence .fact:hover { color: var(--text); background: var(--surface-2); }
+#sentence .sep { color: var(--muted-soft); margin: 0 4px; }
+#sentence .rb-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--green); margin-right: 5px; vertical-align: 1px; }
+#top-right { display: flex; align-items: center; gap: 10px; }
+#cmdk-hint {
+  display: flex; align-items: center; gap: 8px;
+  background: var(--surface); border: 1px solid var(--border); border-radius: 999px;
+  padding: 6px 14px; font-size: 12.5px; color: var(--muted);
+  transition: border-color .18s ease, color .18s ease, transform .18s ease, box-shadow .18s ease;
+}
+#cmdk-hint:hover { border-color: var(--border-hover); color: var(--text); transform: translateY(-1px); box-shadow: var(--shadow-sm); }
+#cmdk-hint kbd {
+  font-family: var(--font-mono); font-size: 11px; background: var(--surface-2);
+  border: 1px solid var(--border); border-radius: 4px; padding: 1px 6px; color: var(--text);
+}
+#theme-toggle {
+  width: 32px; height: 32px; border-radius: 999px; border: 1px solid var(--border);
+  background: var(--surface); color: var(--muted); display: grid; place-items: center;
+  transition: border-color .18s ease, color .18s ease;
+}
+#theme-toggle:hover { border-color: var(--border-hover); color: var(--text); }
+
+/* ============================================================
+   AFFORDANCE 2 — the single intelligent list
+   ============================================================ */
+main { max-width: 980px; margin: 0 auto; padding: 28px 24px 140px; }
+#context-strip {
+  display: none; align-items: center; gap: 10px; margin-bottom: 14px;
+  font-size: 12.5px; color: var(--muted);
+}
+#context-strip.on { display: flex; }
+#context-strip .chip {
+  display: inline-flex; align-items: center; gap: 6px;
+  border: 1px solid var(--green); color: var(--green); background: var(--green-wash);
+  border-radius: 999px; padding: 3px 12px; font-size: 12px; font-weight: 600;
+}
+#context-strip .chip button { background: none; border: none; color: inherit; font-size: 13px; line-height: 1; padding: 0 0 0 2px; }
+#track-list {
+  background: var(--surface); border: 1px solid var(--border); border-radius: 16px;
+  box-shadow: var(--shadow-sm); overflow: hidden;
+}
+.row {
+  display: grid;
+  grid-template-columns: minmax(220px, 1.4fr) 92px 64px 42px 96px minmax(150px, 1fr);
+  gap: 18px; align-items: center;
+  padding: 12px 20px; border-bottom: 1px solid var(--border);
+  position: relative; transition: background .15s ease;
+}
+.row:last-child { border-bottom: none; }
+.row:hover { background: var(--surface-2); }
+.row::before {
+  content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 3px;
+  background: transparent; transition: background .2s ease;
+}
+.row.selected { background: var(--green-wash); }
+.row.selected::before { background: var(--green); }
+.row .who { min-width: 0; }
+.row .title { font-size: 15px; font-weight: 700; letter-spacing: -0.2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.row .artist { font-size: 12px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.spark svg { display: block; }
+.spark polyline { stroke: var(--green); fill: none; stroke-width: 1.5; opacity: .9; }
+.spark .fill { fill: var(--green); opacity: .10; stroke: none; }
+.bpm {
+  font-family: var(--font-mono); font-size: 12px; font-weight: 500;
+  color: var(--green); background: var(--green-wash);
+  border-radius: 4px; padding: 2px 7px; text-align: center;
+}
+.key {
+  font-family: var(--font-mono); font-size: 12px; color: var(--text);
+  background: var(--surface-2); border: 1px solid var(--border);
+  border-radius: 4px; padding: 2px 6px; text-align: center;
+}
+.mix { font-family: var(--font-mono); font-size: 12px; color: var(--muted); white-space: nowrap; }
+.mix b { color: var(--text); font-weight: 600; }
+.cues { display: flex; gap: 5px; align-items: center; justify-content: flex-end; flex-wrap: wrap; }
+.cue-badge {
+  width: 20px; height: 20px; border-radius: 4px;
+  display: grid; place-items: center;
+  font-family: var(--font-mono); font-size: 10px; font-weight: 600;
+  border: 1.5px solid currentColor;
+  transition: transform .15s ease;
+}
+.cue-badge:hover { transform: scale(1.08); }
+.cue-badge.ghost { border-style: dashed; opacity: .8; }
+.no-cues { font-family: var(--font-mono); font-size: 11px; color: var(--muted-soft); }
+.preview-tag {
+  font-size: 10px; text-transform: uppercase; letter-spacing: .08em;
+  color: var(--green); font-weight: 600; margin-right: 2px;
+}
+.cls {
+  font-size: 10px; text-transform: uppercase; letter-spacing: .08em; font-weight: 600;
+  color: var(--muted); margin-top: 1px;
+}
+#list-foot { text-align: center; font-size: 12px; color: var(--muted-soft); padding: 14px 0 0; font-family: var(--font-mono); }
+
+/* ============================================================
+   AFFORDANCE 3 — the one ink pill
+   ============================================================ */
+#action-dock {
+  position: fixed; left: 0; right: 0; bottom: 24px; z-index: 30;
+  display: flex; justify-content: center; pointer-events: none;
+}
+#action-dock .inner {
+  pointer-events: auto;
+  display: flex; align-items: center; gap: 16px;
+  background: var(--glass-bg); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
+  border: 1px solid var(--border); border-radius: 999px;
+  padding: 8px 10px 8px 22px; box-shadow: var(--shadow-lg);
+}
+#dock-caption { font-family: var(--font-mono); font-size: 12px; color: var(--muted); }
+#dock-caption b { color: var(--text); font-weight: 600; }
+#apply-pill {
+  border: none; border-radius: 999px;
+  background: var(--ink); color: var(--on-ink);
+  font-size: 14px; font-weight: 600; padding: 11px 26px;
+  transition: background .18s ease, transform .18s ease, box-shadow .18s ease, opacity .18s ease;
+}
+#apply-pill:hover:not(:disabled) { background: var(--ink-hover); transform: translateY(-1px); box-shadow: var(--shadow-md); }
+#apply-pill:active:not(:disabled) { transform: translateY(0); }
+#apply-pill:disabled { opacity: .35; cursor: default; }
+
+/* ============================================================
+   The command palette (⌘K) — the hidden everything
+   ============================================================ */
+#veil {
+  position: fixed; inset: 0; z-index: 50; display: none;
+  background: rgba(0,0,0,.28);
+  align-items: flex-start; justify-content: center; padding-top: 11vh;
+}
+html.dark #veil { background: rgba(0,0,0,.55); }
+#veil.open { display: flex; }
+#palette {
+  width: 640px; max-width: calc(100vw - 48px);
+  background: var(--surface); border: 1px solid var(--border); border-radius: 16px;
+  box-shadow: var(--shadow-lg); overflow: hidden;
+  animation: rise .22s ease-out;
+}
+@keyframes rise { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+@media (prefers-reduced-motion: reduce) { #palette { animation: none; } * { transition: none !important; } }
+#pal-input-row { display: flex; align-items: center; gap: 12px; padding: 16px 20px; border-bottom: 1px solid var(--border); }
+#pal-input-row svg { color: var(--muted-soft); flex: none; }
+#pal-input {
+  flex: 1; border: none; outline: none; background: none;
+  font-family: var(--font-sans); font-size: 16px; color: var(--text);
+}
+#pal-input::placeholder { color: var(--muted-soft); }
+#pal-esc { font-family: var(--font-mono); font-size: 10px; color: var(--muted-soft); border: 1px solid var(--border); border-radius: 4px; padding: 2px 6px; }
+#pal-list { max-height: 52vh; overflow-y: auto; padding: 8px; }
+.pal-group {
+  font-size: 10px; text-transform: uppercase; letter-spacing: .08em;
+  color: var(--muted-soft); font-weight: 600; padding: 10px 14px 4px;
+}
+.pal-item {
+  display: flex; align-items: center; gap: 12px; width: 100%;
+  background: none; border: none; border-radius: 8px; text-align: left;
+  padding: 10px 14px; color: var(--text); font-size: 14px;
+  transition: background .12s ease;
+}
+.pal-item .ico {
+  width: 28px; height: 28px; border-radius: 8px; flex: none;
+  background: var(--surface-2); border: 1px solid var(--border);
+  display: grid; place-items: center; color: var(--muted);
+}
+.pal-item.active { background: var(--green-wash); }
+.pal-item.active .ico { border-color: var(--green); color: var(--green); }
+.pal-item .lbl { flex: 1; min-width: 0; }
+.pal-item .lbl .main { font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pal-item .lbl .sub { font-size: 12px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pal-item .meta { font-family: var(--font-mono); font-size: 11px; color: var(--muted); flex: none; }
+.pal-item .meta.green { color: var(--green); }
+#pal-foot {
+  display: flex; gap: 18px; padding: 10px 20px;
+  border-top: 1px solid var(--border); background: var(--surface-2);
+  font-size: 11px; color: var(--muted-soft);
+}
+#pal-foot kbd { font-family: var(--font-mono); font-size: 10px; border: 1px solid var(--border); border-radius: 4px; padding: 0 5px; background: var(--surface); color: var(--muted); }
+.pal-empty { padding: 24px; text-align: center; color: var(--muted-soft); font-size: 13px; }
+
+/* ============================================================
+   Contextual sheet (duplicates / set builder / health / discover)
+   ============================================================ */
+#sheet-veil { position: fixed; inset: 0; z-index: 45; display: none; background: rgba(0,0,0,.20); }
+html.dark #sheet-veil { background: rgba(0,0,0,.45); }
+#sheet-veil.open { display: block; }
+#sheet {
+  position: fixed; top: 0; right: 0; bottom: 0; z-index: 46;
+  width: 420px; max-width: 92vw;
+  background: var(--surface); border-left: 1px solid var(--border);
+  box-shadow: var(--shadow-lg);
+  transform: translateX(102%); transition: transform .3s ease;
+  display: flex; flex-direction: column;
+}
+#sheet.open { transform: translateX(0); }
+#sheet-head { display: flex; align-items: center; justify-content: space-between; padding: 20px 24px 12px; }
+#sheet-head h2 { font-size: 18px; font-weight: 600; letter-spacing: -0.01em; }
+#sheet-close { background: none; border: 1px solid var(--border); border-radius: 999px; width: 28px; height: 28px; color: var(--muted); font-size: 13px; }
+#sheet-close:hover { border-color: var(--border-hover); color: var(--text); }
+#sheet-body { padding: 4px 24px 24px; overflow-y: auto; font-size: 13px; color: var(--muted); }
+#sheet-body h3 { font-size: 10px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted-soft); margin: 18px 0 8px; }
+.sheet-card { background: var(--bg); border: 1px solid var(--border); border-radius: 12px; padding: 12px 14px; margin-bottom: 8px; }
+.sheet-card .t { color: var(--text); font-weight: 600; font-size: 13.5px; }
+.sheet-card .m { font-family: var(--font-mono); font-size: 11.5px; color: var(--muted); margin-top: 2px; }
+.hbar { height: 6px; border-radius: 3px; background: var(--surface-2); overflow: hidden; margin: 6px 0 12px; }
+.hbar i { display: block; height: 100%; border-radius: 3px; background: var(--green); }
+.big-score { font-family: var(--font-mono); font-size: 34px; font-weight: 600; color: var(--text); }
+.big-score small { font-size: 16px; color: var(--muted-soft); }
+.star { color: var(--rating); }
+.sheet-note { font-size: 12px; color: var(--muted-soft); margin-top: 14px; line-height: 1.55; }
+.arrow { color: var(--green); }
+</style>
+</head>
+<body>
+
+<!-- ── Affordance 1 · the status sentence ─────────────────────── -->
+<header id="status-line">
+  <div id="brand">
+    <span class="tile">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--green)" stroke-width="2.4" stroke-linecap="round">
+        <line x1="4" y1="10" x2="4" y2="14"/><line x1="8" y1="6" x2="8" y2="18"/>
+        <line x1="12" y1="9" x2="12" y2="15"/><line x1="16" y1="4" x2="16" y2="20"/>
+        <line x1="20" y1="11" x2="20" y2="13"/>
+      </svg>
+    </span>
+    <span class="word">AutoCue</span>
+  </div>
+  <p id="sentence">
+    <button class="fact" data-cmd="all"><span class="num">2,789</span> tracks</button><span class="sep">·</span><button class="fact" data-cmd="fix-cues"><span class="num">142</span> need cues</button><span class="sep">·</span><button class="fact" data-cmd="health">health <span class="num">78/100</span></button><span class="sep">·</span><button class="fact" data-cmd="rb-status"><span class="rb-dot"></span>Rekordbox closed</button>
+  </p>
+  <div id="top-right">
+    <button id="cmdk-hint" type="button" aria-label="Open command palette">Type a command <kbd>⌘K</kbd></button>
+    <button id="theme-toggle" type="button" aria-label="Toggle theme">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+    </button>
+  </div>
+</header>
+
+<!-- ── Affordance 2 · the single intelligent list ─────────────── -->
+<main>
+  <div id="context-strip">
+    <span class="chip" id="ctx-chip" style="display:none"><span id="ctx-chip-text"></span><button id="ctx-clear" aria-label="Clear context">✕</button></span>
+    <span id="ctx-caption">Your library, sorted by what needs attention. Press <kbd style="font-family:var(--font-mono);font-size:10px;border:1px solid var(--border);border-radius:4px;padding:0 5px;">⌘K</kbd> for everything else.</span>
+  </div>
+  <div id="track-list" role="list"></div>
+  <p id="list-foot">12 of 2,789 shown — scroll loads the rest</p>
+</main>
+
+<!-- ── Affordance 3 · the one ink pill ────────────────────────── -->
+<div id="action-dock">
+  <div class="inner">
+    <span id="dock-caption">nothing selected — <b>⌘K</b> to act</span>
+    <button id="apply-pill" type="button" disabled>Apply to Rekordbox</button>
+  </div>
+</div>
+
+<!-- ── The command palette — everything else lives here ───────── -->
+<div id="veil" class="open" role="dialog" aria-modal="true" aria-label="Command palette">
+  <div id="palette">
+    <div id="pal-input-row">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+      <input id="pal-input" type="text" placeholder="Search tracks, or type a command — fix, duplicates, set, discover…" autocomplete="off">
+      <span id="pal-esc">ESC</span>
+    </div>
+    <div id="pal-list"></div>
+    <div id="pal-foot">
+      <span><kbd>↑</kbd> <kbd>↓</kbd> navigate</span>
+      <span><kbd>↵</kbd> run</span>
+      <span><kbd>esc</kbd> close</span>
+      <span style="margin-left:auto">Rekordbox must be closed before any write</span>
+    </div>
+  </div>
+</div>
+
+<!-- ── Contextual sheet ───────────────────────────────────────── -->
+<div id="sheet-veil"></div>
+<aside id="sheet" aria-hidden="true">
+  <div id="sheet-head"><h2 id="sheet-title"></h2><button id="sheet-close" aria-label="Close">✕</button></div>
+  <div id="sheet-body"></div>
+</aside>
+
+<script>
+/* ───────────────────────── data ───────────────────────── */
+var TRACKS = [
+  { t:'Tension Lock', a:'Ada Reuss', bpm:'132.0', key:'9A',  mix:84, cls:'peak',        cues:['a','b','c','d','e','f'], e:[2,3,4,6,8,9,7,9,10,8,5] },
+  { t:'Caldera', a:'Stille Anders', bpm:'128.0', key:'8A',  mix:77, cls:'build',       cues:[], e:[1,2,3,4,6,7,8,8,9,7,4] },
+  { t:'Night Geometry', a:'V / Holt', bpm:'126.5', key:'11B', mix:72, cls:'build',     cues:['a','b','c','d'], e:[2,2,4,5,7,8,6,8,9,6,3] },
+  { t:'Rotor', a:'Pessoa & Kline', bpm:'134.2', key:'5A',  mix:68, cls:'peak',         cues:[], e:[3,5,7,9,10,9,10,9,8,9,6] },
+  { t:'Glasshouse Dub', a:'Marlene Oder', bpm:'122.8', key:'7B', mix:81, cls:'warmup', cues:['a','b','c'], e:[1,2,2,3,4,4,5,5,4,3,2] },
+  { t:'Acid Cathedral', a:'TR-Sect', bpm:'138.0', key:'2A', mix:59, cls:'peak',        cues:[], e:[4,6,8,10,9,10,10,9,10,8,5] },
+  { t:'Low Tide Theory', a:'Bruma', bpm:'121.4', key:'4B', mix:88, cls:'after hours',  cues:['a','b','c','d','e'], e:[2,3,3,4,5,4,5,4,3,3,2] },
+  { t:'Sodium Light', a:'K. Vasquez', bpm:'127.0', key:'8B', mix:74, cls:'build',      cues:[], e:[1,3,4,6,7,8,7,9,8,6,3] },
+  { t:'Pale Fire (Club Mix)', a:'Idra', bpm:'124.5', key:'10A', mix:91, cls:'warmup',  cues:['a','b','c','d','e','f','g'], e:[1,2,3,3,5,6,6,7,6,4,2] },
+  { t:'Concrete Garden', a:'Holt & Reyes', bpm:'129.3', key:'6A', mix:65, cls:'peak',  cues:[], e:[3,4,6,8,9,8,9,10,9,7,4] },
+  { t:'Meridian Drift', a:'Souvenir FM', bpm:'119.9', key:'12B', mix:86, cls:'closing',cues:['a','b'], e:[3,3,4,3,4,3,3,2,2,1,1] },
+  { t:'Afterimage', a:'Lena Korr', bpm:'125.7', key:'8A', mix:79, cls:'build',         cues:[], e:[2,3,5,6,8,7,8,9,7,5,3] }
+];
+var GHOST = ['a','b','c','d','e'];   /* preview cues placed by "Fix" */
+var state = { filter:'all', selected:false, previewing:false };
+
+/* ─────────────────────── sparkline ─────────────────────── */
+function spark(e){
+  var w=84,h=18,step=w/(e.length-1);
+  var pts=e.map(function(v,i){return (i*step).toFixed(1)+','+(h-1-(v/10)*(h-3)).toFixed(1);}).join(' ');
+  return '<svg width="'+w+'" height="'+h+'" viewBox="0 0 '+w+' '+h+'">'
+    +'<polygon class="fill" points="0,'+h+' '+pts+' '+w+','+h+'"/>'
+    +'<polyline points="'+pts+'"/></svg>';
+}
+function cueBadge(s,ghost){
+  return '<span class="cue-badge'+(ghost?' ghost':'')+'" style="color:var(--cue-'+s+');background:color-mix(in srgb, var(--cue-'+s+') 8%, transparent)">'+s.toUpperCase()+'</span>';
+}
+
+/* ───────────────────── list render ─────────────────────── */
+function renderList(){
+  var el=document.getElementById('track-list'), html='';
+  var rows=TRACKS.filter(function(tr){ return state.filter==='all' || tr.cues.length===0; });
+  rows.forEach(function(tr){
+    var needs=tr.cues.length===0;
+    var sel=state.selected && needs;
+    var cues;
+    if(tr.cues.length) cues=tr.cues.map(function(s){return cueBadge(s,false);}).join('');
+    else if(state.previewing) cues='<span class="preview-tag">preview</span>'+GHOST.map(function(s){return cueBadge(s,true);}).join('');
+    else cues='<span class="no-cues">— no cues</span>';
+    html+='<div class="row'+(sel?' selected':'')+'" role="listitem">'
+      +'<div class="who"><div class="title">'+tr.t+'</div><div class="artist">'+tr.a+'</div></div>'
+      +'<div class="spark">'+spark(tr.e)+'</div>'
+      +'<span class="bpm">'+tr.bpm+'</span>'
+      +'<span class="key">'+tr.key+'</span>'
+      +'<div><div class="mix">Mix <b>'+tr.mix+'</b>/100</div><div class="cls">'+tr.cls+'</div></div>'
+      +'<div class="cues">'+cues+'</div>'
+      +'</div>';
+  });
+  el.innerHTML=html;
+  document.getElementById('list-foot').textContent =
+    state.filter==='all' ? '12 of 2,789 shown — scroll loads the rest'
+                         : rows.length+' of 142 needing cues shown — scroll loads the rest';
+}
+
+/* ─────────────── context strip + ink pill ──────────────── */
+function syncChrome(){
+  var strip=document.getElementById('context-strip');
+  var chip=document.getElementById('ctx-chip');
+  var cap=document.getElementById('ctx-caption');
+  var pill=document.getElementById('apply-pill');
+  var dock=document.getElementById('dock-caption');
+  strip.classList.add('on');
+  if(state.filter==='needs-cues'){
+    chip.style.display='inline-flex';
+    document.getElementById('ctx-chip-text').textContent='needs cues · 142';
+    cap.textContent='Dry-run preview shown inline — dashed badges are where cues will land.';
+    pill.disabled=false; pill.textContent='Apply cues to 142 tracks';
+    dock.innerHTML='<b>142</b> selected · backup saved before write';
+  } else {
+    chip.style.display='none';
+    cap.innerHTML='Your library, sorted by what needs attention. Press <kbd style="font-family:var(--font-mono);font-size:10px;border:1px solid var(--border);border-radius:4px;padding:0 5px;">⌘K</kbd> for everything else.';
+    pill.disabled=true; pill.textContent='Apply to Rekordbox';
+    dock.innerHTML='nothing selected — <b>⌘K</b> to act';
+  }
+}
+
+/* ───────────────────── commands ────────────────────────── */
+var COMMANDS=[
+  { id:'fix-cues', group:'Suggested', icon:'✦', label:'Fix 142 tracks missing cues',
+    sub:'Phrase analysis → bar fallback · dry-run preview first', meta:'142', metaGreen:true },
+  { id:'duplicates', group:'Suggested', icon:'⧉', label:'Find duplicates',
+    sub:'12 groups · keeper picked by cue prep, then plays', meta:'12' },
+  { id:'setbuilder', group:'Suggested', icon:'♪', label:'Build a 60-min set',
+    sub:'Anchor on a track · warmup → build → peak', meta:'60:00' },
+  { id:'health', group:'Suggested', icon:'+', label:'Library health report',
+    sub:'Missing keys, beatgrids, bitrate, stale analysis', meta:'78/100' },
+  { id:'discover', group:'Suggested', icon:'◎', label:'Scan Discover for new releases',
+    sub:'Artists & labels you play · novelty rotation', meta:'18 new' },
+  { id:'filter-peak', group:'Filter', icon:'≡', label:'Show peak-time tracks', sub:'classification = peak', meta:'' },
+  { id:'filter-bpm', group:'Filter', icon:'≡', label:'124–128 BPM', sub:'range filter on the list', meta:'' },
+  { id:'filter-key', group:'Filter', icon:'≡', label:'Compatible with 8A', sub:'8A · 8B · 7A · 9A', meta:'' }
+];
+function trackCmds(q){
+  return TRACKS.filter(function(tr){
+    return (tr.t+' '+tr.a).toLowerCase().indexOf(q)>-1;
+  }).slice(0,4).map(function(tr){
+    return { id:'track', group:'Tracks', icon:'♫', label:tr.t+' — '+tr.a,
+      sub:'Mix '+tr.mix+'/100 · '+tr.cls+(tr.cues.length?' · '+tr.cues.length+' cues':' · no cues'),
+      meta:tr.bpm+' · '+tr.key };
+  });
+}
+
+var palActive=0, palItems=[];
+function renderPalette(){
+  var q=document.getElementById('pal-input').value.trim().toLowerCase();
+  palItems=COMMANDS.filter(function(c){
+    return !q || (c.label+' '+c.sub).toLowerCase().indexOf(q)>-1;
+  });
+  if(q) palItems=palItems.concat(trackCmds(q));
+  if(palActive>=palItems.length) palActive=0;
+  var html='', lastGroup='';
+  if(!palItems.length){ html='<div class="pal-empty">No matches — try “fix”, “duplicates”, “set”, or a track name.</div>'; }
+  palItems.forEach(function(c,i){
+    if(c.group!==lastGroup){ html+='<div class="pal-group">'+c.group+'</div>'; lastGroup=c.group; }
+    html+='<button class="pal-item'+(i===palActive?' active':'')+'" data-i="'+i+'">'
+      +'<span class="ico">'+c.icon+'</span>'
+      +'<span class="lbl"><span class="main">'+c.label+'</span><span class="sub">'+c.sub+'</span></span>'
+      +(c.meta?'<span class="meta'+(c.metaGreen?' green':'')+'">'+c.meta+'</span>':'')
+      +'</button>';
+  });
+  document.getElementById('pal-list').innerHTML=html;
+}
+
+/* ───────────────── contextual sheets ───────────────────── */
+var SHEETS={
+  duplicates:{ title:'Duplicates', body:
+    '<p><span class="mono" style="color:var(--text)">12 groups · 27 copies · 312 MB</span> reclaimable. Keeper picked by cue prep, then plays — flip the ★ to override.</p>'
+   +'<h3>Group 1 · same file, two imports</h3>'
+   +'<div class="sheet-card"><div class="t"><span class="star">★</span> Caldera — Stille Anders</div><div class="m">320kbps · 6 cues · 41 plays · keep</div></div>'
+   +'<div class="sheet-card"><div class="t">Caldera — Stille Anders</div><div class="m">320kbps · 0 cues · 3 plays · delete</div></div>'
+   +'<h3>Group 2 · album cut vs re-rip</h3>'
+   +'<div class="sheet-card"><div class="t"><span class="star">★</span> Rotor — Pessoa &amp; Kline</div><div class="m">FLAC · 0 cues · 18 plays · keep</div></div>'
+   +'<div class="sheet-card"><div class="t">Rotor — Pessoa &amp; Kline</div><div class="m">192kbps · 0 cues · 2 plays · delete</div></div>'
+   +'<p class="sheet-note">A backup of your library is created before the first delete. Undo is available for 30 s after.</p>' },
+  setbuilder:{ title:'Set builder', body:
+    '<p>60-minute arc from your selection — anchored on <span class="mono" style="color:var(--text)">Pale Fire (Club Mix)</span>.</p>'
+   +'<h3>warmup → build → peak</h3>'
+   +'<div class="sheet-card"><div class="t">1 · Pale Fire (Club Mix) — Idra</div><div class="m">124.5 · 10A · warmup</div></div>'
+   +'<div class="sheet-card"><div class="t">2 · Afterimage — Lena Korr</div><div class="m">125.7 · 8A <span class="arrow">→</span> +1.2 BPM — easy nudge</div></div>'
+   +'<div class="sheet-card"><div class="t">3 · Caldera — Stille Anders</div><div class="m">128.0 · 8A <span class="arrow">→</span> 8A→8A — same key, blend 16 bars</div></div>'
+   +'<div class="sheet-card"><div class="t">4 · Tension Lock — Ada Reuss</div><div class="m">132.0 · 9A <span class="arrow">→</span> 8A→9A — energy boost (+1)</div></div>'
+   +'<p class="sheet-note">💡 EQ-kill lows before Tension Lock\'s drop lands — energy jumps 22%.</p>' },
+  health:{ title:'Library health', body:
+    '<div class="big-score">78<small>/100</small></div>'
+   +'<h3>Breakdown</h3>'
+   +'<div>Beatgrids analysed <span class="mono" style="float:right;color:var(--text)">96%</span></div><div class="hbar"><i style="width:96%"></i></div>'
+   +'<div>Keys detected <span class="mono" style="float:right;color:var(--text)">91%</span></div><div class="hbar"><i style="width:91%"></i></div>'
+   +'<div>Hot cues placed <span class="mono" style="float:right;color:var(--text)">95%</span></div><div class="hbar"><i style="width:95%"></i></div>'
+   +'<div>Bitrate ≥ 320kbps <span class="mono" style="float:right;color:var(--text)">72%</span></div><div class="hbar"><i style="width:72%"></i></div>'
+   +'<p class="sheet-note">142 tracks missing cues is the biggest lever — fixing them lifts health to ~86/100. Run “Fix 142 tracks missing cues” from ⌘K.</p>' },
+  discover:{ title:'Discover', body:
+    '<p><span class="mono" style="color:var(--text)">18 new releases</span> from artists &amp; labels you play.</p>'
+   +'<h3>This week</h3>'
+   +'<div class="sheet-card"><div class="t">Borealis EP — Ada Reuss</div><div class="m">Hypnus · 2026 · because you play Tension Lock</div></div>'
+   +'<div class="sheet-card"><div class="t">Slow Static — Bruma</div><div class="m">Echocord · 2026 · label feeder</div></div>'
+   +'<div class="sheet-card"><div class="t">Verglas — Nuage Fou</div><div class="m">Delsin · 2026 · 🔁 novelty pick</div></div>'
+   +'<p class="sheet-note">Snooze any artist for 1w / 1m / 3m. Per-scan budget: 20 artist · 15 label · 10 novelty.</p>' },
+  'rb-status':{ title:'Rekordbox status', body:
+    '<p><span style="color:var(--green)">●</span> <strong style="color:var(--text)">Rekordbox is closed</strong> — safe to write.</p>'
+   +'<p class="sheet-note">AutoCue writes hot cues directly into master.db. Rekordbox locks the database while open, so every write checks this first. A timestamped backup is saved before each apply, and any failure rolls back automatically.</p>' },
+  applied:{ title:'Applied', body:
+    '<p><span style="color:var(--green)">●</span> <strong style="color:var(--text)">142 tracks updated</strong> — 712 hot cues written.</p>'
+   +'<h3>What happened</h3>'
+   +'<div class="sheet-card"><div class="t">Backup saved</div><div class="m">master.db.backup-2026-06-12-2114 · restore anytime</div></div>'
+   +'<div class="sheet-card"><div class="t">Phrase analysis</div><div class="m">118 tracks · Intro / Build / Drop / Outro</div></div>'
+   +'<div class="sheet-card"><div class="t">Bar fallback</div><div class="m">24 tracks · every 16 bars from bar 1</div></div>'
+   +'<p class="sheet-note">Library health is now 86/100. Open Rekordbox to see your cues.</p>' }
+};
+function openSheet(id){
+  var s=SHEETS[id]; if(!s) return;
+  document.getElementById('sheet-title').textContent=s.title;
+  document.getElementById('sheet-body').innerHTML=s.body;
+  document.getElementById('sheet-veil').classList.add('open');
+  document.getElementById('sheet').classList.add('open');
+  document.getElementById('sheet').setAttribute('aria-hidden','false');
+}
+function closeSheet(){
+  document.getElementById('sheet-veil').classList.remove('open');
+  document.getElementById('sheet').classList.remove('open');
+  document.getElementById('sheet').setAttribute('aria-hidden','true');
+}
+
+/* ───────────────────── run command ─────────────────────── */
+function runCommand(id){
+  closePalette();
+  if(id==='fix-cues'){
+    state.filter='needs-cues'; state.selected=true; state.previewing=true;
+    renderList(); syncChrome();
+  } else if(id==='all'||id==='filter-peak'||id==='filter-bpm'||id==='filter-key'||id==='track'){
+    state.filter='all'; state.selected=false; state.previewing=false;
+    renderList(); syncChrome();
+  } else {
+    openSheet(id);
+  }
+}
+
+/* ─────────────────── palette open/close ────────────────── */
+function openPalette(){
+  document.getElementById('veil').classList.add('open');
+  palActive=0; document.getElementById('pal-input').value='';
+  renderPalette();
+  setTimeout(function(){ document.getElementById('pal-input').focus(); },0);
+}
+function closePalette(){ document.getElementById('veil').classList.remove('open'); }
+function paletteOpen(){ return document.getElementById('veil').classList.contains('open'); }
+
+/* ───────────────────── wiring ──────────────────────────── */
+document.getElementById('cmdk-hint').addEventListener('click', openPalette);
+document.getElementById('veil').addEventListener('click', function(e){ if(e.target.id==='veil') closePalette(); });
+document.getElementById('pal-input').addEventListener('input', function(){ palActive=0; renderPalette(); });
+document.getElementById('pal-list').addEventListener('click', function(e){
+  var btn=e.target.closest('.pal-item'); if(!btn) return;
+  runCommand(palItems[+btn.dataset.i].id);
+});
+document.getElementById('sheet-close').addEventListener('click', closeSheet);
+document.getElementById('sheet-veil').addEventListener('click', closeSheet);
+document.getElementById('ctx-clear').addEventListener('click', function(){ runCommand('all'); });
+document.getElementById('sentence').addEventListener('click', function(e){
+  var f=e.target.closest('.fact'); if(f) runCommand(f.dataset.cmd);
+});
+document.getElementById('apply-pill').addEventListener('click', function(){
+  if(this.disabled) return;
+  openSheet('applied');
+  state.filter='all'; state.selected=false; state.previewing=false;
+  /* the 142 now have cues */
+  TRACKS.forEach(function(tr){ if(tr.cues.length===0) tr.cues=GHOST.slice(); });
+  document.querySelector('#sentence .fact[data-cmd="fix-cues"] .num').textContent='0';
+  document.querySelector('#sentence .fact[data-cmd="health"] .num').textContent='86/100';
+  renderList(); syncChrome();
+});
+document.getElementById('theme-toggle').addEventListener('click', function(){
+  document.documentElement.classList.toggle('dark');
+});
+document.addEventListener('keydown', function(e){
+  if((e.metaKey||e.ctrlKey) && e.key.toLowerCase()==='k'){
+    e.preventDefault(); paletteOpen()?closePalette():openPalette(); return;
+  }
+  if(e.key==='Escape'){
+    if(paletteOpen()) closePalette(); else closeSheet();
+    return;
+  }
+  if(!paletteOpen()) return;
+  if(e.key==='ArrowDown'){ e.preventDefault(); palActive=Math.min(palActive+1, palItems.length-1); renderPalette(); }
+  else if(e.key==='ArrowUp'){ e.preventDefault(); palActive=Math.max(palActive-1, 0); renderPalette(); }
+  else if(e.key==='Enter' && palItems.length){ e.preventDefault(); runCommand(palItems[palActive].id); }
+});
+
+/* ───────────────────── boot ────────────────────────────── */
+renderList(); syncChrome(); renderPalette();
+setTimeout(function(){ document.getElementById('pal-input').focus(); }, 50);
+</script>
+</body>
+</html>

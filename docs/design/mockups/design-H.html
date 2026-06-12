@@ -1,0 +1,633 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AutoCue — Concept H: Stagehand (Ambient Zero-UI)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+/* ════════ AutoCue tokens ════════ */
+:root{
+  --bg:#fafafa; --surface:#ffffff; --surface-2:#f2f2f2; --border:#e8e8e8; --border-hover:#c8c8c8;
+  --text:#1a1a1a; --muted:#737373; --muted-soft:#a3a3a3;
+  --green:#159a05; --green-dim:#0f6e03; --green-wash:rgba(21,154,5,.08); --green-ring:rgba(21,154,5,.14);
+  --ink:#0a0a0a; --ink-hover:#2a2a2a; --on-ink:#fafafa;
+  --danger:#e74c3c; --warn:#f0801a; --warn-amber:#ffa000;
+  --cue-a:#18a80c; --cue-b:#2246e0; --cue-c:#0099bb; --cue-d:#c07800;
+  --cue-e:#c84800; --cue-f:#c02010; --cue-g:#c8006a; --cue-h:#9900cc;
+  --shadow-sm:0 1px 3px rgba(0,0,0,.06),0 0 0 1px rgba(0,0,0,.03);
+  --shadow-md:0 4px 14px rgba(0,0,0,.08),0 0 0 1px rgba(0,0,0,.04);
+  --shadow-lg:0 10px 32px rgba(0,0,0,.18),0 2px 8px rgba(0,0,0,.08);
+  --glass-bg:rgba(255,255,255,.86);
+  --font-sans:'Inter',system-ui,-apple-system,sans-serif;
+  --font-mono:'JetBrains Mono','Fira Code',ui-monospace,SFMono-Regular,Menlo,monospace;
+  --radius-sm:4px; --radius-md:8px; --radius-lg:12px; --radius-xl:16px; --radius-pill:999px;
+}
+html.dark{
+  --bg:#0c0a09; --surface:#1c1917; --surface-2:#231f1d; --border:#292524; --border-hover:#3d3830;
+  --text:#fafaf9; --muted:#a8a29e; --muted-soft:#78716c;
+  --green:#28e214; --green-dim:#1a9a0d; --green-wash:rgba(40,226,20,.08); --green-ring:rgba(40,226,20,.14);
+  --ink:#fafafa; --ink-hover:#e2e2e2; --on-ink:#0a0a0a;
+  --cue-a:#28e214; --cue-b:#305aff; --cue-c:#00e0ff; --cue-d:#ffa000;
+  --cue-e:#ff6400; --cue-f:#e0301e; --cue-g:#f51e8c; --cue-h:#e600ff;
+  --shadow-sm:0 1px 3px rgba(0,0,0,.3);
+  --shadow-md:0 4px 12px rgba(0,0,0,.3);
+  --shadow-lg:0 10px 32px rgba(0,0,0,.45),0 2px 8px rgba(0,0,0,.3);
+  --glass-bg:rgba(12,10,9,.80);
+}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+body{
+  background:var(--bg); color:var(--text); font-family:var(--font-sans);
+  font-size:14px; line-height:1.6; min-height:100vh;
+  -webkit-font-smoothing:antialiased; transition:background .2s,color .2s;
+}
+button{font-family:var(--font-sans); border-radius:var(--radius-pill); cursor:pointer; border:1px solid var(--border); background:var(--surface); color:var(--text)}
+.mono{font-family:var(--font-mono)}
+
+/* ════════ Page scaffold ════════ */
+.stage{max-width:1280px; margin:0 auto; padding:28px 32px 64px; display:grid; grid-template-columns:400px 1fr; gap:56px; align-items:start}
+.concept-head{grid-column:1 / -1; display:flex; align-items:baseline; gap:14px; padding-bottom:6px}
+.concept-head h1{font-size:20px; font-weight:600; letter-spacing:-.01em}
+.concept-head .sub{color:var(--muted); font-size:13px}
+.theme-toggle{margin-left:auto; padding:6px 16px; font-size:12px; font-weight:500; transition:border-color .15s}
+.theme-toggle:hover{border-color:var(--border-hover)}
+
+.col-label{font-size:10px; letter-spacing:.08em; text-transform:uppercase; color:var(--muted-soft); font-weight:600; margin-bottom:10px}
+
+/* ════════ Fake macOS menu bar ════════ */
+.menubar{
+  height:30px; border:1px solid var(--border); border-radius:var(--radius-md);
+  background:var(--glass-bg); backdrop-filter:blur(14px);
+  display:flex; align-items:center; justify-content:flex-end; gap:14px;
+  padding:0 12px; font-size:11px; color:var(--muted); box-shadow:var(--shadow-sm);
+}
+.menubar svg{width:13px; height:13px; stroke:currentColor; fill:none; stroke-width:2; stroke-linecap:round; stroke-linejoin:round}
+.mb-anchor{
+  display:flex; align-items:center; justify-content:center;
+  width:24px; height:22px; border-radius:5px; background:var(--surface-2);
+  position:relative;
+}
+.mb-anchor svg{width:14px; height:14px; stroke:var(--green)}
+.mb-dot{
+  position:absolute; top:1px; right:1px; width:6px; height:6px; border-radius:50%;
+  background:var(--warn-amber); transition:background .3s;
+}
+.mb-dot.clear{background:var(--green)}
+.mb-clock{font-family:var(--font-mono); font-size:11px; color:var(--text)}
+
+/* ════════ Popover panel ════════ */
+.popwrap{position:relative; margin-top:12px}
+.pop-arrow{
+  position:absolute; top:-6px; right:88px; width:12px; height:12px;
+  background:var(--surface); border-left:1px solid var(--border); border-top:1px solid var(--border);
+  transform:rotate(45deg); z-index:2;
+}
+.popover{
+  width:360px; margin-left:auto; background:var(--surface); border:1px solid var(--border);
+  border-radius:var(--radius-lg); box-shadow:var(--shadow-lg); overflow:hidden; position:relative;
+}
+
+/* state line */
+.stateline{padding:16px 16px 12px; border-bottom:1px solid var(--border)}
+.stateline .big{font-size:15px; font-weight:600; letter-spacing:-.01em; display:flex; align-items:center; gap:8px; transition:color .3s}
+.stateline .big .check{color:var(--green); display:none}
+.stateline.ready .big .check{display:inline}
+.stateline .meta{font-size:11px; color:var(--muted); margin-top:2px}
+.stateline .meta .mono{font-size:11px}
+
+/* queue */
+.queue{padding:6px 8px}
+.q-item{
+  border-radius:var(--radius-md); padding:10px 8px 10px 10px; position:relative;
+  transition:background .15s, opacity .35s ease, max-height .35s ease, transform .35s ease;
+  max-height:600px; overflow:hidden;
+}
+.q-item:hover{background:var(--surface-2)}
+.q-item + .q-item{margin-top:2px}
+.q-item.leaving{opacity:0; transform:translateX(14px); max-height:0; padding-top:0; padding-bottom:0; margin-top:0}
+.q-row{display:flex; align-items:flex-start; gap:9px}
+.q-glyph{flex:none; width:15px; margin-top:3px; color:var(--muted)}
+.q-glyph svg{width:15px; height:15px; stroke:currentColor; fill:none; stroke-width:2; stroke-linecap:round; stroke-linejoin:round}
+.q-glyph.warn{color:var(--warn)}
+.q-main{flex:1; min-width:0}
+.q-title{font-size:13px; font-weight:600; letter-spacing:-.1px; line-height:1.35}
+.q-title .mono{font-weight:600; font-size:12.5px}
+.q-prov{font-size:11px; color:var(--muted); margin-top:2px; line-height:1.45}
+.q-prov .mono{font-size:10.5px}
+.q-actions{display:flex; gap:5px; margin-top:7px}
+.q-btn{
+  font-size:11px; font-weight:500; padding:3px 11px; line-height:1.5;
+  transition:border-color .15s, color .15s, transform .15s, background .15s;
+}
+.q-btn:hover{border-color:var(--border-hover); transform:translateY(-1px)}
+.q-btn.review[aria-expanded="true"]{background:var(--surface-2); border-color:var(--border-hover)}
+.q-btn.apply:hover{border-color:var(--green); color:var(--green)}
+.q-btn:disabled{opacity:.45; cursor:not-allowed; transform:none}
+.q-btn:disabled:hover{border-color:var(--border); color:var(--text)}
+.q-hint{font-size:10px; color:var(--muted-soft); align-self:center; margin-left:2px}
+
+/* evidence expansion */
+.evidence{display:none; margin:9px 0 2px 24px; border-left:2px solid var(--border); padding-left:11px;
+  animation:fadeup .3s ease-out}
+.evidence.open{display:block}
+@keyframes fadeup{from{opacity:0; transform:translateY(6px)}to{opacity:1; transform:translateY(0)}}
+.ev-track{padding:7px 0; border-bottom:1px dashed var(--border)}
+.ev-track:last-of-type{border-bottom:none}
+.ev-name{font-size:12px; font-weight:700; letter-spacing:-.2px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
+.ev-name .artist{font-weight:400; color:var(--muted)}
+.ev-data{display:flex; gap:5px; align-items:center; margin:4px 0 5px; flex-wrap:wrap}
+.chip{
+  font-family:var(--font-mono); font-size:10px; font-weight:600;
+  padding:1px 6px; border-radius:var(--radius-sm); line-height:1.6;
+}
+.chip.bpm{color:var(--green); background:var(--green-wash); border:1px solid var(--green)}
+.chip.key{color:var(--muted); background:var(--surface-2); border:1px solid var(--border)}
+.cue-chips{display:flex; gap:4px; flex-wrap:wrap}
+.cue{
+  font-family:var(--font-mono); font-size:10px; font-weight:600; line-height:1.6;
+  padding:1px 6px; border-radius:var(--radius-sm); border:1.5px solid var(--c);
+  color:var(--c); background:color-mix(in srgb, var(--c) 8%, transparent);
+  transition:transform .15s;
+}
+.cue:hover{transform:scale(1.08)}
+.ev-prov{font-size:10.5px; color:var(--muted-soft); margin-top:3px}
+.ev-prov .ok{color:var(--green)}
+.ev-foot{font-size:10.5px; color:var(--muted); padding:7px 0 2px}
+.ev-foot .mono{font-size:10px}
+
+/* duplicate evidence */
+.dup-pair{display:flex; flex-direction:column; gap:4px; margin:6px 0}
+.dup-copy{display:flex; align-items:center; gap:7px; font-size:11px; padding:5px 8px;
+  border:1px solid var(--border); border-radius:var(--radius-md); background:var(--surface)}
+.dup-copy.keep{border-color:var(--green); background:var(--green-wash)}
+.dup-tag{font-size:9px; font-weight:700; letter-spacing:.08em; text-transform:uppercase; flex:none}
+.dup-copy.keep .dup-tag{color:var(--green)}
+.dup-copy.del .dup-tag{color:var(--danger)}
+.dup-spec{font-family:var(--font-mono); font-size:10px; color:var(--muted); margin-left:auto; flex:none}
+
+/* snoozed strip */
+.snoozed{padding:4px 16px 10px}
+.sn-row{display:flex; align-items:center; gap:7px; font-size:11px; color:var(--muted-soft); padding:4px 0}
+.sn-row .when{font-family:var(--font-mono); font-size:10px; margin-left:auto}
+
+/* master pill */
+.masterwrap{padding:10px 16px 14px; border-top:1px solid var(--border)}
+.master{
+  width:100%; background:var(--ink); color:var(--on-ink); border:none;
+  font-size:13px; font-weight:600; padding:10px 18px; letter-spacing:-.1px;
+  transition:background .18s, transform .18s, box-shadow .18s, opacity .3s;
+  box-shadow:var(--shadow-sm);
+}
+.master:hover{background:var(--ink-hover); transform:translateY(-1px); box-shadow:var(--shadow-md)}
+.master:active{transform:translateY(0)}
+.master:disabled{opacity:.4; cursor:default; transform:none}
+.master .sub{font-weight:400; opacity:.65; font-size:11.5px}
+.master-note{font-size:10.5px; color:var(--muted-soft); text-align:center; margin-top:7px; line-height:1.5}
+.master-note .mono{font-size:10px}
+
+/* ledger */
+.ledger{border-top:1px solid var(--border); padding:10px 16px 12px; background:var(--surface-2)}
+.ledger h3{font-size:10px; letter-spacing:.08em; text-transform:uppercase; color:var(--muted-soft); font-weight:600; margin-bottom:6px}
+.ldg-row{display:flex; align-items:baseline; gap:8px; font-size:11.5px; padding:3px 0; color:var(--muted); animation:fadeup .35s ease-out}
+.ldg-row .date{font-family:var(--font-mono); font-size:10px; color:var(--muted-soft); flex:none; width:46px}
+.ldg-row .what{flex:1; min-width:0}
+.ldg-row .what .mono{font-size:10.5px}
+.ldg-undo{background:none; border:none; color:var(--muted); font-size:10.5px; text-decoration:underline; text-underline-offset:2px; padding:0; flex:none}
+.ldg-undo:hover{color:var(--text)}
+.ldg-row .restored{font-size:10px; color:var(--green); flex:none}
+
+/* trust footer */
+.trust{padding:9px 16px 12px; border-top:1px solid var(--border); display:flex; flex-direction:column; gap:3px}
+.trust .t-row{display:flex; align-items:center; gap:7px; font-size:10.5px; color:var(--muted-soft)}
+.trust .t-row svg{width:11px; height:11px; stroke:currentColor; fill:none; stroke-width:2; stroke-linecap:round; stroke-linejoin:round; flex:none}
+.trust .ok{color:var(--green)}
+
+/* ════════ Digest (right column) ════════ */
+.digest{
+  max-width:600px; background:var(--surface); border:1px solid var(--border);
+  border-radius:var(--radius-xl); box-shadow:var(--shadow-sm); padding:44px 48px 36px;
+}
+.dg-eyebrow{font-size:10px; letter-spacing:.08em; text-transform:uppercase; color:var(--muted-soft); font-weight:600}
+.dg-eyebrow .mono{font-size:10px; text-transform:none; letter-spacing:0}
+.digest h2{font-size:28px; font-weight:600; letter-spacing:-.01em; line-height:1.15; margin:10px 0 4px}
+.dg-lede{font-size:14px; color:var(--muted); margin-bottom:26px}
+.dg-stats{display:grid; grid-template-columns:repeat(4,1fr); gap:1px; background:var(--border);
+  border:1px solid var(--border); border-radius:var(--radius-lg); overflow:hidden; margin-bottom:8px}
+.dg-stat{background:var(--surface); padding:14px 14px 12px}
+.dg-stat .v{font-family:var(--font-mono); font-size:22px; font-weight:600; line-height:1.1; letter-spacing:-.4px}
+.dg-stat .v .dim{color:var(--muted-soft); font-size:15px; font-weight:400}
+.dg-stat .v .up{color:var(--green); font-size:13px; font-weight:600}
+.dg-stat .k{font-size:10.5px; color:var(--muted); margin-top:4px; line-height:1.4}
+.dg-healthbar{height:4px; border-radius:var(--radius-pill); background:var(--surface-2); margin:18px 0 4px; overflow:hidden; position:relative}
+.dg-healthbar .was{position:absolute; left:0; top:0; bottom:0; width:78%; background:var(--muted-soft); opacity:.35; border-radius:var(--radius-pill)}
+.dg-healthbar .now{position:absolute; left:0; top:0; bottom:0; width:84%; background:var(--green); border-radius:var(--radius-pill);
+  animation:growbar 1s cubic-bezier(.25,.46,.45,.94)}
+@keyframes growbar{from{width:78%}to{width:84%}}
+.dg-healthnote{font-size:10.5px; color:var(--muted-soft); margin-bottom:28px}
+.dg-healthnote .mono{font-size:10px}
+
+.dg-sec{font-size:10px; letter-spacing:.08em; text-transform:uppercase; color:var(--muted-soft); font-weight:600; margin:26px 0 10px}
+.dg-done{list-style:none}
+.dg-done li{display:flex; gap:9px; align-items:baseline; font-size:13px; color:var(--muted); padding:4px 0}
+.dg-done li::before{content:'✓'; color:var(--green); font-size:12px; flex:none; font-weight:600}
+.dg-done .mono{font-size:12px; color:var(--text)}
+
+.dg-decide{border:1px solid var(--border); border-radius:var(--radius-lg); overflow:hidden}
+.dg-item{display:flex; align-items:center; gap:12px; padding:13px 16px; background:var(--surface)}
+.dg-item + .dg-item{border-top:1px solid var(--border)}
+.dg-item .g{flex:none; width:15px; color:var(--warn)}
+.dg-item .g svg{width:15px; height:15px; stroke:currentColor; fill:none; stroke-width:2; stroke-linecap:round; stroke-linejoin:round}
+.dg-item .tx{flex:1; min-width:0; font-size:13px; line-height:1.45}
+.dg-item .tx .why{display:block; font-size:11px; color:var(--muted)}
+.dg-item .tx .why .mono{font-size:10.5px}
+.dg-open{font-size:11px; font-weight:500; padding:4px 14px; flex:none; transition:border-color .15s, transform .15s}
+.dg-open:hover{border-color:var(--border-hover); transform:translateY(-1px)}
+.dg-cta{margin-top:24px; display:flex; align-items:center; gap:14px}
+.dg-pill{
+  background:var(--ink); color:var(--on-ink); border:none; font-size:13px; font-weight:600;
+  padding:10px 26px; transition:background .18s, transform .18s, box-shadow .18s; box-shadow:var(--shadow-sm);
+}
+.dg-pill:hover{background:var(--ink-hover); transform:translateY(-1px); box-shadow:var(--shadow-md)}
+.dg-cta .or{font-size:11.5px; color:var(--muted-soft)}
+.dg-foot{margin-top:34px; padding-top:18px; border-top:1px solid var(--border); font-size:10.5px; color:var(--muted-soft); line-height:1.7}
+.dg-foot .mono{font-size:10px}
+
+/* pulse the popover when digest CTA clicked */
+@keyframes pulse-ring{0%{box-shadow:var(--shadow-lg),0 0 0 0 var(--green-ring)}70%{box-shadow:var(--shadow-lg),0 0 0 14px transparent}100%{box-shadow:var(--shadow-lg)}}
+.popover.pulse{animation:pulse-ring 1s ease-out 2}
+
+@media (prefers-reduced-motion: reduce){
+  *,*::before,*::after{animation:none!important; transition:none!important}
+}
+</style>
+</head>
+<body>
+<div class="stage">
+
+  <div class="concept-head">
+    <h1>Concept H — Stagehand</h1>
+    <span class="sub">ambient zero-UI · the app prepares, you consent</span>
+    <button class="theme-toggle" onclick="document.documentElement.classList.toggle('dark')">Light / Dark</button>
+  </div>
+
+  <!-- ══════════════ LEFT: menubar mini panel ══════════════ -->
+  <div>
+    <div class="col-label">Artifact 1 — menu-bar panel (always one click away)</div>
+
+    <div class="menubar">
+      <svg viewBox="0 0 24 24"><path d="M5 12.55a11 11 0 0 1 14.08 0"/><path d="M8.53 16.11a6 6 0 0 1 6.95 0"/><circle cx="12" cy="19" r="1"/></svg>
+      <svg viewBox="0 0 24 24"><rect x="2" y="7" width="16" height="10" rx="2"/><line x1="22" y1="11" x2="22" y2="13"/></svg>
+      <span class="mb-anchor" title="AutoCue — 3 things waiting">
+        <svg viewBox="0 0 24 24"><line x1="4" y1="10" x2="4" y2="14"/><line x1="8" y1="6" x2="8" y2="18"/><line x1="12" y1="9" x2="12" y2="15"/><line x1="16" y1="4" x2="16" y2="20"/><line x1="20" y1="8" x2="20" y2="16"/></svg>
+        <span class="mb-dot" id="mb-dot"></span>
+      </span>
+      <span class="mb-clock">Thu 12 Jun&nbsp;&nbsp;14:02</span>
+    </div>
+
+    <div class="popwrap">
+      <div class="pop-arrow"></div>
+      <div class="popover" id="popover">
+
+        <!-- state line -->
+        <div class="stateline" id="stateline">
+          <div class="big">
+            <span class="check">✓</span>
+            <span id="state-text">3 things waiting</span>
+          </div>
+          <div class="meta" id="state-meta">watched since <span class="mono">13:47</span> · Rekordbox analysis finished <span class="mono">12 min ago</span></div>
+        </div>
+
+        <!-- prepared queue -->
+        <div class="queue" id="queue">
+
+          <!-- item 1: new imports -->
+          <div class="q-item" id="item-imports">
+            <div class="q-row">
+              <span class="q-glyph"><svg viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg></span>
+              <div class="q-main">
+                <div class="q-title"><span class="mono">12</span> new imports — cues ready to write</div>
+                <div class="q-prov">phrase data present on <span class="mono">11/12</span> · 8-bar intros detected · grid confidence high</div>
+                <div class="q-actions">
+                  <button class="q-btn review" aria-expanded="false" onclick="toggleReview('imports', this)">Review</button>
+                  <button class="q-btn apply" onclick="applyItem('imports','applied cues to 12 tracks')">Apply</button>
+                  <button class="q-btn" onclick="snoozeItem('imports','New-import cues')">Snooze</button>
+                </div>
+                <!-- evidence -->
+                <div class="evidence" id="ev-imports">
+                  <div class="ev-track">
+                    <div class="ev-name">Magical <span class="artist">— Cassian</span></div>
+                    <div class="ev-data">
+                      <span class="chip bpm">122.0 BPM</span><span class="chip key">8A</span>
+                      <span class="cue-chips">
+                        <span class="cue" style="--c:var(--cue-a)" title="0:00.0">A In</span>
+                        <span class="cue" style="--c:var(--cue-b)" title="1:02.4">B Build</span>
+                        <span class="cue" style="--c:var(--cue-c)" title="1:33.9">C Drop</span>
+                        <span class="cue" style="--c:var(--cue-d)" title="3:08.1">D Break</span>
+                        <span class="cue" style="--c:var(--cue-e)" title="5:14.6">E Out</span>
+                      </span>
+                    </div>
+                    <div class="ev-prov"><span class="ok">✓</span> phrase data · 8-bar intro · drop on phrase boundary</div>
+                  </div>
+                  <div class="ev-track">
+                    <div class="ev-name">Baby, We're Ascending <span class="artist">— HAAi, Jon Hopkins</span></div>
+                    <div class="ev-data">
+                      <span class="chip bpm">128.0 BPM</span><span class="chip key">11B</span>
+                      <span class="cue-chips">
+                        <span class="cue" style="--c:var(--cue-a)" title="0:00.0">A In</span>
+                        <span class="cue" style="--c:var(--cue-b)" title="0:58.1">B Build</span>
+                        <span class="cue" style="--c:var(--cue-c)" title="2:02.3">C Drop</span>
+                        <span class="cue" style="--c:var(--cue-h)" title="6:01.0">H Out</span>
+                      </span>
+                    </div>
+                    <div class="ev-prov"><span class="ok">✓</span> phrase data · 16-bar intro · long outro kept clear</div>
+                  </div>
+                  <div class="ev-track">
+                    <div class="ev-name">Fearless <span class="artist">— Folamour</span></div>
+                    <div class="ev-data">
+                      <span class="chip bpm">121.9 BPM</span><span class="chip key">5A</span>
+                      <span class="cue-chips">
+                        <span class="cue" style="--c:var(--cue-a)" title="0:00.0">A In</span>
+                        <span class="cue" style="--c:var(--cue-c)" title="1:28.7">C Drop</span>
+                        <span class="cue" style="--c:var(--cue-e)" title="4:47.2">E Out</span>
+                      </span>
+                    </div>
+                    <div class="ev-prov">○ no phrase data — bar-level fallback · grid confidence medium</div>
+                  </div>
+                  <div class="ev-foot">…and <span class="mono">9</span> more, same standard. Nothing is written until you apply.</div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- item 2: duplicates (destructive — evidence-gated) -->
+          <div class="q-item" id="item-dups">
+            <div class="q-row">
+              <span class="q-glyph warn"><svg viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></span>
+              <div class="q-main">
+                <div class="q-title"><span class="mono">2</span> duplicate groups resolved — awaiting consent</div>
+                <div class="q-prov">keepers chosen by cues → plays → bitrate · deletes <span class="mono">2</span> files from collection (not disk)</div>
+                <div class="q-actions">
+                  <button class="q-btn review" aria-expanded="false" onclick="toggleReview('dups', this); enableDupApply()">Review</button>
+                  <button class="q-btn apply" id="dup-apply" disabled title="Destructive — review the evidence first" onclick="applyItem('dups','merged 2 duplicate groups')">Apply</button>
+                  <button class="q-btn" onclick="snoozeItem('dups','Duplicate merge')">Snooze</button>
+                  <span class="q-hint">review unlocks apply</span>
+                </div>
+                <div class="evidence" id="ev-dups">
+                  <div class="ev-track">
+                    <div class="ev-name">Glue <span class="artist">— Bicep</span></div>
+                    <div class="ev-data"><span class="chip bpm">129.0 BPM</span><span class="chip key">9A</span><span class="chip key">4:21</span></div>
+                    <div class="dup-pair">
+                      <div class="dup-copy keep"><span class="dup-tag">Keep</span> Glue.aiff <span class="dup-spec">1411 kbps · 6 cues · 38 plays</span></div>
+                      <div class="dup-copy del"><span class="dup-tag">Remove</span> glue (1).mp3 <span class="dup-spec">192 kbps · 0 cues · 0 plays</span></div>
+                    </div>
+                    <div class="ev-prov"><span class="ok">✓</span> same audio fingerprint · keeper has your cue prep</div>
+                  </div>
+                  <div class="ev-track">
+                    <div class="ev-name">Opal (Four Tet Remix) <span class="artist">— Bicep</span></div>
+                    <div class="ev-data"><span class="chip bpm">123.0 BPM</span><span class="chip key">6B</span><span class="chip key">6:48</span></div>
+                    <div class="dup-pair">
+                      <div class="dup-copy keep"><span class="dup-tag">Keep</span> Opal_FT_Remix.flac <span class="dup-spec">980 kbps · 4 cues</span></div>
+                      <div class="dup-copy del"><span class="dup-tag">Remove</span> Opal Four Tet.m4a <span class="dup-spec">256 kbps · 0 cues</span></div>
+                    </div>
+                    <div class="ev-prov"><span class="ok">✓</span> distinct files, same recording · playlists re-point to keeper</div>
+                  </div>
+                  <div class="ev-foot">Backup <span class="mono">b-0612-1402</span> will be created before the first delete. One-click undo for 30 days.</div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- item 3: comment enrichment -->
+          <div class="q-item" id="item-comments">
+            <div class="q-row">
+              <span class="q-glyph"><svg viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg></span>
+              <div class="q-main">
+                <div class="q-title"><span class="mono">9</span> tracks — energy + key comments prepared</div>
+                <div class="q-prov">writes to the comment field only · format <span class="mono">[E7 · 8A · 124.5]</span> · existing comments preserved</div>
+                <div class="q-actions">
+                  <button class="q-btn review" aria-expanded="false" onclick="toggleReview('comments', this)">Review</button>
+                  <button class="q-btn apply" onclick="applyItem('comments','enriched comments on 9 tracks')">Apply</button>
+                  <button class="q-btn" onclick="snoozeItem('comments','Comment enrichment')">Snooze</button>
+                </div>
+                <div class="evidence" id="ev-comments">
+                  <div class="ev-track">
+                    <div class="ev-name">Pump Up The Jam (Mind Against Edit) <span class="artist">— Technotronic</span></div>
+                    <div class="ev-data"><span class="chip bpm">124.5 BPM</span><span class="chip key">8A</span><span class="chip key">+ [E7 · 8A · 124.5]</span></div>
+                    <div class="ev-prov"><span class="ok">✓</span> appends after your note "<span class="mono">closer — crowd pleaser</span>"</div>
+                  </div>
+                  <div class="ev-track">
+                    <div class="ev-name">Sangre Nueva <span class="artist">— DJ Python</span></div>
+                    <div class="ev-data"><span class="chip bpm">96.0 BPM</span><span class="chip key">3A</span><span class="chip key">+ [E4 · 3A · 96.0]</span></div>
+                    <div class="ev-prov"><span class="ok">✓</span> empty comment field — clean write</div>
+                  </div>
+                  <div class="ev-track">
+                    <div class="ev-name">Voodoo? <span class="artist">— Overmono</span></div>
+                    <div class="ev-data"><span class="chip bpm">136.0 BPM</span><span class="chip key">10B</span><span class="chip key">+ [E8 · 10B · 136.0]</span></div>
+                    <div class="ev-prov"><span class="ok">✓</span> energy from waveform analysis · key from Rekordbox</div>
+                  </div>
+                  <div class="ev-foot">…and <span class="mono">6</span> more. Reversible — original comments kept in backup.</div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+        </div><!-- /queue -->
+
+        <!-- snoozed -->
+        <div class="snoozed" id="snoozed">
+          <div class="sn-row" title="Snoozed until Mon 16 Jun">
+            💤 <span>Re-analysis reminder — <span class="mono">3</span> tracks missing beatgrid</span>
+            <span class="when">→ Mon 16</span>
+          </div>
+        </div>
+
+        <!-- master pill -->
+        <div class="masterwrap">
+          <button class="master" id="master" onclick="applyAll()">
+            Apply all <span class="sub">· backup first · skips unreviewed deletes</span>
+          </button>
+          <div class="master-note">creates <span class="mono">b-0612-1402</span> before any write · Rekordbox is closed ✓</div>
+        </div>
+
+        <!-- ledger -->
+        <div class="ledger">
+          <h3>Activity</h3>
+          <div id="ledger-list">
+            <div class="ldg-row"><span class="date">9 Jun</span><span class="what">merged <span class="mono">1</span> duplicate group</span><button class="ldg-undo" onclick="undoEntry(this)">undo</button></div>
+            <div class="ldg-row"><span class="date">3 Jun</span><span class="what">applied cues to <span class="mono">24</span> tracks</span><button class="ldg-undo" onclick="undoEntry(this)">undo</button></div>
+            <div class="ldg-row"><span class="date">28 May</span><span class="what">auto-tagged <span class="mono">61</span> tracks</span><span class="restored">backup expired</span></div>
+          </div>
+        </div>
+
+        <!-- trust footer -->
+        <div class="trust">
+          <div class="t-row"><svg viewBox="0 0 24 24"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg> Nothing writes without your click — watching is read-only</div>
+          <div class="t-row"><svg viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg> Every write is preceded by a backup · undo from the ledger</div>
+          <div class="t-row ok"><svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg> Rekordbox closed · safe to write · local only</div>
+        </div>
+
+      </div><!-- /popover -->
+    </div>
+  </div>
+
+  <!-- ══════════════ RIGHT: weekly digest ══════════════ -->
+  <div>
+    <div class="col-label">Artifact 2 — weekly digest (the only notification AutoCue sends)</div>
+
+    <div class="digest">
+      <div class="dg-eyebrow">Weekly digest · <span class="mono">6–12 Jun 2026</span></div>
+      <h2>Your library this week</h2>
+      <p class="dg-lede">Quiet week of prep. AutoCue handled 36 of 38 new tracks on its own — 2 decisions are waiting for you.</p>
+
+      <div class="dg-stats">
+        <div class="dg-stat"><div class="v">38</div><div class="k">tracks imported</div></div>
+        <div class="dg-stat"><div class="v">36</div><div class="k">auto-prepped · phrase quality</div></div>
+        <div class="dg-stat"><div class="v">78 <span class="up">→ 84</span></div><div class="k">library health</div></div>
+        <div class="dg-stat"><div class="v">2</div><div class="k">need you</div></div>
+      </div>
+      <div class="dg-healthbar"><span class="was"></span><span class="now"></span></div>
+      <div class="dg-healthnote">health <span class="mono">78 → 84</span> — duplicates resolved and <span class="mono">14</span> missing-cue tracks prepped</div>
+
+      <div class="dg-sec">Done for you — no action needed</div>
+      <ul class="dg-done">
+        <li>cues placed on <span class="mono">24</span> tracks at phrase quality (<span class="mono">3 Jun</span>, backed up, in ledger)</li>
+        <li><span class="mono">12</span> fresh imports analysed the moment Rekordbox finished — cues staged, not written</li>
+        <li>watched <span class="mono">4</span> Rekordbox sessions · zero writes attempted while it was open</li>
+      </ul>
+
+      <div class="dg-sec">Needs a decision — 30 seconds</div>
+      <div class="dg-decide">
+        <div class="dg-item">
+          <span class="g"><svg viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></span>
+          <span class="tx"><span class="mono">2</span> duplicate groups — keepers chosen, deletes staged
+            <span class="why">why: same fingerprint · keeper has your cues · <span class="mono">192 kbps</span> copy goes</span>
+          </span>
+          <button class="dg-open" onclick="focusPanel()">Open</button>
+        </div>
+        <div class="dg-item">
+          <span class="g"><svg viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg></span>
+          <span class="tx"><span class="mono">12</span> new imports — cues ready to write
+            <span class="why">why: phrase data on <span class="mono">11/12</span> · one bar-level fallback flagged for your ear</span>
+          </span>
+          <button class="dg-open" onclick="focusPanel()">Open</button>
+        </div>
+      </div>
+
+      <div class="dg-cta">
+        <button class="dg-pill" onclick="focusPanel()">Review &amp; apply</button>
+        <span class="or">or do nothing — everything stays staged, next digest Fri <span class="mono">19 Jun</span></span>
+      </div>
+
+      <div class="dg-foot">
+        Sent by AutoCue running at <span class="mono">localhost:7432</span> — your library never leaves this machine.
+        Writes always create a backup (<span class="mono">b-…</span>) and appear in the activity ledger with one-click undo.
+        Too chatty? Switch to monthly, or off — the menu-bar dot is the only other signal.
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+function toggleReview(id, btn){
+  var ev = document.getElementById('ev-' + id);
+  var open = ev.classList.toggle('open');
+  btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+  btn.textContent = open ? 'Close' : 'Review';
+}
+function enableDupApply(){
+  var b = document.getElementById('dup-apply');
+  b.disabled = false;
+  b.title = 'Evidence reviewed — apply will create backup b-0612-1402 first';
+}
+var waiting = 3;
+function refreshState(){
+  var st = document.getElementById('stateline');
+  var dot = document.getElementById('mb-dot');
+  var txt = document.getElementById('state-text');
+  if(waiting <= 0){
+    st.classList.add('ready');
+    txt.textContent = 'Library gig-ready';
+    document.getElementById('state-meta').innerHTML = 'all staged work applied · backup <span class="mono">b-0612-1402</span> · watching for new imports';
+    dot.classList.add('clear');
+    document.getElementById('master').disabled = true;
+  } else {
+    st.classList.remove('ready');
+    txt.textContent = waiting + (waiting === 1 ? ' thing waiting' : ' things waiting');
+    dot.classList.remove('clear');
+    document.getElementById('master').disabled = false;
+  }
+}
+function removeItem(id){
+  var el = document.getElementById('item-' + id);
+  if(!el || el.classList.contains('leaving')) return false;
+  el.classList.add('leaving');
+  setTimeout(function(){ el.remove(); }, 380);
+  return true;
+}
+function addLedger(what){
+  var list = document.getElementById('ledger-list');
+  var row = document.createElement('div');
+  row.className = 'ldg-row';
+  row.innerHTML = '<span class="date">12 Jun</span><span class="what">' + what +
+    ' — backup <span class="mono">b-0612-1402</span></span><button class="ldg-undo" onclick="undoEntry(this)">undo</button>';
+  list.insertBefore(row, list.firstChild);
+}
+function applyItem(id, what){
+  if(removeItem(id)){ waiting--; addLedger(what); refreshState(); }
+}
+function snoozeItem(id, label){
+  if(!removeItem(id)) return;
+  waiting--;
+  var sn = document.getElementById('snoozed');
+  var row = document.createElement('div');
+  row.className = 'sn-row';
+  row.style.animation = 'fadeup .35s ease-out';
+  row.innerHTML = '💤 <span>' + label + ' — snoozed</span><span class="when">→ Mon 16</span>';
+  sn.appendChild(row);
+  refreshState();
+}
+function applyAll(){
+  // consent model: destructive items that were never reviewed are skipped, not forced
+  var dupBtn = document.getElementById('dup-apply');
+  var dupEl = document.getElementById('item-dups');
+  var skippedDup = false;
+  if(document.getElementById('item-imports')){ applyItem('imports','applied cues to 12 tracks'); }
+  if(document.getElementById('item-comments')){ applyItem('comments','enriched comments on 9 tracks'); }
+  if(dupEl){
+    if(dupBtn && !dupBtn.disabled){ applyItem('dups','merged 2 duplicate groups'); }
+    else {
+      skippedDup = true;
+      dupEl.style.transition = 'background .3s';
+      dupEl.style.background = 'var(--green-wash)';
+      setTimeout(function(){ dupEl.style.background = ''; }, 1200);
+    }
+  }
+  if(skippedDup){
+    var meta = document.getElementById('state-meta');
+    refreshState();
+    meta.innerHTML = 'duplicate merge skipped — <b>deletes always need review first</b>';
+  }
+}
+function undoEntry(btn){
+  var row = btn.parentElement;
+  btn.remove();
+  var tag = document.createElement('span');
+  tag.className = 'restored';
+  tag.textContent = 'restored ✓';
+  row.appendChild(tag);
+  row.querySelector('.what').style.textDecoration = 'line-through';
+  row.querySelector('.what').style.opacity = '.6';
+}
+function focusPanel(){
+  var p = document.getElementById('popover');
+  p.classList.remove('pulse');
+  void p.offsetWidth; // restart animation
+  p.classList.add('pulse');
+  p.scrollIntoView({behavior:'smooth', block:'nearest'});
+}
+refreshState();
+</script>
+</body>
+</html>
