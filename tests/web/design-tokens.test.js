@@ -16,10 +16,12 @@ import { describe, it, expect } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { resolve, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { loadAppHtml } from './_source.js'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const root = resolve(__dirname, '..', '..')
-const html = readFileSync(resolve(root, 'docs/index.html'), 'utf8')
+// P0 split: app CSS lives in docs/css/* — loadAppHtml() inlines it back.
+const html = loadAppHtml()
 
 // Extract every custom-property DECLARATION (`--name:`) from CSS. Strips
 // `/* ... */` comments first so a `--token:` inside a comment can't count as a

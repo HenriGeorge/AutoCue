@@ -13,13 +13,11 @@
  */
 
 import { describe, it, expect } from 'vitest'
-import { readFileSync } from 'node:fs'
-import { fileURLToPath } from 'node:url'
-import { dirname, resolve } from 'node:path'
+// P0 split: JS lives in docs/js/* — loadAppHtml() reconstructs the
+// single-file view so the markup ↔ JS contract still sees both layers.
+import { loadAppHtml } from './_source.js'
 
-const __dirname = dirname(fileURLToPath(import.meta.url))
-const INDEX_HTML = resolve(__dirname, '..', '..', 'docs', 'index.html')
-const html = readFileSync(INDEX_HTML, 'utf8')
+const html = loadAppHtml()
 
 // Every #disc-v2-* id that the JS *reads* via getElementById.
 const getElementByIdRefs = new Set()

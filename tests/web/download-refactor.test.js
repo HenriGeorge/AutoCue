@@ -172,11 +172,11 @@ describe('SSE keepalive (comment-line) is invisible to handlers', () => {
 
 /* ──────────────── HTML guarantees: no jargon in user copy ──────────────── */
 
-import { readFileSync } from 'fs'
-import { resolve } from 'path'
+// P0 split: user copy may live in markup OR JS — loadAppHtml() sees both.
+import { loadAppHtml } from './_source.js'
 
 describe('docs/index.html user-facing copy is jargon-free', () => {
-  const html = readFileSync(resolve(__dirname, '..', '..', 'docs', 'index.html'), 'utf8')
+  const html = loadAppHtml()
 
   it('Download section helper no longer mentions yt-dlp', () => {
     const start = html.indexOf('id="download-section"')
@@ -227,7 +227,7 @@ describe('docs/index.html user-facing copy is jargon-free', () => {
 /* ─────────────────── Old SSE drivers are deleted/replaced ───────────────── */
 
 describe('Old function definitions are removed (PRD §12 acceptance #2)', () => {
-  const html = readFileSync(resolve(__dirname, '..', '..', 'docs', 'index.html'), 'utf8')
+  const html = loadAppHtml()
 
   it('window._Download IIFE exists', () => {
     expect(html).toMatch(/window\._Download = \(function/)
@@ -244,7 +244,7 @@ describe('Old function definitions are removed (PRD §12 acceptance #2)', () => 
 /* ────────────── search→modal routing (PRP search→modal) ────────────── */
 
 describe('Manual panel routes bare-text search through YouTube candidate modal', () => {
-  const html = readFileSync(resolve(__dirname, '..', '..', 'docs', 'index.html'), 'utf8')
+  const html = loadAppHtml()
 
   it('openYoutubeModalForQuery helper exists', () => {
     expect(html).toMatch(/function openYoutubeModalForQuery\(query\)/)
