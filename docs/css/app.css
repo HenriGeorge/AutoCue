@@ -2655,3 +2655,56 @@
     .wb-row .wb-approve-tick { transition: none; }
   }
   /* ── /v2: workbench proposal organ ────────────────────────────────────── */
+
+  /* ── v2: workbench polish ────────────────────────────────────────────────
+     Final design-Z reconciliation (CSS-only; no markup/logic changes). Token-
+     driven so light + warm-stone dark both follow automatically. Appended last
+     to avoid colliding with the concurrent confirm-dialog banner edit. */
+
+  /* 2 — Quiet the "no waveform" label in the dense ENERGY cell. The legacy
+     _renderEnergySparkline appends a `.no-data` span ("no waveform" / "—").
+     In the 72px wb grid cell that text shouts; collapse it to a faint baseline
+     dash so an un-analyzed row reads as a calm placeholder, not an error. */
+  body.wb-active .wb-row .wb-c-energy .no-data {
+    display: block;
+    width: 56px;
+    height: 18px;
+    font-size: 0;            /* hide "no waveform" / "—" text without removing the node */
+    line-height: 18px;
+    position: relative;
+    color: transparent;
+  }
+  body.wb-active .wb-row .wb-c-energy .no-data::before {
+    content: '';
+    position: absolute;
+    left: 0; right: 0; top: 50%;
+    height: 1px;
+    background: var(--border);   /* faint baseline — themes via token */
+    opacity: .7;
+  }
+
+  /* 3 — Health-ring rail card: match design-Z's #rail-health (surface fill +
+     soft lift + tightened padding). .wb-rail-card already carries border+radius;
+     give it the same ground + shadow so it lifts off the rail in both themes. */
+  body.wb-active #wb-rail-health.wb-rail-card {
+    background: var(--surface);
+    box-shadow: var(--shadow-sm);
+    padding: 14px 14px 13px;
+  }
+  #wb-rail-health .rh-top { gap: 13px; }
+  #wb-rail-health .rh-meta .rh-eyebrow { line-height: 1.2; }
+  /* Fix-it ink pill: design-Z gives it a resting lift + green-ring focus
+     (was a flat 3px green outline). Ink stays the CTA; green is focus signal. */
+  #wb-rail-health .rh-fix {
+    box-shadow: var(--shadow-sm);
+    transition: background .18s, transform .15s, box-shadow .15s;
+    display: flex; align-items: center; justify-content: center; gap: 6px;
+  }
+  #wb-rail-health .rh-fix:hover { box-shadow: var(--shadow-md); }
+  #wb-rail-health .rh-fix:focus-visible {
+    outline: 3px solid var(--green-ring); outline-offset: 2px;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    #wb-rail-health .rh-fix { transition: none; }
+  }
+  /* ── /v2: workbench polish ──────────────────────────────────────────────── */
