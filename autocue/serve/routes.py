@@ -116,7 +116,7 @@ router = APIRouter(prefix="/api")
 
 
 @router.get("/status", response_model=StatusResponse)
-def status(request: Request, db=Depends(get_ro_db)):
+def status(request: Request, db=Depends(get_ro_db), include_rb: bool = False):
     count = db.get_content().count()
     # Diagnostic field: only returned when the caller explicitly opts in via
     # header. The web UI never sets it. The QA agent sets it to verify the
@@ -127,7 +127,21 @@ def status(request: Request, db=Depends(get_ro_db)):
         db_dir = getattr(db, "_db_dir", None)
         if db_dir is not None:
             db_path = str(Path(db_dir) / "master.db")
-    return StatusResponse(connected=True, track_count=count, db_path=db_path)
+    # Opt-in Rekordbox-running probe (the AutoCue 2.0 status sentence polls this
+    # every 30 s). Off by default so the web UI's frequent /api/status calls stay
+    # cheap. A probe failure must not 500 the status endpoint → leave it None.
+    rekordbox_running: bool | None = None
+    if include_rb:
+        try:
+            rekordbox_running = _rb_running(db)
+        except Exception:
+            rekordbox_running = None
+    return StatusResponse(
+        connected=True,
+        track_count=count,
+        db_path=db_path,
+        rekordbox_running=rekordbox_running,
+    )
 
 
 @router.get("/playlists", response_model=list[PlaylistItem])

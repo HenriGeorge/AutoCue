@@ -74,6 +74,35 @@ class TestStatus:
         r = client.get("/api/status")
         assert r.status_code == 503
 
+    def test_rekordbox_running_none_by_default(self):
+        """Default /api/status must not run the (non-free) rb probe."""
+        client = _make_client()
+        r = client.get("/api/status")
+        assert r.status_code == 200
+        assert r.json()["rekordbox_running"] is None
+
+    def test_include_rb_returns_probe_result(self):
+        """?include_rb=1 surfaces the monkeypatched rekordbox_is_running bool."""
+        client = _make_client()
+        with patch("autocue.db_writer.rekordbox_is_running", return_value=True):
+            r = client.get("/api/status?include_rb=1")
+        assert r.status_code == 200
+        assert r.json()["rekordbox_running"] is True
+        with patch("autocue.db_writer.rekordbox_is_running", return_value=False):
+            r = client.get("/api/status?include_rb=1")
+        assert r.json()["rekordbox_running"] is False
+
+    def test_include_rb_probe_failure_stays_200_with_none(self):
+        """A probe exception must not 500 status — field stays None."""
+        client = _make_client()
+        with patch(
+            "autocue.db_writer.rekordbox_is_running",
+            side_effect=RuntimeError("psutil boom"),
+        ):
+            r = client.get("/api/status?include_rb=1")
+        assert r.status_code == 200
+        assert r.json()["rekordbox_running"] is None
+
 
 # ---------------------------------------------------------------------------
 # deps — get_db reads from app.state

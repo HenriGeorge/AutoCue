@@ -10,6 +10,10 @@ class StatusResponse(BaseModel):
     rekordbox_version: str | None = None
     track_count: int
     db_path: str | None = None
+    # Opt-in only (GET /api/status?include_rb=1) — the file-lock + process probe
+    # is not free, so the default response stays cheap to honour the web UI's
+    # 600 ms detectLocalMode budget. None = not requested (or probe failed).
+    rekordbox_running: bool | None = None
 
 
 class PlaylistItem(BaseModel):
