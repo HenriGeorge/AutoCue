@@ -40,6 +40,18 @@ function _openSheet() {
   if (file) file.textContent = _backupFile;
   if (line) line.textContent = line.dataset.msg || 'Restore the deleted tracks?';
   sheet.removeAttribute('hidden');
+  // Anchor the sheet under the fact button (the status sentence is right-
+  // aligned, so a static origin would drop it in the wrong corner). Clamp to
+  // the viewport so a right-edge fact doesn't push it off-screen.
+  const fact = _el('status-restore');
+  if (fact && fact.getBoundingClientRect) {
+    const r = fact.getBoundingClientRect();
+    const sw = sheet.offsetWidth || 320;
+    let left = r.left;
+    if (left + sw > window.innerWidth - 12) left = window.innerWidth - sw - 12;
+    sheet.style.top = `${Math.round(r.bottom + 6)}px`;
+    sheet.style.left = `${Math.round(Math.max(12, left))}px`;
+  }
   _el('wb-restore-go')?.focus();
 }
 

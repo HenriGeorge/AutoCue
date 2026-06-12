@@ -29,11 +29,25 @@ test.describe("AutoCue 2.0 global layer", () => {
   });
 
   test("⌘K opens the palette, focuses the input, runs a command", async ({ page }) => {
+    // The find/go-duplicates command opens the P3 place, which lazy-scans
+    // /api/duplicates (a real 2,928-track scan) — under the similar-index build
+    // that runs on a fresh sandbox the server saturates and the place-open
+    // flakes. Mock the scan to an instant "0 groups" SSE so this smoke test is
+    // deterministic (the place-open itself is covered fully in
+    // v2-duplicates-place.spec.ts). The scan still fires; it just returns now.
+    await page.route(/\/api\/duplicates(\?|$)/, (route) => route.fulfill({
+      status: 200,
+      headers: { "Content-Type": "text/event-stream", "Cache-Control": "no-cache" },
+      body: 'data: {"total":0}\n\ndata: {"done":true,"summary":{"groups":0,"surplus":0,"scanned":0,"skipped_empty":0}}\n\n',
+    }));
     await page.keyboard.press("ControlOrMeta+k");
     await expect(page.locator("#cmd-veil")).toBeVisible();
     await expect(page.locator("#pal-input")).toBeFocused();
     await page.locator("#pal-input").fill("dupl");
-    await expect(page.locator("#pal-list .pal-item").first()).toContainText("Find duplicates");
+    // Both the "Find duplicates" and "Go to Duplicates" (P3) commands match and
+    // open the same place; assert the top match is a duplicates command rather
+    // than pinning one label's fuzzy rank.
+    await expect(page.locator("#pal-list .pal-item").first()).toContainText("Duplicates");
     await page.keyboard.press("Enter");
     // Command ran: palette closed, the workbench Duplicates place opened
     // (P3 — the legacy Library duplicates section is gone; the command now
