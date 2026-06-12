@@ -5,8 +5,9 @@
  * list as the document-scrolled centre + a right inspector. Fixed flanks (path
  * a) — the Virtualizer, #tracks-sticky and document scroll are untouched.
  *
- * Flag-gated + additive: hidden until local mode AND localStorage.ac_workbench
- * === '1'. The old tabbed UI stays in the DOM (parity); the workbench just owns
+ * Default-on in local mode: the workbench is the standard home. An explicit
+ * opt-out (localStorage.ac_workbench === '0', written by the toggle) reverts to
+ * the legacy tabbed UI, which stays in the DOM (parity). The workbench just owns
  * the screen when active. Reads legacy state ONLY via window.ACBridge.
  */
 
@@ -16,7 +17,9 @@ import { initRail } from './rail.js';
 const FLAG = 'ac_workbench';
 
 export function isWorkbenchOn() {
-  try { return localStorage.getItem(FLAG) === '1'; } catch (_) { return false; }
+  // Default-on: the workbench is the standard local-mode home. Only an explicit
+  // opt-out ('0', written by the toggle) reverts to the legacy tabbed UI.
+  try { return localStorage.getItem(FLAG) !== '0'; } catch (_) { return true; }
 }
 export function setWorkbench(on) {
   try { localStorage.setItem(FLAG, on ? '1' : '0'); } catch (_) {}
