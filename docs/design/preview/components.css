@@ -2,7 +2,10 @@
    AutoCue Design System — component implementations (preview)
    Token-driven CSS port of the .prompt.md design-intent specs.
    Pairs with ../styles.css (which supplies all --tokens + base).
-   Every value references a var(--token); no hardcoded hexes.
+   Values reference var(--token); the only literal is white-on-danger
+   (#fff) — the system has no pure-white token and --on-ink flips to
+   black on dark, but white text on the red danger fill is correct in
+   both themes.
    ============================================================ */
 
 /* ── Button ────────────────────────────────────────────────
