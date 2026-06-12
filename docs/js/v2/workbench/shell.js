@@ -55,6 +55,37 @@ function _renderCrates() {
   }
 }
 
+// Global controls that move into the top-bar toolbar in workbench mode. Their
+// original DOM slot is recorded so deactivate() can put them back exactly.
+const _TOOL_IDS = ['playlist-filter-bar', 'analysis-mode-bar'];
+const _toolHomes = new Map();
+
+function _relocateTools() {
+  const host = document.getElementById('wb-topbar-tools');
+  if (!host) return;
+  for (const id of _TOOL_IDS) {
+    const el = document.getElementById(id);
+    if (!el || _toolHomes.has(id)) continue;
+    _toolHomes.set(id, { parent: el.parentNode, next: el.nextSibling, display: el.style.display });
+    el.style.display = 'flex'; // these default to display:none until local mode reveals them
+    host.appendChild(el);
+  }
+  host.hidden = false;
+}
+function _restoreTools() {
+  const host = document.getElementById('wb-topbar-tools');
+  for (const id of _TOOL_IDS) {
+    const home = _toolHomes.get(id);
+    const el = document.getElementById(id);
+    if (home && el) {
+      el.style.display = home.display;
+      home.parent.insertBefore(el, home.next);
+    }
+    _toolHomes.delete(id);
+  }
+  if (host) { host.hidden = true; host.innerHTML = ''; }
+}
+
 function activate() {
   if (_active) return;
   if (!(window.ACBridge && window.ACBridge.isLocalMode())) return;
@@ -64,6 +95,7 @@ function activate() {
   document.getElementById('wb-inspector')?.removeAttribute('hidden');
   // The workbench centre is the Cues track list — make sure that tab is shown.
   if (window.switchTab) window.switchTab('cues');
+  _relocateTools();
   // Re-render so the album-group view collapses into the uniform flat grid.
   if (window.ACBridge) window.ACBridge.renderTracks();
   _renderCrates();
@@ -78,6 +110,7 @@ function deactivate() {
   document.body.classList.remove('wb-active');
   document.getElementById('wb-rail')?.setAttribute('hidden', '');
   document.getElementById('wb-inspector')?.setAttribute('hidden', '');
+  _restoreTools();
   clearInspector();
   if (window.ACBridge) { window.ACBridge.setCrate('all'); window.ACBridge.renderTracks(); }
 }

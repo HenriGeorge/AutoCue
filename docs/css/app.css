@@ -2414,3 +2414,18 @@
   #wb-inspector .wb-insp-mixbreak .mix-bar-label { flex: 0 0 64px; color: var(--muted); white-space: nowrap; }
   #wb-inspector .wb-insp-mixbreak .mix-bar-track { flex: 1; min-width: 0; }
   #wb-inspector .wb-insp-mixbreak .mix-bar-value { flex: 0 0 auto; font-family: var(--font-mono, var(--mono)); color: var(--text); white-space: nowrap; text-align: right; }
+
+  /* Workbench top-bar toolbar: hosts the relocated global controls
+     (playlist / analysis mode / restore) as a compact horizontal strip. */
+  #wb-topbar-tools {
+    display: flex; align-items: center; gap: 20px; flex-wrap: wrap;
+    padding: 8px 40px; border-top: 1px solid var(--border);
+  }
+  #wb-topbar-tools[hidden] { display: none; }
+  /* Neutralise the centre-layout margins the moved controls carried inline */
+  #wb-topbar-tools > #playlist-filter-bar,
+  #wb-topbar-tools > #analysis-mode-bar { margin: 0 !important; }
+  #wb-topbar-tools > #analysis-mode-bar { margin-bottom: 0 !important; }
+  /* Restore button shouldn't push to the far right inside the toolbar group */
+  #wb-topbar-tools #restore-btn { margin-left: 0 !important; }
+  @media (max-width: 720px) { #wb-topbar-tools { padding: 8px 16px; gap: 12px; } }
