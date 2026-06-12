@@ -17,9 +17,20 @@ All 9 tasks done. Three-leg green: Vitest 676, pytest 1439, e2e 161 passed +
   08-set-builder-boot.js) + autocue:health-summary / autocue:local-mode events.
   Vitest 680. NOTE: bridge accessors are closures over the classic-script
   global lexical env — v2 modules MUST read legacy let-state only via ACBridge.
-- T3–T9 PENDING — see HANDOFF.md. Next: T3 status sentence (spans→buttons in
-  index.html:53-70 → control-inventory.json MUST be updated or drift guard
-  fails; v2 module docs/js/v2/status-sentence.js with pure deriveFacts()).
+- T3 ✅ (0c04e0c): status sentence — spans→buttons + 'N need cues'/'health
+  S/100' derived facts + 30s ?include_rb=1 rb poll. New module status-sentence.js.
+  control-inventory.json +6 status buttons (skipSweep). Verified Chrome both
+  themes. Vitest 690.
+- T4 ✅: fuzzy.js + commands.js (pure, 16 vitest cases). 708.
+- T5 ✅ (uncommitted): palette.js + markup + CSS + cmdk-hint-btn. ⌘K/Ctrl+K//
+  open, capture-phase key priority, green-wash active item, mono track meta,
+  inert "Ask AutoCue (coming soon)" composer seam (P6 AUTOCUE_LLM seam).
+  Verified live in Chrome (grouped results, track search, composer seam).
+  Vitest 718. e2e: selectors-exist +4, control-inventory +cmdk-hint-btn /
+  pal-input ignore-listed, NEW v2-global-layer.spec.ts (4 smoke tests).
+  Affected-e2e validation RUNNING (berp260y2). Commit after green.
+- T6–T9 PENDING: T6 action-bar relabel, T7 done (in T5), T8 full Chrome audit,
+  T9 docs + full three-leg gate + push + PR.
 
 # PRP Ralph Loop State
 

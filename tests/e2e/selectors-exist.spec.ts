@@ -19,6 +19,11 @@ const REQUIRED_SELECTORS: string[] = [
   "#app-status",
   "#status-needcues",
   "#status-health",
+  // AutoCue 2.0 command palette (⌘K)
+  "#cmdk-hint-btn",
+  "#cmd-veil",
+  "#cmd-palette",
+  "#pal-input",
   // Filter controls (Cues tab)
   "#search-input",
   "#phrase-only-cb",

@@ -20,3 +20,6 @@ window.AC2 = window.AC2 || {};
 // P1 global layer.
 import { initStatusSentence, deriveFacts } from './status-sentence.js';
 window.AC2.statusSentence = { initStatusSentence, deriveFacts };
+
+import { openPalette, closePalette, isOpen, buildResults, clampActive } from './palette.js';
+window.AC2.palette = { openPalette, closePalette, isOpen, buildResults, clampActive };

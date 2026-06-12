@@ -105,6 +105,10 @@ test.describe("control inventory drift guard", () => {
       "ck-related-btn",
       // Modal/dialog internals — reachable via the trigger button (which IS
       // inventoried) and the modal's own close button. Not first-class rows.
+      // AutoCue 2.0 command palette: pal-input is a dialog internal, reachable
+      // via cmdk-hint-btn (inventoried) / ⌘K. The dynamic pal-opt-N option
+      // buttons only exist while the palette is open (closed during this scan).
+      "pal-input",
       "kbd-close-btn",
       "ti-close",
       "ti-download",

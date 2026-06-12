@@ -119,6 +119,12 @@
       "kind": "button",
       "skipSweep": true,
       "skipReason": "Status fact \u2014 informational, no click handler"
+    },
+    {
+      "id": "cmdk-hint-btn",
+      "kind": "button",
+      "skipSweep": true,
+      "skipReason": "Opens the \u2318K command-palette overlay \u2014 covered by v2-global-layer.spec"
     }
   ],
   "panelControls": {
