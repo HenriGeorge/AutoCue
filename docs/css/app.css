@@ -2381,3 +2381,36 @@
   /* Declutter the centre in workbench mode — the status sentence already
      reports connection; cue prep chrome moves to the toolbar in T6. */
   body.wb-active #local-mode-banner { display: none !important; }
+
+  /* Inspector content (P2 T4) */
+  .wb-insp-head { padding-bottom: 12px; border-bottom: 1px solid var(--border); margin-bottom: 12px; }
+  .wb-insp-title { font-size: 15px; font-weight: 700; letter-spacing: -.2px; line-height: 1.25; }
+  .wb-insp-artist { font-size: 13px; color: var(--muted); margin-top: 2px; }
+  .wb-insp-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+  .wb-insp-chip { font-size: 11px; padding: 2px 8px; border: 1px solid var(--border); border-radius: 4px; color: var(--muted); }
+  .wb-insp-chip.mono { font-family: var(--font-mono, var(--mono)); color: var(--text); }
+  .wb-insp-section { margin-bottom: 16px; }
+  .wb-insp-h { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); margin-bottom: 8px; }
+  .wb-insp-energy { height: 28px; }
+  .wb-insp-energy svg { height: 28px; width: 100%; }
+  .wb-insp-scorerow { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .wb-insp-mixbreak { margin-top: 8px; display: flex; flex-direction: column; gap: 4px; }
+  .wb-insp-cue { display: flex; align-items: center; gap: 8px; padding: 4px 0; font-size: 12px; }
+  .wb-insp-cue-badge { width: 18px; height: 18px; border-radius: 4px; background: var(--green-wash, color-mix(in srgb, var(--green) 10%, transparent)); color: var(--green); font-size: 10px; font-weight: 700; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+  .wb-insp-cue-name { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .wb-insp-cue-time { color: var(--muted); }
+  .mono { font-family: var(--font-mono, var(--mono)); }
+  .wb-insp-muted { font-size: 12px; color: var(--muted); }
+  .wb-insp-simbtn { width: 100%; padding: 8px; border: 1px solid var(--border); background: none; border-radius: 8px; cursor: pointer; color: var(--text); font: inherit; font-size: 13px; }
+  .wb-insp-simbtn:hover { background: var(--surface-2, var(--surface2)); }
+  /* Focused row highlight in workbench mode */
+  body.wb-active .track-card.wb-focused { box-shadow: inset 3px 0 0 var(--green); background: var(--green-wash, color-mix(in srgb, var(--green) 5%, transparent)); }
+
+  /* T4 inspector polish: breathing room + constrain the reused mix breakdown
+     to the 360px pane (the legacy breakdown row is wider by default). */
+  #wb-inspector .wb-insp-energy { height: 32px; margin-bottom: 18px; }
+  #wb-inspector .wb-insp-mixbreak { font-size: 11px; }
+  #wb-inspector .wb-insp-mixbreak > * { display: flex; align-items: center; gap: 8px; min-width: 0; }
+  #wb-inspector .wb-insp-mixbreak .mix-bar-label { flex: 0 0 64px; color: var(--muted); white-space: nowrap; }
+  #wb-inspector .wb-insp-mixbreak .mix-bar-track { flex: 1; min-width: 0; }
+  #wb-inspector .wb-insp-mixbreak .mix-bar-value { flex: 0 0 auto; font-family: var(--font-mono, var(--mono)); color: var(--text); white-space: nowrap; text-align: right; }

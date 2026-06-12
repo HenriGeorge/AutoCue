@@ -10,6 +10,8 @@
  * the screen when active. Reads legacy state ONLY via window.ACBridge.
  */
 
+import { initInspector, clearInspector } from './inspector.js';
+
 const FLAG = 'ac_workbench';
 
 export function isWorkbenchOn() {
@@ -63,6 +65,7 @@ function activate() {
   // The workbench centre is the Cues track list — make sure that tab is shown.
   if (window.switchTab) window.switchTab('cues');
   _renderCrates();
+  initInspector();
   // Keep crate counts fresh as the library loads / changes.
   if (window.AppState) window.AppState.subscribe('tracks', _renderCrates);
 }
@@ -73,6 +76,7 @@ function deactivate() {
   document.body.classList.remove('wb-active');
   document.getElementById('wb-rail')?.setAttribute('hidden', '');
   document.getElementById('wb-inspector')?.setAttribute('hidden', '');
+  clearInspector();
   if (window.ACBridge) window.ACBridge.setCrate('all');
 }
 
