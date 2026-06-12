@@ -167,16 +167,27 @@ test.describe("Web UI smoke (local mode)", () => {
     await page.locator("#search-input").fill("xx_no_match_xx", ACT);
     await page.locator("#search-input").fill("", ACT);
 
-    // Beat-grid-only toggle — cheap pure client-side filter (no server
-    // work). force:true skips Playwright's pre- AND post-click stability
-    // waits: the checkbox is stable, but toggling it re-renders the
-    // virtualized list and churns the surrounding DOM, which stalls the
-    // post-click verification on a big library. This test asserts the
-    // page doesn't crash (error capture below), not that the toggle is
-    // settle-clean, so forcing the dispatch is the right call.
+    // Beat-grid-only toggle — cheap pure client-side filter (no server work).
+    // Issue #189 residual flake: even .check({force:true}) flakes here because
+    // its POST-click state verification reads `checked` while the click landed
+    // mid-re-render frame under main-thread saturation on a big library —
+    // "Clicking the checkbox did not change its state". This test's contract
+    // is "the page doesn't crash" (error capture below), NOT that a real
+    // pointer gesture settles. So drive the SAME handler deterministically by
+    // setting state + dispatching `change` — this exercises
+    // beatsOnlyFilter → AppState.signal('filters') → virtualized re-render
+    // (the only thing that could crash) with zero pointer-frame-timing
+    // dependency. Measured-safe: a settled toggle is ~11 ms; the flake was
+    // pure verification timing, never an app fault.
     const beatToggle = page.locator("#beats-only-cb");
-    await beatToggle.check({ force: true });
-    await beatToggle.uncheck({ force: true });
+    await beatToggle.evaluate((el) => {
+      el.checked = true;
+      el.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    await beatToggle.evaluate((el) => {
+      el.checked = false;
+      el.dispatchEvent(new Event("change", { bubbles: true }));
+    });
 
     // Issue #189 — the #phrase-only-cb toggle is DELIBERATELY excluded from
     // this smoke test. In local mode it kicks off phrase-cue computation
