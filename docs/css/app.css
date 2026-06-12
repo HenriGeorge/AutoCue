@@ -2708,6 +2708,22 @@
     #wb-rail-health .rh-fix { transition: none; }
   }
   /* ── /v2: workbench polish ──────────────────────────────────────────────── */
+  /* ── v2: duplicates place (P3) ── rail place that swaps the workbench centre
+     pane from the grid to the duplicates view. The swap is `hidden` + body
+     class ONLY — #track-list is never detached (TASK-033/037). */
+  #wb-dupes-pane { padding: 16px 0 96px; }
+  #wb-dupes-pane[hidden] { display: none; }
+  /* Belt-and-braces: a legacy style.display write must not defeat `hidden`. */
+  body.wb-place-dupes #tracks-sticky,
+  body.wb-place-dupes #track-list,
+  body.wb-place-dupes #wb-grid-head { display: none !important; }
+  .wb-dupes-toolbar {
+    display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+    padding-bottom: 12px; margin-bottom: 14px;
+    border-bottom: 1px solid var(--border);
+  }
+  .wb-dupes-host { display: flex; flex-direction: column; gap: 10px; }
+  /* ── /v2: duplicates place ─────────────────────────────────────────────── */
   /* ── v2: consent gradient (review-unlocks-apply, design-H "Stagehand") ─── */
   /* Evidence region inside the shared _confirmDialog. Collapsed until the user
      clicks "Review N items"; reveal arms the destructive primary (250ms guard).

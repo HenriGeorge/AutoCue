@@ -36,12 +36,16 @@ const CRATES = [
 ];
 
 let _active = false;
+let _placeWired = false;
 
 function _renderCrates() {
   const host = document.getElementById('wb-crates');
   if (!host) return;
   const tracks = window.ACBridge ? window.ACBridge.tracks() : [];
-  const current = window.ACBridge ? window.ACBridge.crate() : 'all';
+  // P3: while a centre-pane place (Duplicates) is active, no crate row paints
+  // `.active` — the place owns the centre, not a crate filter.
+  const placeActive = !!(window.AC2 && window.AC2.duplicates && window.AC2.duplicates.isActive());
+  const current = placeActive ? null : (window.ACBridge ? window.ACBridge.crate() : 'all');
   host.innerHTML = '';
   for (const c of CRATES) {
     const count = c.id === 'all' ? tracks.length : tracks.filter(c.pred).length;
@@ -52,6 +56,8 @@ function _renderCrates() {
       `<span class="wb-crate-label">${c.label}</span>` +
       `<span class="wb-crate-count">${count.toLocaleString()}</span>`;
     btn.addEventListener('click', () => {
+      // P3: leaving via a crate click exits the Duplicates place first.
+      if (window.AC2 && window.AC2.duplicates) window.AC2.duplicates.deactivate();
       if (window.ACBridge) window.ACBridge.setCrate(c.id);
       _renderCrates(); // repaint active state
     });
@@ -107,11 +113,18 @@ function activate() {
   initInspector();
   // Keep crate counts fresh as the library loads / changes.
   if (window.AppState) window.AppState.subscribe('tracks', _renderCrates);
+  // P3: repaint crate active-state when a centre-pane place opens/closes.
+  if (!_placeWired) {
+    _placeWired = true;
+    window.addEventListener('autocue:wb-place-change', _renderCrates);
+  }
 }
 
 function deactivate() {
   if (!_active) return;
   _active = false;
+  // P3: a centre-pane place can't outlive the workbench — restore the grid.
+  if (window.AC2 && window.AC2.duplicates) window.AC2.duplicates.deactivate();
   document.body.classList.remove('wb-active');
   document.getElementById('wb-rail')?.setAttribute('hidden', '');
   document.getElementById('wb-inspector')?.setAttribute('hidden', '');

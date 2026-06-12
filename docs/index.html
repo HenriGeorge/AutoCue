@@ -421,6 +421,15 @@
     </div>
     </div><!-- /#tracks-sticky -->
     <div id="track-list"></div>
+    <!-- P3: Duplicates place — the centre-pane view the #wb-dupes-place rail
+         entry swaps in. The swap toggles `hidden` + body.wb-place-dupes ONLY;
+         #track-list is never detached or re-parented (Virtualizer + sticky
+         invariants, TASK-033/037). Hosts are filled in by the T3 markup move;
+         logic in docs/js/v2/workbench/duplicates.js. -->
+    <section id="wb-dupes-pane" hidden aria-label="Duplicates">
+      <div id="wb-dupes-toolbar" class="wb-dupes-toolbar"></div>
+      <div id="wb-dupes-host" class="wb-dupes-host"></div>
+    </section>
   </section>
 
   <!-- XML upload workflow (hidden in local mode) -->
@@ -1521,6 +1530,16 @@ autocue --library --mode bar --bars-interval 8 --start-bar 1</pre>
       <button type="button" class="wb-saved-add" aria-label="Save current filter">+ Save current</button>
     </div>
     <div id="wb-saved-filters" class="wb-crate-list"></div>
+  </div>
+  <!-- P3: Maintenance places — rail entries that swap the centre pane instead
+       of filtering the grid. Owned by docs/js/v2/workbench/duplicates.js. -->
+  <div class="wb-rail-section">
+    <div class="wb-rail-head">Maintenance</div>
+    <div class="wb-crate-list">
+      <button id="wb-dupes-place" type="button" class="wb-crate">
+        <span class="wb-crate-label">Duplicates</span>
+      </button>
+    </div>
   </div>
   <div id="wb-rail-health" class="wb-rail-card" hidden></div>
 </aside>

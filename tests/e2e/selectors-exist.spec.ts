@@ -39,6 +39,9 @@ const REQUIRED_SELECTORS: string[] = [
   "#tracks-sticky",
   // P2 workbench dense-grid column header (in DOM always; hidden until body.wb-active)
   "#wb-grid-head",
+  // P3 duplicates place — rail entry + centre-pane view (hidden until opened)
+  "#wb-dupes-place",
+  "#wb-dupes-pane",
 ];
 
 test.describe("selectors exist in docs/index.html", () => {

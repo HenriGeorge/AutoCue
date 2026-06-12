@@ -117,6 +117,8 @@ function _renderPlaylists() {
       count: cnt,
       active: opt.value === current && current !== '',
       onClick: () => {
+        // P3: leaving via a playlist click exits the Duplicates place first.
+        if (window.AC2 && window.AC2.duplicates) window.AC2.duplicates.deactivate();
         // Reuse the legacy filter path: set value + fire change. The existing
         // #playlist-select change handler calls loadTracksFromServer(id).
         sel.value = opt.value;
@@ -146,7 +148,11 @@ function _renderSaved() {
       count: null,
       active: false,
       extraClass: 'wb-saved-row',
-      onClick: () => _applyFilters(f.state),
+      onClick: () => {
+        // P3: applying a saved filter is a grid intent — exit the place first.
+        if (window.AC2 && window.AC2.duplicates) window.AC2.duplicates.deactivate();
+        _applyFilters(f.state);
+      },
     });
     // Inline delete affordance (does not re-apply the filter).
     const del = document.createElement('span');

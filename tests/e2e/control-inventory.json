@@ -127,6 +127,12 @@
       "kind": "button",
       "skipSweep": true,
       "skipReason": "Opens the \u2318K command-palette overlay \u2014 covered by v2-global-layer.spec"
+    },
+    {
+      "id": "wb-dupes-place",
+      "kind": "button",
+      "skipSweep": true,
+      "skipReason": "P3 workbench rail place \u2014 swaps the centre pane to the duplicates view (read-only scan); covered by v2-duplicates-place.spec"
     }
   ],
   "panelControls": {
