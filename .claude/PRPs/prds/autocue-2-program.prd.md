@@ -46,9 +46,9 @@ program; each phase ships as its own PRD + plan + PR.
 
 | Phase | Scope | Status |
 |---|---|---|
-| P0 | Foundations: aliveness pass merged; CSS/JS file split + test-harness migration; XML-mode freeze + hint; CLAUDE.md update | plan: `v2-p0-foundations.plan.md` |
-| P1 | Global layer over the existing UI: status sentence, ⌘K palette (composer seam), action dock | |
-| P2 | Workbench-as-home (= **v1 daily-driver milestone**): rail/grid/inspector, selection verbs, ring card + fix stack + event banner, F stamps/ticks, H consent gradient, G lede | |
+| P0 | Foundations: file split + test migration + XML freeze | ✅ **MERGED** (main, #208) |
+| P1 | Global layer: status sentence + ⌘K palette + composer seam | ✅ **MERGED** (main, #209) |
+| P2 | Workbench-as-home (= **v1 milestone**): rail/grid/inspector, F stamps/ticks, H consent, G lede. **Flag-gated** (`ac_workbench`); retire-tabs deferred to post-parity | ✅ **MERGED** (main, #211) — gate 762/1442/185-0 |
 | P3 | Duplicates as a place (restyle existing logic into center-pane view) | |
 | P4 | Nightboard canvas mode | |
 | P5 | Discover restyle into the shell + theme audit + aliveness round 2 | |
