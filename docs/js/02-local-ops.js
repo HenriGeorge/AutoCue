@@ -645,6 +645,10 @@ function _onTracksDeleted(ids) {
   // Refresh the duplicates summary counter + the bulk-delete label so they
   // stay honest after a per-group delete shrinks the set.
   _refreshDuplicatesSummaryAfterDelete();
+  // P3 (R9): repaint everything subscribed to the tracks bus — grid, rail
+  // crate counts, playlists, status sentence — so deleted tracks vanish
+  // everywhere, not just from the duplicates list.
+  if (window.AppState) AppState.signal('tracks');
 }
 
 // Recompute the bulk "Delete all N non-keepers" label + the summary counter
@@ -842,6 +846,17 @@ async function _runDuplicatesDelete() {
 // text, so we build a richer transient banner pinned to the duplicates
 // summary for 30s.
 function _showDuplicatesUndoToast(summary, requested) {
+  // P3 seam (R8): announce the completed delete so the v2 status-sentence
+  // restore sheet can offer the same backup. Fired before any early return —
+  // the banner below is an in-view convenience, the sheet is canonical.
+  window.dispatchEvent(new CustomEvent('autocue:duplicates-deleted', {
+    detail: {
+      deleted: summary.deleted || 0,
+      requested,
+      cancelled: !!summary.cancelled,
+      backup_path: summary.backup_path || null,
+    },
+  }));
   const deleted = summary.deleted || 0;
   const cancelled = !!summary.cancelled;
   const backupPath = summary.backup_path || null;

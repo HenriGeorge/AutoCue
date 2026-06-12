@@ -949,4 +949,10 @@ window.ACBridge = {
   // re-renders via the existing AppState bus — the one sanctioned write path.
   setCrate: (kind) => { _wbCrate = kind || 'all'; AppState.signal('filters'); },
   crate: () => _wbCrate,
+  // P3 duplicates place — sanctioned pass-throughs into the legacy duplicates
+  // machinery (scan SSE reader, confirm modal, surgical invalidation). The v2
+  // place module drives THESE, never /api/duplicates* directly.
+  scanDuplicates: () => scanDuplicates(),
+  openDuplicatesConfirm: (opts) => _openDuplicatesConfirm(opts),
+  onTracksDeleted: (ids) => _onTracksDeleted(ids),
 };
