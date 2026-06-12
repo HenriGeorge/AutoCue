@@ -495,7 +495,7 @@ function _renderDuplicateGroup(group) {
 }
 
 async function scanDuplicates() {
-  const btn = document.getElementById('duplicates-scan-btn');
+  const btn = document.getElementById('wb-dupes-rescan');
   const statusEl = document.getElementById('duplicates-status-label');
   const progress = document.getElementById('duplicates-progress');
   const summary = document.getElementById('duplicates-summary');
@@ -547,10 +547,11 @@ async function scanDuplicates() {
         } else if (ev.done) {
           const s = ev.summary;
           progress.style.display = 'none';
+          const bulkBtn = document.getElementById('wb-dupes-bulk-delete');
           if (s.groups === 0) {
             empty.style.display = '';
+            if (bulkBtn) { bulkBtn.disabled = true; bulkBtn.textContent = 'Delete non-keepers'; }
           } else {
-            summary.style.display = '';
             // Collect every non-keeper across every group so the bulk
             // delete button can fire one POST instead of N.
             const allNonKeepers = [];
@@ -566,37 +567,18 @@ async function scanDuplicates() {
               `<strong>${s.groups.toLocaleString()} duplicate group${s.groups === 1 ? '' : 's'}</strong> ` +
               `· ${s.surplus.toLocaleString()} surplus copies of ${s.scanned.toLocaleString()} scanned tracks` +
               (s.skipped_empty > 0 ? ` · ${s.skipped_empty.toLocaleString()} empty-metadata tracks skipped` : '');
-            const bulkBtn = document.createElement('button');
-            bulkBtn.id = 'duplicates-bulk-delete-btn';
-            bulkBtn.className = 'primary';
-            bulkBtn.style.cssText = 'font-size:12px;padding:4px 12px;background:#e4384e;border-color:#e4384e;';
-            bulkBtn.textContent = `Delete all ${allNonKeepers.length} non-keepers`;
-            bulkBtn.addEventListener('click', () => {
-              // Re-collect at click time — per-group keeper-radio changes
-              // may have shifted which ids are non-keepers since the scan.
-              const ids = [];
-              list.querySelectorAll('.duplicates-group').forEach(g => {
-                try { ids.push(...JSON.parse(g.dataset.nonKeeperIds || '[]')); }
-                catch (_) {}
-              });
-              _openDuplicatesConfirm({
-                track_ids: ids,
-                label: `${list.querySelectorAll('.duplicates-group').length} keepers + ${ids.length} non-keepers`,
-                meta: ' across the whole library',
-                onSuccess: () => {
-                  _onTracksDeleted(ids);
-                  // Re-scan to reflect the now-shrunken DB ground truth.
-                  summary.style.display = 'none';
-                  list.innerHTML = '';
-                  scanDuplicates();
-                },
-              });
-            });
+            // P3: the bulk-delete verb is a STATIC toolbar button
+            // (#wb-dupes-bulk-delete, wired once in _wireDuplicatesConfirm to
+            // _onDuplicatesBulkDelete) — the scan-done branch only refreshes
+            // its label + disabled state. Same write path as before.
+            if (bulkBtn) {
+              bulkBtn.disabled = allNonKeepers.length === 0;
+              bulkBtn.textContent = `Delete all ${allNonKeepers.length} non-keepers`;
+            }
             summary.style.display = 'flex';
             summary.style.alignItems = 'center';
             summary.style.gap = '10px';
             summary.appendChild(textEl);
-            summary.appendChild(bulkBtn);
           }
         }
       }
@@ -608,9 +590,38 @@ async function scanDuplicates() {
     showToast(`Duplicate scan failed: ${e.message || e}`, true);
   } finally {
     _setBtnLoading(btn, false);
-    btn.textContent = 'Find duplicates';
+    btn.textContent = 'Rescan';
     statusEl.style.display = 'none';
   }
+}
+
+// P3: bulk-delete click handler for the static #wb-dupes-bulk-delete toolbar
+// verb (wired once in _wireDuplicatesConfirm). Identical behavior to the old
+// dynamically-created button: re-collect non-keeper ids AT CLICK TIME (keeper
+// radio flips may have shifted them since the scan), confirm, then surgical
+// invalidation + a fresh scan against DB ground truth.
+function _onDuplicatesBulkDelete() {
+  const list = document.getElementById('duplicates-list');
+  const summary = document.getElementById('duplicates-summary');
+  if (!list) return;
+  const ids = [];
+  list.querySelectorAll('.duplicates-group').forEach(g => {
+    try { ids.push(...JSON.parse(g.dataset.nonKeeperIds || '[]')); }
+    catch (_) {}
+  });
+  if (ids.length === 0) return;
+  _openDuplicatesConfirm({
+    track_ids: ids,
+    label: `${list.querySelectorAll('.duplicates-group').length} keepers + ${ids.length} non-keepers`,
+    meta: ' across the whole library',
+    onSuccess: () => {
+      _onTracksDeleted(ids);
+      // Re-scan to reflect the now-shrunken DB ground truth.
+      if (summary) summary.style.display = 'none';
+      list.innerHTML = '';
+      scanDuplicates();
+    },
+  });
 }
 
 // ── Duplicates: destructive delete (phase 2) ─────────────────────────────────
@@ -661,7 +672,7 @@ function _refreshDuplicatesSummaryAfterDelete() {
   for (const c of cards) {
     try { surplus += JSON.parse(c.dataset.nonKeeperIds || '[]').length; } catch (_) {}
   }
-  const bulkBtn = document.getElementById('duplicates-bulk-delete-btn');
+  const bulkBtn = document.getElementById('wb-dupes-bulk-delete');
   if (bulkBtn) {
     bulkBtn.textContent = `Delete all ${surplus} non-keepers`;
     bulkBtn.disabled = surplus === 0;
@@ -929,6 +940,10 @@ function _showDuplicatesUndoToast(summary, requested) {
     ?.addEventListener('click', _runDuplicatesDelete);
   document.getElementById('duplicates-confirm-backdrop')
     ?.addEventListener('click', _closeDuplicatesConfirm);
+  // P3: the static bulk-delete toolbar verb (replaces the per-scan
+  // dynamically-created button; same click-time re-collect + confirm path).
+  document.getElementById('wb-dupes-bulk-delete')
+    ?.addEventListener('click', _onDuplicatesBulkDelete);
   document.addEventListener('keydown', (ev) => {
     if (ev.key !== 'Escape') return;
     if (document.getElementById('duplicates-confirm')

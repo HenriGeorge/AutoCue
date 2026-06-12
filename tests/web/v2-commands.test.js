@@ -27,6 +27,36 @@ describe('buildCommands', () => {
     }
   })
 
+  it('find-duplicates + go-duplicates open the workbench duplicates place (P3)', () => {
+    const prev = window.AC2
+    try {
+      const setWorkbench = []
+      window.AC2 = {
+        workbench: { setWorkbench: (v) => setWorkbench.push(v) },
+        duplicates: { isActive: () => false },
+      }
+      const btn = document.createElement('button')
+      btn.id = 'wb-dupes-place'
+      let clicks = 0
+      btn.addEventListener('click', () => { clicks++ })
+      document.body.appendChild(btn)
+      for (const id of ['find-duplicates', 'go-duplicates']) {
+        const cmd = buildCommands().find((c) => c.id === id)
+        expect(cmd, `${id} must exist`).toBeTruthy()
+        cmd.run()
+      }
+      expect(setWorkbench).toEqual([true, true]) // explicit intent overrides opt-out
+      expect(clicks).toBe(2) // delegation via the rail entry's own click
+      // when the place is already open, the command must NOT toggle it closed
+      window.AC2.duplicates.isActive = () => true
+      buildCommands().find((c) => c.id === 'find-duplicates').run()
+      expect(clicks).toBe(2)
+      btn.remove()
+    } finally {
+      window.AC2 = prev
+    }
+  })
+
   it('toggle-workbench label reflects the current workbench state', () => {
     const label = () => buildCommands().find((c) => c.id === 'toggle-workbench').label
     const prev = window.AC2

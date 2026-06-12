@@ -42,6 +42,8 @@ const REQUIRED_SELECTORS: string[] = [
   // P3 duplicates place — rail entry + centre-pane view (hidden until opened)
   "#wb-dupes-place",
   "#wb-dupes-pane",
+  "#wb-dupes-rescan",
+  "#wb-dupes-bulk-delete",
 ];
 
 test.describe("selectors exist in docs/index.html", () => {

@@ -35,10 +35,12 @@ test.describe("AutoCue 2.0 global layer", () => {
     await page.locator("#pal-input").fill("dupl");
     await expect(page.locator("#pal-list .pal-item").first()).toContainText("Find duplicates");
     await page.keyboard.press("Enter");
-    // Command ran: palette closed, navigated to Library + duplicates section.
+    // Command ran: palette closed, the workbench Duplicates place opened
+    // (P3 — the legacy Library duplicates section is gone; the command now
+    // forces the workbench on and clicks the #wb-dupes-place rail entry).
     await expect(page.locator("#cmd-veil")).toBeHidden();
-    await expect(page.locator("#library-tab-content")).toBeVisible();
-    await expect(page.locator("#duplicates-section")).toBeInViewport({ timeout: 5_000 });
+    await expect(page.locator("#wb-dupes-pane")).toBeVisible({ timeout: 5_000 });
+    await expect(page.locator("body")).toHaveClass(/wb-place-dupes/);
   });
 
   test("palette has strict key priority and restores focus on Escape", async ({ page }) => {

@@ -7,7 +7,7 @@
  * T5 restore sheet consumes. All additive; legacy behavior unchanged.
  */
 import { describe, it, expect, beforeEach, vi } from 'vitest'
-import { readFileSync } from 'node:fs'
+import { readFileSync, readdirSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { loadAppHtml } from './_source.js'
@@ -200,5 +200,102 @@ describe('P3 T2 — shell/rail exit the place (module source contract)', () => {
   it('the v2 place never talks to /api/duplicates itself (R6 — no parallel implementation)', () => {
     expect(dupesSrc).not.toContain('/api/duplicates')
     expect(dupesSrc).not.toContain('fetch(')
+  })
+})
+
+/**
+ * T3 — the pane is the real Duplicates surface; the legacy section is gone.
+ */
+describe('P3 T3 — re-hosted machinery (source contract)', () => {
+  it('scanDuplicates reads the toolbar rescan pill (#wb-dupes-rescan)', () => {
+    const fn = src.slice(
+      src.indexOf('async function scanDuplicates('),
+      src.indexOf('function _onDuplicatesBulkDelete('),
+    )
+    expect(fn).toContain("getElementById('wb-dupes-rescan')")
+    expect(fn).not.toContain('duplicates-scan-btn')
+  })
+
+  it('no stale legacy duplicates ids remain anywhere in docs/', () => {
+    const docs = resolve(__dirname, '..', '..', 'docs')
+    const files = [
+      resolve(docs, 'index.html'),
+      resolve(docs, 'css', 'app.css'),
+      ...readdirSync(resolve(docs, 'js'), { recursive: true })
+        .filter((f) => typeof f === 'string' && f.endsWith('.js'))
+        .map((f) => resolve(docs, 'js', f)),
+    ]
+    for (const f of files) {
+      const code = readFileSync(f, 'utf8')
+      for (const stale of ['duplicates-section', 'duplicates-scan-btn', 'duplicates-bulk-delete-btn']) {
+        expect(code.includes(stale), `${f} still references ${stale}`).toBe(false)
+      }
+    }
+  })
+
+  it('the pane hosts every id the SSE reader reads (host-id reuse)', () => {
+    const paneStart = src.indexOf('id="wb-dupes-pane"')
+    const paneEnd = src.indexOf('</section>', paneStart)
+    const pane = src.slice(paneStart, paneEnd)
+    for (const id of ['wb-dupes-rescan', 'duplicates-status-label', 'duplicates-summary',
+      'wb-dupes-bulk-delete', 'duplicates-progress', 'duplicates-empty', 'duplicates-list']) {
+      expect(pane, `#${id} must live inside #wb-dupes-pane`).toContain(`id="${id}"`)
+    }
+  })
+
+  it('the confirm modal + backdrop stay body-level (NOT inside the pane)', () => {
+    const paneStart = src.indexOf('id="wb-dupes-pane"')
+    const paneEnd = src.indexOf('</section>', paneStart)
+    const pane = src.slice(paneStart, paneEnd)
+    expect(pane).not.toContain('duplicates-confirm')
+    expect(src).toContain('id="duplicates-confirm"')
+    expect(src).toContain('id="duplicates-confirm-backdrop"')
+  })
+
+  it('_onDuplicatesBulkDelete re-collects at click time and routes through _openDuplicatesConfirm (R6)', () => {
+    const fn = src.slice(
+      src.indexOf('function _onDuplicatesBulkDelete('),
+      src.indexOf('// ── Duplicates: destructive delete'),
+    )
+    expect(fn).toContain('dataset.nonKeeperIds')
+    expect(fn).toContain('_openDuplicatesConfirm(')
+    expect(fn).toContain('_onTracksDeleted(ids)')
+    expect(fn).toContain('scanDuplicates()')
+  })
+
+  it('the static bulk button is wired once in _wireDuplicatesConfirm', () => {
+    const fn = src.slice(src.indexOf('(function _wireDuplicatesConfirm'))
+    expect(fn.slice(0, fn.indexOf('})();'))).toContain("getElementById('wb-dupes-bulk-delete')")
+  })
+
+  it('the v2 place module never references the legacy lexical bindings bare (R6)', () => {
+    const code = readFileSync(resolve(V2_DIR, 'workbench', 'duplicates.js'), 'utf8')
+    for (const ident of ['parsedTracks', 'scanDuplicates', '_openDuplicatesConfirm', '_onTracksDeleted']) {
+      const bare = new RegExp(`(^|[^.\\w'"\`])${ident}\\b`, 'm')
+      expect(bare.test(code), `duplicates.js references bare ${ident}`).toBe(false)
+    }
+  })
+})
+
+describe('P3 T3 — lazy first scan once the hosts live in the pane (jsdom)', () => {
+  it('activate() scans exactly once; rescans are the pill, not re-entry', async () => {
+    _setupDom()
+    // emulate the T3 markup: the list host lives inside the pane
+    const list = document.createElement('div')
+    list.id = 'duplicates-list'
+    document.getElementById('wb-dupes-host')?.remove()
+    document.getElementById('wb-dupes-pane').appendChild(list)
+    const bridge = { isLocalMode: () => true, renderTracks: vi.fn(), scanDuplicates: vi.fn() }
+    window.ACBridge = bridge
+    const dupes = await import('../../docs/js/v2/workbench/duplicates.js')
+    dupes.deactivate()
+    bridge.scanDuplicates.mockClear()
+    dupes.activate()
+    const callsAfterFirst = bridge.scanDuplicates.mock.calls.length
+    dupes.deactivate()
+    dupes.activate()
+    expect(callsAfterFirst).toBeLessThanOrEqual(1)
+    expect(bridge.scanDuplicates.mock.calls.length).toBe(callsAfterFirst)
+    dupes.deactivate()
   })
 })

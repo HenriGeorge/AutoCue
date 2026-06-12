@@ -4,8 +4,8 @@
  * A rail place that swaps the workbench centre pane from the track grid to the
  * duplicates view. This module owns ONLY the door (rail entry), the swap, and
  * the lazy first scan — every scan and every write delegates to the legacy
- * machinery in docs/js/02-local-ops.js via window.ACBridge (scanDuplicates /
- * openDuplicatesConfirm / onTracksDeleted). NO parallel implementation: this
+ * machinery in docs/js/02-local-ops.js via window.ACBridge (.scanDuplicates /
+ * .openDuplicatesConfirm / .onTracksDeleted). NO parallel implementation: this
  * file never fetches the duplicates endpoints itself (R6 — guarded by a
  * source-contract test that bans the endpoint path and network calls).
  *

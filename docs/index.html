@@ -427,8 +427,19 @@
          invariants, TASK-033/037). Hosts are filled in by the T3 markup move;
          logic in docs/js/v2/workbench/duplicates.js. -->
     <section id="wb-dupes-pane" hidden aria-label="Duplicates">
-      <div id="wb-dupes-toolbar" class="wb-dupes-toolbar"></div>
-      <div id="wb-dupes-host" class="wb-dupes-host"></div>
+      <div id="wb-dupes-toolbar" class="wb-dupes-toolbar">
+        <button id="wb-dupes-rescan" class="secondary-btn" style="font-size:12px;padding:4px 12px;">Rescan</button>
+        <span id="duplicates-status-label" style="display:none;font-size:12px;color:var(--muted);"></span>
+        <div id="duplicates-summary" style="display:none;font-size:13px;"></div>
+        <button id="wb-dupes-bulk-delete" class="primary" disabled style="font-size:12px;padding:4px 12px;margin-left:auto;">Delete non-keepers</button>
+      </div>
+      <div id="wb-dupes-host" class="wb-dupes-host">
+        <div id="duplicates-progress" style="display:none;font-size:12px;color:var(--muted);background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:8px 10px;margin-bottom:12px;"></div>
+        <div id="duplicates-empty" style="display:none;font-size:13px;color:var(--muted);text-align:center;padding:24px;">
+          No duplicate tracks found. Library is clean.
+        </div>
+        <div id="duplicates-list" style="display:flex;flex-direction:column;gap:8px;"></div>
+      </div>
     </section>
   </section>
 
@@ -565,28 +576,11 @@ autocue --library --mode bar --bars-interval 8 --start-bar 1</pre>
     </div>
   </section>
 
-  <!-- Duplicate Tracks (local mode only). Phase 1 surface-only:
-       scan + group display, NO delete action. The destructive delete path
-       lands in a follow-up PR after the read-only UX is validated. -->
-  <section id="duplicates-section" class="panel-card" style="display:none">
-    <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px;">
-      <h2 style="margin:0;font-size:15px;font-weight:700;">Duplicate Tracks</h2>
-      <button id="duplicates-scan-btn" class="secondary-btn" style="font-size:12px;padding:4px 12px;">Find duplicates</button>
-      <span id="duplicates-status-label" style="display:none;font-size:12px;color:var(--muted);"></span>
-    </div>
-    <p style="margin:0 0 12px;font-size:12px;color:var(--muted);">
-      Groups tracks by (artist, title) — case-insensitive, whitespace-normalised.
-      The <em>keeper</em> is the row with the most plays, then most existing hot cues,
-      then most-recent last-played, then lowest track ID. Read-only —
-      no tracks are deleted here.
-    </p>
-    <div id="duplicates-progress" style="display:none;font-size:12px;color:var(--muted);background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:8px 10px;margin-bottom:12px;"></div>
-    <div id="duplicates-summary" style="display:none;font-size:13px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:10px 12px;margin-bottom:12px;"></div>
-    <div id="duplicates-empty" style="display:none;font-size:13px;color:var(--muted);text-align:center;padding:24px;">
-      No duplicate tracks found. Library is clean.
-    </div>
-    <div id="duplicates-list" style="display:flex;flex-direction:column;gap:8px;"></div>
-  </section>
+  <!-- P3: the Duplicates surface moved into the workbench centre-pane place
+       (#wb-dupes-pane, inside #tracks-section) — the legacy Library-tab
+       section is gone; every host id survived the move so the SSE reader in
+       02-local-ops.js is untouched. The confirm modal below stays body-level
+       (it was never inside that section). -->
 
   <!-- Confirm modal for the duplicate-delete action (phase 2). Mirrors the
        Discover download-confirm modal: primary disabled for 250ms after open
