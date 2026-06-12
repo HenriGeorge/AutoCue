@@ -299,3 +299,51 @@ describe('P3 T3 — lazy first scan once the hosts live in the pane (jsdom)', ()
     dupes.deactivate()
   })
 })
+
+/**
+ * T4 — restyle to the five rules (presentation-only). The duplicates render
+ * logic is unchanged; only inline styles moved to .wb-dup-* classes and every
+ * hardcoded hex became a token. These guard against a regression that reaches
+ * back for inline cssText or a raw hex.
+ */
+describe('P3 T4 — duplicates restyle is token-clean + class-driven', () => {
+  const opsSrc = readFileSync(
+    resolve(__dirname, '..', '..', 'docs', 'js', '02-local-ops.js'), 'utf8')
+  // Scope to the duplicates region (render + scan + undo banner) so unrelated
+  // legacy hexes elsewhere in the file don't false-positive.
+  const dupRegion = opsSrc.slice(
+    opsSrc.indexOf('function _renderDuplicateGroup('),
+    opsSrc.indexOf('function _refreshDuplicatesSummaryAfterDelete('))
+  const undoRegion = opsSrc.slice(
+    opsSrc.indexOf('function _showDuplicatesUndoToast('),
+    opsSrc.indexOf('function _wireDuplicatesConfirm('))
+
+  it('no hardcoded #e4384e / #c98a00 remain in the duplicates render or undo regions', () => {
+    expect(dupRegion).not.toMatch(/#e4384e|#c98a00/)
+    expect(undoRegion).not.toMatch(/#e4384e|#c98a00/)
+  })
+  it('no amber/danger hex-fallback (var(--token, #hex)) in the duplicates regions', () => {
+    expect(dupRegion).not.toMatch(/var\(--\w+,\s*#[0-9a-f]{3,6}\)/i)
+    expect(undoRegion).not.toMatch(/var\(--\w+,\s*#[0-9a-f]{3,6}\)/i)
+  })
+  it('the keeper highlight is a class toggle, not an inline background write', () => {
+    expect(dupRegion).toContain("row.classList.toggle('keeper', isKeeper)")
+    expect(dupRegion).not.toContain('row.style.background')
+  })
+  it('group, row, count-chip and undo banner use .wb-dup-* classes', () => {
+    expect(dupRegion).toContain('wb-dup-group')
+    expect(dupRegion).toContain('wb-dup-row')
+    expect(dupRegion).toContain('wb-dup-count-chip')
+    expect(undoRegion).toContain('wb-dup-undo-banner')
+  })
+  it('the .wb-dup-* classes + amber/danger tokens are defined in app.css (both themes inherit)', () => {
+    const css = readFileSync(
+      resolve(__dirname, '..', '..', 'docs', 'css', 'app.css'), 'utf8')
+    for (const cls of ['.wb-dup-group', '.wb-dup-row.keeper', '.wb-dup-count-chip',
+      '.wb-dup-undo-drain', '#wb-dupes-bulk-delete']) {
+      expect(css, `missing ${cls}`).toContain(cls)
+    }
+    expect(css).toMatch(/--warn-amber:\s*#/)
+    expect(css).toMatch(/--danger:\s*#/)
+  })
+})

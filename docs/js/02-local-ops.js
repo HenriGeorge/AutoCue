@@ -321,8 +321,7 @@ function _fmtDur(sec) {
 
 function _renderDuplicateGroup(group) {
   const div = document.createElement('div');
-  div.className = 'duplicates-group panel-card';
-  div.style.cssText = 'padding:10px 12px;border:1px solid var(--border);border-radius:8px;background:var(--surface);';
+  div.className = 'duplicates-group panel-card wb-dup-group';
   div.dataset.groupKey = `${(group.artist || '').toLowerCase()}|||${(group.title || '').toLowerCase()}`;
 
   // WS2 — the keeper is now mutable. It starts at the backend's suggestion
@@ -340,14 +339,14 @@ function _renderDuplicateGroup(group) {
   };
 
   const head = document.createElement('div');
-  head.style.cssText = 'display:flex;align-items:center;gap:10px;flex-wrap:wrap;';
+  head.className = 'wb-dup-head';
   const title = document.createElement('div');
-  title.style.cssText = 'flex:1;min-width:0;';
+  title.className = 'wb-dup-title';
   const artistEl = document.createElement('span');
-  artistEl.style.cssText = 'font-weight:600;';
+  artistEl.className = 'wb-dup-artist';
   artistEl.textContent = group.artist || '(unknown artist)';
   const dashEl = document.createElement('span');
-  dashEl.style.cssText = 'margin:0 6px;color:var(--muted);';
+  dashEl.className = 'wb-dup-dash';
   dashEl.textContent = '—';
   const titleEl = document.createElement('span');
   titleEl.textContent = group.title || '(untitled)';
@@ -355,15 +354,13 @@ function _renderDuplicateGroup(group) {
   title.appendChild(dashEl);
   title.appendChild(titleEl);
   const countChip = document.createElement('span');
-  countChip.style.cssText = 'font-size:11px;background:var(--amber, #c98a00)22;color:var(--amber, #c98a00);border:1px solid var(--amber, #c98a00)55;border-radius:9999px;padding:2px 8px;font-weight:600;';
+  countChip.className = 'wb-dup-count-chip';
   countChip.textContent = `${group.copies.length} copies`;
   const deleteBtn = document.createElement('button');
-  deleteBtn.className = 'secondary-btn duplicates-group-delete';
-  deleteBtn.style.cssText = 'font-size:11px;padding:3px 10px;color:#e4384e;border-color:#e4384e44;';
+  deleteBtn.className = 'secondary-btn duplicates-group-delete wb-dup-delete';
   deleteBtn.title = 'Opens a confirm dialog; backup is created before any delete';
   const toggle = document.createElement('button');
-  toggle.className = 'secondary-btn';
-  toggle.style.cssText = 'font-size:11px;padding:3px 10px;';
+  toggle.className = 'secondary-btn wb-dup-toggle';
   toggle.textContent = 'Show details';
   head.appendChild(title);
   head.appendChild(countChip);
@@ -386,9 +383,7 @@ function _renderDuplicateGroup(group) {
     table.querySelectorAll('.dup-copy-row').forEach((row) => {
       const tid = Number(row.dataset.trackId);
       const isKeeper = tid === currentKeeperId;
-      row.style.background = isKeeper
-        ? 'color-mix(in srgb, var(--green) 12%, transparent)' : '';
-      row.style.fontWeight = isKeeper ? '600' : '';
+      row.classList.toggle('keeper', isKeeper);
       const star = row.querySelector('.dup-keeper-star');
       if (star) star.style.visibility = isKeeper ? 'visible' : 'hidden';
       // Same-path chip: a NON-keeper whose file path matches the keeper's
@@ -403,11 +398,11 @@ function _renderDuplicateGroup(group) {
         } else if (samePath) {
           chip.style.display = '';
           chip.textContent = '🗂 same file as keeper';
-          chip.style.color = 'var(--muted)';
+          chip.classList.remove('distinct'); chip.classList.add('same');
         } else {
           chip.style.display = '';
           chip.textContent = '📁 distinct file — stays on disk';
-          chip.style.color = 'var(--amber, #c98a00)';
+          chip.classList.remove('same'); chip.classList.add('distinct');
         }
       }
     });
@@ -415,13 +410,12 @@ function _renderDuplicateGroup(group) {
 
   for (const c of group.copies) {
     const row = document.createElement('div');
-    row.className = 'dup-copy-row';
+    row.className = 'dup-copy-row wb-dup-row';
     row.dataset.trackId = c.track_id;
-    row.style.cssText = 'display:flex;gap:10px;align-items:center;padding:4px 6px;border-radius:4px;flex-wrap:wrap;';
     // "Keep" radio (WS2 override). One radio group per duplicate group via
     // a name keyed on the group's DOM identity.
     const radioLabel = document.createElement('label');
-    radioLabel.style.cssText = 'display:inline-flex;align-items:center;gap:3px;cursor:pointer;min-width:54px;';
+    radioLabel.className = 'wb-dup-keep-label';
     const radio = document.createElement('input');
     radio.type = 'radio';
     radio.name = `dup-keeper-${div.dataset.groupKey}`;
@@ -432,13 +426,13 @@ function _renderDuplicateGroup(group) {
       if (radio.checked) { currentKeeperId = c.track_id; _refresh(); }
     });
     const radioText = document.createElement('span');
-    radioText.style.cssText = 'font-size:11px;';
+    radioText.className = 'wb-dup-keep-text';
     radioText.textContent = 'Keep';
     radioLabel.appendChild(radio);
     radioLabel.appendChild(radioText);
 
     const meta = document.createElement('span');
-    meta.style.cssText = 'display:flex;gap:10px;flex-wrap:wrap;align-items:baseline;';
+    meta.className = 'wb-dup-meta';
     meta.innerHTML =
       `<span style="min-width:84px;">id ${c.track_id}</span>` +
       `<span style="min-width:48px;">${_fmtDur(c.duration)}</span>` +
@@ -450,13 +444,11 @@ function _renderDuplicateGroup(group) {
       `<span style="min-width:110px;">${_esc((c.last_played || '—').slice(0, 19))}</span>`;
 
     const star = document.createElement('span');
-    star.className = 'dup-keeper-star';
-    star.style.cssText = 'color:var(--green);';
+    star.className = 'dup-keeper-star wb-dup-keeper-star';
     star.textContent = '★ keeper';
 
     const chip = document.createElement('span');
-    chip.className = 'dup-path-chip';
-    chip.style.cssText = 'font-size:11px;margin-left:auto;';
+    chip.className = 'dup-path-chip wb-dup-path-chip';
 
     row.appendChild(radioLabel);
     row.appendChild(meta);
@@ -586,7 +578,7 @@ async function scanDuplicates() {
   } catch (e) {
     // Failure must read as failure, not progress — red text + error toast
     progress.textContent = `Scan failed: ${e.message || e}`;
-    progress.style.color = 'var(--danger, #e4384e)';
+    progress.style.color = 'var(--danger)';
     showToast(`Duplicate scan failed: ${e.message || e}`, true);
   } finally {
     _setBtnLoading(btn, false);
@@ -883,14 +875,16 @@ function _showDuplicatesUndoToast(summary, requested) {
   if (banner) banner.remove();
   banner = document.createElement('div');
   banner.id = 'duplicates-undo-banner';
-  banner.className = 'fade-in-up';
-  banner.style.cssText = 'position:relative;overflow:hidden;display:flex;align-items:center;gap:10px;font-size:12px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:8px 10px;margin-bottom:10px;';
+  banner.className = 'fade-in-up wb-dup-undo-banner';
   const text = document.createElement('span');
-  text.style.flex = '1';
-  text.textContent = `${base} Backup: ${backupPath.split('/').pop()}`;
+  text.className = 'wb-dup-undo-text';
+  text.append(`${base} Backup: `);
+  const pathEl = document.createElement('span');
+  pathEl.className = 'wb-dup-undo-path';
+  pathEl.textContent = backupPath.split('/').pop();
+  text.appendChild(pathEl);
   const undoBtn = document.createElement('button');
-  undoBtn.className = 'secondary-btn';
-  undoBtn.style.cssText = 'font-size:11px;padding:3px 10px;';
+  undoBtn.className = 'secondary-btn wb-dup-undo-btn';
   undoBtn.textContent = 'Undo this delete';
   undoBtn.addEventListener('click', async () => {
     undoBtn.disabled = true;
@@ -915,7 +909,7 @@ function _showDuplicatesUndoToast(summary, requested) {
   // Draining bar signals the 30s window — the banner used to vanish with no
   // warning, mid-reach for the Undo button.
   const drain = document.createElement('div');
-  drain.style.cssText = 'position:absolute;left:0;bottom:0;height:2px;width:100%;background:var(--green);transition:width 30s linear;';
+  drain.className = 'wb-dup-undo-drain';
   banner.appendChild(drain);
   host.parentNode.insertBefore(banner, host);
   requestAnimationFrame(() => { drain.style.width = '0%'; });

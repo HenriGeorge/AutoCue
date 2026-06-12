@@ -2723,6 +2723,74 @@
     border-bottom: 1px solid var(--border);
   }
   .wb-dupes-host { display: flex; flex-direction: column; gap: 10px; }
+  /* Toolbar verbs: Rescan is a neutral pill; bulk-delete is the destructive
+     ink-pill (danger tint, never green). */
+  #wb-dupes-bulk-delete {
+    font-size: 12px; padding: 4px 14px; border-radius: var(--radius-pill);
+    color: var(--danger); border: 1px solid color-mix(in srgb, var(--danger) 40%, transparent);
+    background: color-mix(in srgb, var(--danger) 8%, transparent);
+  }
+  #wb-dupes-bulk-delete:hover:not(:disabled) {
+    background: color-mix(in srgb, var(--danger) 14%, transparent);
+  }
+  #wb-dupes-bulk-delete:disabled { opacity: .5; }
+  #duplicates-summary { font-family: var(--font-mono); font-size: 12px; }
+  /* Group card (elevated) + dense copy rows. Data values are mono; the keeper
+     row carries an 8% green wash (green = signal). Tokens only — no hex. */
+  .wb-dup-group {
+    padding: 10px 12px; border: 1px solid var(--border);
+    border-radius: var(--radius-xl); background: var(--surface);
+  }
+  .wb-dup-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .wb-dup-title { flex: 1; min-width: 0; }
+  .wb-dup-artist { font-weight: 600; }
+  .wb-dup-dash { margin: 0 6px; color: var(--muted); }
+  .wb-dup-count-chip {
+    font-family: var(--font-mono); font-size: 11px; font-weight: 600;
+    padding: 2px 8px; border-radius: var(--radius-sm);
+    color: var(--warn-amber); border: 1px solid color-mix(in srgb, var(--warn-amber) 35%, transparent);
+    background: color-mix(in srgb, var(--warn-amber) 13%, transparent);
+  }
+  .wb-dup-delete {
+    font-size: 11px; padding: 3px 10px; border-radius: var(--radius-pill);
+    color: var(--danger); border: 1px solid color-mix(in srgb, var(--danger) 27%, transparent);
+  }
+  .wb-dup-toggle { font-size: 11px; padding: 3px 10px; }
+  .wb-dup-row {
+    display: flex; gap: 10px; align-items: center; padding: 4px 6px;
+    border-radius: var(--radius-sm); flex-wrap: wrap;
+  }
+  .wb-dup-row.keeper {
+    background: color-mix(in srgb, var(--green) 12%, transparent); font-weight: 600;
+  }
+  .wb-dup-keep-label {
+    display: inline-flex; align-items: center; gap: 3px; cursor: pointer; min-width: 54px;
+  }
+  .wb-dup-keep-text { font-size: 11px; }
+  .wb-dup-meta {
+    display: flex; gap: 10px; flex-wrap: wrap; align-items: baseline;
+    font-family: var(--font-mono); font-size: 11px;
+  }
+  .wb-dup-keeper-star { color: var(--green); }
+  .wb-dup-path-chip { font-size: 11px; margin-left: auto; }
+  .wb-dup-path-chip.distinct { color: var(--warn-amber); }
+  .wb-dup-path-chip.same { color: var(--muted); }
+  /* Undo banner: neutral surface, mono backup path, green drain bar (signal). */
+  .wb-dup-undo-banner {
+    position: relative; overflow: hidden; display: flex; align-items: center; gap: 10px;
+    font-size: 12px; background: var(--surface2); border: 1px solid var(--border);
+    border-radius: var(--radius-md); padding: 8px 10px; margin-bottom: 10px;
+  }
+  .wb-dup-undo-text { flex: 1; }
+  .wb-dup-undo-path { font-family: var(--font-mono); }
+  .wb-dup-undo-btn { font-size: 11px; padding: 3px 10px; }
+  .wb-dup-undo-drain {
+    position: absolute; left: 0; bottom: 0; height: 2px; width: 100%;
+    background: var(--green); transition: width 30s linear;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .wb-dup-undo-drain { transition: none; }
+  }
   /* ── /v2: duplicates place ─────────────────────────────────────────────── */
   /* ── v2: consent gradient (review-unlocks-apply, design-H "Stagehand") ─── */
   /* Evidence region inside the shared _confirmDialog. Collapsed until the user
