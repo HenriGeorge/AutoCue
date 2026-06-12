@@ -13,7 +13,10 @@
  * - This file is the only module entry point; new features are imports here.
  *
  * Program PRD: .claude/PRPs/prds/autocue-2-program.prd.md
- * (P1 will import the status-sentence + command-palette modules here.)
  */
 
 window.AC2 = window.AC2 || {};
+
+// P1 global layer.
+import { initStatusSentence, deriveFacts } from './status-sentence.js';
+window.AC2.statusSentence = { initStatusSentence, deriveFacts };

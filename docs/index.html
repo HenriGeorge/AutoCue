@@ -56,14 +56,21 @@
     <button id="tab-library" class="tab-btn">Library</button>
     <button id="tab-discover" class="tab-btn">Discover</button>
   </div>
+  <!-- AutoCue 2.0 status sentence: facts are buttons (clickable) — the v2
+       module docs/js/v2/status-sentence.js wires navigation + the rb poll.
+       updateAppStatus() rewrites innerHTML so span→button is transparent. -->
   <div id="app-status" aria-live="polite">
-    <span class="status-item" id="status-db" data-tip="Local server connection"><span class="status-dot status-ok"></span><span class="status-text">DB connected</span></span>
+    <button type="button" class="status-item" id="status-db" data-tip="Local server connection"><span class="status-dot status-ok"></span><span class="status-text">DB connected</span></button>
     <span class="status-sep">·</span>
-    <span class="status-item" id="status-count"><span class="status-text">— tracks</span></span>
+    <button type="button" class="status-item" id="status-count" data-tip="Jump to the track list"><span class="status-text">— tracks</span></button>
+    <span class="status-sep" id="status-sep-needcues" hidden>·</span>
+    <button type="button" class="status-item" id="status-needcues" data-tip="Tracks with no hot cues — click to fix" hidden><span class="status-text"></span></button>
+    <span class="status-sep" id="status-sep-health" hidden>·</span>
+    <button type="button" class="status-item" id="status-health" data-tip="Library health — click to scan" hidden><span class="status-text"></span></button>
     <span class="status-sep" id="status-sep-scan">·</span>
-    <span class="status-item" id="status-scan" data-tip="Last library scan"><span class="status-text">No scans yet</span></span>
+    <button type="button" class="status-item" id="status-scan" data-tip="Last library scan"><span class="status-text">No scans yet</span></button>
     <span class="status-sep">·</span>
-    <span class="status-item" id="status-rb" data-tip="Rekordbox process state — must be closed before applying"><span class="status-text">Rekordbox ?</span></span>
+    <button type="button" class="status-item" id="status-rb" data-tip="Rekordbox process state — must be closed before applying"><span class="status-text">Rekordbox ?</span></button>
     <span class="status-sep status-warmup-sep" style="display:none">·</span>
     <span class="status-item status-warmup-item" id="status-warmup" data-tip="Sidecar analysis cache hydration" style="display:none"><span class="status-text">Indexing <span id="warmup-progress-text">0 / 0</span></span></span>
   </div>

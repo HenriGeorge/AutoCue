@@ -15,8 +15,10 @@ const REQUIRED_SELECTORS: string[] = [
   "#tab-cues",
   "#tab-library",
   "#tab-discover",
-  // App status row
+  // App status row (AutoCue 2.0 status sentence — facts are buttons)
   "#app-status",
+  "#status-needcues",
+  "#status-health",
   // Filter controls (Cues tab)
   "#search-input",
   "#phrase-only-cb",
