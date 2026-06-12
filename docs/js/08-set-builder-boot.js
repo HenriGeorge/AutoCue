@@ -927,6 +927,16 @@ window.ACBridge = {
   selectedIds: () => selectedTrackIds,
   pending: () => pendingCues,
   activePlaylistId: () => activePlaylistId,
+  // P2 proposal organ: parsed track-ids (ints) that are BOTH pending AND
+  // approved — the Apply gate. Returns null (meaning "fall back to the normal
+  // activeTracks() path") UNLESS the proposals module exists AND there are
+  // pending cues. Flag-off / no-pending → null → legacy behaviour untouched.
+  approvedApplyIds: () => {
+    var prop = window.AC2 && window.AC2.proposals;
+    if (!prop) return null;
+    if (!pendingCues || Object.keys(pendingCues).length === 0) return null;
+    return prop.approvedIntersectPending().map(function (id) { return parseInt(id, 10); });
+  },
   // function pass-throughs
   filteredTracks: () => filteredTracks(),
   sortedTracks: () => sortedTracks(),

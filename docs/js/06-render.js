@@ -1205,17 +1205,39 @@ function buildWbRow(track, cues, willSkip, rowIndex) {
   // ── CUES (cue-state) ──
   const cueCell = document.createElement('div');
   cueCell.className = 'wb-c-cues';
-  const n = Number(track.existingHotCues) || 0;
-  const cueState = document.createElement('span');
-  if (n > 0) {
-    cueState.className = 'wb-cues-ready';
-    cueState.textContent = n + ' ready';
-    cueState.title = n + ' existing hot cue' + (n !== 1 ? 's' : '');
+  // PROPOSAL organ: a track with PENDING (previewed-but-unwritten) cues shows an
+  // amber PROPOSAL stamp + a per-track approve-tick. The tick reflects the v2
+  // approved Set; Apply is gated to approved∩pending (see proposals.js). Falls
+  // through to the normal cue-state otherwise — flag-off / no-pending is untouched.
+  const pending = (typeof pendingCues !== 'undefined') ? pendingCues[String(track.id)] : null;
+  if (pending && pending.length) {
+    const stamp = document.createElement('span');
+    stamp.className = 'wb-proposal';
+    stamp.textContent = 'Proposal';
+    stamp.title = pending.length + ' proposed cue' + (pending.length !== 1 ? 's' : '') + ' — not written yet';
+    cueCell.appendChild(stamp);
+
+    const approved = !!(window.AC2 && window.AC2.proposals && window.AC2.proposals.isApproved(track.id));
+    const tick = document.createElement('button');
+    tick.type = 'button';
+    tick.className = 'wb-approve-tick' + (approved ? ' on' : '');
+    tick.setAttribute('aria-label', 'Approve proposed cues');
+    tick.setAttribute('aria-pressed', approved ? 'true' : 'false');
+    tick.textContent = '✓';
+    cueCell.appendChild(tick);
   } else {
-    cueState.className = 'wb-cues-none';
-    cueState.textContent = '— no cues';
+    const n = Number(track.existingHotCues) || 0;
+    const cueState = document.createElement('span');
+    if (n > 0) {
+      cueState.className = 'wb-cues-ready';
+      cueState.textContent = n + ' ready';
+      cueState.title = n + ' existing hot cue' + (n !== 1 ? 's' : '');
+    } else {
+      cueState.className = 'wb-cues-none';
+      cueState.textContent = '— no cues';
+    }
+    cueCell.appendChild(cueState);
   }
-  cueCell.appendChild(cueState);
   row.appendChild(cueCell);
 
   // ── ⋯ overflow menu (plays the track for now; full menu is P2 T5) ──
