@@ -23,3 +23,13 @@ window.AC2.statusSentence = { initStatusSentence, deriveFacts };
 
 import { openPalette, closePalette, isOpen, buildResults, clampActive } from './palette.js';
 window.AC2.palette = { openPalette, closePalette, isOpen, buildResults, clampActive };
+
+// P2 workbench shell (flag-gated, additive).
+import { initWorkbench, toggleWorkbench, isWorkbenchOn, setWorkbench } from './workbench/shell.js';
+window.AC2.workbench = { initWorkbench, toggleWorkbench, isWorkbenchOn, setWorkbench };
+
+// P2 workbench proposal organ — proposal stamps + per-track approve ticks +
+// approved∩pending Apply gating. Owns its own click-delegation init (capture
+// phase) so it must run after #track-list exists; main.js loads at end of body.
+import { initProposals } from './workbench/proposals.js';
+initProposals();

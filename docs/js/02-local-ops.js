@@ -1162,16 +1162,8 @@ async function _runCueTools() {
 
   if (!total) { showToast('No tracks to process'); return; }
 
-  // Require confirmation before destructive writes (delete_orphan or shift when not dry-run)
-  if (!dryRun && (op === 'delete_orphan' || op === 'shift')) {
-    const opLabel = op === 'delete_orphan' ? 'delete cues' : 'shift cues';
-    if (!(await _confirmDialog(
-      `Apply ${opLabel} to ${total} track${total === 1 ? '' : 's'}? A backup will be created first.`,
-      { confirmLabel: op === 'delete_orphan' ? 'Delete cues' : 'Shift cues', danger: true }
-    ))) return;
-  }
-
-  // Build operation-specific params
+  // Build operation-specific params first — destructive confirms need the params
+  // (keep-slot / shift delta) to render their "review unlocks apply" evidence.
   let opParams = {};
   if (op === 'rename') {
     const from = document.getElementById('cue-rename-from').value;
@@ -1193,6 +1185,37 @@ async function _runCueTools() {
   } else if (op === 'delete_orphan') {
     const keep = parseInt(document.getElementById('cue-keep-slots').value) || 4;
     opParams = { delete_orphan: { keep_slots: keep } };
+  }
+
+  // Consent gradient (design-H "review unlocks apply"): destructive writes
+  // (delete_orphan / shift, non-dry-run) keep Apply DISABLED until the user
+  // reveals what will change. The evidence states the exact blast radius.
+  if (!dryRun && (op === 'delete_orphan' || op === 'shift')) {
+    const SLOTS = ['A','B','C','D','E','F','G','H'];
+    let evidence;
+    let confirmLabel;
+    if (op === 'delete_orphan') {
+      const keep = opParams.delete_orphan.keep_slots;
+      const deleted = SLOTS.slice(keep).join(', ') || '(none)';
+      evidence =
+        `<div class="confirm-evidence-line"><strong>${total}</strong> track${total === 1 ? '' : 's'} · keeping slots <span class="mono">${SLOTS.slice(0, keep).join(', ')}</span></div>` +
+        `<div class="confirm-evidence-line danger">Deleting cues in slots <span class="mono">${deleted}</span> wherever present.</div>` +
+        `<div class="confirm-evidence-foot">A backup is created before any write — nothing is lost permanently.</div>`;
+      confirmLabel = `Delete cues · ${total}`;
+    } else {
+      const ms = opParams.shift.delta_ms;
+      const dir = ms > 0 ? 'later' : 'earlier';
+      evidence =
+        `<div class="confirm-evidence-line">Shifting every cue <strong>${Math.abs(ms)} ms ${dir}</strong> (<span class="mono">${ms > 0 ? '+' : ''}${ms} ms</span>).</div>` +
+        `<div class="confirm-evidence-line">Across <strong>${total}</strong> track${total === 1 ? '' : 's'}.</div>` +
+        `<div class="confirm-evidence-foot">A backup is created before any write — nothing is lost permanently.</div>`;
+      confirmLabel = `Shift cues · ${total}`;
+    }
+    const opLabel = op === 'delete_orphan' ? 'delete cues' : 'shift cues';
+    if (!(await _confirmDialog(
+      `Apply ${opLabel} to ${total} track${total === 1 ? '' : 's'}? Review the change below to unlock apply.`,
+      { confirmLabel, danger: true, reviewRequired: true, reviewCount: total, evidence }
+    ))) return;
   }
 
   const abortCtrl = new AbortController();

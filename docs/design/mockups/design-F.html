@@ -1,0 +1,842 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AutoCue — Concept F: Booth Partner (AI-native conversational)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+/* ============ AutoCue tokens (verbatim from docs/design/tokens) ============ */
+:root{
+  --bg:#fafafa; --surface:#ffffff; --surface-2:#f2f2f2; --border:#e8e8e8; --border-hover:#c8c8c8;
+  --text:#1a1a1a; --muted:#737373; --muted-soft:#a3a3a3;
+  --green:#159a05; --green-dim:#0f6e03; --green-wash:rgba(21,154,5,.08); --green-ring:rgba(21,154,5,.14);
+  --ink:#0a0a0a; --ink-hover:#2a2a2a; --on-ink:#fafafa;
+  --danger:#e74c3c; --warn:#f0801a; --warn-amber:#ffa000; --rating:#f0b429;
+  --cue-a:#18a80c; --cue-b:#2246e0; --cue-c:#0099bb; --cue-d:#c07800;
+  --cue-e:#c84800; --cue-f:#c02010; --cue-g:#c8006a; --cue-h:#9900cc;
+  --shadow-sm:0 1px 3px rgba(0,0,0,.06),0 0 0 1px rgba(0,0,0,.03);
+  --shadow-md:0 4px 14px rgba(0,0,0,.08),0 0 0 1px rgba(0,0,0,.04);
+  --shadow-lg:0 10px 32px rgba(0,0,0,.18),0 2px 8px rgba(0,0,0,.08);
+  --glass-bg:rgba(255,255,255,.86);
+  --font-sans:'Inter',-apple-system,sans-serif;
+  --font-mono:'JetBrains Mono',ui-monospace,monospace;
+  --radius-sm:4px; --radius-md:8px; --radius-lg:12px; --radius-xl:16px; --radius-pill:999px;
+}
+html.dark{
+  --bg:#0c0a09; --surface:#1c1917; --surface-2:#231f1d; --border:#292524; --border-hover:#3d3830;
+  --text:#fafaf9; --muted:#a8a29e; --muted-soft:#78716c;
+  --green:#28e214; --green-dim:#1a9a0d; --green-wash:rgba(40,226,20,.08); --green-ring:rgba(40,226,20,.14);
+  --ink:#fafafa; --ink-hover:#e2e2e2; --on-ink:#0a0a0a;
+  --cue-a:#28e214; --cue-b:#305aff; --cue-c:#00e0ff; --cue-d:#ffa000;
+  --cue-e:#ff6400; --cue-f:#e0301e; --cue-g:#f51e8c; --cue-h:#e600ff;
+  --shadow-sm:0 1px 3px rgba(0,0,0,.3);
+  --shadow-md:0 4px 12px rgba(0,0,0,.3);
+  --shadow-lg:0 10px 32px rgba(0,0,0,.45),0 2px 8px rgba(0,0,0,.3);
+  --glass-bg:rgba(12,10,9,.80);
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html{scroll-behavior:smooth}
+body{
+  background:var(--bg);color:var(--text);font-family:var(--font-sans);
+  font-size:15px;line-height:1.55;-webkit-font-smoothing:antialiased;
+  padding-top:64px;padding-bottom:172px;
+}
+@media (prefers-reduced-motion: reduce){
+  *,*::before,*::after{animation:none!important;transition:none!important}
+  html{scroll-behavior:auto}
+}
+.mono{font-family:var(--font-mono)}
+
+/* ============ Persistent trust header ============ */
+header{
+  position:fixed;top:0;left:0;right:0;z-index:50;height:64px;
+  background:var(--glass-bg);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);
+  border-bottom:1px solid var(--border);
+  display:flex;align-items:center;gap:24px;padding:0 28px;
+}
+.brand{display:flex;align-items:center;gap:10px;flex:none}
+.brand .mark{
+  width:32px;height:32px;border-radius:8px;background:var(--surface-2);
+  display:flex;align-items:center;justify-content:center;border:1px solid var(--border);
+}
+.brand .word{font-weight:700;font-size:16px;letter-spacing:-.01em}
+.brand .word em{font-style:normal;color:var(--muted);font-weight:500}
+.hard-numbers{display:flex;align-items:center;gap:22px;flex:1;justify-content:center;min-width:0}
+.stat{display:flex;flex-direction:column;align-items:flex-start;gap:1px}
+.stat .lbl{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.08em;color:var(--muted-soft)}
+.stat .val{font-family:var(--font-mono);font-size:13px;font-weight:600;color:var(--text)}
+.stat .val .dim{color:var(--muted)}
+.stat .val.good{color:var(--green)}
+.rb-status{
+  display:flex;align-items:center;gap:7px;font-size:12px;color:var(--muted);
+  border:1px solid var(--border);border-radius:var(--radius-pill);padding:5px 12px;background:var(--surface);
+}
+.rb-status .dot{width:7px;height:7px;border-radius:50%;background:var(--green);box-shadow:0 0 0 3px var(--green-ring)}
+.theme-toggle{
+  flex:none;border:1px solid var(--border);background:var(--surface);color:var(--muted);
+  border-radius:var(--radius-pill);padding:6px 14px;font-family:var(--font-sans);
+  font-size:12px;font-weight:600;cursor:pointer;transition:all .18s ease;
+}
+.theme-toggle:hover{border-color:var(--border-hover);color:var(--text);transform:translateY(-1px)}
+
+/* ============ Conversation column ============ */
+main{max-width:760px;margin:0 auto;padding:28px 24px 0}
+.turn{margin-bottom:28px;animation:fadeUp .35s ease-out both}
+@keyframes fadeUp{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}
+.turn-meta{
+  font-family:var(--font-mono);font-size:10px;color:var(--muted-soft);
+  letter-spacing:.06em;margin-bottom:6px;
+}
+/* user turn — right-aligned quiet bubble */
+.turn.user{display:flex;flex-direction:column;align-items:flex-end}
+.turn.user .bubble{
+  background:var(--surface-2);border:1px solid var(--border);border-radius:var(--radius-lg);
+  border-bottom-right-radius:var(--radius-sm);
+  padding:10px 16px;max-width:78%;font-weight:500;
+}
+/* assistant turn — avatar + open text, no bubble */
+.turn.assistant{display:flex;gap:14px}
+.avatar{
+  flex:none;width:32px;height:32px;border-radius:8px;background:var(--surface-2);
+  border:1px solid var(--border);display:flex;align-items:center;justify-content:center;margin-top:2px;
+}
+.turn-body{flex:1;min-width:0}
+.turn-body > p{margin-bottom:10px}
+.turn-body > p:last-child{margin-bottom:0}
+.turn-body .v{font-family:var(--font-mono);font-size:.92em;font-weight:600}
+
+/* ============ Artifact cards ============ */
+.artifact{
+  background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-xl);
+  box-shadow:var(--shadow-sm);margin:12px 0 6px;overflow:hidden;
+  transition:border-color .18s ease, box-shadow .18s ease;
+}
+.artifact:hover{border-color:var(--border-hover);box-shadow:var(--shadow-md)}
+.artifact-head{
+  display:flex;align-items:center;gap:10px;padding:12px 18px;
+  border-bottom:1px solid var(--border);background:var(--surface);
+}
+.artifact-head .eyebrow{
+  font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);
+}
+.artifact-head .spacer{flex:1}
+.status-chip{
+  font-family:var(--font-mono);font-size:10px;font-weight:600;letter-spacing:.06em;
+  border-radius:var(--radius-sm);padding:3px 8px;border:1.5px solid var(--border);color:var(--muted);
+}
+.status-chip.applied{border-color:var(--green);color:var(--green);background:var(--green-wash)}
+.status-chip.proposal{border-color:var(--warn-amber);color:var(--warn);background:rgba(240,128,26,.08)}
+.artifact-body{padding:16px 18px}
+.artifact-foot{
+  display:flex;align-items:center;gap:12px;padding:12px 18px;
+  border-top:1px solid var(--border);background:var(--surface-2);flex-wrap:wrap;
+}
+.foot-note{font-size:12px;color:var(--muted)}
+.foot-note .mono{font-size:11px}
+
+/* buttons */
+.btn{
+  font-family:var(--font-sans);font-size:13px;font-weight:600;cursor:pointer;
+  border-radius:var(--radius-pill);padding:8px 18px;border:1px solid transparent;
+  transition:all .18s ease;display:inline-flex;align-items:center;gap:7px;
+}
+.btn:hover{transform:translateY(-1px)}
+.btn:active{transform:translateY(0)}
+.btn-ink{background:var(--ink);color:var(--on-ink);box-shadow:var(--shadow-sm)}
+.btn-ink:hover{background:var(--ink-hover);box-shadow:var(--shadow-md)}
+.btn-ghost{background:transparent;color:var(--muted);border-color:var(--border)}
+.btn-ghost:hover{border-color:var(--border-hover);color:var(--text)}
+.btn-ghost.accent:hover{border-color:var(--green);color:var(--green)}
+.btn-sm{font-size:12px;padding:5px 13px}
+.btn[disabled]{opacity:.45;cursor:default;transform:none!important}
+
+/* in-artifact action chips (drive the conversation) */
+.act-chip{
+  font-family:var(--font-sans);font-size:12px;font-weight:600;cursor:pointer;
+  border:1px solid var(--border);background:var(--surface);color:var(--text);
+  border-radius:var(--radius-pill);padding:5px 13px;transition:all .18s ease;
+}
+.act-chip:hover{border-color:var(--green);color:var(--green);transform:translateY(-1px)}
+.act-chip.used{color:var(--muted-soft);border-style:dashed;cursor:default;transform:none}
+.act-chip.used:hover{border-color:var(--border);color:var(--muted-soft)}
+
+/* ============ Health report artifact ============ */
+.health-grid{display:flex;gap:20px;align-items:stretch}
+.health-dial{
+  flex:none;width:148px;display:flex;flex-direction:column;align-items:center;justify-content:center;
+  gap:4px;border:1px solid var(--border);border-radius:var(--radius-lg);padding:16px 10px;background:var(--surface);
+}
+.health-dial .score{font-family:var(--font-mono);font-size:34px;font-weight:600;line-height:1;color:var(--warn)}
+.health-dial .score .of{font-size:15px;color:var(--muted-soft);font-weight:400}
+.health-dial .cap{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.08em;color:var(--muted)}
+.health-dial .delta{font-family:var(--font-mono);font-size:11px;color:var(--green);display:none}
+.health-dial.applied .score{color:var(--green)}
+.health-dial.applied .delta{display:block}
+.tiers{flex:1;display:flex;flex-direction:column;gap:0;min-width:0}
+.tier{
+  display:flex;align-items:center;gap:12px;padding:10px 2px;border-bottom:1px solid var(--border);
+}
+.tier:last-child{border-bottom:none}
+.tier .n{font-family:var(--font-mono);font-size:14px;font-weight:600;width:42px;text-align:right;flex:none}
+.tier .n.warn{color:var(--warn)} .tier .n.bad{color:var(--danger)} .tier .n.ok{color:var(--muted)}
+.tier .what{flex:1;min-width:0}
+.tier .what b{font-weight:600;font-size:13px;display:block}
+.tier .what span{font-size:12px;color:var(--muted)}
+.tier .what span .mono{font-size:11px}
+
+/* ============ Proposed-cues artifact ============ */
+.cue-track{
+  display:flex;gap:14px;padding:13px 2px;border-bottom:1px solid var(--border);
+  transition:opacity .18s ease;
+}
+.cue-track:last-of-type{border-bottom:none}
+.cue-track.rejected{opacity:.38}
+.cue-track.rejected .cuebadge{filter:grayscale(1)}
+.tick{
+  flex:none;width:26px;height:26px;margin-top:2px;border-radius:50%;cursor:pointer;
+  border:1.5px solid var(--border-hover);background:var(--surface);color:transparent;
+  display:flex;align-items:center;justify-content:center;transition:all .18s ease;padding:0;
+}
+.tick:hover{transform:scale(1.08);border-color:var(--green)}
+.tick.on{background:var(--green-wash);border-color:var(--green);color:var(--green)}
+.tick svg{width:14px;height:14px}
+.tick[disabled]{cursor:default;transform:none}
+.cue-track-main{flex:1;min-width:0}
+.cue-track-top{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap}
+.tname{font-size:15px;font-weight:700;letter-spacing:-.2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tartist{font-size:12px;color:var(--muted)}
+.datachip{
+  font-family:var(--font-mono);font-size:11px;font-weight:600;border-radius:var(--radius-sm);
+  padding:2px 7px;border:1px solid var(--border);color:var(--text);background:var(--surface);white-space:nowrap;
+}
+.datachip.bpm{background:var(--green-wash);border-color:transparent;color:var(--green)}
+.datachip.qual{color:var(--muted)}
+.cuebadges{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+.cuebadge{
+  font-family:var(--font-mono);font-size:10px;font-weight:600;border-radius:var(--radius-sm);
+  padding:2px 7px;border:1.5px solid var(--c);color:var(--c);
+  background:color-mix(in srgb, var(--c) 8%, transparent);
+  display:inline-flex;gap:6px;align-items:baseline;transition:transform .15s ease;cursor:default;
+}
+.cuebadge:hover{transform:scale(1.08)}
+.cuebadge .t{opacity:.75;font-weight:400}
+.more-note{padding:11px 2px 2px;font-size:12px;color:var(--muted)}
+.more-note .mono{font-size:11px}
+
+/* applied footer state */
+.applied-line{display:flex;align-items:flex-start;gap:9px;flex:1;min-width:0}
+.applied-line .ok-ic{flex:none;color:var(--green);margin-top:2px}
+.applied-line b{font-size:13px;font-weight:600;color:var(--text);display:block}
+.applied-line span{font-size:12px;color:var(--muted)}
+.applied-line span .mono{font-size:11px}
+
+/* ============ Transition candidates artifact ============ */
+.cand{display:flex;gap:14px;padding:12px 2px;border-bottom:1px solid var(--border);align-items:flex-start}
+.cand:last-child{border-bottom:none}
+.cand .score{
+  flex:none;width:64px;text-align:center;border:1px solid var(--border);border-radius:var(--radius-md);
+  padding:7px 4px;font-family:var(--font-mono);
+}
+.cand .score b{font-size:16px;font-weight:600;display:block;line-height:1.1}
+.cand .score i{font-style:normal;font-size:9px;color:var(--muted-soft);letter-spacing:.06em}
+.cand .score.s-hi b{color:var(--green)} .cand .score.s-mid b{color:var(--warn-amber)}
+.cand-main{flex:1;min-width:0}
+.reason{font-size:12px;color:var(--muted);margin-top:4px}
+.reason .mono{font-size:11px}
+.cand-acts{display:flex;gap:8px;margin-top:8px}
+
+/* ============ Phrase-strip (why-this-cue) artifact ============ */
+.strip-wrap{margin:4px 0 12px}
+.strip{display:flex;height:18px;border-radius:var(--radius-sm);overflow:hidden;border:1px solid var(--border)}
+.ph{position:relative;height:100%}
+.ph.intro{background:color-mix(in srgb, var(--muted-soft) 18%, transparent)}
+.ph.verse{background:color-mix(in srgb, var(--cue-c) 16%, transparent)}
+.ph.build{background:color-mix(in srgb, var(--cue-d) 22%, transparent)}
+.ph.drop{background:color-mix(in srgb, var(--cue-f) 24%, transparent)}
+.ph.break{background:color-mix(in srgb, var(--cue-b) 16%, transparent)}
+.ph.outro{background:color-mix(in srgb, var(--muted-soft) 18%, transparent)}
+.strip-ruler{position:relative;height:22px;margin-top:3px}
+.ctick{position:absolute;top:0;transform:translateX(-50%);display:flex;flex-direction:column;align-items:center;gap:1px}
+.ctick .pin{width:2px;height:6px;background:var(--c)}
+.ctick .lab{
+  font-family:var(--font-mono);font-size:9px;font-weight:600;color:var(--c);
+  border:1px solid var(--c);border-radius:3px;padding:0 4px;
+  background:color-mix(in srgb, var(--c) 8%, transparent);
+}
+.ctick.hl .lab{box-shadow:0 0 0 3px color-mix(in srgb, var(--c) 14%, transparent)}
+.strip-legend{display:flex;gap:12px;flex-wrap:wrap;margin-top:8px;font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;font-weight:600}
+.why-list{list-style:none;margin-top:4px}
+.why-list li{display:flex;gap:9px;padding:5px 0;font-size:13px}
+.why-list li::before{content:"→";font-family:var(--font-mono);color:var(--green);flex:none}
+.why-list .mono{font-size:12px}
+
+/* ============ Setlist artifact ============ */
+.setrow{display:flex;align-items:baseline;gap:12px;padding:8px 2px}
+.setrow .at{font-family:var(--font-mono);font-size:11px;color:var(--muted);width:44px;flex:none;text-align:right}
+.setrow .st{flex:1;min-width:0;font-size:14px;font-weight:600;letter-spacing:-.2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.setrow .st span{font-weight:400;color:var(--muted);font-size:12px}
+.setjoin{
+  display:flex;align-items:center;gap:8px;padding:0 2px 0 58px;
+  font-family:var(--font-mono);font-size:10px;color:var(--muted-soft);
+}
+.setjoin .jl{height:10px;border-left:1px dashed var(--border-hover);margin-right:2px}
+.setjoin b{color:var(--green);font-weight:600}
+.energy-note{font-size:12px;color:var(--muted);padding:10px 2px 0;border-top:1px solid var(--border);margin-top:6px}
+
+/* ============ Composer dock ============ */
+.composer-dock{
+  position:fixed;bottom:0;left:0;right:0;z-index:50;
+  background:var(--glass-bg);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);
+  border-top:1px solid var(--border);padding:14px 24px 18px;
+}
+.composer-inner{max-width:760px;margin:0 auto}
+.intent-row{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:11px}
+.intent-row .cap{
+  font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.08em;
+  color:var(--muted-soft);align-self:center;margin-right:2px;
+}
+.intent{
+  font-family:var(--font-sans);font-size:12px;font-weight:500;cursor:pointer;
+  border:1px solid var(--border);background:var(--surface);color:var(--muted);
+  border-radius:var(--radius-pill);padding:6px 14px;transition:all .18s ease;
+}
+.intent:hover{border-color:var(--green);color:var(--green);transform:translateY(-1px)}
+.intent.used{opacity:.4;cursor:default;transform:none}
+.intent.used:hover{border-color:var(--border);color:var(--muted)}
+.composer{
+  display:flex;align-items:center;gap:10px;background:var(--surface);
+  border:1px solid var(--border);border-radius:var(--radius-lg);padding:6px 6px 6px 16px;
+  box-shadow:var(--shadow-sm);transition:border-color .18s ease, box-shadow .18s ease;
+}
+.composer:focus-within{border-color:var(--green);box-shadow:0 0 0 3px var(--green-ring)}
+.composer input{
+  flex:1;border:none;outline:none;background:transparent;color:var(--text);
+  font-family:var(--font-sans);font-size:14px;padding:8px 0;
+}
+.composer input::placeholder{color:var(--muted-soft)}
+.composer .send{
+  flex:none;background:var(--ink);color:var(--on-ink);border:none;cursor:pointer;
+  border-radius:var(--radius-pill);width:36px;height:36px;
+  display:flex;align-items:center;justify-content:center;transition:all .18s ease;
+}
+.composer .send:hover{background:var(--ink-hover);transform:translateY(-1px)}
+.composer-hint{font-size:11px;color:var(--muted-soft);margin-top:8px;text-align:center}
+.composer-hint .mono{font-size:10px}
+
+/* session divider */
+.session-start{
+  display:flex;align-items:center;gap:12px;margin:6px 0 26px;
+  font-family:var(--font-mono);font-size:10px;color:var(--muted-soft);letter-spacing:.08em;
+}
+.session-start::before,.session-start::after{content:"";flex:1;border-top:1px solid var(--border)}
+</style>
+</head>
+<body>
+
+<!-- ====================== TRUST HEADER — hard numbers, always visible ====================== -->
+<header>
+  <div class="brand">
+    <div class="mark">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--green)" stroke-width="2.4" stroke-linecap="round">
+        <line x1="3" y1="14" x2="3" y2="18"/><line x1="7.5" y1="9" x2="7.5" y2="18"/>
+        <line x1="12" y1="5" x2="12" y2="18"/><line x1="16.5" y1="9" x2="16.5" y2="18"/>
+        <line x1="21" y1="14" x2="21" y2="18"/>
+      </svg>
+    </div>
+    <div class="word">AutoCue <em>· Booth</em></div>
+  </div>
+  <div class="hard-numbers">
+    <div class="stat"><span class="lbl">Tracks</span><span class="val">2,789</span></div>
+    <div class="stat"><span class="lbl">Cued</span><span class="val"><span id="stat-cued">2,647</span><span class="dim">/2,789</span></span></div>
+    <div class="stat"><span class="lbl">Health</span><span class="val" id="stat-health">78<span class="dim">/100</span></span></div>
+    <div class="stat"><span class="lbl">Backup</span><span class="val dim" id="stat-backup">—</span></div>
+    <div class="rb-status"><span class="dot"></span>Rekordbox closed — safe to write</div>
+  </div>
+  <button class="theme-toggle" id="theme-toggle" onclick="toggleTheme()">Dark</button>
+</header>
+
+<main id="conv">
+  <div class="session-start">SESSION · 2026-06-12 · MASTER.DB · 2,789 TRACKS · 14,182 CUES</div>
+
+  <!-- ============ Turn 1 — assistant opens with the state of the library ============ -->
+  <div class="turn assistant">
+    <div class="avatar">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--green)" stroke-width="2.4" stroke-linecap="round">
+        <line x1="3" y1="14" x2="3" y2="18"/><line x1="7.5" y1="9" x2="7.5" y2="18"/>
+        <line x1="12" y1="5" x2="12" y2="18"/><line x1="16.5" y1="9" x2="16.5" y2="18"/>
+        <line x1="21" y1="14" x2="21" y2="18"/>
+      </svg>
+    </div>
+    <div class="turn-body">
+      <div class="turn-meta">AUTOCUE · 14:02:11</div>
+      <p>Library loaded from <span class="v">master.db</span> — <span class="v">2,789</span> tracks, <span class="v">14,182</span> cues. Rekordbox is closed, so writes are safe. What do you want to do?</p>
+    </div>
+  </div>
+
+  <!-- ============ Turn 2 — user intent ============ -->
+  <div class="turn user">
+    <div class="turn-meta">YOU · 14:02:40</div>
+    <div class="bubble">Get my library gig-ready</div>
+  </div>
+
+  <!-- ============ Turn 3 — assistant: health report artifact ============ -->
+  <div class="turn assistant">
+    <div class="avatar">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--green)" stroke-width="2.4" stroke-linecap="round">
+        <line x1="3" y1="14" x2="3" y2="18"/><line x1="7.5" y1="9" x2="7.5" y2="18"/>
+        <line x1="12" y1="5" x2="12" y2="18"/><line x1="16.5" y1="9" x2="16.5" y2="18"/>
+        <line x1="21" y1="14" x2="21" y2="18"/>
+      </svg>
+    </div>
+    <div class="turn-body">
+      <div class="turn-meta">AUTOCUE · 14:02:43</div>
+      <p>Scanned all <span class="v">2,789</span> tracks in <span class="v">3.1 s</span>. Health is <span class="v">78/100</span> — the biggest hole is cues: <span class="v">142</span> tracks have none, and <span class="v">117</span> of those are fixable at phrase quality. Here's the full picture.</p>
+
+      <div class="artifact" id="health-card">
+        <div class="artifact-head">
+          <span class="eyebrow">Library health report</span>
+          <span class="spacer"></span>
+          <span class="mono" style="font-size:10px;color:var(--muted-soft)">SCAN 14:02:43 · 3.1s</span>
+        </div>
+        <div class="artifact-body">
+          <div class="health-grid">
+            <div class="health-dial" id="health-dial">
+              <span class="score" id="dial-score">78<span class="of">/100</span></span>
+              <span class="cap">Library health</span>
+              <span class="delta">+14 after apply</span>
+            </div>
+            <div class="tiers">
+              <div class="tier">
+                <span class="n warn" id="tier-nocues-n">142</span>
+                <div class="what">
+                  <b>tracks have no hot cues</b>
+                  <span><span class="mono">117</span> fixable at phrase quality · <span class="mono">19</span> at bar · <span class="mono">6</span> heuristic</span>
+                </div>
+                <button class="act-chip" id="chip-fix">Fix them</button>
+              </div>
+              <div class="tier">
+                <span class="n bad">31</span>
+                <div class="what">
+                  <b>files missing on disk</b>
+                  <span>cues can't be written — relink in Rekordbox first</span>
+                </div>
+                <button class="act-chip" data-intent="missing">Show paths</button>
+              </div>
+              <div class="tier">
+                <span class="n warn">12</span>
+                <div class="what">
+                  <b>duplicate groups (<span class="mono">26</span> tracks)</b>
+                  <span>keeper picked by cues → plays → bitrate; you can override</span>
+                </div>
+                <button class="act-chip" data-intent="dupes">Review keepers</button>
+              </div>
+              <div class="tier">
+                <span class="n ok">8</span>
+                <div class="what">
+                  <b>tracks report <span class="mono">0.0</span> BPM</b>
+                  <span>re-analyse in Rekordbox — skipped from all scoring until then</span>
+                </div>
+                <button class="act-chip" data-intent="zerobpm">List them</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ Turn 4 — user approves the fix ============ -->
+  <div class="turn user">
+    <div class="turn-meta">YOU · 14:03:05</div>
+    <div class="bubble">Fix them</div>
+  </div>
+
+  <!-- ============ Turn 5 — assistant: proposed-cues artifact ============ -->
+  <div class="turn assistant">
+    <div class="avatar">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--green)" stroke-width="2.4" stroke-linecap="round">
+        <line x1="3" y1="14" x2="3" y2="18"/><line x1="7.5" y1="9" x2="7.5" y2="18"/>
+        <line x1="12" y1="5" x2="12" y2="18"/><line x1="16.5" y1="9" x2="16.5" y2="18"/>
+        <line x1="21" y1="14" x2="21" y2="18"/>
+      </svg>
+    </div>
+    <div class="turn-body">
+      <div class="turn-meta">AUTOCUE · 14:03:21</div>
+      <p>Generated cues for all <span class="v">142</span> tracks — <span class="v">1,118</span> cues total, nothing written yet. Three samples below; untick any track to leave it out. A backup is taken before the first write, and the whole batch rolls back on any failure.</p>
+
+      <div class="artifact" id="cues-card">
+        <div class="artifact-head">
+          <span class="eyebrow">Proposed cues — <span class="mono" id="prop-count">142</span> tracks</span>
+          <span class="spacer"></span>
+          <span class="status-chip proposal" id="cues-status">PROPOSAL · NOT WRITTEN</span>
+        </div>
+        <div class="artifact-body" id="cues-body">
+
+          <div class="cue-track" data-track="glue">
+            <button class="tick on" aria-label="Include Bicep — Glue" aria-pressed="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+            </button>
+            <div class="cue-track-main">
+              <div class="cue-track-top">
+                <span class="tname">Glue</span><span class="tartist">Bicep</span>
+                <span class="datachip bpm">129.0 BPM</span>
+                <span class="datachip">7A</span>
+                <span class="datachip qual">✨ phrase · High</span>
+              </div>
+              <div class="cuebadges">
+                <span class="cuebadge" style="--c:var(--cue-a)">A Intro <span class="t">0:00.0</span></span>
+                <span class="cuebadge" style="--c:var(--cue-b)">B Verse <span class="t">0:29.8</span></span>
+                <span class="cuebadge" style="--c:var(--cue-c)">C Build <span class="t">1:22.4</span></span>
+                <span class="cuebadge" style="--c:var(--cue-d)">D Drop <span class="t">1:52.0</span></span>
+                <span class="cuebadge" style="--c:var(--cue-e)">E Break <span class="t">2:51.3</span></span>
+                <span class="cuebadge" style="--c:var(--cue-f)">F Drop 2 <span class="t">3:35.7</span></span>
+                <span class="cuebadge" style="--c:var(--cue-g)">G Outro <span class="t">4:42.1</span></span>
+              </div>
+            </div>
+          </div>
+
+          <div class="cue-track" data-track="souk">
+            <button class="tick on" aria-label="Include Overmono — So U Kno" aria-pressed="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+            </button>
+            <div class="cue-track-main">
+              <div class="cue-track-top">
+                <span class="tname">So U Kno</span><span class="tartist">Overmono</span>
+                <span class="datachip bpm">134.0 BPM</span>
+                <span class="datachip">9A</span>
+                <span class="datachip qual">✨ phrase · High</span>
+              </div>
+              <div class="cuebadges">
+                <span class="cuebadge" style="--c:var(--cue-a)">A Intro <span class="t">0:00.0</span></span>
+                <span class="cuebadge" style="--c:var(--cue-b)">B Build <span class="t">0:57.4</span></span>
+                <span class="cuebadge" style="--c:var(--cue-c)">C Drop <span class="t">1:26.1</span></span>
+                <span class="cuebadge" style="--c:var(--cue-d)">D Break <span class="t">2:23.5</span></span>
+                <span class="cuebadge" style="--c:var(--cue-e)">E Drop 2 <span class="t">2:52.2</span></span>
+                <span class="cuebadge" style="--c:var(--cue-h)">H Outro <span class="t">3:49.6</span></span>
+              </div>
+            </div>
+          </div>
+
+          <div class="cue-track" data-track="talk">
+            <button class="tick on" aria-label="Include Ross from Friends — Talk to Me You'll Understand" aria-pressed="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+            </button>
+            <div class="cue-track-main">
+              <div class="cue-track-top">
+                <span class="tname">Talk to Me You'll Understand</span><span class="tartist">Ross from Friends</span>
+                <span class="datachip bpm">117.5 BPM</span>
+                <span class="datachip">4B</span>
+                <span class="datachip qual">bar fallback · Medium</span>
+              </div>
+              <div class="cuebadges">
+                <span class="cuebadge" style="--c:var(--cue-a)">A Start <span class="t">0:00.0</span></span>
+                <span class="cuebadge" style="--c:var(--cue-b)">B Bar 33 <span class="t">1:07.4</span></span>
+                <span class="cuebadge" style="--c:var(--cue-c)">C Bar 65 <span class="t">2:14.8</span></span>
+                <span class="cuebadge" style="--c:var(--cue-d)">D Bar 97 <span class="t">3:22.1</span></span>
+              </div>
+            </div>
+          </div>
+
+          <div class="more-note">+ <span class="mono">139</span> more tracks in this batch — say <i>"show the bar-fallback ones"</i> or <i>"skip anything under Medium confidence"</i> to narrow it before applying.</div>
+        </div>
+        <div class="artifact-foot" id="cues-foot">
+          <button class="btn btn-ink" id="apply-btn">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+            Apply <span class="mono" id="apply-count">142</span>&nbsp;tracks to Rekordbox
+          </button>
+          <button class="btn btn-ghost btn-sm" id="reject-btn">Reject all</button>
+          <span class="foot-note">Backup taken before first write · rolls back on any failure</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</main>
+
+<!-- ====================== COMPOSER DOCK ====================== -->
+<div class="composer-dock">
+  <div class="composer-inner">
+    <div class="intent-row">
+      <span class="cap">Try</span>
+      <button class="intent" data-intent="after-vermilion">What should I play after Vermilion?</button>
+      <button class="intent" data-intent="why-cue">Why did you put the cue there?</button>
+      <button class="intent" data-intent="warmup-set">Build a 90-min warmup set</button>
+    </div>
+    <div class="composer">
+      <input type="text" id="composer-input" placeholder="Ask about your crate — tracks, cues, sets, health…" autocomplete="off">
+      <button class="send" id="send-btn" aria-label="Send">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="19" x2="12" y2="5"/><polyline points="5 12 12 5 19 12"/></svg>
+      </button>
+    </div>
+    <div class="composer-hint">Every change appears here first as a proposal — nothing touches <span class="mono">master.db</span> until you apply. Scroll up to see what changed and why.</div>
+  </div>
+</div>
+
+<script>
+/* ---------- theme ---------- */
+function toggleTheme(){
+  const d = document.documentElement.classList.toggle('dark');
+  document.getElementById('theme-toggle').textContent = d ? 'Light' : 'Dark';
+}
+
+/* ---------- helpers ---------- */
+const conv = document.getElementById('conv');
+const AVATAR = `<div class="avatar"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--green)" stroke-width="2.4" stroke-linecap="round"><line x1="3" y1="14" x2="3" y2="18"/><line x1="7.5" y1="9" x2="7.5" y2="18"/><line x1="12" y1="5" x2="12" y2="18"/><line x1="16.5" y1="9" x2="16.5" y2="18"/><line x1="21" y1="14" x2="21" y2="18"/></svg></div>`;
+function ts(){ const d=new Date(); return ['14',String(4+Math.floor(Math.random()*40)).padStart(2,'0'),String(Math.floor(Math.random()*60)).padStart(2,'0')].join(':'); }
+function addUserTurn(text){
+  const el = document.createElement('div');
+  el.className = 'turn user';
+  el.innerHTML = `<div class="turn-meta">YOU · ${ts()}</div><div class="bubble"></div>`;
+  el.querySelector('.bubble').textContent = text;
+  conv.appendChild(el);
+}
+function addAssistantTurn(html){
+  const el = document.createElement('div');
+  el.className = 'turn assistant';
+  el.innerHTML = `${AVATAR}<div class="turn-body"><div class="turn-meta">AUTOCUE · ${ts()}</div>${html}</div>`;
+  conv.appendChild(el);
+  return el;
+}
+function scrollToEnd(){
+  requestAnimationFrame(()=>window.scrollTo({top:document.body.scrollHeight,behavior:'smooth'}));
+}
+
+/* ---------- proposed-cues artifact: per-track approve ticks ---------- */
+const HIDDEN_TRACKS = 139; // tracks in the batch not shown inline
+let applied = false;
+function visibleTicked(){
+  return document.querySelectorAll('#cues-body .tick.on').length;
+}
+function refreshApplyCount(){
+  const n = HIDDEN_TRACKS + visibleTicked();
+  document.getElementById('apply-count').textContent = n;
+  document.getElementById('prop-count').textContent = n;
+  document.getElementById('apply-btn').disabled = (n === 0);
+}
+document.querySelectorAll('#cues-body .tick').forEach(btn=>{
+  btn.addEventListener('click', ()=>{
+    if (applied) return;
+    btn.classList.toggle('on');
+    btn.setAttribute('aria-pressed', btn.classList.contains('on'));
+    btn.closest('.cue-track').classList.toggle('rejected', !btn.classList.contains('on'));
+    refreshApplyCount();
+  });
+});
+document.getElementById('reject-btn').addEventListener('click', ()=>{
+  if (applied) return;
+  document.querySelectorAll('#cues-body .tick.on').forEach(b=>{
+    b.classList.remove('on'); b.setAttribute('aria-pressed','false');
+    b.closest('.cue-track').classList.add('rejected');
+  });
+  refreshApplyCount();
+});
+
+/* ---------- apply: flip artifact to applied state ---------- */
+document.getElementById('apply-btn').addEventListener('click', ()=>{
+  if (applied) return;
+  applied = true;
+  const n = HIDDEN_TRACKS + visibleTicked();
+  const cues = Math.round(n * 7.87); // ≈1,118 at 142
+
+  // lock the rows
+  document.querySelectorAll('#cues-body .tick').forEach(b=>b.disabled = true);
+
+  // status chip
+  const status = document.getElementById('cues-status');
+  status.classList.remove('proposal'); status.classList.add('applied');
+  status.textContent = 'APPLIED · WRITTEN TO MASTER.DB';
+
+  // footer flips to applied state
+  document.getElementById('cues-foot').innerHTML = `
+    <div class="applied-line">
+      <span class="ok-ic"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg></span>
+      <div>
+        <b>Applied ${n.toLocaleString()} tracks · ${cues.toLocaleString()} cues written · 9.4 s</b>
+        <span>Backup saved — <span class="mono">autocue_backup_2026-06-12_1404.db</span> · undo restores the whole batch</span>
+      </div>
+    </div>
+    <button class="btn btn-ghost btn-sm" onclick="undoApply(this)">Undo</button>`;
+
+  // trust header updates — numbers never depend on chat memory
+  document.getElementById('stat-cued').textContent = (2647 + n).toLocaleString();
+  document.getElementById('stat-health').innerHTML = '92<span class="dim">/100</span>';
+  document.getElementById('stat-health').classList.add('good');
+  document.getElementById('stat-backup').textContent = '14:04';
+  document.getElementById('stat-backup').classList.remove('dim');
+
+  // health card dial reflects the new reality
+  document.getElementById('dial-score').innerHTML = '92<span class="of">/100</span>';
+  document.getElementById('health-dial').classList.add('applied');
+  document.getElementById('health-dial').querySelector('.delta').textContent = '+14 — cues applied';
+  document.getElementById('tier-nocues-n').textContent = String(142 - n);
+
+  // assistant confirms in-conversation (the conversation IS the audit log)
+  addAssistantTurn(`<p>Done — <span class="v">${n.toLocaleString()}</span> tracks, <span class="v">${cues.toLocaleString()}</span> cues, written in <span class="v">9.4 s</span>. Health moved <span class="v">78 → 92</span>. The backup at <span class="v">autocue_backup_2026-06-12_1404.db</span> covers the whole batch — say <i>"undo that"</i> any time. Next biggest win: the <span class="v">31</span> missing files.</p>`);
+  scrollToEnd();
+});
+
+function undoApply(btn){
+  btn.disabled = true;
+  btn.textContent = 'Restored';
+  addAssistantTurn(`<p>Restored <span class="v">master.db</span> from <span class="v">autocue_backup_2026-06-12_1404.db</span>. All <span class="v">1,118</span> cues from that batch are gone; your library is exactly as it was at <span class="v">14:03</span>. Health back to <span class="v">78/100</span>.</p>`);
+  document.getElementById('stat-cued').textContent = '2,647';
+  const h = document.getElementById('stat-health');
+  h.innerHTML = '78<span class="dim">/100</span>'; h.classList.remove('good');
+  const status = document.getElementById('cues-status');
+  status.classList.remove('applied'); status.textContent = 'ROLLED BACK';
+  scrollToEnd();
+}
+
+/* ---------- health-card "Fix them" chip is already consumed by turn 4 ---------- */
+const chipFix = document.getElementById('chip-fix');
+chipFix.classList.add('used');
+chipFix.innerHTML = '✓ done — see proposal below';
+chipFix.addEventListener('click', ()=>document.getElementById('cues-card').scrollIntoView({behavior:'smooth',block:'center'}));
+
+/* generic in-card chips → become conversation turns */
+document.querySelectorAll('.act-chip[data-intent]').forEach(chip=>{
+  chip.addEventListener('click', ()=>{
+    if (chip.classList.contains('used')) return;
+    chip.classList.add('used');
+    addUserTurn(chip.textContent.trim());
+    addAssistantTurn(`<p>Not wired in this mockup — in the app this opens the matching artifact right here in the thread.</p>`);
+    scrollToEnd();
+  });
+});
+
+/* ---------- scripted intents ---------- */
+const SCRIPTS = {
+  'after-vermilion': {
+    user: 'What should I play after Vermilion?',
+    html: `
+      <p><span class="v">Vermilion</span> is <span class="v">128.0 BPM</span>, <span class="v">8A</span>, classified <span class="v">peak</span>. Three strongest follows from your crate, scored on BPM, key, and energy shape:</p>
+      <div class="artifact">
+        <div class="artifact-head"><span class="eyebrow">Next-track candidates — after Vermilion</span><span class="spacer"></span><span class="mono" style="font-size:10px;color:var(--muted-soft)">SCORED 2,781 TRACKS</span></div>
+        <div class="artifact-body">
+          <div class="cand">
+            <div class="score s-hi"><b>91</b><i>/100</i></div>
+            <div class="cand-main">
+              <div class="cue-track-top"><span class="tname">Techno Disco Tool</span><span class="tartist">Mella Dee</span><span class="datachip bpm">128.5 BPM</span><span class="datachip">8B</span></div>
+              <div class="reason"><span class="mono">0.5</span> BPM difference — perfect · <span class="mono">8A→8B</span> — parallel (same number) · energy holds (peak → peak)</div>
+              <div class="reason">💡 Mix in at cue <span class="mono">C Build 1:14.2</span> — blend over 16 bars</div>
+              <div class="cand-acts"><button class="act-chip">Queue it</button><button class="act-chip">≈ More like this</button></div>
+            </div>
+          </div>
+          <div class="cand">
+            <div class="score s-hi"><b>87</b><i>/100</i></div>
+            <div class="cand-main">
+              <div class="cue-track-top"><span class="tname">Positive Education</span><span class="tartist">Slam</span><span class="datachip bpm">127.0 BPM</span><span class="datachip">8A</span></div>
+              <div class="reason"><span class="mono">1.0</span> BPM down — easy nudge · same key <span class="mono">8A</span> · energy drops slightly (−4%)</div>
+              <div class="cand-acts"><button class="act-chip">Queue it</button><button class="act-chip">≈ More like this</button></div>
+            </div>
+          </div>
+          <div class="cand">
+            <div class="score s-mid"><b>84</b><i>/100</i></div>
+            <div class="cand-main">
+              <div class="cue-track-top"><span class="tname">Higher</span><span class="tartist">Amelie Lens</span><span class="datachip bpm">129.0 BPM</span><span class="datachip">9A</span></div>
+              <div class="reason">Nudge pitch <span class="mono">+1.0</span> BPM · <span class="mono">8A→9A</span> — up a fifth · energy rises (+6%)</div>
+              <div class="cand-acts"><button class="act-chip">Queue it</button><button class="act-chip">≈ More like this</button></div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <p>Want the full ranked list, or only same-key options?</p>`
+  },
+  'why-cue': {
+    user: 'Why did you put the cue there?',
+    html: `
+      <p>Taking that as cue <span class="v">D Drop 1:52.0</span> on <span class="v">Bicep — Glue</span>, the last proposal you touched. Here's the placement against the track's phrase structure:</p>
+      <div class="artifact">
+        <div class="artifact-head"><span class="eyebrow">Cue placement — Glue · D Drop</span><span class="spacer"></span><span class="mono" style="font-size:10px;color:var(--muted-soft)">PHRASE DATA · HIGH</span></div>
+        <div class="artifact-body">
+          <div class="strip-wrap">
+            <div class="strip">
+              <div class="ph intro" style="width:10%"></div><div class="ph verse" style="width:18%"></div>
+              <div class="ph build" style="width:10%"></div><div class="ph drop" style="width:20%"></div>
+              <div class="ph break" style="width:15%"></div><div class="ph drop" style="width:17%"></div>
+              <div class="ph outro" style="width:10%"></div>
+            </div>
+            <div class="strip-ruler">
+              <span class="ctick" style="left:1%;--c:var(--cue-a)"><span class="pin"></span><span class="lab">A</span></span>
+              <span class="ctick" style="left:10%;--c:var(--cue-b)"><span class="pin"></span><span class="lab">B</span></span>
+              <span class="ctick" style="left:28%;--c:var(--cue-c)"><span class="pin"></span><span class="lab">C</span></span>
+              <span class="ctick hl" style="left:38%;--c:var(--cue-d)"><span class="pin"></span><span class="lab">D 1:52.0</span></span>
+              <span class="ctick" style="left:58%;--c:var(--cue-e)"><span class="pin"></span><span class="lab">E</span></span>
+              <span class="ctick" style="left:73%;--c:var(--cue-f)"><span class="pin"></span><span class="lab">F</span></span>
+              <span class="ctick" style="left:90%;--c:var(--cue-g)"><span class="pin"></span><span class="lab">G</span></span>
+            </div>
+            <div class="strip-legend"><span>Intro</span><span>Verse</span><span>Build</span><span>Drop</span><span>Break</span><span>Outro</span></div>
+          </div>
+          <ul class="why-list">
+            <li>Phrase data comes from Rekordbox's own analysis (<span class="mono">ANLZ EXT</span> tag) — confidence <span class="mono">High</span>.</li>
+            <li><span class="mono">D</span> sits at bar <span class="mono">57</span>, the first <i>Drop</i> phrase boundary — the spot you'd slam-cut or land a blend.</li>
+            <li>Snapped to the beatgrid — offset <span class="mono">0 ms</span> from the downbeat.</li>
+          </ul>
+        </div>
+        <div class="artifact-foot">
+          <button class="act-chip">Move it to the break instead</button>
+          <button class="act-chip">Looks right</button>
+          <span class="foot-note">Edits here update the proposal above — nothing written yet</span>
+        </div>
+      </div>`
+  },
+  'warmup-set': {
+    user: 'Build a 90-min warmup set',
+    html: `
+      <p>Built a <span class="v">14</span>-track warmup, <span class="v">~90 min</span>. Energy stays under <span class="v">60%</span> until the last two tracks, keys walk the wheel without a jump bigger than one step. First five:</p>
+      <div class="artifact">
+        <div class="artifact-head"><span class="eyebrow">Set — Warmup · 90 min · 14 tracks</span><span class="spacer"></span><span class="mono" style="font-size:10px;color:var(--muted-soft)">BEAM SEARCH · AVG MIX 86/100</span></div>
+        <div class="artifact-body">
+          <div class="setrow"><span class="at">0:00</span><span class="st">Lavender <span>— Tom VR</span></span><span class="datachip bpm">118.0 BPM</span><span class="datachip">5A</span><span class="datachip qual">E 31%</span></div>
+          <div class="setjoin"><span class="jl"></span>→ <b>89/100</b> · 5A→5B — parallel · <span>+1.5 BPM — blend over 16 bars</span></div>
+          <div class="setrow"><span class="at">6:10</span><span class="st">Pathways <span>— Session Victim</span></span><span class="datachip bpm">119.5 BPM</span><span class="datachip">5B</span><span class="datachip qual">E 35%</span></div>
+          <div class="setjoin"><span class="jl"></span>→ <b>91/100</b> · 5B→6B — up a fifth · <span>0.5 BPM difference — perfect</span></div>
+          <div class="setrow"><span class="at">12:45</span><span class="st">Yards <span>— Burnski</span></span><span class="datachip bpm">120.0 BPM</span><span class="datachip">6B</span><span class="datachip qual">E 41%</span></div>
+          <div class="setjoin"><span class="jl"></span>→ <b>84/100</b> · same key 6B · <span>energy rises (+7%) — EQ-kill lows before incoming lands</span></div>
+          <div class="setrow"><span class="at">19:20</span><span class="st">Inferno <span>— Robert James</span></span><span class="datachip bpm">121.0 BPM</span><span class="datachip">6B</span><span class="datachip qual">E 48%</span></div>
+          <div class="setjoin"><span class="jl"></span>→ <b>88/100</b> · 6B→7B — parallel · <span>+1.0 BPM — easy nudge</span></div>
+          <div class="setrow"><span class="at">25:50</span><span class="st">Voicenote <span>— Chaos in the CBD</span></span><span class="datachip bpm">122.0 BPM</span><span class="datachip">7B</span><span class="datachip qual">E 52%</span></div>
+          <div class="more-note">+ <span class="mono">9</span> more — peak of <span class="mono">61%</span> energy at <span class="mono">1:21:00</span>, lands on <span class="mono">8A</span> ready for your opener handoff.</div>
+          <div class="energy-note">Energy arc: <span class="mono">31% → 61%</span>, monotonic with one breather at <span class="mono">0:52</span>. Say <i>"keep it under 55%"</i> or <i>"swap track 3"</i> to revise.</div>
+        </div>
+        <div class="artifact-foot">
+          <button class="btn btn-ink" onclick="this.outerHTML='<span class=&quot;applied-line&quot;><b style=&quot;color:var(--green)&quot;>✓ Saved — AutoCue · Warmup 06-12</b></span>'">Save as Rekordbox playlist</button>
+          <button class="act-chip">Reshuffle</button>
+          <span class="foot-note">Saves the order only — no cues or grids are touched</span>
+        </div>
+      </div>`
+  }
+};
+
+document.querySelectorAll('.intent').forEach(btn=>{
+  btn.addEventListener('click', ()=>{
+    if (btn.classList.contains('used')) return;
+    const s = SCRIPTS[btn.dataset.intent];
+    if (!s) return;
+    btn.classList.add('used');
+    addUserTurn(s.user);
+    addAssistantTurn(s.html);
+    scrollToEnd();
+  });
+});
+
+/* ---------- composer (mock) ---------- */
+function sendComposer(){
+  const input = document.getElementById('composer-input');
+  const text = input.value.trim();
+  if (!text) return;
+  input.value = '';
+  addUserTurn(text);
+  addAssistantTurn(`<p>This mockup only wires the suggested intents below — in the app, free text routes to the same engines (cues, health, similar, set builder) and answers land here as artifacts.</p>`);
+  scrollToEnd();
+}
+document.getElementById('send-btn').addEventListener('click', sendComposer);
+document.getElementById('composer-input').addEventListener('keydown', e=>{
+  if (e.key === 'Enter') sendComposer();
+});
+</script>
+</body>
+</html>

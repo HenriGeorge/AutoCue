@@ -921,4 +921,32 @@ window.ACBridge = {
   healthSummary: () => healthLastSummary,
   isLocalMode: () => localMode,
   selectedCount: () => selectedTrackIds.size,
+  // P2 workbench shell reads these (still read-only for state; the fn
+  // pass-throughs let renderInspector/the rail call legacy builders without
+  // poking module internals).
+  selectedIds: () => selectedTrackIds,
+  pending: () => pendingCues,
+  activePlaylistId: () => activePlaylistId,
+  // P2 proposal organ: parsed track-ids (ints) that are BOTH pending AND
+  // approved — the Apply gate. Returns null (meaning "fall back to the normal
+  // activeTracks() path") UNLESS the proposals module exists AND there are
+  // pending cues. Flag-off / no-pending → null → legacy behaviour untouched.
+  approvedApplyIds: () => {
+    var prop = window.AC2 && window.AC2.proposals;
+    if (!prop) return null;
+    if (!pendingCues || Object.keys(pendingCues).length === 0) return null;
+    return prop.approvedIntersectPending().map(function (id) { return parseInt(id, 10); });
+  },
+  // function pass-throughs
+  filteredTracks: () => filteredTracks(),
+  sortedTracks: () => sortedTracks(),
+  activeTracks: () => activeTracks(),
+  renderTracks: () => renderTracks(),
+  buildTrackCard: (...a) => buildTrackCard(...a),
+  explainCue: (cue) => _explainCue(cue),
+  showTransitionScore: () => showTransitionScore(),
+  // P2 workbench rail crate filter (cue-state). Mutates the legacy global +
+  // re-renders via the existing AppState bus — the one sanctioned write path.
+  setCrate: (kind) => { _wbCrate = kind || 'all'; AppState.signal('filters'); },
+  crate: () => _wbCrate,
 };

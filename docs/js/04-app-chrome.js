@@ -171,7 +171,27 @@ async function applyToRekordbox() {
   const memoryCueMode = document.getElementById('memory-cue-mode').value;
   const addFillCues = document.getElementById('add-fill-cues').checked;
   const tracks = activeTracks();
-  const trackCount = tracks.length;
+
+  // ── P2 proposal-organ Apply gate ────────────────────────────────────────
+  // When the workbench is active AND proposals exist (pendingCues non-empty),
+  // the write is restricted to approved∩pending track-ids. ACBridge.approved-
+  // ApplyIds() returns null unless BOTH the v2 proposals module is loaded AND
+  // there are pending cues — so flag-off / no-pending falls straight through to
+  // the existing activeTracks() behaviour, untouched.
+  let trackIds = tracks.map(t => parseInt(t.id));
+  const wbActive = document.body.classList.contains('wb-active');
+  const hasPending = (typeof pendingCues !== 'undefined') && Object.keys(pendingCues || {}).length > 0;
+  if (wbActive && hasPending && window.ACBridge && typeof window.ACBridge.approvedApplyIds === 'function') {
+    const approvedIds = window.ACBridge.approvedApplyIds();
+    if (approvedIds !== null) {
+      if (!approvedIds.length) {
+        showToast('Approve at least one proposed track, or clear the preview', true);
+        return;
+      }
+      trackIds = approvedIds;
+    }
+  }
+  const trackCount = trackIds.length;
 
   const btn = document.getElementById('download-btn');
   // #download-btn lives in the Pages-mode bar, which is display:none in local
@@ -184,7 +204,7 @@ async function applyToRekordbox() {
   applyBtns.forEach(b => { b.disabled = true; });
 
   const body = JSON.stringify({
-    track_ids: tracks.map(t => parseInt(t.id)),
+    track_ids: trackIds,
     mode: analysisMode === 'phrase' ? 'auto' : 'bar',
     bars_interval: barsInterval,
     start_bar: startBar,

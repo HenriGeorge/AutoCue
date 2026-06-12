@@ -77,6 +77,9 @@
     <span class="status-item status-warmup-item" id="status-warmup" data-tip="Sidecar analysis cache hydration" style="display:none"><span class="status-text">Indexing <span id="warmup-progress-text">0 / 0</span></span></span>
   </div>
 </div>
+<!-- AutoCue 2.0 workbench toolbar: global controls (playlist / analysis mode /
+     restore) relocate here from the centre when the workbench is active. -->
+<div id="wb-topbar-tools" hidden></div>
 </div><!-- /#top-bar -->
 
 <main>
@@ -401,6 +404,21 @@
       </div>
     </details>
     </div><!-- /#filter-bar -->
+    <!-- P2 workbench: sticky dense-grid column header (visible only in wb-active).
+         Aligned to .wb-row's grid columns; pinned inside #tracks-sticky so it
+         rides the document-level sticky bar (TASK-037). -->
+    <div id="wb-grid-head" class="wb-row" aria-hidden="true">
+      <div class="wb-c-ck"></div>
+      <div class="wb-c-idx">#</div>
+      <div class="wb-c-title">Title / Artist</div>
+      <div class="wb-c-bpm">BPM</div>
+      <div class="wb-c-key">Key</div>
+      <div class="wb-c-energy">Energy</div>
+      <div class="wb-c-mix">Mix</div>
+      <div class="wb-c-class">Class</div>
+      <div class="wb-c-cues">Cues</div>
+      <div class="wb-c-more"></div>
+    </div>
     </div><!-- /#tracks-sticky -->
     <div id="track-list"></div>
   </section>
@@ -1484,6 +1502,36 @@ autocue --library --mode bar --bars-interval 8 --start-bar 1</pre>
     </div>
   </div>
 </div>
+
+<!-- AutoCue 2.0 workbench (P2). Fixed flanks around the document-scrolled
+     centre (path a — Virtualizer + #tracks-sticky untouched). Hidden until the
+     `workbench` flag + local mode; populated by docs/js/v2/workbench/shell.js. -->
+<aside id="wb-rail" hidden aria-label="Crates">
+  <div class="wb-rail-section">
+    <div class="wb-rail-head">Crates</div>
+    <div id="wb-crates" class="wb-crate-list"></div>
+  </div>
+  <div class="wb-rail-section">
+    <div class="wb-rail-head">Playlists</div>
+    <div id="wb-playlists" class="wb-crate-list"></div>
+  </div>
+  <div class="wb-rail-section">
+    <div class="wb-rail-head wb-rail-head-row">
+      <span>Saved filters</span>
+      <button type="button" class="wb-saved-add" aria-label="Save current filter">+ Save current</button>
+    </div>
+    <div id="wb-saved-filters" class="wb-crate-list"></div>
+  </div>
+  <div id="wb-rail-health" class="wb-rail-card" hidden></div>
+</aside>
+<aside id="wb-inspector" hidden aria-label="Track inspector">
+  <div id="wb-inspector-empty" class="wb-inspector-empty">
+    <div class="wb-inspector-empty-icon">♪</div>
+    <div>Select a track to inspect</div>
+    <div class="wb-inspector-empty-sub">energy · mixability · phrase strip · cue reasoning · similar</div>
+  </div>
+  <div id="wb-inspector-body" hidden></div>
+</aside>
 
 <!-- Legacy app — 8 ordered classic scripts (P0 T5 split of the former app.js).
      Order is load-bearing: concatenating 01..08 reproduces the original. -->

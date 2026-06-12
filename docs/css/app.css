@@ -2337,3 +2337,406 @@
       border-radius: 999px; padding: 1px 6px; margin-left: 4px;
       vertical-align: middle;
     }
+
+  /* ── v2: workbench (P2) ── fixed rail + inspector flank the document-scrolled
+     centre; the Virtualizer, #tracks-sticky and document scroll are untouched. */
+  :root { --wb-rail-w: 224px; --wb-insp-w: 360px; }
+  #wb-rail, #wb-inspector {
+    position: fixed; top: var(--top-bar-h, 56px); bottom: 0; z-index: 90;
+    overflow-y: auto; background: var(--surface); border-color: var(--border);
+    overscroll-behavior: contain;
+  }
+  #wb-rail { left: 0; width: var(--wb-rail-w); border-right: 1px solid var(--border); padding: 14px 12px; }
+  #wb-inspector { right: 0; width: var(--wb-insp-w); border-left: 1px solid var(--border); padding: 16px; }
+  #wb-rail[hidden], #wb-inspector[hidden] { display: none; }
+  /* When the workbench owns the screen, the centre column = the legacy <main>,
+     widened and inset by the flank widths. Document scroll & sticky preserved. */
+  body.wb-active main { max-width: none; margin: 0; padding-left: calc(var(--wb-rail-w) + 24px); padding-right: calc(var(--wb-insp-w) + 24px); }
+  body.wb-active #action-bar { left: var(--wb-rail-w); right: var(--wb-insp-w); width: auto; }
+  @media (max-width: 1180px) { body.wb-active #wb-inspector { display: none; } body.wb-active main { padding-right: 40px; } }
+
+  /* Rail */
+  .wb-rail-section { margin-bottom: 18px; }
+  .wb-rail-head { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); padding: 0 8px 6px; }
+  .wb-crate-list { display: flex; flex-direction: column; gap: 1px; }
+  .wb-crate {
+    display: flex; align-items: center; gap: 8px; width: 100%;
+    padding: 7px 8px; border: none; background: none; border-radius: 8px;
+    cursor: pointer; text-align: left; color: var(--text); font: inherit; font-size: 13px;
+    transition: background .12s;
+  }
+  .wb-crate:hover { background: var(--surface-2, var(--surface2)); }
+  .wb-crate.active { background: var(--green-wash, color-mix(in srgb, var(--green) 8%, transparent)); box-shadow: inset 2px 0 0 var(--green); }
+  .wb-crate .wb-crate-label { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .wb-crate .wb-crate-count { font-family: var(--font-mono, var(--mono)); font-size: 11px; color: var(--muted); }
+  .wb-crate.active .wb-crate-count { color: var(--green); }
+  .wb-rail-card { margin-top: auto; border: 1px solid var(--border); border-radius: var(--radius-xl, 16px); padding: 12px; }
+
+  /* Inspector */
+  .wb-inspector-empty { color: var(--muted); text-align: center; padding: 48px 12px; font-size: 13px; }
+  .wb-inspector-empty-icon { font-size: 32px; opacity: .4; margin-bottom: 12px; }
+  .wb-inspector-empty-sub { font-size: 11px; margin-top: 6px; opacity: .8; }
+  @media (prefers-reduced-motion: reduce) { .wb-crate { transition: none; } }
+
+  /* Declutter the centre in workbench mode — the status sentence already
+     reports connection; cue prep chrome moves to the toolbar in T6. */
+  body.wb-active #local-mode-banner { display: none !important; }
+
+  /* Inspector content (P2 T4) */
+  .wb-insp-head { padding-bottom: 12px; border-bottom: 1px solid var(--border); margin-bottom: 12px; }
+  .wb-insp-title { font-size: 15px; font-weight: 700; letter-spacing: -.2px; line-height: 1.25; }
+  .wb-insp-artist { font-size: 13px; color: var(--muted); margin-top: 2px; }
+  .wb-insp-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+  .wb-insp-chip { font-size: 11px; padding: 2px 8px; border: 1px solid var(--border); border-radius: 4px; color: var(--muted); }
+  .wb-insp-chip.mono { font-family: var(--font-mono, var(--mono)); color: var(--text); }
+  .wb-insp-section { margin-bottom: 16px; }
+  .wb-insp-h { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); margin-bottom: 8px; }
+  .wb-insp-energy { height: 28px; }
+  .wb-insp-energy svg { height: 28px; width: 100%; }
+  .wb-insp-scorerow { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .wb-insp-mixbreak { margin-top: 8px; display: flex; flex-direction: column; gap: 4px; }
+  .wb-insp-cue { display: flex; align-items: center; gap: 8px; padding: 4px 0; font-size: 12px; }
+  .wb-insp-cue-badge { width: 18px; height: 18px; border-radius: 4px; background: var(--green-wash, color-mix(in srgb, var(--green) 10%, transparent)); color: var(--green); font-size: 10px; font-weight: 700; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+  .wb-insp-cue-name { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .wb-insp-cue-time { color: var(--muted); }
+  .mono { font-family: var(--font-mono, var(--mono)); }
+  .wb-insp-muted { font-size: 12px; color: var(--muted); }
+  .wb-insp-simbtn { width: 100%; padding: 8px; border: 1px solid var(--border); background: none; border-radius: 8px; cursor: pointer; color: var(--text); font: inherit; font-size: 13px; }
+  .wb-insp-simbtn:hover { background: var(--surface-2, var(--surface2)); }
+  /* Focused row highlight in workbench mode */
+  body.wb-active .track-card.wb-focused { box-shadow: inset 3px 0 0 var(--green); background: var(--green-wash, color-mix(in srgb, var(--green) 5%, transparent)); }
+
+  /* T4 inspector polish: breathing room + constrain the reused mix breakdown
+     to the 360px pane (the legacy breakdown row is wider by default). */
+  #wb-inspector .wb-insp-energy { height: 32px; margin-bottom: 18px; }
+  #wb-inspector .wb-insp-mixbreak { font-size: 11px; }
+  #wb-inspector .wb-insp-mixbreak > * { display: flex; align-items: center; gap: 8px; min-width: 0; }
+  #wb-inspector .wb-insp-mixbreak .mix-bar-label { flex: 0 0 64px; color: var(--muted); white-space: nowrap; }
+  #wb-inspector .wb-insp-mixbreak .mix-bar-track { flex: 1; min-width: 0; }
+  #wb-inspector .wb-insp-mixbreak .mix-bar-value { flex: 0 0 auto; font-family: var(--font-mono, var(--mono)); color: var(--text); white-space: nowrap; text-align: right; }
+
+  /* Workbench top-bar toolbar: hosts the relocated global controls
+     (playlist / analysis mode / restore) as a compact horizontal strip. */
+  #wb-topbar-tools {
+    display: flex; align-items: center; gap: 20px; flex-wrap: wrap;
+    padding: 8px 40px; border-top: 1px solid var(--border);
+  }
+  #wb-topbar-tools[hidden] { display: none; }
+  /* Neutralise the centre-layout margins the moved controls carried inline */
+  #wb-topbar-tools > #playlist-filter-bar,
+  #wb-topbar-tools > #analysis-mode-bar { margin: 0 !important; }
+  #wb-topbar-tools > #analysis-mode-bar { margin-bottom: 0 !important; }
+  /* Restore button shouldn't push to the far right inside the toolbar group */
+  #wb-topbar-tools #restore-btn { margin-left: 0 !important; }
+  @media (max-width: 720px) { #wb-topbar-tools { padding: 8px 16px; gap: 12px; } }
+
+  /* ── v2: workbench grid ─────────────────────────────────────────────────
+     The dense thin-row grid (design-Z) that the workbench centre uses instead
+     of the 160px cards. .wb-row is BOTH the data rows (built by buildWbRow in
+     06-render.js) and the sticky #wb-grid-head column header — same grid
+     template so the columns line up. Visible only in body.wb-active. */
+  .wb-row {
+    display: grid;
+    grid-template-columns: 34px 28px minmax(150px, 1fr) 60px 44px 64px 50px 78px 92px 30px;
+    align-items: center;
+    column-gap: 0;
+  }
+  /* Sticky column header — rides #tracks-sticky (document scroll, TASK-037). */
+  #wb-grid-head { display: none; }
+  body.wb-active #wb-grid-head {
+    display: grid;
+    font-size: 10px; font-weight: 600; text-transform: uppercase;
+    letter-spacing: .07em; color: var(--muted-soft);
+    border-bottom: 1px solid var(--border);
+    user-select: none;
+  }
+  body.wb-active #wb-grid-head > div { padding: 8px 7px; white-space: nowrap; overflow: hidden; }
+  body.wb-active #wb-grid-head .wb-c-idx,
+  body.wb-active #wb-grid-head .wb-c-bpm,
+  body.wb-active #wb-grid-head .wb-c-mix { text-align: right; }
+
+  /* Data rows — fixed height so the Virtualizer window stays O(1) (TASK-033). */
+  body.wb-active #track-list.virtualized .track-card.wb-row {
+    height: 46px;
+    box-sizing: border-box;
+    border-bottom: 1px solid var(--border);
+    border-radius: 0;
+    background: none;
+    box-shadow: none;
+    padding: 0;
+    margin: 0;
+    cursor: default;
+    transition: background .12s;
+  }
+  body.wb-active .wb-row > div { padding: 0 7px; overflow: hidden; white-space: nowrap; min-width: 0; }
+  body.wb-active .wb-row:hover { background: var(--surface); }
+  body.wb-active .wb-row.selected { background: var(--surface); }
+  body.wb-active .wb-row.wb-focused {
+    background: var(--green-wash, color-mix(in srgb, var(--green) 8%, transparent));
+    box-shadow: inset 2px 0 0 var(--green);
+  }
+
+  /* Cells */
+  .wb-row .wb-c-ck { display: flex; justify-content: center; }
+  .wb-row .wb-c-ck input { accent-color: var(--green); cursor: pointer; margin: 0; }
+  .wb-row .wb-c-idx {
+    font-family: var(--font-mono, var(--mono));
+    font-size: 11px; color: var(--muted-soft); text-align: right;
+  }
+  .wb-row .wb-c-title { display: flex; flex-direction: column; justify-content: center; line-height: 1.25; min-width: 0; }
+  .wb-row .wb-c-title .wb-tt { font-size: 13px; font-weight: 600; letter-spacing: -.2px; overflow: hidden; text-overflow: ellipsis; }
+  .wb-row .wb-c-title .wb-tt.untitled { color: var(--muted); font-style: italic; font-weight: 500; }
+  .wb-row .wb-c-title .wb-ta { font-size: 11px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; }
+  .wb-row .wb-c-bpm {
+    font-family: var(--font-mono, var(--mono));
+    font-size: 12px; text-align: right; color: var(--green); font-weight: 500;
+  }
+  .wb-row .wb-c-key { display: flex; }
+  .wb-row .wb-key-chip {
+    font-family: var(--font-mono, var(--mono));
+    font-size: 10.5px; border: 1px solid var(--border); border-radius: var(--radius-sm, 4px);
+    padding: 1px 5px; color: var(--text); white-space: nowrap;
+  }
+  /* Energy sparkline cell — fixed-size box so the SVG reads offsetWidth right. */
+  .wb-row .wb-c-energy { overflow: hidden; }
+  .wb-row .wb-c-energy .energy-sparkline { display: block; width: 56px; height: 18px; }
+  .wb-row .wb-c-energy .energy-sparkline svg { display: block; width: 56px; height: 18px; }
+  .wb-row .wb-c-energy .energy-sparkline .loading { font-size: 10px; color: var(--muted-soft); letter-spacing: -1px; }
+  /* The legacy sparkline appends an energy-profile label — too wide for the cell. */
+  .wb-row .wb-c-energy .energy-sparkline > span:not(.loading):not(.no-data) { display: none; }
+  .wb-row .wb-c-energy .no-data { font-size: 9px; color: var(--muted-soft); }
+
+  /* Mix chip — flatten the legacy pill into a bare NN/100 number, green ≥80. */
+  .wb-row .wb-c-mix { font-family: var(--font-mono, var(--mono)); font-size: 12px; text-align: right; color: var(--text); }
+  .wb-row .wb-c-mix .mix-score-chip {
+    background: none !important; border: none !important; padding: 0 !important;
+    font-family: var(--font-mono, var(--mono)); font-size: 12px; color: inherit;
+  }
+  .wb-row .wb-c-mix .mix-score-chip.hi { color: var(--green); font-weight: 600; }
+  .wb-row .wb-c-mix .mix-score-chip.no-data { color: var(--muted-soft); font-size: 10px; }
+  .wb-row .wb-c-mix .mix-breakdown { display: none; }
+
+  /* Class chip — compact bordered pill. */
+  .wb-row .wb-c-class { overflow: visible; }
+  .wb-row .wb-c-class .category-chip {
+    font-size: 9.5px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em;
+    border: 1px solid var(--border); border-radius: var(--radius-sm, 4px); padding: 2px 6px;
+    color: var(--muted); display: inline-block; white-space: nowrap; line-height: 1.2;
+  }
+  .wb-row .wb-c-class .category-chip.loading { color: var(--muted-soft); border-color: transparent; }
+
+  /* Cue state — "● N ready" green vs "— no cues" muted. */
+  .wb-row .wb-c-cues { font-size: 11px; display: flex; align-items: center; }
+  .wb-row .wb-cues-ready { color: var(--green); font-weight: 600; }
+  .wb-row .wb-cues-ready::before { content: '●'; font-size: 8px; margin-right: 5px; vertical-align: 1px; }
+  .wb-row .wb-cues-none { color: var(--muted-soft); }
+
+  /* Overflow / play affordance. */
+  .wb-row .wb-c-more { display: flex; justify-content: center; }
+  .wb-row .wb-more-btn {
+    background: none; border: none; color: var(--muted-soft); padding: 3px;
+    border-radius: 6px; cursor: pointer; display: inline-flex; align-items: center; justify-content: center;
+  }
+  .wb-row .wb-more-btn svg { width: 14px; height: 14px; }
+  .wb-row .wb-more-btn:hover { background: var(--surface-2, var(--surface2)); color: var(--text); }
+  @media (prefers-reduced-motion: reduce) {
+    body.wb-active #track-list.virtualized .track-card.wb-row { transition: none; }
+  }
+  /* ── /v2: workbench grid ──────────────────────────────────────────────── */
+
+  /* ── v2: workbench rail extras ── playlists, saved filters, health ring.
+     Tokens only. Green = signal (active/ring); ink = the "Fix it" CTA. */
+  .wb-rail-head-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+  .wb-saved-add {
+    border: none; background: none; cursor: pointer; font: inherit;
+    font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em;
+    color: var(--muted); padding: 0 4px; border-radius: var(--radius-pill, 999px);
+    transition: color .12s, background .12s;
+  }
+  .wb-saved-add:hover { color: var(--text); background: var(--surface-2, var(--surface2)); }
+  .wb-saved-add:focus-visible { outline: 2px solid var(--green); outline-offset: 1px; }
+
+  .wb-saved-empty { font-size: 12px; color: var(--muted); padding: 4px 8px; }
+  .wb-crate.wb-saved-row .wb-saved-del {
+    margin-left: 4px; color: var(--muted); font-size: 14px; line-height: 1;
+    padding: 0 4px; border-radius: 4px; opacity: 0; transition: opacity .12s, color .12s;
+  }
+  .wb-crate.wb-saved-row:hover .wb-saved-del { opacity: 1; }
+  .wb-crate.wb-saved-row .wb-saved-del:hover { color: var(--text); }
+
+  /* Health-ring card */
+  #wb-rail-health { display: flex; flex-direction: column; gap: 0; }
+  #wb-rail-health .rh-top { display: flex; align-items: center; gap: 12px; }
+  #wb-rail-health .rh-ring { position: relative; width: 64px; height: 64px; flex: none; }
+  #wb-rail-health .rh-ring svg { transform: rotate(-90deg); }
+  #wb-rail-health .rh-track { stroke: var(--surface-2, var(--surface2)); }
+  #wb-rail-health .rh-fill {
+    stroke: var(--green); stroke-linecap: round;
+    transition: stroke-dashoffset 1.1s cubic-bezier(.22, 1, .36, 1);
+  }
+  #wb-rail-health .rh-center {
+    position: absolute; inset: 0; display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+  }
+  #wb-rail-health .rh-score {
+    font-family: var(--font-mono, var(--mono)); font-size: 19px; font-weight: 700;
+    letter-spacing: -.02em; line-height: 1; color: var(--text);
+  }
+  #wb-rail-health .rh-denom {
+    font-family: var(--font-mono, var(--mono)); font-size: 8px; color: var(--muted); margin-top: 1px;
+  }
+  #wb-rail-health .rh-eyebrow {
+    font-size: 9.5px; font-weight: 600; text-transform: uppercase;
+    letter-spacing: .08em; color: var(--muted);
+  }
+  #wb-rail-health .rh-lede { font-size: 11.5px; color: var(--muted); line-height: 1.45; margin: 11px 0; }
+  #wb-rail-health .rh-fix {
+    width: 100%; background: var(--ink); color: var(--on-ink); border: none;
+    border-radius: var(--radius-pill, 999px); padding: 8px 0; font-size: 12.5px; font-weight: 600;
+    cursor: pointer; transition: background .18s, transform .15s; margin-top: 2px;
+  }
+  #wb-rail-health .rh-fix:hover { background: var(--ink-hover, var(--ink)); transform: translateY(-1px); }
+  #wb-rail-health .rh-fix:focus-visible { outline: 3px solid var(--green); outline-offset: 2px; }
+  @media (prefers-reduced-motion: reduce) {
+    #wb-rail-health .rh-fill { transition: none; }
+    #wb-rail-health .rh-fix { transition: none; }
+    .wb-saved-add, .wb-crate.wb-saved-row .wb-saved-del { transition: none; }
+  }
+  /* ── /v2: workbench rail extras ──────────────────────────────────────────── */
+  /* ── v2: workbench proposal organ ─────────────────────────────────────────
+     PROPOSED (previewed-but-unwritten) cues show an amber PROPOSAL stamp + a
+     per-track approve-tick in the CUES cell. Amber = proposal (warn), green =
+     approval signal, ink = CTA. Tick is a <button> so the inspector's click-
+     capture (which excludes buttons) never focuses the row on a tick click. */
+  .wb-row .wb-c-cues { gap: 6px; }
+  .wb-row .wb-proposal {
+    font-family: var(--font-sans);
+    font-size: 8.5px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: .05em;
+    color: var(--warn-amber, var(--warn));
+    border: 1px solid var(--warn-amber, var(--warn));
+    border-radius: var(--radius-sm, 4px);
+    padding: 1px 5px;
+    background: color-mix(in srgb, var(--warn-amber, var(--warn)) 8%, transparent);
+    white-space: nowrap;
+    flex: none;
+    line-height: 1.4;
+  }
+  .wb-row .wb-approve-tick {
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    border: 1.5px solid var(--border);
+    background: var(--surface);
+    color: var(--muted-soft);
+    display: grid;
+    place-items: center;
+    font-size: 11px;
+    line-height: 1;
+    cursor: pointer;
+    padding: 0;
+    flex: none;
+    transition: border-color .15s, background .15s, color .15s;
+  }
+  .wb-row .wb-approve-tick:hover { border-color: var(--green); color: var(--green); }
+  .wb-row .wb-approve-tick:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 2px var(--bg), 0 0 0 4px var(--green);
+  }
+  .wb-row .wb-approve-tick.on {
+    border-color: var(--green);
+    background: var(--green);
+    color: #fff;
+  }
+  html.dark .wb-row .wb-approve-tick.on { color: var(--on-ink); }
+  @media (prefers-reduced-motion: reduce) {
+    .wb-row .wb-approve-tick { transition: none; }
+  }
+  /* ── /v2: workbench proposal organ ────────────────────────────────────── */
+
+  /* ── v2: workbench polish ────────────────────────────────────────────────
+     Final design-Z reconciliation (CSS-only; no markup/logic changes). Token-
+     driven so light + warm-stone dark both follow automatically. Appended last
+     to avoid colliding with the concurrent confirm-dialog banner edit. */
+
+  /* 2 — Quiet the "no waveform" label in the dense ENERGY cell. The legacy
+     _renderEnergySparkline appends a `.no-data` span ("no waveform" / "—").
+     In the 72px wb grid cell that text shouts; collapse it to a faint baseline
+     dash so an un-analyzed row reads as a calm placeholder, not an error. */
+  body.wb-active .wb-row .wb-c-energy .no-data {
+    display: block;
+    width: 56px;
+    height: 18px;
+    font-size: 0;            /* hide "no waveform" / "—" text without removing the node */
+    line-height: 18px;
+    position: relative;
+    color: transparent;
+  }
+  body.wb-active .wb-row .wb-c-energy .no-data::before {
+    content: '';
+    position: absolute;
+    left: 0; right: 0; top: 50%;
+    height: 1px;
+    background: var(--border);   /* faint baseline — themes via token */
+    opacity: .7;
+  }
+
+  /* 3 — Health-ring rail card: match design-Z's #rail-health (surface fill +
+     soft lift + tightened padding). .wb-rail-card already carries border+radius;
+     give it the same ground + shadow so it lifts off the rail in both themes. */
+  body.wb-active #wb-rail-health.wb-rail-card {
+    background: var(--surface);
+    box-shadow: var(--shadow-sm);
+    padding: 14px 14px 13px;
+  }
+  #wb-rail-health .rh-top { gap: 13px; }
+  #wb-rail-health .rh-meta .rh-eyebrow { line-height: 1.2; }
+  /* Fix-it ink pill: design-Z gives it a resting lift + green-ring focus
+     (was a flat 3px green outline). Ink stays the CTA; green is focus signal. */
+  #wb-rail-health .rh-fix {
+    box-shadow: var(--shadow-sm);
+    transition: background .18s, transform .15s, box-shadow .15s;
+    display: flex; align-items: center; justify-content: center; gap: 6px;
+  }
+  #wb-rail-health .rh-fix:hover { box-shadow: var(--shadow-md); }
+  #wb-rail-health .rh-fix:focus-visible {
+    outline: 3px solid var(--green-ring); outline-offset: 2px;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    #wb-rail-health .rh-fix { transition: none; }
+  }
+  /* ── /v2: workbench polish ──────────────────────────────────────────────── */
+  /* ── v2: consent gradient (review-unlocks-apply, design-H "Stagehand") ─── */
+  /* Evidence region inside the shared _confirmDialog. Collapsed until the user
+     clicks "Review N items"; reveal arms the destructive primary (250ms guard).
+     Additive: legacy confirm dialogs never render .confirm-evidence. */
+  .confirm-evidence {
+    display: none;
+    margin: 4px 0 16px;
+    padding-left: 11px;
+    border-left: 2px solid var(--border);
+    font-size: 12.5px;
+    line-height: 1.55;
+    color: var(--text);
+    animation: fadeSlideIn 0.18s ease-out both;
+  }
+  .confirm-evidence.open { display: block; }
+  .confirm-evidence-line { margin: 2px 0; }
+  .confirm-evidence-line.danger { color: var(--danger); }
+  .confirm-evidence-line .mono { font-family: var(--font-mono, var(--mono)); }
+  .confirm-evidence-foot {
+    margin-top: 6px;
+    font-size: 11.5px;
+    color: var(--muted);
+  }
+  /* The "Review N items" toggle reads as a quiet secondary until expanded. */
+  .confirm-review-btn[aria-expanded="true"] {
+    background: var(--surface-2);
+    border-color: var(--border-hover);
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .confirm-evidence { animation: none; }
+  }
+  /* ── /v2: consent gradient ────────────────────────────────────────────── */
