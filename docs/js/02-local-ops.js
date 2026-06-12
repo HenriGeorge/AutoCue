@@ -924,6 +924,9 @@ function _showDuplicatesUndoToast(summary, requested) {
 })();
 
 function _renderHealthSummary(s) {
+  // AutoCue 2.0: notify v2 modules (status sentence) that a fresh health
+  // summary landed — they read it via window.ACBridge.healthSummary().
+  try { window.dispatchEvent(new CustomEvent('autocue:health-summary')); } catch (_) {}
   const summary   = document.getElementById('health-summary');
   const ring      = document.getElementById('health-score-ring');
   const titleEl   = document.getElementById('health-summary-title');

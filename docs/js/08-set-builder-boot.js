@@ -796,6 +796,9 @@ themeBtn.addEventListener('click', () => applyTheme(!root.classList.contains('da
 detectLocalMode().then(async connected => {
   localMode = connected;
   if (localMode) {
+    // AutoCue 2.0: signal v2 modules that local mode is confirmed (they gate
+    // their UI on this — the global layer never renders in XML/Pages mode).
+    try { window.dispatchEvent(new CustomEvent('autocue:local-mode')); } catch (_) {}
     // Ease the tab chrome in — it used to pop over the already-painted XML UI
     const _tn = document.getElementById('tab-nav');
     _tn.style.display = '';
@@ -905,3 +908,17 @@ detectLocalMode().then(async connected => {
     loadTracksFromServer();
   }
 });
+
+// ── AutoCue 2.0 bridge (read-only) ──────────────────────────────────────────
+// v2 ES modules (docs/js/v2/) read legacy state ONLY through here. Top-level
+// `let` bindings (parsedTracks, healthLastSummary, localMode, selectedTrackIds)
+// live in the shared global lexical environment across the classic scripts but
+// are NOT properties of `window`, so v2 (a module, separate scope) can't see
+// them directly. These accessor closures capture them lexically. Read-only by
+// contract: v2 never mutates legacy state through this object.
+window.ACBridge = {
+  tracks: () => parsedTracks,
+  healthSummary: () => healthLastSummary,
+  isLocalMode: () => localMode,
+  selectedCount: () => selectedTrackIds.size,
+};
