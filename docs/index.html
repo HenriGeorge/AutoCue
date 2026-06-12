@@ -241,7 +241,13 @@
       position: absolute; inset: 0;
       opacity: 0; cursor: pointer; width: 100%; height: 100%;
     }
-    .drop-icon { width: 48px; height: 48px; margin: 0 auto 16px; color: var(--muted); }
+    /* Icon answers the drag — the app's first interaction used to be its flattest */
+    .drop-icon {
+      width: 48px; height: 48px; margin: 0 auto 16px; color: var(--muted);
+      transition: color var(--dur-btn) var(--ease-enter), transform var(--dur-btn) var(--ease-enter);
+    }
+    #drop-zone.drag-over .drop-icon { color: var(--green); transform: scale(1.08); }
+    @media (prefers-reduced-motion: reduce) { #drop-zone.drag-over .drop-icon { transform: none; } }
     .drop-title { font-size: 16px; font-weight: 600; margin-bottom: 6px; }
     .drop-sub { color: var(--muted); font-size: 13px; }
     .drop-sub a { color: var(--green); text-decoration: none; }
@@ -829,6 +835,10 @@
       border-radius: 4px; padding: 6px 8px; font-size: 11px; overflow: hidden;
     }
     .similar-panel.visible { display: block; }
+    /* Duplicates "Show details" table — class-driven so _slideOpen/_slideClose
+       can animate it (the old inline display:none flip couldn't transition) */
+    .dup-details { display: none; margin-top: 10px; font-size: 12px; font-family: var(--mono); overflow: hidden; }
+    .dup-details.open { display: block; }
     .similar-row {
       display: flex; gap: 8px; align-items: center;
       padding: 3px 0; border-bottom: 1px solid var(--border);
@@ -857,6 +867,23 @@
 
     /* General fade-in-up helper (reuses existing fadeSlideIn keyframe) */
     .fade-in-up { animation: fadeSlideIn 0.35s ease-out both; }
+
+    /* Skeleton track cards — shown while the first /api/tracks fetch is in
+       flight (the main surface used to be a blank page). Opacity pulse, not a
+       gradient sweep: keeps the stone-calm canvas. Fixed 160px height matches
+       the virtualizer card invariant. */
+    @keyframes _skelPulse { 50% { opacity: .45; } }
+    .skeleton-card {
+      height: 160px; box-sizing: border-box; padding: 14px 16px;
+      border-bottom: 1px solid var(--border); background: var(--surface);
+    }
+    .skeleton-card .skel-line {
+      background: var(--surface2); border-radius: 4px; height: 12px;
+      animation: _skelPulse 1.4s ease-in-out infinite;
+    }
+    .skeleton-card .skel-line.skel-title { width: 38%; height: 15px; margin-bottom: 10px; }
+    .skeleton-card .skel-line.skel-sub   { width: 24%; margin-bottom: 18px; }
+    .skeleton-card .skel-line.skel-chips { width: 60%; height: 18px; }
     .cue-reason-panel ul { margin: 2px 0 0 12px; padding: 0; list-style: disc; }
     .cue-reason-panel li { margin-bottom: 2px; }
 
@@ -1931,10 +1958,25 @@
     40%  { transform: scale(1.13); color: var(--green); }
     100% { transform: scale(1); }
   }
-  .tracks-count.count-pop { animation: _countPop 0.28s ease-out; }
+  .tracks-count.count-pop, .action-bar-count.count-pop, .status-item.count-pop { animation: _countPop 0.28s ease-out; }
+  .action-bar-count.count-pop { display: inline-block; } /* transform needs a box */
+  .status-warmup-item, .status-warmup-sep { transition: opacity var(--dur-chrome) ease; }
 
   /* Cue badge active press */
   .cue-badge.playable:active { transform: scale(0.92); opacity: 1; }
+
+  /* ── Consolidated reduced-motion: silence decorative animation; spinners and
+     progress fills stay (functional feedback). Toast/fade animations are
+     shortened, not removed — their animationend handlers drive cleanup. ── */
+  @media (prefers-reduced-motion: reduce) {
+    .track-card.now-playing { animation: none; }            /* infinite pulse — WCAG 2.3.3 */
+    .btn-ripple { display: none; }
+    .btn-cancel { animation: none !important; }
+    .tracks-count.count-pop, .action-bar-count.count-pop { animation: none; }
+    .toast-item, .toast-item.toast-out, .fade-in-up { animation-duration: 0.01ms !important; }
+    .skeleton-card .skel-line { animation: none; }
+    .disc-v2-card:hover { transform: none; }
+  }
 
   /* ── Tooltip ──────────────────────────────────────────────────────────────── */
   #tooltip {
@@ -2203,9 +2245,23 @@
       border: 1px solid var(--border); border-radius: 8px;
       padding: 8px 10px; min-width: 220px;
       box-shadow: 0 6px 18px rgba(0,0,0,0.35);
-      display: none;
+      /* Eased open/close instead of a display flip. visibility (not display)
+         keeps the box transitionable while staying inert when closed; the
+         delayed visibility transition holds it on-screen through the fade-out. */
+      display: block; opacity: 0; visibility: hidden; pointer-events: none;
+      transform: translateY(4px);
+      transition: opacity var(--dur-fast) var(--ease-out),
+                  transform var(--dur-fast) var(--ease-out),
+                  visibility 0s linear var(--dur-fast);
     }
-    .disc-v2-snooze-pop[aria-hidden="false"] { display: block; }
+    .disc-v2-snooze-pop[aria-hidden="false"] {
+      opacity: 1; visibility: visible; pointer-events: auto; transform: none;
+      transition: opacity var(--dur-fast) var(--ease-out),
+                  transform var(--dur-fast) var(--ease-out);
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .disc-v2-snooze-pop { transition: none; }
+    }
     .disc-v2-snooze-pop h4 {
       margin: 0 0 6px; font-size: 12px; color: var(--muted);
       text-transform: uppercase; letter-spacing: 0.04em;
@@ -3587,7 +3643,8 @@ autocue --library --mode bar --bars-interval 8 --start-bar 1</pre>
   </div>
 </div>
 
-<div id="toast-stack"></div>
+<!-- role=status: toasts are the app's primary feedback channel — announce them to screen readers -->
+<div id="toast-stack" role="status" aria-live="polite"></div>
 
 <!-- B4: Track info modal — opens on ⓘ click. Lazy-probes audio on open. -->
 <div id="track-info-modal" role="dialog" aria-modal="true" aria-hidden="true">
@@ -3988,13 +4045,20 @@ var _warmupPoll = (function() {
       var text = document.getElementById('warmup-progress-text');
       if (!chip || !text) return;
       if (j.step === 'done' || j.step === 'unknown') {
-        chip.style.display = 'none';
-        if (sep) sep.style.display = 'none';
+        // Fade the chip out (CSS transition on .status-warmup-item) before
+        // dropping it — it used to vanish in a single frame.
+        chip.style.opacity = '0';
+        if (sep) sep.style.opacity = '0';
+        setTimeout(function() {
+          chip.style.display = 'none';
+          if (sep) sep.style.display = 'none';
+        }, 320);
         _stop();
         return;
       }
       chip.style.display = '';
-      if (sep) sep.style.display = '';
+      chip.style.opacity = '1';
+      if (sep) { sep.style.display = ''; sep.style.opacity = '1'; }
       var done = (j.done || 0).toLocaleString();
       var total = (j.total || 0).toLocaleString();
       text.textContent = done + ' / ' + total;
@@ -4229,6 +4293,19 @@ async function loadTracksFromServer(playlistId = null) {
   // Show loading state while fetch is in progress
   const countEl = document.getElementById('local-track-count');
   if (countEl) countEl.textContent = ' · Loading…';
+  // First load only: skeleton cards instead of a blank page while the
+  // fetch is in flight. Subsequent reloads keep the live list on screen.
+  if (!parsedTracks.length) {
+    const skelSect = document.getElementById('tracks-section');
+    const skelList = document.getElementById('track-list');
+    if (skelSect && skelList && !skelList.children.length) {
+      skelSect.classList.add('visible');
+      skelList.innerHTML = new Array(6).fill(
+        '<div class="skeleton-card"><div class="skel-line skel-title"></div>' +
+        '<div class="skel-line skel-sub"></div><div class="skel-line skel-chips"></div></div>'
+      ).join('');
+    }
+  }
 
   let statusData, tracksData;
   try {
@@ -4238,6 +4315,8 @@ async function loadTracksFromServer(playlistId = null) {
     ]);
   } catch (err) {
     if (countEl) countEl.textContent = '';
+    // Drop the first-load skeletons so a failed fetch doesn't leave ghost cards
+    document.querySelectorAll('#track-list .skeleton-card').forEach(el => el.remove());
     try { _perf.measure('library-load', 'library-load-start'); } catch (_) {}
     throw err;
   }
@@ -4376,6 +4455,8 @@ async function scanLibraryHealth() {
   label.style.display = '';
   label.textContent = 'Scanning…';
   progBar.style.display = '';
+  // Invalidate any pending delayed-hide from a previous scan's finally block
+  progBar._hideTok = (progBar._hideTok || 0) + 1;
   fill.style.width = '0%';
   summary.style.display = 'none';
   healthData = {};
@@ -4457,8 +4538,14 @@ async function scanLibraryHealth() {
     }
   } finally {
     _setBtnLoading(btn, false);
-    label.style.display = 'none';
-    progBar.style.display = 'none';
+    // Let the 100% fill paint for a beat — completion used to be hidden in the
+    // same tick it was reached, so the bar never visibly finished.
+    const hideTok = progBar._hideTok;
+    setTimeout(() => {
+      if (progBar._hideTok !== hideTok) return; // a newer scan owns the bar now
+      label.style.display = 'none';
+      progBar.style.display = 'none';
+    }, 400);
   }
 }
 
@@ -4552,7 +4639,7 @@ function _renderDuplicateGroup(group) {
   div.appendChild(head);
 
   const table = document.createElement('div');
-  table.style.cssText = 'display:none;margin-top:10px;font-size:12px;font-family:var(--mono);';
+  table.className = 'dup-details';
 
   // Re-paint everything that depends on the current keeper: dataset (for
   // the bulk-delete walk), the delete-button label, the row highlight +
@@ -4665,9 +4752,9 @@ function _renderDuplicateGroup(group) {
   });
 
   toggle.addEventListener('click', () => {
-    const isOpen = table.style.display !== 'none';
-    table.style.display = isOpen ? 'none' : '';
-    toggle.textContent = isOpen ? 'Show details' : 'Hide details';
+    // Accordion slide via the shared helper — same motion as the mixing guide
+    _slideToggle(table, 'open');
+    toggle.textContent = table.classList.contains('open') ? 'Hide details' : 'Show details';
   });
 
   _refresh();
@@ -4687,6 +4774,7 @@ async function scanDuplicates() {
   statusEl.style.display = '';
   statusEl.textContent = 'Scanning…';
   progress.style.display = '';
+  progress.style.color = ''; // clear any red left by a prior failed scan
   progress.textContent = 'Loading tracks…';
   summary.style.display = 'none';
   empty.style.display = 'none';
@@ -4719,7 +4807,9 @@ async function scanDuplicates() {
           progress.textContent = `Scanning ${total.toLocaleString()} tracks…`;
         } else if (ev.group) {
           groupCount++;
-          list.appendChild(_renderDuplicateGroup(ev.group));
+          const groupEl = _renderDuplicateGroup(ev.group);
+          groupEl.classList.add('fade-in-up'); // groups stream in — match the track-card entrance
+          list.appendChild(groupEl);
           progress.textContent = `Found ${groupCount.toLocaleString()} duplicate groups so far…`;
         } else if (ev.done) {
           const s = ev.summary;
@@ -4779,7 +4869,10 @@ async function scanDuplicates() {
       }
     }
   } catch (e) {
+    // Failure must read as failure, not progress — red text + error toast
     progress.textContent = `Scan failed: ${e.message || e}`;
+    progress.style.color = 'var(--danger, #e4384e)';
+    showToast(`Duplicate scan failed: ${e.message || e}`, true);
   } finally {
     _setBtnLoading(btn, false);
     btn.textContent = 'Find duplicates';
@@ -5031,7 +5124,8 @@ function _showDuplicatesUndoToast(summary, requested) {
   if (banner) banner.remove();
   banner = document.createElement('div');
   banner.id = 'duplicates-undo-banner';
-  banner.style.cssText = 'display:flex;align-items:center;gap:10px;font-size:12px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:8px 10px;margin-bottom:10px;';
+  banner.className = 'fade-in-up';
+  banner.style.cssText = 'position:relative;overflow:hidden;display:flex;align-items:center;gap:10px;font-size:12px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:8px 10px;margin-bottom:10px;';
   const text = document.createElement('span');
   text.style.flex = '1';
   text.textContent = `${base} Backup: ${backupPath.split('/').pop()}`;
@@ -5059,10 +5153,21 @@ function _showDuplicatesUndoToast(summary, requested) {
   });
   banner.appendChild(text);
   banner.appendChild(undoBtn);
+  // Draining bar signals the 30s window — the banner used to vanish with no
+  // warning, mid-reach for the Undo button.
+  const drain = document.createElement('div');
+  drain.style.cssText = 'position:absolute;left:0;bottom:0;height:2px;width:100%;background:var(--green);transition:width 30s linear;';
+  banner.appendChild(drain);
   host.parentNode.insertBefore(banner, host);
+  requestAnimationFrame(() => { drain.style.width = '0%'; });
   // Auto-dismiss after 30s — the backup is still in /api/backups if the
-  // user wants it later.
-  setTimeout(() => { banner.remove(); }, 30000);
+  // user wants it later. Fade out instead of snapping away.
+  setTimeout(() => {
+    if (!banner.isConnected) return;
+    banner.style.transition = 'opacity var(--dur-chrome) ease';
+    banner.style.opacity = '0';
+    setTimeout(() => banner.remove(), 320);
+  }, 30000);
 }
 
 (function _wireDuplicatesConfirm() {
@@ -5093,6 +5198,11 @@ function _renderHealthSummary(s) {
   const issueList = document.getElementById('health-issue-list');
   const fixRow    = document.getElementById('health-fix-row');
 
+  // Ease the report in when it first appears — it used to pop via a bare display flip
+  if (summary.style.display === 'none') {
+    summary.classList.add('fade-in-up');
+    summary.addEventListener('animationend', () => summary.classList.remove('fade-in-up'), { once: true });
+  }
   summary.style.display = '';
   const scannableCount = (s.total || 0) - (s.excluded_missing_audio || 0);
   const score = Math.round(s.library_score);
@@ -5158,7 +5268,7 @@ function _renderHealthSummary(s) {
     b.className = 'primary';
     b.style.fontSize = '13px';
     b.textContent = `Fix phrase-quality tracks (${phraseIds.length})`;
-    b.addEventListener('click', () => _applyHealthFix(phraseIds, false));
+    b.addEventListener('click', () => _applyHealthFix(phraseIds, false, b));
     fixRow.appendChild(b);
   }
   if (lowerIds.length) {
@@ -5166,28 +5276,43 @@ function _renderHealthSummary(s) {
     b.className = 'secondary-btn';
     b.style.fontSize = '13px';
     b.textContent = `Fix remaining (${lowerIds.length} — bar/heuristic quality)`;
-    b.addEventListener('click', () => _applyHealthFix(lowerIds, true));
+    b.addEventListener('click', () => _applyHealthFix(lowerIds, true, b));
     fixRow.appendChild(b);
   }
 }
 
-async function _applyHealthFix(trackIds, needsConfirm) {
+async function _applyHealthFix(trackIds, needsConfirm, srcBtn) {
   if (!trackIds.length) return;
   if (_healthFixInProgress) { showToast('A fix is already in progress — please wait'); return; }
-  if (needsConfirm && !confirm(
-    `Fix ${trackIds.length} track${trackIds.length !== 1 ? 's' : ''} using bar-interval or heuristic cues (lower confidence)?\nA backup will be saved before writing.`
-  )) return;
+  if (needsConfirm && !(await _confirmDialog(
+    `Fix ${trackIds.length} track${trackIds.length !== 1 ? 's' : ''} using bar-interval or heuristic cues (lower confidence)?\nA backup will be saved before writing.`,
+    { confirmLabel: 'Fix tracks' }
+  ))) return;
 
   // Read DOM before setting the lock — a null-dereference here must not permanently lock the flag
   const maxCues      = parseInt(document.getElementById('max-cues').value) || 8;
   const barsInterval = parseInt(document.getElementById('bars-interval').value) || 16;
   const startBar     = parseInt(document.getElementById('start-bar').value) || 1;
   const memoryCueMode = document.getElementById('memory-cue-mode').value;
-  const dlBtn         = document.getElementById('download-btn');
+  // Progress goes to the button the user clicked + the health progress bar —
+  // the old target (#download-btn) is display:none on the Library tab, so the
+  // entire multi-track write used to run with zero visible feedback.
+  const progBar = document.getElementById('health-progress-bar');
+  const fill    = document.getElementById('health-progress-fill');
+  const srcLabel = srcBtn ? srcBtn.textContent : '';
+  const setFixProgress = (done) => {
+    if (srcBtn) srcBtn.textContent = `Fixing… ${done} / ${trackIds.length}`;
+    if (fill) fill.style.width = `${Math.round(100 * done / trackIds.length)}%`;
+  };
 
   _healthFixInProgress = true;
-  dlBtn.disabled = true;
-  dlBtn.textContent = `Fixing… 0 / ${trackIds.length}`;
+  if (srcBtn) srcBtn.disabled = true;
+  if (progBar) {
+    progBar.style.display = '';
+    progBar._hideTok = (progBar._hideTok || 0) + 1; // cancel any pending delayed-hide
+  }
+  if (fill) fill.style.width = '0%';
+  setFixProgress(0);
 
   try {
     const r = await fetch('/api/generate-apply-stream', {
@@ -5221,21 +5346,23 @@ async function _applyHealthFix(trackIds, needsConfirm) {
         if (!line.startsWith('data: ')) continue;
         const ev = JSON.parse(line.slice(6));
         if (ev.done) finalData = ev;
-        else dlBtn.textContent = `Fixing… ${(ev.applied||0) + (ev.skipped||0) + (ev.errors||0)} / ${trackIds.length}`;
+        else setFixProgress((ev.applied||0) + (ev.skipped||0) + (ev.errors||0));
       }
     }
 
     if (finalData) {
       const note = finalData.backup_path ? ' — backup saved' : '';
-      showToast(`Fixed ${finalData.applied} track(s)${note}`);
-      await scanLibraryHealth();  // rescan to reflect fixes
+      showToast(`Fixed ${finalData.applied} track(s)${note}`, 'success');
+      await scanLibraryHealth();  // rescan to reflect fixes (also resets the progress bar)
     }
   } catch (err) {
-    showToast(`Fix failed: ${err.message}`);
+    showToast(`Fix failed: ${err.message}`, true);
   } finally {
     _healthFixInProgress = false;
-    dlBtn.disabled = false;
-    dlBtn.textContent = 'Apply to Rekordbox';
+    // On success the fix row is rebuilt by the rescan; on error restore the
+    // clicked button so it doesn't stay stuck at "Fixing… N / M".
+    if (srcBtn && srcBtn.isConnected) { srcBtn.disabled = false; srcBtn.textContent = srcLabel; }
+    if (progBar) progBar.style.display = 'none';
   }
 }
 
@@ -5302,7 +5429,10 @@ async function _runCueTools() {
   // Require confirmation before destructive writes (delete_orphan or shift when not dry-run)
   if (!dryRun && (op === 'delete_orphan' || op === 'shift')) {
     const opLabel = op === 'delete_orphan' ? 'delete cues' : 'shift cues';
-    if (!window.confirm(`Apply ${opLabel} to ${total} track${total === 1 ? '' : 's'}? A backup will be created first.`)) return;
+    if (!(await _confirmDialog(
+      `Apply ${opLabel} to ${total} track${total === 1 ? '' : 's'}? A backup will be created first.`,
+      { confirmLabel: op === 'delete_orphan' ? 'Delete cues' : 'Shift cues', danger: true }
+    ))) return;
   }
 
   // Build operation-specific params
@@ -5373,6 +5503,9 @@ async function _runCueTools() {
               resultEl.innerHTML = `<strong>${s.cues_changed} cue(s) ${verb}</strong> across ${s.tracks_affected} track(s)${dryTag}<br>
                 <span style="color:var(--muted);font-size:12px">${s.cues_skipped} cues skipped · ${s.tracks_processed} tracks scanned${s.backup_path ? ' · backup saved' : ''}</span>`;
               resultEl.style.display = '';
+              // Ease the result in — it used to pop via a bare display flip
+              resultEl.classList.add('fade-in-up');
+              resultEl.addEventListener('animationend', () => resultEl.classList.remove('fade-in-up'), { once: true });
               progFill.style.width = '100%';
               statusEl.style.display = 'none';
             } else {
@@ -5395,6 +5528,8 @@ async function _runCueTools() {
           resultEl.innerHTML = `<strong>${s.cues_changed} cue(s) ${verb}</strong> across ${s.tracks_affected} track(s)${dryTag}<br>
             <span style="color:var(--muted);font-size:12px">${s.cues_skipped} cues skipped · ${s.tracks_processed} tracks scanned${s.backup_path ? ' · backup saved' : ''}</span>`;
           resultEl.style.display = '';
+          resultEl.classList.add('fade-in-up');
+          resultEl.addEventListener('animationend', () => resultEl.classList.remove('fade-in-up'), { once: true });
           progFill.style.width = '100%';
           statusEl.style.display = 'none';
         }
@@ -5405,12 +5540,13 @@ async function _runCueTools() {
       showToast('Cue tools cancelled');
       statusEl.style.display = 'none';
     } else {
-      showToast(`Cue tools failed: ${err.message}`);
+      showToast(`Cue tools failed: ${err.message}`, true);
       statusEl.style.display = 'none';
     }
   } finally {
     _setBtnLoading(btn, false);
-    progBar.style.display = 'none';
+    // Let the 100% fill paint before hiding (same completion beat as health scan)
+    setTimeout(() => { progBar.style.display = 'none'; }, 400);
   }
 }
 
@@ -5567,8 +5703,9 @@ async function discogsTagTracks() {
   const abortCtrl = new AbortController();
   const _discogsCancelConfirm = () => {
     if (tagged === 0) return true;  // nothing done yet — cancel immediately, no prompt
-    return window.confirm(
-      `Stop Discogs tagging?\n\n${tagged} track${tagged === 1 ? '' : 's'} already tagged — those changes are saved.\n\nOK to stop, Cancel to continue.`
+    return _confirmDialog(
+      `Stop Discogs tagging?\n\n${tagged} track${tagged === 1 ? '' : 's'} already tagged — those changes are saved.`,
+      { confirmLabel: 'Stop tagging' }
     );
   };
   _setBtnCancellable(btn, `Tagging… 0 / ${total}`, abortCtrl, _discogsCancelConfirm);
@@ -5974,21 +6111,37 @@ window._Download = (function() {
         normalizing_pass2: 'Normalizing loudness…',
         tagging: 'Writing metadata…',
       })[phase] || phase;
-      const batchLine = totalTracks
-        ? `<div class="dl-status-line">Track ${proc + 1} of ${totalTracks}${title ? ' · ' + _esc(title) : ''}</div>`
-        : '';
-      regionEl.innerHTML = `
+      // Update the card in place — rebuilding it per SSE event recreated the
+      // <progress> element (so its width transition never fired and the bar
+      // stuttered) and destroyed the Cancel button mid-focus.
+      let card = regionEl.querySelector('.dl-status-card[data-state="loading"]');
+      if (!card) {
+        regionEl.innerHTML = `
         <div class="dl-status-card" data-state="loading">
-          <div><strong>${phaseText}</strong>${percent != null ? ' <span class="dl-status-line">' + percent.toFixed(0) + '%</span>' : ''}</div>
-          <progress max="100" ${percent != null ? 'value="' + percent + '"' : ''} aria-label="Download progress"></progress>
-          ${batchLine}
+          <div><strong data-dl-phase></strong> <span class="dl-status-line" data-dl-pct></span></div>
+          <progress max="100" aria-label="Download progress"></progress>
+          <div class="dl-status-line" data-dl-batch style="display:none"></div>
           <div class="dl-status-actions">
             <button type="button" data-dl-action="cancel">Cancel</button>
           </div>
         </div>`;
-      regionEl.querySelectorAll('[data-dl-action="cancel"]').forEach(function(btn) {
-        btn.addEventListener('click', function() { if (ctx.onCancel) ctx.onCancel(); });
-      });
+        card = regionEl.querySelector('.dl-status-card');
+        card.querySelectorAll('[data-dl-action="cancel"]').forEach(function(btn) {
+          btn.addEventListener('click', function() { if (ctx.onCancel) ctx.onCancel(); });
+        });
+      }
+      card.querySelector('[data-dl-phase]').textContent = phaseText;
+      card.querySelector('[data-dl-pct]').textContent = percent != null ? percent.toFixed(0) + '%' : '';
+      const progEl = card.querySelector('progress');
+      if (percent != null) progEl.value = percent;
+      else progEl.removeAttribute('value');
+      const batchEl = card.querySelector('[data-dl-batch]');
+      if (totalTracks) {
+        batchEl.style.display = '';
+        batchEl.textContent = `Track ${proc + 1} of ${totalTracks}${title ? ' · ' + title : ''}`;
+      } else {
+        batchEl.style.display = 'none';
+      }
     } else {
       regionEl.innerHTML = '';
     }
@@ -7049,6 +7202,9 @@ function _renderDiscoverScanErrorInline() {
 function _renderDiscoverV2Feed() {
   const grid = document.getElementById('disc-v2-grid');
   if (!grid) return;
+  // Stagger only when the grid populates from empty (post-scan reveal) —
+  // re-staggering on every save/dismiss re-render would read as flicker.
+  const freshRender = !grid.children.length;
   grid.innerHTML = '';
 
   const s = DiscoverV2.state;
@@ -7118,9 +7274,14 @@ function _renderDiscoverV2Feed() {
     emptyEl.style.display = 'none';
   }
 
-  for (const release of visible) {
-    grid.appendChild(_renderDiscoverV2Card(release));
-  }
+  visible.forEach((release, i) => {
+    const card = _renderDiscoverV2Card(release);
+    if (freshRender && !_prefersReducedMotion) {
+      card.classList.add('fade-in-up');
+      card.style.animationDelay = (Math.min(i, 12) * 25) + 'ms'; // cap: rows below the fold don't wait
+    }
+    grid.appendChild(card);
+  });
 }
 
 // PRD §4: per-feeder hard budgets. Used to compute the overall progress bar
@@ -8317,12 +8478,27 @@ async function _runSnoozeWithDuration(duration) {
     return;
   }
   try {
+    _collapseDiscoverCard(release.release_key);
     await DiscoverV2.snooze(release, duration);
   } catch (_) {
-    if (typeof showToast === 'function') showToast('Snooze failed');
+    if (typeof showToast === 'function') showToast('Snooze failed', true);
   } finally {
     _closeSnoozePopover();
   }
+}
+
+// Acknowledge dismiss/snooze on the card itself before the full grid rebuild —
+// the acted-on card used to teleport away in a single frame (aliveness audit).
+// Opacity/scale only: the grid reflow still happens at re-render time.
+function _collapseDiscoverCard(releaseKey) {
+  if (_prefersReducedMotion || !releaseKey) return;
+  const card = document.querySelector(
+    '#disc-v2-grid .disc-v2-card[data-release-key="' + (window.CSS && CSS.escape ? CSS.escape(releaseKey) : releaseKey) + '"]');
+  if (!card) return;
+  card.style.transition = 'opacity .18s ease, transform .18s ease';
+  card.style.opacity = '0';
+  card.style.transform = 'scale(0.96)';
+  card.style.pointerEvents = 'none';
 }
 
 function _handleDiscoverKeydown(ev) {
@@ -8373,6 +8549,7 @@ function _handleDiscoverKeydown(ev) {
       const rel = _activeRelease();
       if (!rel) return;
       ev.preventDefault();
+      _collapseDiscoverCard(rel.release_key);
       DiscoverV2.dismiss(rel);
       return;
     }
@@ -8554,7 +8731,7 @@ function initDiscoverV2() {
       ev.stopPropagation();
       const act = actBtn.getAttribute('data-act');
       if (act === 'save') DiscoverV2.save(release);
-      else if (act === 'dismiss') DiscoverV2.dismiss(release);
+      else if (act === 'dismiss') { _collapseDiscoverCard(releaseKey); DiscoverV2.dismiss(release); }
       else if (act === 'snooze') _openSnoozePopover(release, actBtn);
       return;
     }
@@ -8748,7 +8925,7 @@ function initDiscoverV2() {
       `  ${s.followedLabels.length} followed labels · ` +
       `${s.blockedArtists.length + s.blockedLabels.length} blocked entries\n\n` +
       `Importing "${file.name}" will REPLACE all of this. Continue?`;
-    if (!confirm(summary)) return;
+    if (!(await _confirmDialog(summary, { confirmLabel: 'Replace state', danger: true }))) return;
 
     try {
       const result = await DiscoverV2.importState(file);
@@ -9043,8 +9220,9 @@ async function enrichComments() {
   const abortCtrl = new AbortController();
   const _enrichCancelConfirm = () => {
     if (enrichedSoFar === 0) return true;
-    return window.confirm(
-      `Stop comment enrichment?\n\n${enrichedSoFar} track${enrichedSoFar === 1 ? '' : 's'} already enriched — those changes are saved.\n\nOK to stop, Cancel to continue.`
+    return _confirmDialog(
+      `Stop comment enrichment?\n\n${enrichedSoFar} track${enrichedSoFar === 1 ? '' : 's'} already enriched — those changes are saved.`,
+      { confirmLabel: 'Stop enriching' }
     );
   };
   _setBtnCancellable(btn, `Enriching… 0 / ${ids.length}`, abortCtrl, _enrichCancelConfirm);
@@ -9194,8 +9372,14 @@ async function applyToRekordbox() {
   const trackCount = tracks.length;
 
   const btn = document.getElementById('download-btn');
-  btn.textContent = `Applying… 0 / ${trackCount}`;
-  btn.disabled = true;
+  // #download-btn lives in the Pages-mode bar, which is display:none in local
+  // mode — mirror every state change onto the action-bar button the user
+  // actually clicked, or the whole apply runs with zero visible feedback.
+  const abApply = document.getElementById('action-bar-apply');
+  const applyBtns = [btn, abApply].filter(Boolean);
+  const setApplyText = (t) => applyBtns.forEach(b => { b.textContent = t; });
+  setApplyText(`Applying… 0 / ${trackCount}`);
+  applyBtns.forEach(b => { b.disabled = true; });
 
   const body = JSON.stringify({
     track_ids: tracks.map(t => parseInt(t.id)),
@@ -9238,7 +9422,7 @@ async function applyToRekordbox() {
         if (ev.done) {
           finalData = ev;
         } else {
-          btn.textContent = `Applying… ${(ev.applied||0) + (ev.skipped||0) + (ev.errors||0)} / ${ev.total}`;
+          setApplyText(`Applying… ${(ev.applied||0) + (ev.skipped||0) + (ev.errors||0)} / ${ev.total}`);
         }
       }
     }
@@ -9252,24 +9436,33 @@ async function applyToRekordbox() {
       }
       const backupNote = finalData.backup_path ? ' · backup saved' : '';
       const skippedNote = finalData.skipped > 0 ? `, ${finalData.skipped} skipped (already cued)` : '';
-      showToast(`Applied hot cues to ${finalData.applied} track${finalData.applied !== 1 ? 's' : ''}${skippedNote}${backupNote}`);
-      // Success flash: turn button green for 2.5s
-      btn.textContent = `✓ ${finalData.applied} tracks`;
-      btn.style.background = 'var(--green)';
-      btn.style.color = '#000';
-      btn.style.borderColor = 'var(--green)';
+      showToast(`Applied hot cues to ${finalData.applied} track${finalData.applied !== 1 ? 's' : ''}${skippedNote}${backupNote}`, 'success');
+      // Success flash: turn both apply buttons green for 2.5s
+      applyBtns.forEach(b => {
+        b.textContent = `✓ ${finalData.applied} tracks`;
+        b.style.background = 'var(--green)';
+        b.style.color = '#000';
+        b.style.borderColor = 'var(--green)';
+      });
       setTimeout(() => {
-        btn.textContent = 'Apply to Rekordbox';
-        btn.style.background = '';
-        btn.style.color = '';
-        btn.style.borderColor = '';
+        applyBtns.forEach(b => {
+          b.textContent = 'Apply to Rekordbox';
+          b.style.background = '';
+          b.style.color = '';
+          b.style.borderColor = '';
+        });
       }, 2500);
+      // Refresh cards so existing-cue counts/chips reflect the write —
+      // without this the tracks just written still render as un-cued.
+      if (localMode) await loadTracksFromServer(activePlaylistId ?? null).catch(() => {});
     }
   } catch (err) {
-    showToast(`Error applying cues: ${err.message}`);
+    showToast(`Error applying cues: ${err.message}`, true);
   } finally {
-    btn.disabled = false;
-    if (!btn.textContent.startsWith('✓')) btn.textContent = 'Apply to Rekordbox';
+    applyBtns.forEach(b => {
+      b.disabled = false;
+      if (!b.textContent.startsWith('✓')) b.textContent = 'Apply to Rekordbox';
+    });
   }
 }
 
@@ -9330,8 +9523,17 @@ function updateAppStatus({ connected, trackCount, rekordboxRunning, didScan } = 
   bar.classList.toggle('visible', !!connected);
   if (!connected) return;
   if (typeof trackCount === 'number') {
-    document.getElementById('status-count').innerHTML =
+    const countItem = document.getElementById('status-count');
+    const changed = countItem.dataset.lastCount !== String(trackCount);
+    countItem.dataset.lastCount = String(trackCount);
+    countItem.innerHTML =
       `<span class="status-text"><strong>${trackCount.toLocaleString()}</strong> tracks</span>`;
+    if (changed) {
+      // Tick the count when it actually changes — silent swaps read as static chrome
+      countItem.classList.remove('count-pop');
+      void countItem.offsetWidth;
+      countItem.classList.add('count-pop');
+    }
   }
   if (didScan) _lastScanAt = Date.now();
   document.getElementById('status-scan').innerHTML =
@@ -9356,7 +9558,11 @@ setInterval(() => {
 detectLocalMode().then(async connected => {
   localMode = connected;
   if (localMode) {
-    document.getElementById('tab-nav').style.display = '';
+    // Ease the tab chrome in — it used to pop over the already-painted XML UI
+    const _tn = document.getElementById('tab-nav');
+    _tn.style.display = '';
+    _tn.classList.add('fade-in-up');
+    _tn.addEventListener('animationend', () => _tn.classList.remove('fade-in-up'), { once: true });
     document.getElementById('steps').style.display = 'none';
     document.querySelector('.mode-callout')?.setAttribute('style', 'display:none');
     document.getElementById('drop-zone').style.display = 'none';
@@ -9526,15 +9732,21 @@ function _checkedBackups() {
 
 document.getElementById('restore-btn').addEventListener('click', async () => {
   const bar = document.getElementById('restore-bar');
+  const rbtn = document.getElementById('restore-btn');
   if (bar.style.display !== 'none') { bar.style.display = 'none'; return; }
+  // Spinner while /api/backups loads — the click used to give zero feedback
+  _setBtnLoading(rbtn, true, 'Loading backups…');
   try {
     const backups = await fetch('/api/backups').then(r => r.json());
     if (backups.length === 0) { showToast('No backups found'); return; }
     _populateChecklist(backups);
     _resetRestoreBtn();
     _resetDeleteBackupBtn();
-  } catch (e) { showToast('Could not load backups'); return; }
+  } catch (e) { showToast('Could not load backups', true); return; }
+  finally { _setBtnLoading(rbtn, false); }
   bar.style.display = 'flex';
+  bar.classList.add('fade-in-up');
+  bar.addEventListener('animationend', () => bar.classList.remove('fade-in-up'), { once: true });
 });
 
 document.getElementById('backup-select-all').addEventListener('change', function() {
@@ -9904,7 +10116,10 @@ document.getElementById('deselect-all-btn').addEventListener('click', () => {
 // F8: Undo last apply
 document.getElementById('undo-btn').addEventListener('click', async () => {
   if (!lastAppliedBackupFilename) return;
-  if (!confirm(`Undo last apply? This restores "${lastAppliedBackupFilename}" and replaces your current Rekordbox database.`)) return;
+  if (!(await _confirmDialog(
+    `Undo last apply? This restores "${lastAppliedBackupFilename}" and replaces your current Rekordbox database.`,
+    { confirmLabel: 'Undo apply', danger: true }
+  ))) return;
   const btn = document.getElementById('undo-btn');
   btn.disabled = true; btn.textContent = 'Undoing…';
   try {
@@ -10600,7 +10815,15 @@ function updateSelectionBar() {
     bar.setAttribute('aria-hidden', visible ? 'false' : 'true');
     document.body.classList.toggle('has-action-bar', visible);
     const c = document.getElementById('action-bar-count');
-    if (c) c.innerHTML = `<strong>${count.toLocaleString()}</strong> selected`;
+    if (c && c.dataset.lastCount !== String(count)) {
+      c.dataset.lastCount = String(count);
+      c.innerHTML = `<strong>${count.toLocaleString()}</strong> selected`;
+      // Re-trigger the existing count-pop tick — this number changes more
+      // often than any other in the app and used to swap silently.
+      c.classList.remove('count-pop');
+      void c.offsetWidth;
+      c.classList.add('count-pop');
+    }
   }
 }
 
@@ -10639,12 +10862,18 @@ async function showTransitionScore() {
     modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:999;display:flex;align-items:center;justify-content:center;';
     modal.addEventListener('click', e => { if (e.target === modal) modal.remove(); });
     document.body.appendChild(modal);
+    // Esc closes — self-removing listener survives backdrop-click closes too
+    const _escClose = (e) => {
+      if (!document.getElementById('transition-modal')) { document.removeEventListener('keydown', _escClose); return; }
+      if (e.key === 'Escape') { modal.remove(); document.removeEventListener('keydown', _escClose); }
+    };
+    document.addEventListener('keydown', _escClose);
   }
-  modal.innerHTML = '<div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:20px;min-width:360px;max-width:480px;">' +
+  modal.innerHTML = '<div class="fade-in-up" style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:20px;min-width:360px;max-width:480px;">' +
     '<div style="font-size:13px;font-weight:600;margin-bottom:12px;">⇌ Transition Score</div>' +
     '<div style="font-size:11px;color:var(--muted);margin-bottom:16px;">' +
     `<strong>${ta ? ta.artist + ' — ' + ta.name : idA}</strong> → <strong>${tb ? tb.artist + ' — ' + tb.name : idB}</strong></div>` +
-    '<div id="transition-content" style="font-size:12px;">Loading…</div>' +
+    '<div id="transition-content" style="font-size:12px;"><span class="btn-spinner"></span>Scoring…</div>' +
     '<div style="margin-top:14px;text-align:right;"><button onclick="document.getElementById(\'transition-modal\').remove()" style="font-size:11px;padding:3px 10px;background:none;border:1px solid var(--border);border-radius:4px;cursor:pointer;color:var(--muted);">Close</button></div>' +
     '</div>';
 
@@ -10662,7 +10891,8 @@ async function showTransitionScore() {
       return `<div style="display:flex;align-items:center;gap:8px;margin:4px 0;">` +
         `<span style="min-width:16px;font-weight:600;color:${color}">${pct}</span>` +
         `<div style="flex:1;background:var(--surface2);border-radius:3px;height:6px;">` +
-        `<div style="width:${pct}%;background:${color};height:6px;border-radius:3px;"></div></div></div>`;
+        // fillBar animates width 0 → --tw, same as the mixability bars
+        `<div style="--tw:${pct}%;width:${pct}%;background:${color};height:6px;border-radius:3px;animation:fillBar .45s var(--ease-fill) both;"></div></div></div>`;
     };
     const content = document.getElementById('transition-content');
     const explanationHtml = d.explanation && d.explanation.length
@@ -10786,12 +11016,14 @@ async function _toggleSimilarPanel(btn, panel, trackId) {
   }
   _slideOpen(panel, 'visible');
   if (panel.dataset.loaded) return;
-  panel.dataset.loaded = '1';
-  panel.textContent = 'Loading…';
+  panel.innerHTML = '<span class="btn-spinner"></span>Finding similar tracks…';
   try {
     const r = await fetch(`/api/tracks/${trackId}/similar?n=5`);
     if (!r.ok) throw new Error('fetch failed');
     const d = await r.json();
+    // Cache only successful loads — flagging before the fetch pinned a failed
+    // "Error loading" message into the panel forever (reopen never retried).
+    panel.dataset.loaded = '1';
     panel.innerHTML = '';
     if (!d.results || d.results.length === 0) {
       panel.textContent = 'No similar tracks found within ±8 BPM.';
@@ -10840,7 +11072,7 @@ async function _toggleSimilarPanel(btn, panel, trackId) {
       panel.appendChild(row);
     }
   } catch {
-    panel.textContent = 'Error loading similar tracks.';
+    panel.textContent = 'Error loading similar tracks — close and reopen to retry.';
   }
 }
 
@@ -11109,6 +11341,19 @@ function buildTrackCard(track, cues, willSkip, opts = {}) {
       updateSelectionBar();
     });
     cardTop.appendChild(cb);
+    // Card body toggles selection — the card already advertises cursor:pointer
+    // but only the 15px checkbox used to respond. Inner interactive elements
+    // (buttons, badges, panels, seek surfaces) keep their own behaviour.
+    card.addEventListener('click', e => {
+      if (e.target.closest(
+        'button, a, input, select, textarea, svg, canvas, .cue-badge, .cue-slots, ' +
+        '.tag-pill, .timeline, .phrase-strip, .similar-panel, .cue-reason-panel, .art-play-overlay'
+      )) return;
+      const sel = window.getSelection && window.getSelection();
+      if (sel && String(sel).length) return; // don't hijack text selection
+      cb.checked = !cb.checked;
+      cb.dispatchEvent(new Event('change'));
+    });
   }
 
   // Artwork
@@ -11574,10 +11819,19 @@ function _updateTrackCardCues(trackId) {
   const hasPhrase = !!(phraseCueState[track.id]?.length);
   if (willSkip ? !hasPhrase : !cues.length) return;
 
+  // Lazily-landed phrase data swaps the card under the reader's eyes — fade
+  // the new strip/badges in (transform+opacity only: card height untouched,
+  // virtualizer fixed-height invariant safe).
+  const _fadeFreshCueUI = (card) => {
+    if (_prefersReducedMotion) return card;
+    card.querySelectorAll('.phrase-strip, .cue-slots').forEach(el => el.classList.add('fade-in-up'));
+    return card;
+  };
+
   // Album mode (or any non-virtualized render): patch via _cardMap.
   const albumCard = _cardMap.get(tid);
   if (albumCard && albumCard.parentNode) {
-    const newCard = buildTrackCard(track, cues, willSkip, {});
+    const newCard = _fadeFreshCueUI(buildTrackCard(track, cues, willSkip, {}));
     albumCard.parentNode.replaceChild(newCard, albumCard);
     _cardMap.set(tid, newCard);
     return;
@@ -11595,7 +11849,7 @@ function _updateTrackCardCues(trackId) {
     });
     if (targetNode && targetNode.parentNode) {
       const baseTransform = targetNode.style.transform || '';
-      const newCard = buildTrackCard(track, cues, willSkip, {});
+      const newCard = _fadeFreshCueUI(buildTrackCard(track, cues, willSkip, {}));
       newCard.style.position = 'absolute';
       newCard.style.left = '0';
       newCard.style.right = '0';
@@ -11617,7 +11871,7 @@ function renderTracks() {
     list.innerHTML = '';
     _cardMap.clear(); _albumGroupCache.clear(); _cardSettingsFingerprint = '';
     const empty = document.createElement('div');
-    empty.className = 'empty-state';
+    empty.className = 'empty-state fade-in-up'; // ease in — the list blanks first
     const icon = document.createElement('div');
     icon.className = 'empty-state-icon';
     icon.textContent = '♪';
@@ -11687,7 +11941,7 @@ function renderTracks() {
     list.innerHTML = '';
     _cardMap.clear(); _albumGroupCache.clear(); _cardSettingsFingerprint = '';
     const empty = document.createElement('div');
-    empty.className = 'empty-state';
+    empty.className = 'empty-state fade-in-up'; // ease in when a keystroke crosses the 0-results boundary
     const icon = document.createElement('div');
     icon.className = 'empty-state-icon';
     icon.textContent = '⊘';
@@ -12195,13 +12449,14 @@ function setStep(n) {
 }
 
 // ── Toast stack ────────────────────────────────────────────────────────────────
-function showToast(msg, isError) {
+// type: true = error, 'success' = green success pill, falsy = neutral.
+function showToast(msg, type) {
   const stack = document.getElementById('toast-stack');
   if (!stack) return;
   // Cap stack at 3 — dismiss oldest first
   while (stack.children.length >= 3) _dismissToast(stack.firstChild);
   const el = document.createElement('div');
-  el.className = 'toast-item' + (isError ? ' toast-error' : '');
+  el.className = 'toast-item' + (type === 'success' ? ' toast-success' : type ? ' toast-error' : '');
   el.textContent = msg;
   stack.appendChild(el);
   const timer = setTimeout(() => _dismissToast(el), 2800);
@@ -12211,6 +12466,64 @@ function _dismissToast(el) {
   if (!el || !el.parentNode) return;
   el.classList.add('toast-out');
   el.addEventListener('animationend', () => el.remove(), { once: true });
+}
+
+// ── Styled confirm dialog ───────────────────────────────────────────────────────
+// Async replacement for window.confirm. Mirrors the duplicates-delete modal's
+// safety choreography: primary disabled 250ms after open (defeats accidental
+// Enter), Cancel default-focused, two-button focus trap, Esc/backdrop cancel.
+// opts: { confirmLabel?: string, danger?: boolean }
+function _confirmDialog(message, opts = {}) {
+  return new Promise((resolve) => {
+    document.getElementById('app-confirm-modal')?.remove();
+    const overlay = document.createElement('div');
+    overlay.id = 'app-confirm-modal';
+    overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:1300;display:flex;align-items:center;justify-content:center;';
+    const box = document.createElement('div');
+    box.className = 'fade-in-up';
+    box.setAttribute('role', 'dialog');
+    box.setAttribute('aria-modal', 'true');
+    box.style.cssText = 'background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:20px;min-width:340px;max-width:460px;';
+    const msg = document.createElement('div');
+    msg.style.cssText = 'font-size:13px;line-height:1.6;margin-bottom:16px;white-space:pre-line;';
+    msg.textContent = message;
+    const row = document.createElement('div');
+    row.style.cssText = 'display:flex;gap:8px;justify-content:flex-end;';
+    const cancelBtn = document.createElement('button');
+    cancelBtn.className = 'secondary-btn';
+    cancelBtn.textContent = 'Cancel';
+    const goBtn = document.createElement('button');
+    goBtn.className = 'primary';
+    goBtn.textContent = opts.confirmLabel || 'Confirm';
+    if (opts.danger) goBtn.style.cssText = 'background:var(--danger);border-color:var(--danger);color:#fff;';
+    goBtn.disabled = true;
+    setTimeout(() => { goBtn.disabled = false; }, 250);
+    const prevFocus = document.activeElement;
+    const done = (val) => {
+      document.removeEventListener('keydown', onKey, true);
+      overlay.remove();
+      if (prevFocus && typeof prevFocus.focus === 'function') { try { prevFocus.focus(); } catch (_) {} }
+      resolve(val);
+    };
+    const onKey = (e) => {
+      if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); done(false); }
+      else if (e.key === 'Tab') {
+        e.preventDefault();
+        (document.activeElement === cancelBtn ? goBtn : cancelBtn).focus();
+      }
+    };
+    document.addEventListener('keydown', onKey, true);
+    cancelBtn.addEventListener('click', () => done(false));
+    goBtn.addEventListener('click', () => done(true));
+    overlay.addEventListener('click', (e) => { if (e.target === overlay) done(false); });
+    row.appendChild(cancelBtn);
+    row.appendChild(goBtn);
+    box.appendChild(msg);
+    box.appendChild(row);
+    overlay.appendChild(box);
+    document.body.appendChild(overlay);
+    setTimeout(() => cancelBtn.focus(), 0);
+  });
 }
 
 // ── Human-readable fetch error messages ────────────────────────────────────────
@@ -12264,7 +12577,15 @@ function _setBtnCancellable(btn, progressText, abortCtrl, beforeAbort) {
   btn.innerHTML = `✕&nbsp; ${progressText}`;
   if (btn._cancelHandler) btn.removeEventListener('click', btn._cancelHandler);
   btn._cancelHandler = function() {
-    if (beforeAbort && beforeAbort() === false) return;
+    // beforeAbort may return a boolean OR a Promise<boolean> (styled confirm
+    // dialog). A declined confirm is recovered by the next progress tick,
+    // which re-installs this once-handler.
+    const verdict = beforeAbort ? beforeAbort() : true;
+    if (verdict === false) return;
+    if (verdict && typeof verdict.then === 'function') {
+      verdict.then(ok => { if (ok) abortCtrl.abort(); });
+      return;
+    }
     abortCtrl.abort();
   };
   btn.addEventListener('click', btn._cancelHandler, { once: true });
@@ -12610,6 +12931,10 @@ document.getElementById('color-by-bpm-btn').addEventListener('click', colorTrack
 document.getElementById('preview-cues-btn').addEventListener('click', async () => {
   const btn = document.getElementById('preview-cues-btn');
   btn.textContent = 'Loading…'; btn.disabled = true;
+  // Mirror onto the visible action-bar button — #preview-cues-btn is in the
+  // settings toolbar, not where the user clicked when using the action bar.
+  const abPrev = document.getElementById('action-bar-preview');
+  _setBtnLoading(abPrev, true, 'Previewing…');
   const { barsInterval, startBar, maxCues } = getSettings();
   // Issue #173: Preview must target the selection when any cards are
   // checked — otherwise a user with 2 tracks selected sees a toast for
@@ -12641,8 +12966,8 @@ document.getElementById('preview-cues-btn').addEventListener('click', async () =
     }
     renderTracks();
     showToast(`Previewing cues for ${data.tracks.length} track(s) — click Apply to write`);
-  } catch (e) { showToast(`Preview failed: ${e.message}`); }
-  finally { btn.textContent = 'Preview cues'; btn.disabled = false; }
+  } catch (e) { showToast(`Preview failed: ${e.message}`, true); }
+  finally { btn.textContent = 'Preview cues'; btn.disabled = false; _setBtnLoading(abPrev, false); }
 });
 
 document.getElementById('delete-cues-btn').addEventListener('click', () => {
@@ -14208,8 +14533,15 @@ const themeBtn = document.getElementById('theme-toggle');
 function applyTheme(dark) {
   root.classList.toggle('dark', dark);
   themeBtn.setAttribute('aria-label', dark ? 'Switch to light mode' : 'Switch to dark mode');
+  try { localStorage.setItem('ac_theme', dark ? 'dark' : 'light'); } catch (_) {}
 }
-applyTheme(false);
+// Saved choice wins; first visit follows the OS preference (a DJ at night
+// shouldn't get flashed white); the toggle then pins it.
+let _savedTheme = null;
+try { _savedTheme = localStorage.getItem('ac_theme'); } catch (_) {}
+applyTheme(_savedTheme !== null
+  ? _savedTheme === 'dark'
+  : !!(window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches));
 themeBtn.addEventListener('click', () => applyTheme(!root.classList.contains('dark')));
 </script>
 <button id="scroll-top-btn" title="Back to top" aria-label="Scroll to top">↑</button>
