@@ -29,8 +29,14 @@ All 9 tasks done. Three-leg green: Vitest 676, pytest 1439, e2e 161 passed +
   Vitest 718. e2e: selectors-exist +4, control-inventory +cmdk-hint-btn /
   pal-input ignore-listed, NEW v2-global-layer.spec.ts (4 smoke tests).
   Affected-e2e validation RUNNING (berp260y2). Commit after green.
-- T6–T9 PENDING: T6 action-bar relabel, T7 done (in T5), T8 full Chrome audit,
-  T9 docs + full three-leg gate + push + PR.
+- T6 ✅ (action-bar relabel "Apply to N tracks", guarded by !disabled).
+- T7 ✅ (e2e selectors/inventory/smoke landed in T5; 26 passed, 1 = #206 baseline).
+- T8 ✅ (Chrome both themes verified for sentence + palette; screenshots sent).
+- T9 docs ✅ (web-ui.md P1 section + post-T5 layout fix). pytest 1442, Vitest 718.
+  FULL e2e gate RUNNING (bvc17a8pr) — expect 8 known baseline + 0 new + 4 new
+  v2-global-layer smoke passing. On green → push feature/v2-p1-global-layer + PR.
+  PR base = feature/v2-p0-foundations (P1 stacks on P0/#208).
+  Merge stack: #206 → #207 → #208(P0) → P1 → P2.
 
 # PRP Ralph Loop State
 
