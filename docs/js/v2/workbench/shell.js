@@ -11,6 +11,7 @@
  */
 
 import { initInspector, clearInspector } from './inspector.js';
+import { initRail } from './rail.js';
 
 const FLAG = 'ac_workbench';
 
@@ -99,6 +100,7 @@ function activate() {
   // Re-render so the album-group view collapses into the uniform flat grid.
   if (window.ACBridge) window.ACBridge.renderTracks();
   _renderCrates();
+  initRail();
   initInspector();
   // Keep crate counts fresh as the library loads / changes.
   if (window.AppState) window.AppState.subscribe('tracks', _renderCrates);
