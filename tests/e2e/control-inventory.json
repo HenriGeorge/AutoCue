@@ -20,11 +20,11 @@
     { "id": "mode-phrase-btn", "kind": "button" },
     { "id": "skip-colored-cb", "kind": "checkbox", "safeOnRealDb": false },
     { "id": "color-by-bpm-btn", "kind": "button", "safeOnRealDb": false },
-    { "id": "preview-cues-btn", "kind": "button" },
+    { "id": "preview-cues-btn", "kind": "button", "skipSweep": true, "skipReason": "Hidden by design in local mode — it lives in #download-bar (Pages-mode XML bar), which never gets .visible when a server is connected (issue #15). The local-mode preview path is action-bar-preview, which delegates its click to this button, so the handler IS exercised by that row." },
     { "id": "delete-cues-btn", "kind": "button", "safeOnRealDb": false },
     { "id": "download-btn", "kind": "button", "safeOnRealDb": false },
-    { "id": "action-bar-clear", "kind": "button", "clickStrategy": "force" },
-    { "id": "action-bar-preview", "kind": "button", "clickStrategy": "force" },
+    { "id": "action-bar-clear", "kind": "button", "setup": "select-track" },
+    { "id": "action-bar-preview", "kind": "button", "setup": "select-track" },
     { "id": "action-bar-apply", "kind": "button", "safeOnRealDb": false }
   ],
   "panelControls": {
@@ -60,6 +60,9 @@
     ],
     "library": [
       { "id": "health-scan-btn", "kind": "button" },
+      { "id": "duplicates-scan-btn", "kind": "button" },
+      { "id": "duplicates-confirm-cancel", "kind": "button", "safeOnRealDb": false },
+      { "id": "duplicates-confirm-go", "kind": "button", "safeOnRealDb": false },
       { "id": "cue-tools-op", "kind": "select" },
       { "id": "cue-tools-dry-run", "kind": "checkbox" },
       { "id": "cue-rename-from", "kind": "text" },
@@ -104,7 +107,7 @@
     ],
     "discover": [
       { "id": "disc-v2-settings-btn", "kind": "button" },
-      { "id": "disc-v2-refresh-btn", "kind": "button" },
+      { "id": "disc-v2-refresh-btn", "kind": "button", "allowedConsoleErrors": ["the server responded with a status of 400"] },
       { "id": "disc-v2-sort", "kind": "select" },
       { "id": "disc-v2-year", "kind": "select" },
       { "id": "disc-v2-year-custom", "kind": "number" },
@@ -116,7 +119,6 @@
       { "id": "disc-v2-scan-error-inline-retry", "kind": "button", "safeOnRealDb": false },
       { "id": "disc-v2-empty-action", "kind": "button", "safeOnRealDb": false },
       { "id": "disc-v2-export-btn", "kind": "button", "safeOnRealDb": false },
-      { "id": "disc-v2-import-input", "kind": "file", "safeOnRealDb": false },
       { "id": "disc-v2-label-search", "kind": "text" },
       { "id": "disc-v2-label-search-btn", "kind": "button" },
       { "id": "disc-v2-label-suggest-btn", "kind": "button" },

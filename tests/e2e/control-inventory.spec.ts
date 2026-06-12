@@ -90,6 +90,10 @@ test.describe("control inventory drift guard", () => {
       "file-input",
       "audio-file-input",
       "anlz-file-input",
+      // Discover v2 saved/dismissed import — hidden file input (display:none)
+      // triggered by the export/import controls' click handler. Same shape as
+      // the XML upload inputs above: not directly user-clickable.
+      "disc-v2-import-input",
       // Backup multi-select UI — exercised by backup-related tests.
       "backup-select-all",
       // Form helpers / labels with id but no user click target.

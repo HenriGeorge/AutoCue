@@ -125,6 +125,16 @@ async function forceShowAncestors(page: Page, controlId: string) {
   // `#skip-colored-label` (gated on color-by-bpm visibility). Safe
   // because we only walk a single chain (the row's ancestors), so we
   // never reveal sibling modals / drawers.
+  //
+  // Besides inline display:none + collapse classes, two more hiding
+  // mechanisms appear on this chain in docs/index.html:
+  // - the `hidden` ATTRIBUTE (e.g. `#dl-wav-warning`, shown only after the
+  //   user picks the WAV format), and
+  // - `aria-hidden="true"` driving a stylesheet rule (e.g.
+  //   `.disc-v2-dl-confirm { display:none }` +
+  //   `.disc-v2-dl-confirm[aria-hidden="false"] { display:block }`), which
+  //   inline-style clearing can't override.
+  // Clear both, same single-chain scope.
   await page.evaluate((id) => {
     const COLLAPSE_CLASSES = ["collapsed", "is-collapsed", "hidden"];
     const el = document.getElementById(id);
@@ -132,6 +142,10 @@ async function forceShowAncestors(page: Page, controlId: string) {
     let node: HTMLElement | null = el;
     while (node && node !== document.body) {
       if (node.style.display === "none") node.style.display = "";
+      if (node.hasAttribute("hidden")) node.removeAttribute("hidden");
+      if (node.getAttribute("aria-hidden") === "true") {
+        node.setAttribute("aria-hidden", "false");
+      }
       for (const cls of COLLAPSE_CLASSES) {
         if (node.classList.contains(cls)) node.classList.remove(cls);
       }
@@ -140,10 +154,45 @@ async function forceShowAncestors(page: Page, controlId: string) {
   }, controlId);
 }
 
+async function applySetup(page: Page, row: ControlRow) {
+  if (row.setup !== "select-track") return;
+  // Tick the first track card's bulk-select checkbox so `selectedTrackIds`
+  // is non-empty and `updateSelectionBar` slides in #action-bar (adds
+  // .visible + aria-hidden=false). This is the real user path to the
+  // action-bar buttons — force-clicking the off-viewport bar (the previous
+  // approach) fails with "Element is outside of the viewport".
+  await page
+    .locator("#track-list [data-testid='track-card']")
+    .first()
+    .waitFor({ state: "attached", timeout: 15_000 });
+  // In album-group view (the default for an album-rich library) every track
+  // card sits inside a collapsed `.album-tracks` container (display:none
+  // until `.open`), so no checkbox is visible until a group is expanded.
+  // Expand the first album header in that case; flat/virtualized view has
+  // visible checkboxes immediately.
+  const visibleCb = page.locator("#track-list .track-select-cb:visible");
+  if ((await visibleCb.count()) === 0) {
+    await page.locator("#track-list .album-header").first().click();
+  }
+  const cb = visibleCb.first();
+  await expect(
+    cb,
+    `setup select-track for ${row.id}: no selectable track checkbox`,
+  ).toBeVisible({ timeout: 15_000 });
+  await cb.check();
+  await expect(
+    page.locator("#action-bar"),
+    `setup select-track for ${row.id}: #action-bar did not become visible`,
+  ).toHaveClass(/\bvisible\b/);
+}
+
 async function safeInteract(page: Page, row: ControlRow) {
   const sel = buildIdSelector(row.id);
   const locator = page.locator(sel);
   await expect(locator, `control ${row.id} is missing`).toHaveCount(1);
+  // Row-declared state precondition (e.g. select a track so #action-bar
+  // slides in) — must run before the reveal walk and the interaction.
+  await applySetup(page, row);
   // Per-row last-mile reveal: even after the panel-wide
   // `expandHiddenSections`, some controls live inside state-gated
   // wrappers (#existing-cues-info, #skip-colored-label, …) that the
@@ -245,8 +294,15 @@ function runRows(panel: PanelName | "global", rows: ControlRow[]) {
           // 100ms tolerance for the action's microtasks to settle before
           // sampling console.
           await page.waitForTimeout(100);
+          // Row-declared expected errors (substring match) are filtered out —
+          // e.g. disc-v2-refresh-btn's /api/discover/feed 400 in the
+          // token-less sandbox. Anything else still fails the row.
+          const allowed = row.allowedConsoleErrors ?? [];
+          const unexpected = capture.errors.filter(
+            (e) => !allowed.some((a) => e.includes(a)),
+          );
           expect(
-            capture.errors,
+            unexpected,
             `console errors during ${row.id} interaction`,
           ).toEqual([]);
         } finally {
