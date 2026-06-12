@@ -63,9 +63,12 @@ program; each phase ships as its own PRD + plan + PR.
 
 ## Success metrics
 
-- v1 (post-P2): every daily session starts and ends in the workbench; the old
-  tabs are gone; status sentence + ⌘K reachable from anywhere; three-leg stack
-  green; both themes verified per phase.
+- v1 (post-P2): every daily session starts and ends in the workbench (default-on
+  shipped 2026-06-12, c3dcff0); status sentence + ⌘K reachable from anywhere;
+  three-leg stack green; both themes verified per phase. *"The old tabs are gone"
+  completes at P5, not P2*: P2 made the workbench home, but the Library tab's
+  duplicates surface retires with P3 and the Discover tab with P5 — the tabs stay
+  until those phases give their features a workbench home.
 - Program: all five rules of the design system hold on every new surface;
   mockup-to-product parity judged against `design-E.html` (+ B/C/D for their
   modes); Lighthouse perf not worse than baseline on a 3.7k-track library.
