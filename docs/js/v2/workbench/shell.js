@@ -64,6 +64,8 @@ function activate() {
   document.getElementById('wb-inspector')?.removeAttribute('hidden');
   // The workbench centre is the Cues track list — make sure that tab is shown.
   if (window.switchTab) window.switchTab('cues');
+  // Re-render so the album-group view collapses into the uniform flat grid.
+  if (window.ACBridge) window.ACBridge.renderTracks();
   _renderCrates();
   initInspector();
   // Keep crate counts fresh as the library loads / changes.
@@ -77,7 +79,7 @@ function deactivate() {
   document.getElementById('wb-rail')?.setAttribute('hidden', '');
   document.getElementById('wb-inspector')?.setAttribute('hidden', '');
   clearInspector();
-  if (window.ACBridge) window.ACBridge.setCrate('all');
+  if (window.ACBridge) { window.ACBridge.setCrate('all'); window.ACBridge.renderTracks(); }
 }
 
 export function initWorkbench() {

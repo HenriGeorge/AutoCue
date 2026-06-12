@@ -1251,7 +1251,9 @@ function renderTracks() {
     return;
   }
 
-  if (currentSort.by === 'album') {
+  // P2 workbench forces the uniform virtualized flat list (no album-group
+  // chrome) — reads as a grid and keeps the inspector the single detail surface.
+  if (currentSort.by === 'album' && !document.body.classList.contains('wb-active')) {
     // Album mode is variable-height (album header chrome) — not virtualizable.
     // Drop the virtualizer if we just switched from flat mode.
     if (Virtualizer.isAttached()) Virtualizer.detach();
