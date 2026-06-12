@@ -1,0 +1,280 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AutoCue — Design System Library</title>
+<link rel="stylesheet" href="../styles.css">
+<link rel="stylesheet" href="components.css">
+<style>
+  body { padding: 0; }
+  .wrap { max-width: var(--content-max); margin: 0 auto; padding: var(--sp-6) var(--sp-5) 80px; }
+
+  header.top {
+    position: sticky; top: 0; z-index: 10;
+    display: flex; align-items: center; justify-content: space-between;
+    padding: var(--sp-3) var(--sp-5);
+    background: var(--glass-bg);
+    backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+    border-bottom: 1px solid var(--border);
+  }
+  header.top .brand { display: flex; align-items: center; gap: var(--sp-2); }
+  header.top .brand img { width: 26px; height: 26px; }
+  header.top .brand b { font-size: var(--text-md); font-weight: var(--fw-semibold); }
+  header.top .brand span { font-size: var(--text-sm); color: var(--muted); }
+
+  h1 { font-size: var(--text-2xl); font-weight: var(--fw-bold); letter-spacing: var(--tracking-tight); margin: var(--sp-5) 0 6px; }
+  .lede { font-size: var(--text-md); color: var(--muted); max-width: 60ch; margin-bottom: var(--sp-6); }
+
+  section { margin-top: var(--sp-6); }
+  section > h2 {
+    font-size: var(--text-xl); font-weight: var(--fw-semibold);
+    padding-bottom: var(--sp-2); margin-bottom: var(--sp-4);
+    border-bottom: 1px solid var(--border);
+  }
+  section > h2 small { font-weight: var(--fw-regular); color: var(--muted); font-size: var(--text-sm); margin-left: var(--sp-2); }
+
+  .specimen { background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: var(--sp-5); margin-bottom: var(--sp-4); }
+  .row { display: flex; gap: var(--sp-2); align-items: center; flex-wrap: wrap; margin-bottom: var(--sp-4); }
+  .row:last-child { margin-bottom: 0; }
+  .row > .rowlabel { width: 100%; font-size: var(--text-xs); text-transform: uppercase; letter-spacing: var(--tracking-label); color: var(--muted); font-weight: var(--fw-semibold); margin-bottom: 2px; }
+
+  /* foundations */
+  .swatches { display: grid; grid-template-columns: repeat(auto-fill, minmax(116px, 1fr)); gap: var(--sp-3); }
+  .swatch { border: 1px solid var(--border); border-radius: var(--radius-md); overflow: hidden; background: var(--surface); }
+  .swatch .chip { height: 52px; }
+  .swatch .meta { padding: 7px 9px; }
+  .swatch .meta b { display: block; font-size: var(--text-xs); font-weight: var(--fw-semibold); }
+  .swatch .meta code { font-family: var(--font-mono); font-size: 10px; color: var(--muted); }
+  .typescale > div { display: flex; align-items: baseline; gap: var(--sp-3); padding: 6px 0; border-bottom: 1px dashed var(--border); }
+  .typescale code { font-family: var(--font-mono); font-size: var(--text-xs); color: var(--muted); width: 96px; flex: none; }
+
+  .theme-toggle { display: inline-flex; gap: 4px; background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius-pill); padding: 3px; }
+  .theme-toggle button { border: none; background: none; color: var(--muted); font: var(--fw-medium) var(--text-sm)/1 var(--font-sans); padding: 6px 14px; border-radius: var(--radius-pill); cursor: pointer; }
+  .theme-toggle button[aria-pressed="true"] { background: var(--surface); color: var(--text); box-shadow: var(--shadow-sm); }
+</style>
+</head>
+<body>
+<header class="top">
+  <div class="brand">
+    <svg width="24" height="24" viewBox="0 0 24 24" aria-label="AutoCue" role="img" fill="var(--green)">
+      <rect x="2"  y="9"  width="3" height="6"  rx="1"/>
+      <rect x="7"  y="5"  width="3" height="14" rx="1"/>
+      <rect x="12" y="2"  width="3" height="20" rx="1"/>
+      <rect x="17" y="7"  width="3" height="10" rx="1"/>
+    </svg>
+    <b>AutoCue</b><span>Design System</span>
+  </div>
+  <div class="theme-toggle" role="group" aria-label="Theme">
+    <button id="t-light" aria-pressed="true">Light</button>
+    <button id="t-dark" aria-pressed="false">Dark</button>
+  </div>
+</header>
+
+<div class="wrap">
+  <h1>AutoCue Design System</h1>
+  <p class="lede">The component library behind the <code>autocue serve</code> localhost UI — tokens, core primitives, DJ data components, and the 2.0 shell surfaces. Toggle the theme above; every value is token-driven (light = ElevenLabs-clean cool neutrals, dark = warm stone).</p>
+
+  <!-- ─── FOUNDATIONS ─────────────────────────────────────── -->
+  <section>
+    <h2>Foundations <small>tokens — the source of truth</small></h2>
+    <div class="specimen">
+      <div class="row"><span class="rowlabel">Brand &amp; action</span></div>
+      <div class="swatches" id="sw-brand"></div>
+      <div class="row" style="margin-top:var(--sp-4)"><span class="rowlabel">Surfaces &amp; text</span></div>
+      <div class="swatches" id="sw-neutral"></div>
+      <div class="row" style="margin-top:var(--sp-4)"><span class="rowlabel">Cue slots A–H</span></div>
+      <div class="swatches" id="sw-cue"></div>
+    </div>
+    <div class="specimen">
+      <div class="row"><span class="rowlabel">Type scale — Inter (UI) · JetBrains Mono (data)</span></div>
+      <div class="typescale">
+        <div><code>--text-2xl</code><span style="font-size:var(--text-2xl);font-weight:700;letter-spacing:var(--tracking-tight)">Set Builder</span></div>
+        <div><code>--text-xl</code><span style="font-size:var(--text-xl);font-weight:600">Library health</span></div>
+        <div><code>--text-md</code><span style="font-size:var(--text-md)">Body copy — build a full DJ set automatically.</span></div>
+        <div><code>--text-sm mono</code><span style="font-family:var(--font-mono);font-size:var(--text-sm)">124.5 BPM · 8A · 10:34</span></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ─── CORE PRIMITIVES ─────────────────────────────────── -->
+  <section>
+    <h2>Core primitives <small>buttons · badges · chips · card · inputs · toggle</small></h2>
+    <div class="specimen">
+      <div class="row"><span class="rowlabel">Button — primary is the ink pill, never green</span>
+        <button class="ac-btn ac-btn--primary">Apply to Rekordbox</button>
+        <button class="ac-btn ac-btn--secondary">Preview cues</button>
+        <button class="ac-btn ac-btn--ghost ac-btn--sm">Clear</button>
+        <button class="ac-btn ac-btn--danger">Delete non-keepers</button>
+        <button class="ac-btn ac-btn--primary" disabled>Disabled</button>
+      </div>
+      <div class="row"><span class="rowlabel">Badge — short statuses (soft &amp; outline)</span>
+        <span class="ac-badge ac-badge--green">OK</span>
+        <span class="ac-badge ac-badge--warn ac-badge--outline">No phrase data</span>
+        <span class="ac-badge ac-badge--danger">Audio missing</span>
+        <span class="ac-badge">203 tracks</span>
+      </div>
+      <div class="row"><span class="rowlabel">Chip — active is neutral; accent=green for filters</span>
+        <button class="ac-chip is-active">BPM ↑</button>
+        <button class="ac-chip">Key</button>
+        <button class="ac-chip">Mixability</button>
+        <button class="ac-chip ac-chip--green is-active">✨ Techno</button>
+      </div>
+      <div class="row" style="align-items:flex-end"><span class="rowlabel">Inputs — 8px radius, green focus ring</span>
+        <span class="ac-field"><label>Start BPM</label><input class="ac-input" type="number" value="120" style="width:120px"></span>
+        <span class="ac-field"><label>Energy mode</label>
+          <select class="ac-select" style="width:200px"><option>Build (ascending)</option><option>Drop (descending)</option><option>Flat</option></select>
+        </span>
+        <span class="ac-toggle is-on" role="switch" aria-checked="true"><span class="ac-toggle__track"></span><span class="ac-toggle__label">Skip already colored</span></span>
+      </div>
+      <div class="row"><span class="rowlabel">Card — 16px radius, lifts on hover</span>
+        <div class="ac-card ac-card--interactive" style="width:280px"><h3>Set Builder</h3><p>Build a full DJ set automatically from your library.</p></div>
+        <div class="ac-card" style="width:280px"><h3>Static panel</h3><p>No hover lift (interactive=false).</p></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ─── DJ DATA PRIMITIVES ──────────────────────────────── -->
+  <section>
+    <h2>DJ data primitives <small>cue badges · BPM/key · scores · energy · TrackCard</small></h2>
+    <div class="specimen">
+      <div class="row"><span class="rowlabel">CueBadge — slot A–H color · confidence dims bar/heuristic</span>
+        <span class="ac-cue cue-a ac-cue--playable">Drop (Mix In)</span>
+        <span class="ac-cue cue-b">Verse</span>
+        <span class="ac-cue cue-d ac-cue--bar">Build</span>
+        <span class="ac-cue cue-f ac-cue--heuristic">0:30</span>
+        <span class="ac-cue cue-h">Intro</span>
+      </div>
+      <div class="row"><span class="rowlabel">Data chips &amp; scores</span>
+        <span class="ac-datachip ac-bpm">124.5<span class="unit">BPM</span></span>
+        <span class="ac-datachip ac-key">8A</span>
+        <span class="ac-score">74<span class="den">/100</span></span>
+        <span class="ac-score"><span class="lbl">Health</span>92<span class="den">/100</span></span>
+        <span class="ac-score ac-score--null">—<span class="den">/100</span></span>
+      </div>
+      <div class="row"><span class="rowlabel">CategoryBadge — five set categories</span>
+        <span class="ac-cat cat-warmup">Warm-up</span>
+        <span class="ac-cat cat-build">Build</span>
+        <span class="ac-cat cat-peak">Peak</span>
+        <span class="ac-cat cat-after_hours">After-hours</span>
+        <span class="ac-cat cat-closing">Closing</span>
+      </div>
+      <div class="row"><span class="rowlabel">EnergySparkline — PWAV-derived, 0–1</span>
+        <div style="width:280px">
+          <svg class="ac-spark" viewBox="0 0 280 34" preserveAspectRatio="none" id="spark-demo"></svg>
+        </div>
+      </div>
+      <div class="row"><span class="rowlabel">TrackCard — composes everything; Rekordbox color stripe</span>
+        <div class="ac-track rb-blue" style="width:100%">
+          <div class="ac-track__art"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="2.5" fill="currentColor"/></svg></div>
+          <div class="ac-track__main">
+            <div class="ac-track__titlerow"><span class="ac-track__title">Strobe</span><span class="ac-track__artist">deadmau5</span></div>
+            <div class="ac-track__chips">
+              <span class="ac-datachip ac-bpm">128.0<span class="unit">BPM</span></span>
+              <span class="ac-datachip ac-key">4A</span>
+              <span class="ac-track__time">10:34</span>
+              <span class="ac-cue cue-a">Drop</span>
+              <span class="ac-cue cue-b">Verse</span>
+              <span class="ac-cue cue-f ac-cue--bar">Outro</span>
+            </div>
+          </div>
+          <div class="ac-track__right">
+            <svg class="ac-spark" viewBox="0 0 180 30" preserveAspectRatio="none" id="spark-card"></svg>
+            <div style="display:flex;gap:6px">
+              <span class="ac-score">74<span class="den">/100</span></span>
+              <span class="ac-cat cat-build">Build</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ─── 2.0 SHELL SURFACES ──────────────────────────────── -->
+  <section>
+    <h2>2.0 shell surfaces <small>P1 global layer — local mode only</small></h2>
+    <div class="specimen">
+      <div class="row"><span class="rowlabel">Status sentence — clickable facts (#app-status)</span></div>
+      <div class="ac-status">
+        <button class="fact"><span class="num">2,789</span> tracks</button>
+        <span class="sep">·</span>
+        <button class="fact"><span class="num">142</span> need cues</button>
+        <span class="sep">·</span>
+        <button class="fact">health <span class="num">78</span>/100</button>
+        <span class="sep">·</span>
+        <button class="fact"><span class="ac-rbdot ac-rbdot--closed"></span> Rekordbox closed</button>
+      </div>
+    </div>
+    <div class="specimen">
+      <div class="row"><span class="rowlabel">⌘K Command palette — fuzzy commands + track search</span></div>
+      <div class="ac-veil" style="min-height:380px">
+        <div class="ac-pal">
+          <input class="ac-pal__input" value="mix" aria-label="Command palette" readonly>
+          <div class="ac-pal__list">
+            <div class="pal-group">Cues</div>
+            <button class="pal-item"><span class="pal-label">Preview cues</span><span class="pal-sub">for the current selection</span></button>
+            <button class="pal-item active"><span class="pal-label">Apply to Rekordbox</span><span class="pal-sub">write hot cues</span><span class="ac-kbd">⏎</span></button>
+            <div class="pal-group">Library</div>
+            <button class="pal-item"><span class="pal-label">Set Builder — mixable order</span></button>
+            <div class="pal-group">Tracks</div>
+            <button class="pal-item"><span class="pal-label">Strobe</span><span class="pal-sub">deadmau5</span><span class="pal-meta mono">128.0 · 4A</span></button>
+            <button class="pal-item"><span class="pal-label">Mixmag Live 04</span><span class="pal-sub">Various</span><span class="pal-meta mono">126.0 · 8A</span></button>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="specimen">
+      <div class="row"><span class="rowlabel">⌘K — empty state = inert "Ask AutoCue" composer seam (P6)</span></div>
+      <div class="ac-veil" style="min-height:200px">
+        <div class="ac-pal">
+          <input class="ac-pal__input" value="reorder by vibe" aria-label="Command palette" readonly>
+          <div class="ac-pal__list">
+            <div class="pal-composer-hint">Ask AutoCue (coming soon) — ⏎ does nothing yet</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+</div>
+
+<script>
+  // Theme toggle (persisted)
+  const root = document.documentElement;
+  const bL = document.getElementById('t-light'), bD = document.getElementById('t-dark');
+  function setTheme(dark) {
+    root.classList.toggle('dark', dark);
+    bL.setAttribute('aria-pressed', String(!dark));
+    bD.setAttribute('aria-pressed', String(dark));
+    try { localStorage.setItem('ac_ds_theme', dark ? 'dark' : 'light'); } catch (_) {}
+  }
+  bL.onclick = () => setTheme(false);
+  bD.onclick = () => setTheme(true);
+  try { setTheme(localStorage.getItem('ac_ds_theme') === 'dark'); } catch (_) {}
+
+  // Sparkline path builder (smooth-ish area + line)
+  function drawSpark(svg, data, w, h) {
+    const n = data.length, max = Math.max(...data, 1), pad = 2;
+    const x = i => (i / (n - 1)) * w;
+    const y = v => h - pad - (v / max) * (h - pad * 2);
+    let line = '';
+    data.forEach((v, i) => { line += (i ? 'L' : 'M') + x(i).toFixed(1) + ' ' + y(v).toFixed(1) + ' '; });
+    const area = `M0 ${h} ` + data.map((v, i) => `L${x(i).toFixed(1)} ${y(v).toFixed(1)}`).join(' ') + ` L${w} ${h} Z`;
+    svg.innerHTML = `<path class="area" d="${area}"/><path class="line" d="${line.trim()}"/>`;
+  }
+  const energy = [0.1,0.2,0.4,0.7,0.9,0.85,0.95,0.7,0.5,0.35,0.6,0.8];
+  drawSpark(document.getElementById('spark-demo'), energy, 280, 34);
+  drawSpark(document.getElementById('spark-card'), energy, 180, 30);
+
+  // Color swatches — read live computed values so they track the theme.
+  function swatches(elId, items) {
+    const host = document.getElementById(elId);
+    host.innerHTML = items.map(([name, varName]) =>
+      `<div class="swatch"><div class="chip" style="background:var(${varName})"></div>` +
+      `<div class="meta"><b>${name}</b><code>${varName}</code></div></div>`).join('');
+  }
+  swatches('sw-brand', [['Green','--green'],['Green wash','--green-wash'],['Ink (CTA)','--ink'],['On-ink','--on-ink'],['Danger','--danger'],['Warn','--warn']]);
+  swatches('sw-neutral', [['Background','--bg'],['Surface','--surface'],['Surface 2','--surface-2'],['Border','--border'],['Text','--text'],['Muted','--muted']]);
+  swatches('sw-cue', [['A','--cue-a'],['B','--cue-b'],['C','--cue-c'],['D','--cue-d'],['E','--cue-e'],['F','--cue-f'],['G','--cue-g'],['H','--cue-h']]);
+</script>
+</body>
+</html>

@@ -49,6 +49,26 @@ export type ControlRow = {
    * Default (undefined) = normal click with viewport precheck.
    */
   clickStrategy?: "force";
+  /**
+   * State the sweep must establish BEFORE interacting with this row.
+   * - "select-track": tick the first track card's bulk-select checkbox so a
+   *   selection exists. Needed for the #action-bar rows — the bar is
+   *   `aria-hidden` + translated off-viewport until `selectedTrackIds` is
+   *   non-empty (`updateSelectionBar` in docs/index.html), so clicking its
+   *   buttons without a selection can never succeed (and force-clicking, the
+   *   old workaround, fails with "Element is outside of the viewport").
+   */
+  setup?: "select-track";
+  /**
+   * Console-error substrings that are EXPECTED when exercising this row in
+   * the sandbox harness, and must not fail the sweep's clean-console
+   * assertion. Use sparingly and document why on the row. Example:
+   * disc-v2-refresh-btn — /api/discover/feed 400s ("DISCOGS_TOKEN not
+   * configured") because the sandbox server has no token; the UI handles
+   * the 400 as a structured scanError, but the browser still logs a
+   * "Failed to load resource" console error for the response itself.
+   */
+  allowedConsoleErrors?: string[];
 };
 
 export type PerTrackRow = {
