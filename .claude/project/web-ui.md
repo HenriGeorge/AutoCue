@@ -1,6 +1,6 @@
 # Web UI internals (docs/index.html + docs/css/ + docs/js/)
 
-- **Web app**: multi-file, NO build step (P0 split, 2026-06-12). Entry `docs/index.html` (markup only); `docs/css/app.css` (all styles); `docs/js/app.js` (legacy classic script — global/hoisting semantics; contains 3 duplicate top-level `_esc` declarations, legal later-wins in classic scripts — consolidate during the T5 feature split); `docs/js/v2/main.js` (ES-module seam: ALL new code, `window.AC2` namespace). Theme variables use CSS custom properties (`var(--bg)`, `var(--green)`, etc.) so dark mode works automatically on all new elements. Source-reading specs use `loadAppHtml()` from `tests/web/_source.js`. `package.json` exists only for dev testing (Vitest + jsdom) — the deployed app requires no npm.
+- **Web app**: multi-file, NO build step (P0 split, 2026-06-12). Entry `docs/index.html` (markup only); `docs/css/app.css` (all styles); legacy JS in **8 ordered classic scripts** `docs/js/01-core.js` … `08-set-builder-boot.js` (loaded in order; concatenating them reproduces the original `app.js` statement order — shared global lexical environment, so top-level `let`/`const`/`function` are cross-file bare identifiers but only `function`/`var` reach `window`; contains 3 duplicate top-level `_esc`, legal later-wins); `docs/js/v2/*` (ES-module seam: ALL new code, imported by `main.js`, `window.AC2` namespace, reads legacy via `window.ACBridge`). Theme variables use CSS custom properties so dark mode works automatically. Source-reading specs use `loadAppHtml()` from `tests/web/_source.js` (inlines the 8 scripts + css back into one HTML view). `package.json` exists only for dev testing — the deployed app requires no npm.
 
 - **Fetch error handling in JS**: always check `r.ok` before reading typed properties from `r.json()`. A 409 response returns `{detail: "..."}` — reading `resp.applied` or `resp.colored` on an error body yields `undefined` and produces misleading toast messages.
 
@@ -74,3 +74,32 @@
   the DevTools console + reload — no server flag required. The console log lines are the
   primary observability surface; `_perf.getEntries()` returns the raw
   `performance.getEntriesByType('measure')` array filtered to AutoCue marks.
+
+## AutoCue 2.0 global layer (P1) — `docs/js/v2/`
+
+- **ES modules only**, imported by `docs/js/v2/main.js` (`<script type="module">`).
+  They read legacy state ONLY via `window.ACBridge` (`tracks()`, `healthSummary()`,
+  `isLocalMode()`, `selectedCount()` — accessor closures over the classic scripts'
+  top-level `let`, defined at the end of `08-set-builder-boot.js`) and listen for two
+  CustomEvents the legacy code dispatches: `autocue:health-summary` (in
+  `_renderHealthSummary`) and `autocue:local-mode` (in the `detectLocalMode` local-mode
+  branch). v2 exposes its surface on `window.AC2.*`. Legacy never imports v2.
+- **status-sentence.js**: the `#app-status` facts are now `<button>`s. Pure
+  `deriveFacts({tracks, healthSummary})` → `[{needcues}, {health}]` (need-cues =
+  `existingHotCues === 0` count, visible once tracks load even at 0; health hidden until
+  the first scan, `Math.round(library_score)`). Repaints on `AppState.subscribe('tracks')`
+  + `autocue:health-summary`. Polls `GET /api/status?include_rb=1` every 30 s (opt-in
+  backend field — default status stays cheap for the 600 ms `detectLocalMode` budget) and
+  feeds the EXISTING `updateAppStatus({rekordboxRunning})` renderer. Local mode only.
+- **palette.js** (⌘K): opens on ⌘K/Ctrl+K, `/` (when not typing), `#cmdk-hint-btn`; gated
+  on `ACBridge.isLocalMode()`. **Strict key priority via a CAPTURE-phase document keydown
+  that stopPropagation()s every key while open** — the legacy app shortcuts (and
+  Discover's, all bubble-phase) never double-fire. Commands (`commands.js`) delegate to
+  existing buttons via `.click()` so every guard fires; track search caps 8 with mono
+  `BPM · key` meta. `fuzzy.js` ranks. Empty results render the **inert "Ask AutoCue
+  (coming soon)" composer hint** — the seam for the future opt-in `AUTOCUE_LLM` phase
+  (program PRD §6/P6); the input + empty-state contract IS that API.
+- **e2e**: any new interactive control with an id MUST enter
+  `tests/e2e/control-inventory.json` (globalControls) or the drift guard fails; dialog
+  internals (e.g. `pal-input`) go in the spec's ignore list. Dynamic `pal-opt-N` option
+  buttons exist only while the palette is open (absent during the closed-state scan).
