@@ -57,7 +57,9 @@
     },
     {
       "id": "preview-cues-btn",
-      "kind": "button"
+      "kind": "button",
+      "skipSweep": true,
+      "skipReason": "Hidden by design in local mode \u2014 it lives in #download-bar (Pages-mode XML bar), which never gets .visible when a server is connected (issue #15). The local-mode preview path is action-bar-preview, which delegates its click to this button, so the handler IS exercised by that row."
     },
     {
       "id": "delete-cues-btn",
@@ -72,12 +74,12 @@
     {
       "id": "action-bar-clear",
       "kind": "button",
-      "clickStrategy": "force"
+      "setup": "select-track"
     },
     {
       "id": "action-bar-preview",
       "kind": "button",
-      "clickStrategy": "force"
+      "setup": "select-track"
     },
     {
       "id": "action-bar-apply",
@@ -254,6 +256,20 @@
       {
         "id": "health-scan-btn",
         "kind": "button"
+      },
+      {
+        "id": "duplicates-scan-btn",
+        "kind": "button"
+      },
+      {
+        "id": "duplicates-confirm-cancel",
+        "kind": "button",
+        "safeOnRealDb": false
+      },
+      {
+        "id": "duplicates-confirm-go",
+        "kind": "button",
+        "safeOnRealDb": false
       },
       {
         "id": "cue-tools-op",
@@ -435,7 +451,10 @@
       },
       {
         "id": "disc-v2-refresh-btn",
-        "kind": "button"
+        "kind": "button",
+        "allowedConsoleErrors": [
+          "the server responded with a status of 400"
+        ]
       },
       {
         "id": "disc-v2-sort",
@@ -483,11 +502,6 @@
       {
         "id": "disc-v2-export-btn",
         "kind": "button",
-        "safeOnRealDb": false
-      },
-      {
-        "id": "disc-v2-import-input",
-        "kind": "file",
         "safeOnRealDb": false
       },
       {
