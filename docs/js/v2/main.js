@@ -23,3 +23,7 @@ window.AC2.statusSentence = { initStatusSentence, deriveFacts };
 
 import { openPalette, closePalette, isOpen, buildResults, clampActive } from './palette.js';
 window.AC2.palette = { openPalette, closePalette, isOpen, buildResults, clampActive };
+
+// P2 workbench shell (flag-gated, additive).
+import { initWorkbench, toggleWorkbench, isWorkbenchOn, setWorkbench } from './workbench/shell.js';
+window.AC2.workbench = { initWorkbench, toggleWorkbench, isWorkbenchOn, setWorkbench };

@@ -2337,3 +2337,47 @@
       border-radius: 999px; padding: 1px 6px; margin-left: 4px;
       vertical-align: middle;
     }
+
+  /* ── v2: workbench (P2) ── fixed rail + inspector flank the document-scrolled
+     centre; the Virtualizer, #tracks-sticky and document scroll are untouched. */
+  :root { --wb-rail-w: 224px; --wb-insp-w: 360px; }
+  #wb-rail, #wb-inspector {
+    position: fixed; top: var(--top-bar-h, 56px); bottom: 0; z-index: 90;
+    overflow-y: auto; background: var(--surface); border-color: var(--border);
+    overscroll-behavior: contain;
+  }
+  #wb-rail { left: 0; width: var(--wb-rail-w); border-right: 1px solid var(--border); padding: 14px 12px; }
+  #wb-inspector { right: 0; width: var(--wb-insp-w); border-left: 1px solid var(--border); padding: 16px; }
+  #wb-rail[hidden], #wb-inspector[hidden] { display: none; }
+  /* When the workbench owns the screen, the centre column = the legacy <main>,
+     widened and inset by the flank widths. Document scroll & sticky preserved. */
+  body.wb-active main { max-width: none; margin: 0; padding-left: calc(var(--wb-rail-w) + 24px); padding-right: calc(var(--wb-insp-w) + 24px); }
+  body.wb-active #action-bar { left: var(--wb-rail-w); right: var(--wb-insp-w); width: auto; }
+  @media (max-width: 1180px) { body.wb-active #wb-inspector { display: none; } body.wb-active main { padding-right: 40px; } }
+
+  /* Rail */
+  .wb-rail-section { margin-bottom: 18px; }
+  .wb-rail-head { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); padding: 0 8px 6px; }
+  .wb-crate-list { display: flex; flex-direction: column; gap: 1px; }
+  .wb-crate {
+    display: flex; align-items: center; gap: 8px; width: 100%;
+    padding: 7px 8px; border: none; background: none; border-radius: 8px;
+    cursor: pointer; text-align: left; color: var(--text); font: inherit; font-size: 13px;
+    transition: background .12s;
+  }
+  .wb-crate:hover { background: var(--surface-2, var(--surface2)); }
+  .wb-crate.active { background: var(--green-wash, color-mix(in srgb, var(--green) 8%, transparent)); box-shadow: inset 2px 0 0 var(--green); }
+  .wb-crate .wb-crate-label { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .wb-crate .wb-crate-count { font-family: var(--font-mono, var(--mono)); font-size: 11px; color: var(--muted); }
+  .wb-crate.active .wb-crate-count { color: var(--green); }
+  .wb-rail-card { margin-top: auto; border: 1px solid var(--border); border-radius: var(--radius-xl, 16px); padding: 12px; }
+
+  /* Inspector */
+  .wb-inspector-empty { color: var(--muted); text-align: center; padding: 48px 12px; font-size: 13px; }
+  .wb-inspector-empty-icon { font-size: 32px; opacity: .4; margin-bottom: 12px; }
+  .wb-inspector-empty-sub { font-size: 11px; margin-top: 6px; opacity: .8; }
+  @media (prefers-reduced-motion: reduce) { .wb-crate { transition: none; } }
+
+  /* Declutter the centre in workbench mode — the status sentence already
+     reports connection; cue prep chrome moves to the toolbar in T6. */
+  body.wb-active #local-mode-banner { display: none !important; }

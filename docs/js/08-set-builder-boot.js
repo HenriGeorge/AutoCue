@@ -921,4 +921,22 @@ window.ACBridge = {
   healthSummary: () => healthLastSummary,
   isLocalMode: () => localMode,
   selectedCount: () => selectedTrackIds.size,
+  // P2 workbench shell reads these (still read-only for state; the fn
+  // pass-throughs let renderInspector/the rail call legacy builders without
+  // poking module internals).
+  selectedIds: () => selectedTrackIds,
+  pending: () => pendingCues,
+  activePlaylistId: () => activePlaylistId,
+  // function pass-throughs
+  filteredTracks: () => filteredTracks(),
+  sortedTracks: () => sortedTracks(),
+  activeTracks: () => activeTracks(),
+  renderTracks: () => renderTracks(),
+  buildTrackCard: (...a) => buildTrackCard(...a),
+  explainCue: (cue) => _explainCue(cue),
+  showTransitionScore: () => showTransitionScore(),
+  // P2 workbench rail crate filter (cue-state). Mutates the legacy global +
+  // re-renders via the existing AppState bus — the one sanctioned write path.
+  setCrate: (kind) => { _wbCrate = kind || 'all'; AppState.signal('filters'); },
+  crate: () => _wbCrate,
 };

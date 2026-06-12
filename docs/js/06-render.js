@@ -3,6 +3,9 @@
  * docs/index.html. Concatenating 01..08 in order reproduces the original
  * app.js. Do not reorder. See .claude/project/web-ui.md. */
 // ── Rendering ──────────────────────────────────────────────────────────────────
+// P2 workbench crate filter ('all' | 'none' | 'cued' | 'phrase'); set via
+// window.ACBridge.setCrate(). 'all' is a no-op so the legacy UI is unaffected.
+var _wbCrate = 'all';
 function fmtTime(sec) {
   const m = Math.floor(sec / 60);
   const s = Math.floor(sec % 60);
@@ -31,6 +34,10 @@ function filteredTracks() {
   const out = [];
   for (let i = 0; i < parsedTracks.length; i++) {
     const t = parsedTracks[i];
+    // P2 workbench crate (cue-state) filter — set via ACBridge.setCrate().
+    if (_wbCrate === 'none' && !(Number(t.existingHotCues) === 0)) continue;
+    else if (_wbCrate === 'cued' && !(Number(t.existingHotCues) > 0)) continue;
+    else if (_wbCrate === 'phrase' && !t.hasPhrase) continue;
     if (phraseOnlyFilter && !t.hasPhrase) continue;
     if (beatsOnlyFilter && !t.hasBeats) continue;
     if (_audioOnlyFilter) {

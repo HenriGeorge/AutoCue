@@ -1485,6 +1485,29 @@ autocue --library --mode bar --bars-interval 8 --start-bar 1</pre>
   </div>
 </div>
 
+<!-- AutoCue 2.0 workbench (P2). Fixed flanks around the document-scrolled
+     centre (path a — Virtualizer + #tracks-sticky untouched). Hidden until the
+     `workbench` flag + local mode; populated by docs/js/v2/workbench/shell.js. -->
+<aside id="wb-rail" hidden aria-label="Crates">
+  <div class="wb-rail-section">
+    <div class="wb-rail-head">Crates</div>
+    <div id="wb-crates" class="wb-crate-list"></div>
+  </div>
+  <div class="wb-rail-section">
+    <div class="wb-rail-head">Playlists</div>
+    <div id="wb-playlists" class="wb-crate-list"></div>
+  </div>
+  <div id="wb-rail-health" class="wb-rail-card" hidden></div>
+</aside>
+<aside id="wb-inspector" hidden aria-label="Track inspector">
+  <div id="wb-inspector-empty" class="wb-inspector-empty">
+    <div class="wb-inspector-empty-icon">♪</div>
+    <div>Select a track to inspect</div>
+    <div class="wb-inspector-empty-sub">energy · mixability · phrase strip · cue reasoning · similar</div>
+  </div>
+  <div id="wb-inspector-body" hidden></div>
+</aside>
+
 <!-- Legacy app — 8 ordered classic scripts (P0 T5 split of the former app.js).
      Order is load-bearing: concatenating 01..08 reproduces the original. -->
 <script src="js/01-core.js"></script>
