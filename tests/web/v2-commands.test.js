@@ -26,6 +26,21 @@ describe('buildCommands', () => {
       expect(ids).toContain(want)
     }
   })
+
+  it('toggle-workbench label reflects the current workbench state', () => {
+    const label = () => buildCommands().find((c) => c.id === 'toggle-workbench').label
+    const prev = window.AC2
+    try {
+      window.AC2 = { workbench: { isWorkbenchOn: () => true } }
+      expect(label()).toBe('Switch to classic view')
+      window.AC2 = { workbench: { isWorkbenchOn: () => false } }
+      expect(label()).toBe('Switch to workbench')
+      window.AC2 = undefined // pre-bridge: defaults to offering the workbench
+      expect(label()).toBe('Switch to workbench')
+    } finally {
+      window.AC2 = prev
+    }
+  })
 })
 
 describe('searchTracks', () => {

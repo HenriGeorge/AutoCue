@@ -36,8 +36,13 @@ export function buildCommands() {
       run: () => _goto('library', 'setbuilder-section') },
     { id: 'toggle-theme', group: 'View', label: 'Toggle light / dark',
       run: () => _click('theme-toggle') },
-    { id: 'toggle-workbench', group: 'View', label: 'Toggle workbench (beta)',
-      sub: 'The new Crate Console — rail + grid + inspector',
+    // Label reflects the action from the current state (buildCommands() is
+    // re-evaluated on every palette render, so it stays fresh).
+    { id: 'toggle-workbench', group: 'View',
+      label: window.AC2?.workbench?.isWorkbenchOn?.()
+        ? 'Switch to classic view'
+        : 'Switch to workbench',
+      sub: 'The Crate Console — rail + grid + inspector',
       run: () => window.AC2?.workbench?.toggleWorkbench() },
     { id: 'filter-phrase', group: 'Filter', label: 'Filter: phrase-ready only',
       run: () => _click('phrase-only-cb') },
