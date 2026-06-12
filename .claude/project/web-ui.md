@@ -1,6 +1,6 @@
-# Web UI internals (docs/index.html)
+# Web UI internals (docs/index.html + docs/css/ + docs/js/)
 
-- **Web app**: single self-contained HTML file. No build step, no framework. All app changes go to `docs/index.html`. Theme variables use CSS custom properties (`var(--bg)`, `var(--green)`, etc.) so dark mode works automatically on all new elements. `package.json` exists only for dev testing (Vitest + jsdom) — the deployed GitHub Pages app requires no npm.
+- **Web app**: multi-file, NO build step (P0 split, 2026-06-12). Entry `docs/index.html` (markup only); `docs/css/app.css` (all styles); `docs/js/app.js` (legacy classic script — global/hoisting semantics; contains 3 duplicate top-level `_esc` declarations, legal later-wins in classic scripts — consolidate during the T5 feature split); `docs/js/v2/main.js` (ES-module seam: ALL new code, `window.AC2` namespace). Theme variables use CSS custom properties (`var(--bg)`, `var(--green)`, etc.) so dark mode works automatically on all new elements. Source-reading specs use `loadAppHtml()` from `tests/web/_source.js`. `package.json` exists only for dev testing (Vitest + jsdom) — the deployed app requires no npm.
 
 - **Fetch error handling in JS**: always check `r.ok` before reading typed properties from `r.json()`. A 409 response returns `{detail: "..."}` — reading `resp.applied` or `resp.colored` on an error body yields `undefined` and produces misleading toast messages.
 

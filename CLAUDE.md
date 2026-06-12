@@ -42,7 +42,7 @@ AutoCue places hot cues on Rekordbox 7 tracks automatically and analyses a DJ li
 
 1. **Python CLI** (`autocue/`) — reads Rekordbox's database and ANLZ files directly. Fallback strategy: phrase → bar → heuristic. Outputs a Rekordbox XML for import.
 2. **Local server** (`autocue serve`) — FastAPI at `localhost:7432`. Serves the web UI and exposes a REST API that reads/writes the Rekordbox database directly. **All intelligence features** (energy, mixability, classification, similar tracks, transitions, set builder, library health, auto-tagging, comment enrichment, Discogs, discovery, download) are only available in this mode.
-3. **Web app** (`docs/index.html`) — browser-based, single HTML file, no build step. Static / GitHub-Pages-ready (XML in/out); Pages is **not currently configured** (`/pages` 404s) — the app is reached via `autocue serve`, which also unlocks the full local-mode feature set.
+3. **Web app** (`docs/index.html` + `docs/css/` + `docs/js/`) — browser-based, multi-file, **no build step**. Static / GitHub-Pages-ready (XML in/out); Pages is **not currently configured** (`/pages` 404s) — the app is reached via `autocue serve`, which also unlocks the full local-mode feature set.
 
 ## Development commands
 
@@ -82,7 +82,7 @@ admin-merged after the local stack is green.
 ## Must-know constraints (read every session)
 
 - **Rekordbox must be closed** before any write (CLI or local-mode Apply). DB is SQLCipher-locked while open. Server enforces this at every write endpoint via `_rb_running(db)`.
-- **Web app is a single self-contained HTML file** — no build step, no framework. All app changes go to `docs/index.html`. `package.json` exists only for dev testing.
+- **Web app is multi-file with NO build step** (P0 split, 2026-06-12) — no bundler, no framework, ever. Entry `docs/index.html` (markup only); CSS in `docs/css/app.css`; legacy JS in `docs/js/app.js` (classic script, shared globals); **all NEW v2 code is native ES modules under `docs/js/v2/`** rooted at `js/v2/main.js` (interop: v2 reads legacy via `window.*`, exposes via `window.AC2`; legacy never imports v2). Specs that read app SOURCE use `loadAppHtml()` from `tests/web/_source.js` — never `readFileSync(docs/index.html)`. XML/Pages mode is **frozen**; the 2.0 shell renders in local mode only (program PRD: `.claude/PRPs/prds/autocue-2-program.prd.md`). `package.json` exists only for dev testing.
 - **pyrekordbox**: use `Rekordbox6Database` from `pyrekordbox.db6`. `add_track()` takes the file path **positionally**.
 - **ANLZ parsing**: wrap `db.read_anlz_file()` / `get_tag()` in `try/except Exception` — `ConstError` / `IndexError` are common for unsupported ANLZ versions and missing tags.
 - **BPM guard**: always check `float(bpm) > 0` before using BPM in calculations — Rekordbox can store `"0.0"` (truthy string, zero float).
