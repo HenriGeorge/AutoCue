@@ -1,10 +1,25 @@
 ---
-iteration: 1
+iteration: 3
 max_iterations: 20
-plan_path: ".claude/PRPs/plans/v2-p0-foundations.plan.md"
+plan_path: ".claude/PRPs/plans/v2-p1-global-layer.plan.md"
 input_type: "plan"
 started_at: "2026-06-12T02:04:31Z"
+phase: "P1 (P0 complete, PR #208)"
 ---
+
+## P0 — COMPLETE (PR #208, base claude/hopeful-turing-3fe017)
+All 9 tasks done. Three-leg green: Vitest 676, pytest 1439, e2e 161 passed +
+8 known-baseline (fixed by PR #206), 0 new. Branch feature/v2-p0-foundations.
+
+## P1 — IN PROGRESS (branch feature/v2-p1-global-layer off P0)
+- T1 ✅ (0f93c07): /api/status?include_rb=1 opt-in rekordbox_running. pytest +5.
+- T2 ✅ (426ba2d): window.ACBridge (4 read-only accessors at end of
+  08-set-builder-boot.js) + autocue:health-summary / autocue:local-mode events.
+  Vitest 680. NOTE: bridge accessors are closures over the classic-script
+  global lexical env — v2 modules MUST read legacy let-state only via ACBridge.
+- T3–T9 PENDING — see HANDOFF.md. Next: T3 status sentence (spans→buttons in
+  index.html:53-70 → control-inventory.json MUST be updated or drift guard
+  fails; v2 module docs/js/v2/status-sentence.js with pure deriveFacts()).
 
 # PRP Ralph Loop State
 
