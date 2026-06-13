@@ -152,3 +152,42 @@
   with P2's Cues+Library retirement, **all three legacy tabs are gone**. JSDOM can't see the
   swap/scroll/sticky-pin — `tests/e2e/v2-discover-shell.spec.ts` (mocks every
   `/api/discover/*` + `/api/youtube/search`) covers those + both themes + reduced-motion + R10.
+
+- **Nightboard (P4)** — `docs/js/v2/nightboard/{mode,set-model,canvas,joint-popover,tray}.js`,
+  rendering into `#nb-canvas`. A full-bleed set-builder canvas **mode** (NOT a centre-pane
+  place): `body.nb-active` hides rail + grid + inspector (grid HIDDEN, never detached —
+  TASK-033/037 preserved) and the canvas owns the body, keeping only the global topbar.
+  Entered by the `#nb-open-btn` toolbar verb (relocated into `#wb-topbar-tools` via the
+  shell `_TOOL_IDS`, so `_restoreTools`' innerHTML reset doesn't wipe it) + the
+  `open-nightboard`/`build-set` ⌘K commands; local-mode only. **No new analysis, no new
+  backend endpoint** — built entirely on `POST /api/setbuilder`, `POST /api/transitions/score`,
+  `GET /api/setbuilder/alternatives`, `GET /api/tracks/{id}/energy`, `POST /api/playlists`.
+  - **set-model.js** (pure state + fetch, no DOM): `buildSet` maps the SetBuilderRequest +
+    surfaces `terminated_reason` honestly (R3); `swapAt`/`insertAfter`; `rescoreJoints(idx)`
+    re-scores ONLY the ≤2 joints touching a slot (joint i carries `SET[i+1].transition_score`),
+    never a full rebuild (R7); `loadEnergyCurves` fetches all set tracks' curves in parallel
+    (Promise.allSettled, cached, flat-fallback on miss).
+  - **canvas.js** renders from set-model state: stats strip (mono), four zone bands
+    proportioned by `category` duration fractions (net-new `--zone-*` tokens), the set-wide
+    energy SVG arc (duration-weighted polyline, NaN-guarded — R5), and the timeline of tiles
+    (green-wash mono BPM/key/category chips, mini sparkline, duration + cue-status footer,
+    `relaxed` tag) + circular joints banded by `JOINT_BANDS` ≥85/≥70 (R6). Initial joint
+    scores reuse `transition_score` (zero round-trips). Per-track duration/cues come from the
+    **camelCase** parsed fields (`totalTime`/`existingHotCues`) via `ACBridge.tracks()`.
+  - **joint-popover.js**: clicking a joint lazily fetches `/api/transitions/score` (build_set
+    returns only the score, not the reasons) → popover with the pair, overall /100 banded, the
+    three `explanation` strings verbatim, a band-derived tip, and ≤2 swap alternatives. "Swap in"
+    replaces the incoming track + `rescoreJoints` + repaint. Dismiss on outside-click / Escape /
+    timeline-scroll; fixed positioning (no clip).
+  - **tray.js**: a gravity tray of ranked next-track candidates for the focused (or last) tile;
+    "Add" inserts after the anchor (R8). Tile click → `focusTile`: green ring + re-hosts the
+    **existing P2 inspector** (`workbench/inspector.js`, mode 'track') via `body.nb-inspecting`
+    re-showing the `#wb-inspector` flank (no second cue engine — R9).
+  - Export delegates to the shared `_createPlaylist` write path (`ACBridge.createSetPlaylist` →
+    `POST /api/playlists`, 409-honest, R10). Joints/swaps/tiles are id-less (`data-testid`); the
+    only static nb ids in the drift guard are the build-bar inputs + `#nb-open-btn`/`#nb-tray-toggle`.
+    The legacy vertical `#setbuilder-section` stays reachable (parity-retired later).
+  JSDOM can't see the full-bleed swap / popover / swap / tray / grid-return —
+  `tests/e2e/v2-nightboard.spec.ts` (stubs the four endpoints with real ids) covers those +
+  both themes; data shaping is in `tests/web/nightboard-*.test.js`; the backend shapes it reads
+  are pinned by `tests/test_nightboard_contract.py`.
