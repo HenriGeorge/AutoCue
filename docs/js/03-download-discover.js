@@ -1183,9 +1183,9 @@ function _renderDiscoverV2Card(release) {
       <p class="disc-v2-card-source">${_esc(sourceLabel)}${r.label ? ' · ' + _esc(r.label) : ''}${r.year ? ' · ' + r.year : ''}${_resurfacedBadge(release)}</p>
     </div>
     <div class="disc-v2-card-actions" data-actions>
-      <button class="disc-v2-card-action ${isSaved ? 'saved' : ''}" data-act="save" title="Save">${isSaved ? '✓' : '💚'}</button>
-      <button class="disc-v2-card-action" data-act="snooze" title="Snooze (1w / 1m / 3m)">💤</button>
-      <button class="disc-v2-card-action" data-act="dismiss" title="Dismiss">✕</button>
+      <button class="disc-v2-card-action ${isSaved ? 'saved' : ''}" data-act="save" title="Save" aria-label="Save">${isSaved ? '✓' : '+'}</button>
+      <button class="disc-v2-card-action" data-act="snooze" title="Snooze (1w / 1m / 3m)" aria-label="Snooze">zZ</button>
+      <button class="disc-v2-card-action" data-act="dismiss" title="Dismiss" aria-label="Dismiss">✕</button>
     </div>
   `;
   return card;
@@ -1886,7 +1886,7 @@ function _renderDiscoverV2Saved(rows) {
   const count = document.getElementById('disc-v2-saved-count');
   if (!list) return;
   if (!rows || !rows.length) {
-    list.innerHTML = 'No saved releases yet. Click 💚 on any card in the feed.';
+    list.innerHTML = 'No saved releases yet. Click Save on any card in the feed.';
     list.style.color = 'var(--muted)';
     if (count) count.textContent = '';
     return;
@@ -1958,7 +1958,7 @@ function _renderDiscoverV2Blocked() {
   const sa = DiscoverV2.state.blockedArtists || [];
   const sl = DiscoverV2.state.blockedLabels || [];
   if (!sa.length && !sl.length) {
-    list.innerHTML = 'Nothing blocked. You can 🚫 block an artist or label from the release detail panel.';
+    list.innerHTML = 'Nothing blocked. You can block an artist or label from the release detail panel.';
     list.style.color = 'var(--muted)';
     return;
   }
@@ -2228,21 +2228,21 @@ function _renderDetailBody(release, detail, status, errorMsg) {
     ${styles.length ? `<p style="margin:0 0 12px;font-size:12px;color:var(--muted);">${styles.map(_esc).join(' · ')}</p>` : ''}
     <div class="disc-v2-detail-actions">
       <button class="disc-v2-detail-action ${isSaved ? 'saved' : 'primary'}" data-detail-act="save">
-        ${isSaved ? '✓ Saved' : '💚 Save'}
+        ${isSaved ? 'Saved' : 'Save'}
       </button>
-      <button class="disc-v2-detail-action" data-detail-act="download">⬇ Download album</button>
-      <button class="disc-v2-detail-action" data-detail-act="snooze">💤 Snooze…</button>
+      <button class="disc-v2-detail-action" data-detail-act="download">Download album</button>
+      <button class="disc-v2-detail-action" data-detail-act="snooze">Snooze…</button>
       <button class="disc-v2-detail-action" data-detail-act="dismiss" ${isDismissed ? 'disabled' : ''}>
-        ✕ ${isDismissed ? 'Dismissed' : 'Dismiss'}
+        ${isDismissed ? 'Dismissed' : 'Dismiss'}
       </button>
       ${labelId && !followsLabel
         ? `<button class="disc-v2-detail-action" data-detail-act="follow-label" data-label-id="${labelId}" data-label-name="${_esc(label)}">+ Follow ${_esc(label)}</button>`
         : ''}
       ${artistId && !artistBlocked
-        ? `<button class="disc-v2-detail-action" data-detail-act="block-artist" data-artist-id="${artistId}" data-artist-name="${_esc(artist)}" title="Stop seeing this artist in Discover">🚫 Block ${_esc(artist)}</button>`
+        ? `<button class="disc-v2-detail-action" data-detail-act="block-artist" data-artist-id="${artistId}" data-artist-name="${_esc(artist)}" title="Stop seeing this artist in Discover">Block ${_esc(artist)}</button>`
         : ''}
       ${labelId && !labelBlocked
-        ? `<button class="disc-v2-detail-action" data-detail-act="block-label" data-label-id="${labelId}" data-label-name="${_esc(label)}" title="Stop seeing this label in Discover">🚫 Block ${_esc(label)}</button>`
+        ? `<button class="disc-v2-detail-action" data-detail-act="block-label" data-label-id="${labelId}" data-label-name="${_esc(label)}" title="Stop seeing this label in Discover">Block ${_esc(label)}</button>`
         : ''}
     </div>
     <div id="disc-v2-detail-youtube-slot"></div>

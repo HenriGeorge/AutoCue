@@ -323,3 +323,83 @@ describe('P5 T3 — inspector release re-host + mode flag (jsdom)', () => {
     expect(document.getElementById('wb-inspector-body').querySelector('.wb-insp-title').textContent).toBe('Madvillainy')
   })
 })
+
+/**
+ * T4 — restyle to the five rules (presentation-only). Logic unchanged; only
+ * inline styles moved to .disc-v2-* classes, emoji removed from builders, and
+ * every hardcoded hex/rgba became a token in the restyled block.
+ */
+describe('P5 T4 — Discover restyle is token-clean + emoji-free', () => {
+  const css = readFileSync(resolve(__dirname, '..', '..', 'docs', 'css', 'app.css'), 'utf8')
+  const discJs = readFileSync(resolve(__dirname, '..', '..', 'docs', 'js', '03-download-discover.js'), 'utf8')
+
+  // Scope to the restyled card + action + detail-action region so unrelated
+  // legacy hexes (the YT video letterbox #000 / modal scrim, intentionally
+  // non-themeable) don't false-positive.
+  const cardRegion = css.slice(
+    css.indexOf('.disc-v2-card {'),
+    css.indexOf('.disc-v2-spinner {'),
+  )
+  const detailActionRegion = css.slice(
+    css.indexOf('.disc-v2-detail-action {'),
+    css.indexOf('.disc-v2-detail-tracklist {'),
+  )
+  const chromeRegion = css.slice(
+    css.indexOf('.disc-v2-head {'),
+    css.indexOf('.disc-v2-spinner {'),
+  )
+
+  it('the restyled card region has no hardcoded hex or rgba (R5)', () => {
+    expect(cardRegion).not.toMatch(/#[0-9a-f]{3,6}\b/i)
+    expect(cardRegion).not.toMatch(/rgba?\(/)
+  })
+  it('the detail-action region has no hardcoded hex or rgba (R5)', () => {
+    expect(detailActionRegion).not.toMatch(/#[0-9a-f]{3,6}\b/i)
+    expect(detailActionRegion).not.toMatch(/rgba?\(/)
+  })
+  it('the place chrome region (banners/filters/scan/settings) has no hex or rgba (R5)', () => {
+    expect(chromeRegion).not.toMatch(/#[0-9a-f]{3,6}\b/i)
+    expect(chromeRegion).not.toMatch(/rgba?\(/)
+  })
+  it('no var(--amber, #hex) fallback survives in the Discover CSS (T4.4 — real token)', () => {
+    const discCss = css.slice(css.indexOf('/* ── Discover v2'), css.indexOf('/* ── /v2: workbench'))
+    expect(discCss).not.toMatch(/var\(--amber,\s*#[0-9a-f]{3,6}\)/i)
+  })
+
+  it('the scan CTA is the ink pill, never green (rule 2)', () => {
+    const cta = css.slice(css.indexOf('.disc-v2-scan-cta {'), css.indexOf('.disc-v2-pill-sm {'))
+    expect(cta).toContain('var(--ink)')
+    expect(cta).toContain('var(--on-ink)')
+    expect(cta).not.toContain('var(--green)')
+  })
+
+  it('save-applied uses green (rule 2 — green = success signal)', () => {
+    expect(cardRegion).toMatch(/\.disc-v2-card-action\.saved\s*{[^}]*var\(--green\)/)
+  })
+
+  it('the card source line + inspector detail data are mono (rule 3 / R6)', () => {
+    const sourceStart = css.indexOf('.disc-v2-card-source {')
+    const source = css.slice(sourceStart, css.indexOf('}', sourceStart))
+    expect(source).toContain('var(--font-mono)')
+  })
+
+  it('emoji are gone from the card + detail action builders', () => {
+    const cardBuilder = discJs.slice(
+      discJs.indexOf('function _renderDiscoverV2Card('),
+      discJs.indexOf('function _applyDiscoverV2Sort('),
+    )
+    for (const e of ['💚', '💤', '🚫']) expect(cardBuilder).not.toContain(e)
+    const detailBuilder = discJs.slice(
+      discJs.indexOf('function _renderDetailBody('),
+      discJs.indexOf('function _detailTrapKeydown('),
+    )
+    for (const e of ['💚', '💤', '🚫', '⬇']) expect(detailBuilder).not.toContain(e)
+  })
+
+  it('the action delegation contract is intact (data-act survives the restyle)', () => {
+    expect(discJs).toContain('data-act="save"')
+    expect(discJs).toContain('data-act="snooze"')
+    expect(discJs).toContain('data-act="dismiss"')
+    expect(discJs).toContain('data-detail-act="save"')
+  })
+})
