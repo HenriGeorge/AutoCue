@@ -20,10 +20,30 @@
 const SET = [];           // ordered SetBuilderTrackItem dicts
 let _terminatedReason = null;
 let _meta = { totalTracks: 0, estimatedDurationMinutes: 0 };
+const _energy = new Map(); // track_id -> number[] (0..1 curve), cached across builds
 
 export function getSet() { return SET; }
 export function terminatedReason() { return _terminatedReason; }
 export function meta() { return _meta; }
+export function energyFor(id) { return _energy.get(Number(id)) || null; }
+
+/**
+ * Fetch every set track's energy curve in PARALLEL (the arc + tile sparklines
+ * need them all). A failed/empty curve is simply absent — the canvas degrades
+ * to a flat segment (R5), never a broken path. Cached, so re-builds and swaps
+ * only fetch the genuinely-new ids.
+ */
+export async function loadEnergyCurves(ids) {
+  const missing = [...new Set(ids.map(Number))].filter((id) => !_energy.has(id));
+  await Promise.allSettled(missing.map(async (id) => {
+    try {
+      const r = await fetch(`/api/tracks/${id}/energy`);
+      if (!r.ok) return;
+      const d = await r.json();
+      if (Array.isArray(d.energy) && d.energy.length) _energy.set(id, d.energy);
+    } catch (_) { /* leave the curve absent → flat fallback */ }
+  }));
+}
 
 /** Map canvas inputs → SetBuilderRequest, POST /api/setbuilder, parse response. */
 export async function buildSet(cfg = {}) {
@@ -104,4 +124,5 @@ export function _reset() {
   SET.length = 0;
   _terminatedReason = null;
   _meta = { totalTracks: 0, estimatedDurationMinutes: 0 };
+  _energy.clear();
 }

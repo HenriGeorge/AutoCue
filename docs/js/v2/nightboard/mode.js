@@ -14,6 +14,7 @@
  */
 
 import * as model from './set-model.js';
+import { render as renderCanvas } from './canvas.js';
 
 let _open = false;
 let _escWired = false;
@@ -68,7 +69,11 @@ async function _build() {
   if (status) status.textContent = 'Building…';
   try {
     const res = await model.buildSet(_readConfig());
-    _renderStub(res);
+    renderCanvas();                                   // immediate paint (flat sparklines)
+    _renderNotice(res);
+    // Repaint once the energy curves land (arc + tile sparklines fill in).
+    const ids = model.getSet().map((t) => t.track_id);
+    model.loadEnergyCurves(ids).then(() => renderCanvas());
   } catch (err) {
     if (status) status.textContent = 'Build failed: ' + (err && err.message ? err.message : err);
   } finally {
@@ -76,16 +81,19 @@ async function _build() {
   }
 }
 
-// T2 stub: prove the round-trip + surface terminated_reason honestly (R3).
-// Replaced by canvas.render(getSet()) in T3.
-function _renderStub(res) {
+// Surface terminated_reason honestly (R3): a visible non-error notice, never a
+// silent empty canvas. target_duration_reached is the happy path → no notice.
+function _renderNotice(res) {
   const status = document.getElementById('nb-status');
   if (!status) return;
-  const n = res.tracks.length;
-  let msg = `${n} track${n !== 1 ? 's' : ''}`;
   const tr = res.terminatedReason;
-  if (tr && tr !== 'target_duration_reached') msg += ` · ${tr.replace(/_/g, ' ')}`;
-  status.textContent = msg;
+  if (!res.tracks.length) {
+    status.textContent = tr ? `No set — ${tr.replace(/_/g, ' ')}` : 'No tracks matched';
+  } else if (tr && tr !== 'target_duration_reached') {
+    status.textContent = `Stopped early — ${tr.replace(/_/g, ' ')}`;
+  } else {
+    status.textContent = '';
+  }
 }
 
 export function initNightboard() {

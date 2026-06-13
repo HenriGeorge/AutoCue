@@ -3057,6 +3057,101 @@
   .nb-arc { position: relative; display: block; width: 100%; height: 84px; }
   .nb-timeline { position: relative; display: flex; align-items: stretch; overflow-x: auto; }
 
+  /* ── Nightboard (P4) T3 — net-new zone tokens + tiles / joints / arc ────── */
+  /* Zone washes (~5%) echo the cue-slot palette: warmup=cyan, build=amber,
+     peak=red, closing=violet. Token DEFINITIONS (the only place a literal
+     colour is allowed); everything below references var(--token). */
+  :root {
+    --zone-warmup:  rgba(0, 153, 187, .05);
+    --zone-build:   rgba(192, 120, 0, .05);
+    --zone-peak:    rgba(192, 32, 16, .05);
+    --zone-closing: rgba(153, 0, 204, .05);
+    --nb-tile-height: 180px;
+    --nb-joint-size: 44px;
+  }
+  html.dark {
+    --zone-warmup:  rgba(0, 224, 255, .05);
+    --zone-build:   rgba(255, 160, 0, .05);
+    --zone-peak:    rgba(224, 48, 30, .06);
+    --zone-closing: rgba(230, 0, 255, .05);
+  }
+
+  .nb-stat { white-space: nowrap; }
+  .nb-stat b { color: var(--text); font-weight: 600; }
+
+  /* Zone bands — proportional flex widths set inline from category fractions. */
+  .nb-zone { position: relative; height: 100%; }
+  .nb-zone + .nb-zone { border-left: 1px dashed var(--border); }
+  .nb-zone-warmup  { background: var(--zone-warmup); }
+  .nb-zone-build   { background: var(--zone-build); }
+  .nb-zone-peak    { background: var(--zone-peak); }
+  .nb-zone-closing { background: var(--zone-closing); }
+  .nb-zone-label {
+    position: absolute; top: 6px; left: 8px;
+    font-size: 9.5px; letter-spacing: .08em; text-transform: uppercase;
+    font-weight: 600; color: var(--muted-soft);
+  }
+
+  /* Set-wide energy arc — green is the data-signal stroke. */
+  .nb-arc-area { fill: var(--green-wash); stroke: none; }
+  .nb-arc-line { fill: none; stroke: var(--green); stroke-width: 1.5; vector-effect: non-scaling-stroke; stroke-linejoin: round; }
+
+  /* Timeline tiles. */
+  .nb-timeline { gap: 0; padding-top: 8px; }
+  .nb-tile {
+    flex: 1 1 0; min-width: 150px;
+    display: flex; flex-direction: column; gap: 4px;
+    height: var(--nb-tile-height);
+    padding: 9px 11px; z-index: 1;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    background: var(--surface-card);
+    transition: border-color .15s, box-shadow .15s, transform .15s;
+  }
+  .nb-tile:hover { border-color: var(--border-hover); box-shadow: var(--shadow-md); transform: translateY(-2px); }
+  .nb-tile.nb-tile-active { border-color: var(--green); box-shadow: 0 0 0 3px var(--green-ring), var(--shadow-md); }
+  .nb-tile-title { font-size: 13.5px; font-weight: 700; letter-spacing: -.2px; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .nb-tile-artist { font-size: 11px; color: var(--muted); margin-top: -2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .nb-tile-chips { display: flex; gap: 4px; flex-wrap: wrap; }
+  .nb-chip {
+    font-family: var(--font-mono); font-size: 10px;
+    padding: 1px 6px; border-radius: var(--radius-sm);
+    border: 1px solid var(--border); color: var(--muted);
+  }
+  .nb-chip-bpm { background: var(--green-wash); border-color: transparent; color: var(--green); font-weight: 500; }
+  .nb-chip-cat { font-family: var(--font-sans); font-size: 9.5px; text-transform: uppercase; letter-spacing: .05em; }
+  .nb-chip-relaxed { font-family: var(--font-mono); font-size: 9.5px; color: var(--warn-amber); border-color: transparent; background: transparent; padding-left: 0; }
+  .nb-tile-spark { flex: 1; min-height: 0; margin: 2px -2px; }
+  .nb-spark { width: 100%; height: 100%; display: block; }
+  .nb-spark-area { fill: var(--green-wash); stroke: none; }
+  .nb-spark-line { fill: none; stroke: var(--green); stroke-width: 1.25; vector-effect: non-scaling-stroke; stroke-linejoin: round; }
+  .nb-tile-foot { display: flex; justify-content: space-between; font-family: var(--font-mono); font-size: 10px; color: var(--muted-soft); }
+  .nb-cue-ok { color: var(--green); }
+  .nb-cue-warn { color: var(--warn-amber); }
+
+  /* Scored joints float on the wire between tiles (negative margin overlap). */
+  .nb-joint {
+    flex: 0 0 auto; align-self: center;
+    width: var(--nb-joint-size); height: var(--nb-joint-size);
+    margin: 0 -8px; z-index: 3;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    border-radius: var(--radius-pill);
+    background: var(--surface); border: 1.5px solid var(--border-hover);
+    cursor: pointer;
+    transition: transform .15s, box-shadow .15s;
+  }
+  .nb-joint:hover { transform: scale(1.1); box-shadow: var(--shadow-md); }
+  .nb-joint.nb-joint-open { box-shadow: 0 0 0 3px var(--green-ring), var(--shadow-md); }
+  .nb-joint-score { font-family: var(--font-mono); font-size: 12.5px; font-weight: 700; line-height: 1; }
+  .nb-joint small { font-size: 7.5px; color: var(--muted-soft); margin-top: -1px; }
+  .nb-joint-good { border-color: var(--green); }
+  .nb-joint-good .nb-joint-score { color: var(--green); }
+  .nb-joint-ok { border-color: var(--warn-amber); }
+  .nb-joint-ok .nb-joint-score { color: var(--warn-amber); }
+  .nb-joint-bad { border-color: var(--danger); }
+  .nb-joint-bad .nb-joint-score { color: var(--danger); }
+  .nb-joint-na .nb-joint-score { color: var(--muted-soft); }
+
   @media (prefers-reduced-motion: reduce) {
     .nb-canvas * { transition: none !important; animation: none !important; }
   }
