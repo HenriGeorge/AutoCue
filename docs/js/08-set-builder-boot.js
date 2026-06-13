@@ -819,8 +819,10 @@ detectLocalMode().then(async connected => {
     document.getElementById('local-how-to').style.display = '';
     document.getElementById('health-section').style.display = '';
     document.getElementById('health-scan-btn').addEventListener('click', scanLibraryHealth);
-    document.getElementById('duplicates-section').style.display = '';
-    document.getElementById('duplicates-scan-btn').addEventListener('click', scanDuplicates);
+    // P3: the duplicates surface lives in the workbench centre-pane place
+    // (#wb-dupes-pane); the rescan pill is its toolbar verb. The first scan
+    // is lazy (fired by the place's activate()), not eager at boot.
+    document.getElementById('wb-dupes-rescan').addEventListener('click', scanDuplicates);
     document.getElementById('cue-tools-section').style.display = '';
     _initCueTools();
     document.getElementById('discogs-section').style.display = '';
@@ -949,4 +951,10 @@ window.ACBridge = {
   // re-renders via the existing AppState bus — the one sanctioned write path.
   setCrate: (kind) => { _wbCrate = kind || 'all'; AppState.signal('filters'); },
   crate: () => _wbCrate,
+  // P3 duplicates place — sanctioned pass-throughs into the legacy duplicates
+  // machinery (scan SSE reader, confirm modal, surgical invalidation). The v2
+  // place module drives THESE, never /api/duplicates* directly.
+  scanDuplicates: () => scanDuplicates(),
+  openDuplicatesConfirm: (opts) => _openDuplicatesConfirm(opts),
+  onTracksDeleted: (ids) => _onTracksDeleted(ids),
 };

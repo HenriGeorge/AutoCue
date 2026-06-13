@@ -28,9 +28,23 @@ export function buildCommands() {
     { id: 'health-scan', group: 'Library', label: 'Scan library health',
       sub: 'Score every track 0–100',
       run: () => { _goto('library', 'health-section'); _click('health-scan-btn'); } },
+    // P3: duplicates is a workbench rail place — both commands open it via
+    // the rail entry's own click (delegation, no parallel path). Explicit
+    // navigation intent overrides an ac_workbench opt-out, so force the
+    // workbench on first. The isActive() guard keeps the toggle-button
+    // semantics of #wb-dupes-place from CLOSING the place on a repeat run.
     { id: 'find-duplicates', group: 'Library', label: 'Find duplicates',
       sub: 'Group by artist + title + duration',
-      run: () => { _goto('library', 'duplicates-section'); _click('duplicates-scan-btn'); } },
+      run: () => {
+        window.AC2?.workbench?.setWorkbench(true);
+        if (!window.AC2?.duplicates?.isActive?.()) _click('wb-dupes-place');
+      } },
+    { id: 'go-duplicates', group: 'Go to', label: 'Go to Duplicates',
+      sub: 'The duplicates place in the workbench rail',
+      run: () => {
+        window.AC2?.workbench?.setWorkbench(true);
+        if (!window.AC2?.duplicates?.isActive?.()) _click('wb-dupes-place');
+      } },
     { id: 'build-set', group: 'Library', label: 'Build a set',
       sub: 'Beam-search a DJ set from your library',
       run: () => _goto('library', 'setbuilder-section') },

@@ -39,6 +39,16 @@ const REQUIRED_SELECTORS: string[] = [
   "#tracks-sticky",
   // P2 workbench dense-grid column header (in DOM always; hidden until body.wb-active)
   "#wb-grid-head",
+  // P3 duplicates place — rail entry + centre-pane view (hidden until opened)
+  "#wb-dupes-place",
+  "#wb-dupes-pane",
+  "#wb-dupes-rescan",
+  "#wb-dupes-bulk-delete",
+  // P3 restore sheet — A-layer undo off the status sentence (hidden until a delete)
+  "#status-restore",
+  "#wb-restore-sheet",
+  "#wb-restore-go",
+  "#wb-restore-dismiss",
 ];
 
 test.describe("selectors exist in docs/index.html", () => {

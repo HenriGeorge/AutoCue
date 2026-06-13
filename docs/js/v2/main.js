@@ -33,3 +33,15 @@ window.AC2.workbench = { initWorkbench, toggleWorkbench, isWorkbenchOn, setWorkb
 // phase) so it must run after #track-list exists; main.js loads at end of body.
 import { initProposals } from './workbench/proposals.js';
 initProposals();
+
+// P3 Duplicates place — rail entry that swaps the workbench centre pane to
+// the duplicates view. Delegation-only: drives the legacy duplicates
+// machinery via ACBridge; owns the door + the swap, nothing else.
+import { initDuplicatesPlace, activate as activateDuplicates, deactivate as deactivateDuplicates, isActive as duplicatesActive } from './workbench/duplicates.js';
+window.AC2.duplicates = { activate: activateDuplicates, deactivate: deactivateDuplicates, isActive: duplicatesActive };
+initDuplicatesPlace();
+
+// P3 (R8) — restore sheet: the canonical A-layer undo off the status sentence,
+// fed by the autocue:duplicates-deleted event the legacy delete path dispatches.
+import { initRestoreSheet } from './restore-sheet.js';
+initRestoreSheet();

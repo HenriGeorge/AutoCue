@@ -2708,6 +2708,108 @@
     #wb-rail-health .rh-fix { transition: none; }
   }
   /* ── /v2: workbench polish ──────────────────────────────────────────────── */
+  /* ── v2: duplicates place (P3) ── rail place that swaps the workbench centre
+     pane from the grid to the duplicates view. The swap is `hidden` + body
+     class ONLY — #track-list is never detached (TASK-033/037). */
+  #wb-dupes-pane { padding: 16px 0 96px; }
+  #wb-dupes-pane[hidden] { display: none; }
+  /* Belt-and-braces: a legacy style.display write must not defeat `hidden`. */
+  body.wb-place-dupes #tracks-sticky,
+  body.wb-place-dupes #track-list,
+  body.wb-place-dupes #wb-grid-head { display: none !important; }
+  .wb-dupes-toolbar {
+    display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+    padding-bottom: 12px; margin-bottom: 14px;
+    border-bottom: 1px solid var(--border);
+  }
+  .wb-dupes-host { display: flex; flex-direction: column; gap: 10px; }
+  /* Toolbar verbs: Rescan is a neutral pill; bulk-delete is the destructive
+     ink-pill (danger tint, never green). */
+  #wb-dupes-bulk-delete {
+    font-size: 12px; padding: 4px 14px; border-radius: var(--radius-pill);
+    color: var(--danger); border: 1px solid color-mix(in srgb, var(--danger) 40%, transparent);
+    background: color-mix(in srgb, var(--danger) 8%, transparent);
+  }
+  #wb-dupes-bulk-delete:hover:not(:disabled) {
+    background: color-mix(in srgb, var(--danger) 14%, transparent);
+  }
+  #wb-dupes-bulk-delete:disabled { opacity: .5; }
+  #duplicates-summary { font-family: var(--font-mono); font-size: 12px; }
+  /* Group card (elevated) + dense copy rows. Data values are mono; the keeper
+     row carries an 8% green wash (green = signal). Tokens only — no hex. */
+  .wb-dup-group {
+    padding: 10px 12px; border: 1px solid var(--border);
+    border-radius: var(--radius-xl); background: var(--surface);
+  }
+  .wb-dup-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .wb-dup-title { flex: 1; min-width: 0; }
+  .wb-dup-artist { font-weight: 600; }
+  .wb-dup-dash { margin: 0 6px; color: var(--muted); }
+  .wb-dup-count-chip {
+    font-family: var(--font-mono); font-size: 11px; font-weight: 600;
+    padding: 2px 8px; border-radius: var(--radius-sm);
+    color: var(--warn-amber); border: 1px solid color-mix(in srgb, var(--warn-amber) 35%, transparent);
+    background: color-mix(in srgb, var(--warn-amber) 13%, transparent);
+  }
+  .wb-dup-delete {
+    font-size: 11px; padding: 3px 10px; border-radius: var(--radius-pill);
+    color: var(--danger); border: 1px solid color-mix(in srgb, var(--danger) 27%, transparent);
+  }
+  .wb-dup-toggle { font-size: 11px; padding: 3px 10px; }
+  .wb-dup-row {
+    display: flex; gap: 10px; align-items: center; padding: 4px 6px;
+    border-radius: var(--radius-sm); flex-wrap: wrap;
+  }
+  .wb-dup-row.keeper {
+    background: color-mix(in srgb, var(--green) 12%, transparent); font-weight: 600;
+  }
+  .wb-dup-keep-label {
+    display: inline-flex; align-items: center; gap: 3px; cursor: pointer; min-width: 54px;
+  }
+  .wb-dup-keep-text { font-size: 11px; }
+  .wb-dup-meta {
+    display: flex; gap: 10px; flex-wrap: wrap; align-items: baseline;
+    font-family: var(--font-mono); font-size: 11px;
+  }
+  .wb-dup-keeper-star { color: var(--green); }
+  .wb-dup-path-chip { font-size: 11px; margin-left: auto; }
+  .wb-dup-path-chip.distinct { color: var(--warn-amber); }
+  .wb-dup-path-chip.same { color: var(--muted); }
+  /* Undo banner: neutral surface, mono backup path, green drain bar (signal). */
+  .wb-dup-undo-banner {
+    position: relative; overflow: hidden; display: flex; align-items: center; gap: 10px;
+    font-size: 12px; background: var(--surface2); border: 1px solid var(--border);
+    border-radius: var(--radius-md); padding: 8px 10px; margin-bottom: 10px;
+  }
+  .wb-dup-undo-text { flex: 1; }
+  .wb-dup-undo-path { font-family: var(--font-mono); }
+  .wb-dup-undo-btn { font-size: 11px; padding: 3px 10px; }
+  .wb-dup-undo-drain {
+    position: absolute; left: 0; bottom: 0; height: 2px; width: 100%;
+    background: var(--green); transition: width 30s linear;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .wb-dup-undo-drain { transition: none; }
+  }
+  /* Restore sheet (R8): a small panel dropping from the status-sentence fact.
+     position:fixed + JS-computed top/left anchor it under #status-restore
+     (which is right-aligned in the top bar), so it tracks the fact, not the
+     viewport origin. */
+  .wb-restore-sheet {
+    position: fixed; top: 56px; left: 12px; z-index: 60; width: 320px; max-width: calc(100vw - 24px);
+    display: flex; flex-direction: column; gap: 10px;
+    padding: 14px 16px; background: var(--surface); border: 1px solid var(--border);
+    border-radius: var(--radius-lg); box-shadow: var(--shadow-lg, 0 8px 28px rgba(0,0,0,.18));
+    font-size: 13px;
+  }
+  .wb-restore-sheet[hidden] { display: none; }
+  .wb-restore-line { font-weight: 600; }
+  .wb-restore-path {
+    font-family: var(--font-mono); font-size: 11px; color: var(--muted);
+    word-break: break-all;
+  }
+  .wb-restore-actions { display: flex; align-items: center; gap: 8px; }
+  /* ── /v2: duplicates place ─────────────────────────────────────────────── */
   /* ── v2: consent gradient (review-unlocks-apply, design-H "Stagehand") ─── */
   /* Evidence region inside the shared _confirmDialog. Collapsed until the user
      clicks "Review N items"; reveal arms the destructive primary (250ms guard).

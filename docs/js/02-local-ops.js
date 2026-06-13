@@ -321,8 +321,7 @@ function _fmtDur(sec) {
 
 function _renderDuplicateGroup(group) {
   const div = document.createElement('div');
-  div.className = 'duplicates-group panel-card';
-  div.style.cssText = 'padding:10px 12px;border:1px solid var(--border);border-radius:8px;background:var(--surface);';
+  div.className = 'duplicates-group panel-card wb-dup-group';
   div.dataset.groupKey = `${(group.artist || '').toLowerCase()}|||${(group.title || '').toLowerCase()}`;
 
   // WS2 — the keeper is now mutable. It starts at the backend's suggestion
@@ -340,14 +339,14 @@ function _renderDuplicateGroup(group) {
   };
 
   const head = document.createElement('div');
-  head.style.cssText = 'display:flex;align-items:center;gap:10px;flex-wrap:wrap;';
+  head.className = 'wb-dup-head';
   const title = document.createElement('div');
-  title.style.cssText = 'flex:1;min-width:0;';
+  title.className = 'wb-dup-title';
   const artistEl = document.createElement('span');
-  artistEl.style.cssText = 'font-weight:600;';
+  artistEl.className = 'wb-dup-artist';
   artistEl.textContent = group.artist || '(unknown artist)';
   const dashEl = document.createElement('span');
-  dashEl.style.cssText = 'margin:0 6px;color:var(--muted);';
+  dashEl.className = 'wb-dup-dash';
   dashEl.textContent = '—';
   const titleEl = document.createElement('span');
   titleEl.textContent = group.title || '(untitled)';
@@ -355,15 +354,13 @@ function _renderDuplicateGroup(group) {
   title.appendChild(dashEl);
   title.appendChild(titleEl);
   const countChip = document.createElement('span');
-  countChip.style.cssText = 'font-size:11px;background:var(--amber, #c98a00)22;color:var(--amber, #c98a00);border:1px solid var(--amber, #c98a00)55;border-radius:9999px;padding:2px 8px;font-weight:600;';
+  countChip.className = 'wb-dup-count-chip';
   countChip.textContent = `${group.copies.length} copies`;
   const deleteBtn = document.createElement('button');
-  deleteBtn.className = 'secondary-btn duplicates-group-delete';
-  deleteBtn.style.cssText = 'font-size:11px;padding:3px 10px;color:#e4384e;border-color:#e4384e44;';
+  deleteBtn.className = 'secondary-btn duplicates-group-delete wb-dup-delete';
   deleteBtn.title = 'Opens a confirm dialog; backup is created before any delete';
   const toggle = document.createElement('button');
-  toggle.className = 'secondary-btn';
-  toggle.style.cssText = 'font-size:11px;padding:3px 10px;';
+  toggle.className = 'secondary-btn wb-dup-toggle';
   toggle.textContent = 'Show details';
   head.appendChild(title);
   head.appendChild(countChip);
@@ -386,9 +383,7 @@ function _renderDuplicateGroup(group) {
     table.querySelectorAll('.dup-copy-row').forEach((row) => {
       const tid = Number(row.dataset.trackId);
       const isKeeper = tid === currentKeeperId;
-      row.style.background = isKeeper
-        ? 'color-mix(in srgb, var(--green) 12%, transparent)' : '';
-      row.style.fontWeight = isKeeper ? '600' : '';
+      row.classList.toggle('keeper', isKeeper);
       const star = row.querySelector('.dup-keeper-star');
       if (star) star.style.visibility = isKeeper ? 'visible' : 'hidden';
       // Same-path chip: a NON-keeper whose file path matches the keeper's
@@ -403,11 +398,11 @@ function _renderDuplicateGroup(group) {
         } else if (samePath) {
           chip.style.display = '';
           chip.textContent = '🗂 same file as keeper';
-          chip.style.color = 'var(--muted)';
+          chip.classList.remove('distinct'); chip.classList.add('same');
         } else {
           chip.style.display = '';
           chip.textContent = '📁 distinct file — stays on disk';
-          chip.style.color = 'var(--amber, #c98a00)';
+          chip.classList.remove('same'); chip.classList.add('distinct');
         }
       }
     });
@@ -415,13 +410,12 @@ function _renderDuplicateGroup(group) {
 
   for (const c of group.copies) {
     const row = document.createElement('div');
-    row.className = 'dup-copy-row';
+    row.className = 'dup-copy-row wb-dup-row';
     row.dataset.trackId = c.track_id;
-    row.style.cssText = 'display:flex;gap:10px;align-items:center;padding:4px 6px;border-radius:4px;flex-wrap:wrap;';
     // "Keep" radio (WS2 override). One radio group per duplicate group via
     // a name keyed on the group's DOM identity.
     const radioLabel = document.createElement('label');
-    radioLabel.style.cssText = 'display:inline-flex;align-items:center;gap:3px;cursor:pointer;min-width:54px;';
+    radioLabel.className = 'wb-dup-keep-label';
     const radio = document.createElement('input');
     radio.type = 'radio';
     radio.name = `dup-keeper-${div.dataset.groupKey}`;
@@ -432,13 +426,13 @@ function _renderDuplicateGroup(group) {
       if (radio.checked) { currentKeeperId = c.track_id; _refresh(); }
     });
     const radioText = document.createElement('span');
-    radioText.style.cssText = 'font-size:11px;';
+    radioText.className = 'wb-dup-keep-text';
     radioText.textContent = 'Keep';
     radioLabel.appendChild(radio);
     radioLabel.appendChild(radioText);
 
     const meta = document.createElement('span');
-    meta.style.cssText = 'display:flex;gap:10px;flex-wrap:wrap;align-items:baseline;';
+    meta.className = 'wb-dup-meta';
     meta.innerHTML =
       `<span style="min-width:84px;">id ${c.track_id}</span>` +
       `<span style="min-width:48px;">${_fmtDur(c.duration)}</span>` +
@@ -450,13 +444,11 @@ function _renderDuplicateGroup(group) {
       `<span style="min-width:110px;">${_esc((c.last_played || '—').slice(0, 19))}</span>`;
 
     const star = document.createElement('span');
-    star.className = 'dup-keeper-star';
-    star.style.cssText = 'color:var(--green);';
+    star.className = 'dup-keeper-star wb-dup-keeper-star';
     star.textContent = '★ keeper';
 
     const chip = document.createElement('span');
-    chip.className = 'dup-path-chip';
-    chip.style.cssText = 'font-size:11px;margin-left:auto;';
+    chip.className = 'dup-path-chip wb-dup-path-chip';
 
     row.appendChild(radioLabel);
     row.appendChild(meta);
@@ -495,7 +487,7 @@ function _renderDuplicateGroup(group) {
 }
 
 async function scanDuplicates() {
-  const btn = document.getElementById('duplicates-scan-btn');
+  const btn = document.getElementById('wb-dupes-rescan');
   const statusEl = document.getElementById('duplicates-status-label');
   const progress = document.getElementById('duplicates-progress');
   const summary = document.getElementById('duplicates-summary');
@@ -547,10 +539,11 @@ async function scanDuplicates() {
         } else if (ev.done) {
           const s = ev.summary;
           progress.style.display = 'none';
+          const bulkBtn = document.getElementById('wb-dupes-bulk-delete');
           if (s.groups === 0) {
             empty.style.display = '';
+            if (bulkBtn) { bulkBtn.disabled = true; bulkBtn.textContent = 'Delete non-keepers'; }
           } else {
-            summary.style.display = '';
             // Collect every non-keeper across every group so the bulk
             // delete button can fire one POST instead of N.
             const allNonKeepers = [];
@@ -566,37 +559,18 @@ async function scanDuplicates() {
               `<strong>${s.groups.toLocaleString()} duplicate group${s.groups === 1 ? '' : 's'}</strong> ` +
               `· ${s.surplus.toLocaleString()} surplus copies of ${s.scanned.toLocaleString()} scanned tracks` +
               (s.skipped_empty > 0 ? ` · ${s.skipped_empty.toLocaleString()} empty-metadata tracks skipped` : '');
-            const bulkBtn = document.createElement('button');
-            bulkBtn.id = 'duplicates-bulk-delete-btn';
-            bulkBtn.className = 'primary';
-            bulkBtn.style.cssText = 'font-size:12px;padding:4px 12px;background:#e4384e;border-color:#e4384e;';
-            bulkBtn.textContent = `Delete all ${allNonKeepers.length} non-keepers`;
-            bulkBtn.addEventListener('click', () => {
-              // Re-collect at click time — per-group keeper-radio changes
-              // may have shifted which ids are non-keepers since the scan.
-              const ids = [];
-              list.querySelectorAll('.duplicates-group').forEach(g => {
-                try { ids.push(...JSON.parse(g.dataset.nonKeeperIds || '[]')); }
-                catch (_) {}
-              });
-              _openDuplicatesConfirm({
-                track_ids: ids,
-                label: `${list.querySelectorAll('.duplicates-group').length} keepers + ${ids.length} non-keepers`,
-                meta: ' across the whole library',
-                onSuccess: () => {
-                  _onTracksDeleted(ids);
-                  // Re-scan to reflect the now-shrunken DB ground truth.
-                  summary.style.display = 'none';
-                  list.innerHTML = '';
-                  scanDuplicates();
-                },
-              });
-            });
+            // P3: the bulk-delete verb is a STATIC toolbar button
+            // (#wb-dupes-bulk-delete, wired once in _wireDuplicatesConfirm to
+            // _onDuplicatesBulkDelete) — the scan-done branch only refreshes
+            // its label + disabled state. Same write path as before.
+            if (bulkBtn) {
+              bulkBtn.disabled = allNonKeepers.length === 0;
+              bulkBtn.textContent = `Delete all ${allNonKeepers.length} non-keepers`;
+            }
             summary.style.display = 'flex';
             summary.style.alignItems = 'center';
             summary.style.gap = '10px';
             summary.appendChild(textEl);
-            summary.appendChild(bulkBtn);
           }
         }
       }
@@ -604,13 +578,42 @@ async function scanDuplicates() {
   } catch (e) {
     // Failure must read as failure, not progress — red text + error toast
     progress.textContent = `Scan failed: ${e.message || e}`;
-    progress.style.color = 'var(--danger, #e4384e)';
+    progress.style.color = 'var(--danger)';
     showToast(`Duplicate scan failed: ${e.message || e}`, true);
   } finally {
     _setBtnLoading(btn, false);
-    btn.textContent = 'Find duplicates';
+    btn.textContent = 'Rescan';
     statusEl.style.display = 'none';
   }
+}
+
+// P3: bulk-delete click handler for the static #wb-dupes-bulk-delete toolbar
+// verb (wired once in _wireDuplicatesConfirm). Identical behavior to the old
+// dynamically-created button: re-collect non-keeper ids AT CLICK TIME (keeper
+// radio flips may have shifted them since the scan), confirm, then surgical
+// invalidation + a fresh scan against DB ground truth.
+function _onDuplicatesBulkDelete() {
+  const list = document.getElementById('duplicates-list');
+  const summary = document.getElementById('duplicates-summary');
+  if (!list) return;
+  const ids = [];
+  list.querySelectorAll('.duplicates-group').forEach(g => {
+    try { ids.push(...JSON.parse(g.dataset.nonKeeperIds || '[]')); }
+    catch (_) {}
+  });
+  if (ids.length === 0) return;
+  _openDuplicatesConfirm({
+    track_ids: ids,
+    label: `${list.querySelectorAll('.duplicates-group').length} keepers + ${ids.length} non-keepers`,
+    meta: ' across the whole library',
+    onSuccess: () => {
+      _onTracksDeleted(ids);
+      // Re-scan to reflect the now-shrunken DB ground truth.
+      if (summary) summary.style.display = 'none';
+      list.innerHTML = '';
+      scanDuplicates();
+    },
+  });
 }
 
 // ── Duplicates: destructive delete (phase 2) ─────────────────────────────────
@@ -645,6 +648,10 @@ function _onTracksDeleted(ids) {
   // Refresh the duplicates summary counter + the bulk-delete label so they
   // stay honest after a per-group delete shrinks the set.
   _refreshDuplicatesSummaryAfterDelete();
+  // P3 (R9): repaint everything subscribed to the tracks bus — grid, rail
+  // crate counts, playlists, status sentence — so deleted tracks vanish
+  // everywhere, not just from the duplicates list.
+  if (window.AppState) AppState.signal('tracks');
 }
 
 // Recompute the bulk "Delete all N non-keepers" label + the summary counter
@@ -657,7 +664,7 @@ function _refreshDuplicatesSummaryAfterDelete() {
   for (const c of cards) {
     try { surplus += JSON.parse(c.dataset.nonKeeperIds || '[]').length; } catch (_) {}
   }
-  const bulkBtn = document.getElementById('duplicates-bulk-delete-btn');
+  const bulkBtn = document.getElementById('wb-dupes-bulk-delete');
   if (bulkBtn) {
     bulkBtn.textContent = `Delete all ${surplus} non-keepers`;
     bulkBtn.disabled = surplus === 0;
@@ -842,6 +849,17 @@ async function _runDuplicatesDelete() {
 // text, so we build a richer transient banner pinned to the duplicates
 // summary for 30s.
 function _showDuplicatesUndoToast(summary, requested) {
+  // P3 seam (R8): announce the completed delete so the v2 status-sentence
+  // restore sheet can offer the same backup. Fired before any early return —
+  // the banner below is an in-view convenience, the sheet is canonical.
+  window.dispatchEvent(new CustomEvent('autocue:duplicates-deleted', {
+    detail: {
+      deleted: summary.deleted || 0,
+      requested,
+      cancelled: !!summary.cancelled,
+      backup_path: summary.backup_path || null,
+    },
+  }));
   const deleted = summary.deleted || 0;
   const cancelled = !!summary.cancelled;
   const backupPath = summary.backup_path || null;
@@ -857,14 +875,16 @@ function _showDuplicatesUndoToast(summary, requested) {
   if (banner) banner.remove();
   banner = document.createElement('div');
   banner.id = 'duplicates-undo-banner';
-  banner.className = 'fade-in-up';
-  banner.style.cssText = 'position:relative;overflow:hidden;display:flex;align-items:center;gap:10px;font-size:12px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:8px 10px;margin-bottom:10px;';
+  banner.className = 'fade-in-up wb-dup-undo-banner';
   const text = document.createElement('span');
-  text.style.flex = '1';
-  text.textContent = `${base} Backup: ${backupPath.split('/').pop()}`;
+  text.className = 'wb-dup-undo-text';
+  text.append(`${base} Backup: `);
+  const pathEl = document.createElement('span');
+  pathEl.className = 'wb-dup-undo-path';
+  pathEl.textContent = backupPath.split('/').pop();
+  text.appendChild(pathEl);
   const undoBtn = document.createElement('button');
-  undoBtn.className = 'secondary-btn';
-  undoBtn.style.cssText = 'font-size:11px;padding:3px 10px;';
+  undoBtn.className = 'secondary-btn wb-dup-undo-btn';
   undoBtn.textContent = 'Undo this delete';
   undoBtn.addEventListener('click', async () => {
     undoBtn.disabled = true;
@@ -889,9 +909,14 @@ function _showDuplicatesUndoToast(summary, requested) {
   // Draining bar signals the 30s window — the banner used to vanish with no
   // warning, mid-reach for the Undo button.
   const drain = document.createElement('div');
-  drain.style.cssText = 'position:absolute;left:0;bottom:0;height:2px;width:100%;background:var(--green);transition:width 30s linear;';
+  drain.className = 'wb-dup-undo-drain';
   banner.appendChild(drain);
-  host.parentNode.insertBefore(banner, host);
+  // Insert at the top of the pane's content host (above the group list), NOT
+  // before #duplicates-summary — the summary now lives inside the flex
+  // #wb-dupes-toolbar (P3 T4), so anchoring to it would drop the banner into
+  // the toolbar row instead of as a full-width block above the groups.
+  const contentHost = document.getElementById('wb-dupes-host') || host.parentNode;
+  contentHost.insertBefore(banner, contentHost.firstChild);
   requestAnimationFrame(() => { drain.style.width = '0%'; });
   // Auto-dismiss after 30s — the backup is still in /api/backups if the
   // user wants it later. Fade out instead of snapping away.
@@ -914,6 +939,10 @@ function _showDuplicatesUndoToast(summary, requested) {
     ?.addEventListener('click', _runDuplicatesDelete);
   document.getElementById('duplicates-confirm-backdrop')
     ?.addEventListener('click', _closeDuplicatesConfirm);
+  // P3: the static bulk-delete toolbar verb (replaces the per-scan
+  // dynamically-created button; same click-time re-collect + confirm path).
+  document.getElementById('wb-dupes-bulk-delete')
+    ?.addEventListener('click', _onDuplicatesBulkDelete);
   document.addEventListener('keydown', (ev) => {
     if (ev.key !== 'Escape') return;
     if (document.getElementById('duplicates-confirm')

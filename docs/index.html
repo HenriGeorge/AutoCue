@@ -75,6 +75,21 @@
     <button type="button" class="status-item" id="status-rb" data-tip="Rekordbox process state — must be closed before applying"><span class="status-text">Rekordbox ?</span></button>
     <span class="status-sep status-warmup-sep" style="display:none">·</span>
     <span class="status-item status-warmup-item" id="status-warmup" data-tip="Sidecar analysis cache hydration" style="display:none"><span class="status-text">Indexing <span id="warmup-progress-text">0 / 0</span></span></span>
+    <!-- P3 (R8): transient restore fact — appears after a duplicates delete,
+         opens the restore sheet, expires with the 30s backup window. -->
+    <span class="status-sep" id="status-sep-restore" hidden>·</span>
+    <button type="button" class="status-item" id="status-restore" data-tip="Undo the last delete from its backup" hidden><span class="status-text"></span></button>
+  </div>
+  <!-- P3 (R8): restore sheet — the canonical A-layer emergency exit off the
+       status sentence (the in-view duplicates banner is the convenience copy).
+       Owned by docs/js/v2/restore-sheet.js. -->
+  <div id="wb-restore-sheet" class="wb-restore-sheet" hidden role="dialog" aria-modal="false" aria-labelledby="wb-restore-heading">
+    <div id="wb-restore-heading" class="wb-restore-line"></div>
+    <div class="wb-restore-path"><span id="wb-restore-file"></span></div>
+    <div class="wb-restore-actions">
+      <button type="button" id="wb-restore-go" class="primary">Restore from backup</button>
+      <button type="button" id="wb-restore-dismiss" class="secondary-btn">Dismiss</button>
+    </div>
   </div>
 </div>
 <!-- AutoCue 2.0 workbench toolbar: global controls (playlist / analysis mode /
@@ -421,6 +436,26 @@
     </div>
     </div><!-- /#tracks-sticky -->
     <div id="track-list"></div>
+    <!-- P3: Duplicates place — the centre-pane view the #wb-dupes-place rail
+         entry swaps in. The swap toggles `hidden` + body.wb-place-dupes ONLY;
+         #track-list is never detached or re-parented (Virtualizer + sticky
+         invariants, TASK-033/037). Hosts are filled in by the T3 markup move;
+         logic in docs/js/v2/workbench/duplicates.js. -->
+    <section id="wb-dupes-pane" hidden aria-label="Duplicates">
+      <div id="wb-dupes-toolbar" class="wb-dupes-toolbar">
+        <button id="wb-dupes-rescan" class="secondary-btn" style="font-size:12px;padding:4px 12px;">Rescan</button>
+        <span id="duplicates-status-label" style="display:none;font-size:12px;color:var(--muted);"></span>
+        <div id="duplicates-summary" style="display:none;font-size:13px;"></div>
+        <button id="wb-dupes-bulk-delete" class="primary" disabled style="font-size:12px;padding:4px 12px;margin-left:auto;">Delete non-keepers</button>
+      </div>
+      <div id="wb-dupes-host" class="wb-dupes-host">
+        <div id="duplicates-progress" style="display:none;font-size:12px;color:var(--muted);background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:8px 10px;margin-bottom:12px;"></div>
+        <div id="duplicates-empty" style="display:none;font-size:13px;color:var(--muted);text-align:center;padding:24px;">
+          No duplicate tracks found. Library is clean.
+        </div>
+        <div id="duplicates-list" style="display:flex;flex-direction:column;gap:8px;"></div>
+      </div>
+    </section>
   </section>
 
   <!-- XML upload workflow (hidden in local mode) -->
@@ -556,28 +591,11 @@ autocue --library --mode bar --bars-interval 8 --start-bar 1</pre>
     </div>
   </section>
 
-  <!-- Duplicate Tracks (local mode only). Phase 1 surface-only:
-       scan + group display, NO delete action. The destructive delete path
-       lands in a follow-up PR after the read-only UX is validated. -->
-  <section id="duplicates-section" class="panel-card" style="display:none">
-    <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px;">
-      <h2 style="margin:0;font-size:15px;font-weight:700;">Duplicate Tracks</h2>
-      <button id="duplicates-scan-btn" class="secondary-btn" style="font-size:12px;padding:4px 12px;">Find duplicates</button>
-      <span id="duplicates-status-label" style="display:none;font-size:12px;color:var(--muted);"></span>
-    </div>
-    <p style="margin:0 0 12px;font-size:12px;color:var(--muted);">
-      Groups tracks by (artist, title) — case-insensitive, whitespace-normalised.
-      The <em>keeper</em> is the row with the most plays, then most existing hot cues,
-      then most-recent last-played, then lowest track ID. Read-only —
-      no tracks are deleted here.
-    </p>
-    <div id="duplicates-progress" style="display:none;font-size:12px;color:var(--muted);background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:8px 10px;margin-bottom:12px;"></div>
-    <div id="duplicates-summary" style="display:none;font-size:13px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:10px 12px;margin-bottom:12px;"></div>
-    <div id="duplicates-empty" style="display:none;font-size:13px;color:var(--muted);text-align:center;padding:24px;">
-      No duplicate tracks found. Library is clean.
-    </div>
-    <div id="duplicates-list" style="display:flex;flex-direction:column;gap:8px;"></div>
-  </section>
+  <!-- P3: the Duplicates surface moved into the workbench centre-pane place
+       (#wb-dupes-pane, inside #tracks-section) — the legacy Library-tab
+       section is gone; every host id survived the move so the SSE reader in
+       02-local-ops.js is untouched. The confirm modal below stays body-level
+       (it was never inside that section). -->
 
   <!-- Confirm modal for the duplicate-delete action (phase 2). Mirrors the
        Discover download-confirm modal: primary disabled for 250ms after open
@@ -1521,6 +1539,16 @@ autocue --library --mode bar --bars-interval 8 --start-bar 1</pre>
       <button type="button" class="wb-saved-add" aria-label="Save current filter">+ Save current</button>
     </div>
     <div id="wb-saved-filters" class="wb-crate-list"></div>
+  </div>
+  <!-- P3: Maintenance places — rail entries that swap the centre pane instead
+       of filtering the grid. Owned by docs/js/v2/workbench/duplicates.js. -->
+  <div class="wb-rail-section">
+    <div class="wb-rail-head">Maintenance</div>
+    <div class="wb-crate-list">
+      <button id="wb-dupes-place" type="button" class="wb-crate">
+        <span class="wb-crate-label">Duplicates</span>
+      </button>
+    </div>
   </div>
   <div id="wb-rail-health" class="wb-rail-card" hidden></div>
 </aside>

@@ -6,7 +6,8 @@
     "Each entry: id (DOM id), kind, optional collapsible (section ids whose inline display:none must be cleared before the control becomes reachable).",
     "Add new controls here, then run tests; drift guard will tell you if anything is missing or extra.",
     "Verify objects are intentionally minimal at v1 \u2014 they cover 'click does not throw' for most rows. Richer verify (network expectations, SSE assertions, forbiddenRequests, requiresState) is added incrementally as the sweep stabilises.",
-    "data-testid='track-card' is scoped to descendants of #track-list ONLY (drag previews / modals MUST NOT carry it)."
+    "data-testid='track-card' is scoped to descendants of #track-list ONLY (drag previews / modals MUST NOT carry it).",
+    "P3 duplicates place: per-group delete buttons are class-only (.duplicates-group-delete, no id) and invisible to this guard by design; the inventoried verbs are wb-dupes-rescan, wb-dupes-bulk-delete and the confirm modal's cancel/go (body-level, listed under globalControls)."
   ],
   "globalControls": [
     {
@@ -127,6 +128,50 @@
       "kind": "button",
       "skipSweep": true,
       "skipReason": "Opens the \u2318K command-palette overlay \u2014 covered by v2-global-layer.spec"
+    },
+    {
+      "id": "wb-dupes-place",
+      "kind": "button",
+      "skipSweep": true,
+      "skipReason": "P3 workbench rail place \u2014 swaps the centre pane to the duplicates view (read-only scan); covered by v2-duplicates-place.spec"
+    },
+    {
+      "id": "wb-dupes-rescan",
+      "kind": "button"
+    },
+    {
+      "id": "wb-dupes-bulk-delete",
+      "kind": "button",
+      "safeOnRealDb": false
+    },
+    {
+      "id": "status-restore",
+      "kind": "button",
+      "skipSweep": true,
+      "skipReason": "P3 status fact — hidden until a duplicates delete writes a backup; click opens the restore sheet"
+    },
+    {
+      "id": "wb-restore-go",
+      "kind": "button",
+      "safeOnRealDb": false,
+      "skipSweep": true,
+      "skipReason": "P3 restore sheet — POSTs /api/restore; hidden until a delete; covered by v2-duplicates-place.spec"
+    },
+    {
+      "id": "wb-restore-dismiss",
+      "kind": "button",
+      "skipSweep": true,
+      "skipReason": "P3 restore sheet — dismisses the sheet; hidden until a delete"
+    },
+    {
+      "id": "duplicates-confirm-cancel",
+      "kind": "button",
+      "safeOnRealDb": false
+    },
+    {
+      "id": "duplicates-confirm-go",
+      "kind": "button",
+      "safeOnRealDb": false
     }
   ],
   "panelControls": {
@@ -256,20 +301,6 @@
       {
         "id": "health-scan-btn",
         "kind": "button"
-      },
-      {
-        "id": "duplicates-scan-btn",
-        "kind": "button"
-      },
-      {
-        "id": "duplicates-confirm-cancel",
-        "kind": "button",
-        "safeOnRealDb": false
-      },
-      {
-        "id": "duplicates-confirm-go",
-        "kind": "button",
-        "safeOnRealDb": false
       },
       {
         "id": "cue-tools-op",

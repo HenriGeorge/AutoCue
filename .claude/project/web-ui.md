@@ -103,3 +103,23 @@
   `tests/e2e/control-inventory.json` (globalControls) or the drift guard fails; dialog
   internals (e.g. `pal-input`) go in the spec's ignore list. Dynamic `pal-opt-N` option
   buttons exist only while the palette is open (absent during the closed-state scan).
+- **Duplicates place (P3)** — `docs/js/v2/workbench/duplicates.js`. A rail *place*
+  (`#wb-dupes-place`) that swaps the workbench centre pane from the grid to
+  `#wb-dupes-pane`: `activate()` toggles `hidden` on `#tracks-sticky`/`#track-list`/
+  `#wb-grid-head`/`#wb-inspector` + adds `body.wb-place-dupes`; `deactivate()` reverses
+  and calls `ACBridge.renderTracks()`. **The grid is never detached** (Virtualizer +
+  sticky invariants, TASK-033/037) — a CSS `display:none !important` under
+  `body.wb-place-dupes` backstops the `hidden` attribute against a legacy
+  `style.display` write. Crate/playlist/saved-filter clicks and workbench-off all
+  exit the place first; a place owning the centre paints no crate `.active`
+  (`autocue:wb-place-change` event → `_renderCrates`). Delegation-only: every scan +
+  write goes through `window.ACBridge`; the module never touches `/api/duplicates*`.
+  Lazy first-scan on open (the `#duplicates-*` hosts moved INTO the pane in T3, so the
+  legacy `scanDuplicates`/confirm-modal/undo-banner keep working by id). Restore is the
+  canonical **status-sentence sheet** (`docs/js/v2/restore-sheet.js`): the
+  `autocue:duplicates-deleted` event reveals the `#status-restore` fact, which opens
+  `#wb-restore-sheet` (`position:fixed`, JS-anchored under the right-aligned fact) to
+  POST `/api/restore`; expires with the 30s backup window. JSDOM can't see the swap's
+  layout or the sheet anchoring — `tests/e2e/v2-duplicates-place.spec.ts` covers those
+  (it mocks `/api/duplicates` to an instant "0 groups" SSE so the lazy scan doesn't
+  saturate the single sandbox server across sequential tests).
