@@ -2979,3 +2979,84 @@
     .confirm-evidence { animation: none; }
   }
   /* ── /v2: consent gradient ────────────────────────────────────────────── */
+
+  /* ── Nightboard (P4) — full-bleed set-builder canvas mode ─────────────────
+     T2 ships the mode show/hide + top strip / build bar / stage scaffolding.
+     Tile/joint/arc/zone styling + the net-new --zone-* tokens land in T3. */
+
+  /* The canvas replaces the grid + flanks; the grid is HIDDEN, never detached
+     (TASK-033/037) — #track-list stays mounted under the display:none. */
+  body.nb-active main > *:not(#nb-canvas) { display: none !important; }
+  body.nb-active #wb-rail,
+  body.nb-active #wb-inspector,
+  body.nb-active #action-bar { display: none !important; }
+
+  .nb-canvas { display: none; }
+  body.nb-active #nb-canvas {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    padding: 18px 22px 24px;
+  }
+
+  /* Top strip: set name (sans) · live stats (mono) · ink-pill export CTA. */
+  .nb-topstrip { display: flex; align-items: center; gap: 14px; }
+  .nb-set-name {
+    font-family: var(--font-sans);
+    font-size: 18px; font-weight: 700; letter-spacing: -.3px;
+    color: var(--text);
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: var(--radius-md);
+    padding: 4px 8px; min-width: 200px;
+  }
+  .nb-set-name:hover { border-color: var(--border); }
+  .nb-set-name:focus { outline: none; border-color: var(--green); box-shadow: 0 0 0 3px var(--green-ring); }
+  .nb-stats {
+    display: flex; gap: 14px;
+    font-family: var(--font-mono); font-size: 12px; color: var(--muted);
+  }
+  .nb-topstrip-spacer { flex: 1; }
+
+  /* Build bar: BPM / duration are measured values → mono inputs. */
+  .nb-build-bar {
+    display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+    padding: 10px 12px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    background: var(--surface);
+  }
+  .nb-field { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); }
+  .nb-num {
+    width: 64px;
+    font-family: var(--font-mono); font-size: 13px; color: var(--text);
+    background: var(--surface-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    padding: 4px 8px;
+  }
+  .nb-num:focus, .nb-select:focus { outline: none; border-color: var(--green); box-shadow: 0 0 0 3px var(--green-ring); }
+  .nb-select {
+    font-family: var(--font-sans); font-size: 13px; color: var(--text);
+    background: var(--surface-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    padding: 4px 8px;
+  }
+  .nb-status { font-family: var(--font-mono); font-size: 12px; color: var(--muted); }
+
+  /* Stage: zones (absolute wash) behind the arc behind the timeline. */
+  .nb-stage {
+    position: relative; min-height: 220px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-xl);
+    background: var(--surface);
+    padding: 16px; overflow: hidden;
+  }
+  .nb-zones { position: absolute; inset: 0; display: flex; pointer-events: none; }
+  .nb-arc { position: relative; display: block; width: 100%; height: 84px; }
+  .nb-timeline { position: relative; display: flex; align-items: stretch; overflow-x: auto; }
+
+  @media (prefers-reduced-motion: reduce) {
+    .nb-canvas * { transition: none !important; animation: none !important; }
+  }

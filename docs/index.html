@@ -201,6 +201,12 @@
     <button id="backup-inline-btn" style="background:none;border:none;color:var(--green);cursor:pointer;text-decoration:underline;padding:0;font:inherit">Save a backup first →</button>
   </div>
 
+  <!-- AutoCue 2.0 Nightboard (P4): the "Open Nightboard" verb. Relocated into
+       #wb-topbar-tools by the workbench shell (_TOOL_IDS); hidden until then. -->
+  <div id="nb-open-bar" style="display:none; align-items:center;">
+    <button type="button" id="nb-open-btn" class="secondary-btn" data-tip="Open the Nightboard — a full-bleed canvas to build and visualize a DJ set.">Open Nightboard</button>
+  </div>
+
   <!-- Analysis mode toggle (shown after XML loaded) -->
   <div id="analysis-mode-bar" style="display:none; margin-bottom:16px; align-items:center; gap:12px;">
     <span style="font-size:13px;color:var(--muted);">Analysis mode:</span>
@@ -1367,6 +1373,42 @@ autocue --library --mode bar --bars-interval 8 --start-bar 1</pre>
   </section>
 
   </div><!-- /#discover-tab-content -->
+
+  <!-- AutoCue 2.0 Nightboard (P4) — full-bleed set-builder canvas. Hidden until
+       opened from the workbench toolbar verb / ⌘K (local mode only). body.nb-active
+       hides the grid + flanks around it; the grid is hidden, never detached
+       (TASK-033/037). Populated by docs/js/v2/nightboard/*. -->
+  <section id="nb-canvas" class="nb-canvas" hidden aria-label="Nightboard set canvas">
+    <header id="nb-topstrip" class="nb-topstrip">
+      <input id="nb-set-name" class="nb-set-name" type="text" value="Untitled set" aria-label="Set name" spellcheck="false">
+      <div id="nb-stats" class="nb-stats" aria-live="polite"></div>
+      <div class="nb-topstrip-spacer"></div>
+      <button type="button" id="nb-export-btn" class="primary nb-export" data-tip="Save this set as a Rekordbox playlist. Rekordbox must be closed.">Export to Rekordbox</button>
+    </header>
+
+    <div id="nb-build-bar" class="nb-build-bar">
+      <label class="nb-field">Start BPM <input id="nb-start-bpm" class="nb-num" type="number" value="120" min="60" max="200" step="1"></label>
+      <label class="nb-field">End BPM <input id="nb-end-bpm" class="nb-num" type="number" value="128" min="60" max="200" step="1"></label>
+      <label class="nb-field">Duration <input id="nb-duration" class="nb-num" type="number" value="60" min="5" max="600" step="5"></label>
+      <label class="nb-field">Energy
+        <select id="nb-energy-mode" class="nb-select">
+          <option value="build">Build</option>
+          <option value="flat">Flat</option>
+          <option value="drop">Drop</option>
+        </select>
+      </label>
+      <button type="button" id="nb-build-btn" class="primary">Build set</button>
+      <span id="nb-status" class="nb-status" aria-live="polite"></span>
+    </div>
+
+    <div id="nb-stage" class="nb-stage">
+      <div id="nb-zones" class="nb-zones" aria-hidden="true"></div>
+      <svg id="nb-arc" class="nb-arc" viewBox="0 0 1000 84" preserveAspectRatio="none" aria-hidden="true"></svg>
+      <div id="nb-timeline" class="nb-timeline" role="list"></div>
+    </div>
+
+    <div id="nb-tray" class="nb-tray" hidden></div>
+  </section>
 </main>
 
 <!-- Sticky download bar with mini player -->
