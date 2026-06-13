@@ -147,6 +147,47 @@
       "safeOnRealDb": false
     },
     {
+      "id": "nb-open-btn",
+      "kind": "button"
+    },
+    {
+      "id": "nb-set-name",
+      "kind": "text"
+    },
+    {
+      "id": "nb-start-bpm",
+      "kind": "number"
+    },
+    {
+      "id": "nb-end-bpm",
+      "kind": "number"
+    },
+    {
+      "id": "nb-duration",
+      "kind": "number"
+    },
+    {
+      "id": "nb-energy-mode",
+      "kind": "select"
+    },
+    {
+      "id": "nb-build-btn",
+      "kind": "button",
+      "skipSweep": true,
+      "skipReason": "P4 Nightboard — builds a set via POST /api/setbuilder (slow analysis); covered (stubbed) by v2-nightboard.spec"
+    },
+    {
+      "id": "nb-export-btn",
+      "kind": "button",
+      "safeOnRealDb": false
+    },
+    {
+      "id": "nb-tray-toggle",
+      "kind": "button",
+      "skipSweep": true,
+      "skipReason": "Lives inside the #nb-canvas mode (hidden until opened) + the tray only renders after a build; covered by v2-nightboard.spec"
+    },
+    {
       "id": "status-restore",
       "kind": "button",
       "skipSweep": true,

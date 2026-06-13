@@ -51,6 +51,10 @@ const REQUIRED_SELECTORS: string[] = [
   "#wb-restore-sheet",
   "#wb-restore-go",
   "#wb-restore-dismiss",
+  // P4 Nightboard — full-bleed set canvas mode (hidden until opened) + its verb
+  "#nb-canvas",
+  "#nb-open-btn",
+  "#nb-tray-toggle",
 ];
 
 test.describe("selectors exist in docs/index.html", () => {

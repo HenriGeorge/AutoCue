@@ -45,9 +45,12 @@ export function buildCommands() {
         window.AC2?.workbench?.setWorkbench(true);
         if (!window.AC2?.duplicates?.isActive?.()) _click('wb-dupes-place');
       } },
+    // P4: "Build a set" now opens the Nightboard canvas (the full-bleed mode
+    // built on the same setbuilder engine). open() forces the workbench on and
+    // no-ops outside local mode (R1), so it is safe from any view.
     { id: 'build-set', group: 'Library', label: 'Build a set',
-      sub: 'Beam-search a DJ set from your library',
-      run: () => _goto('library', 'setbuilder-section') },
+      sub: 'Open the Nightboard set canvas',
+      run: () => window.AC2?.nightboard?.open?.() },
     { id: 'toggle-theme', group: 'View', label: 'Toggle light / dark',
       run: () => _click('theme-toggle') },
     // Label reflects the action from the current state (buildCommands() is
@@ -73,6 +76,9 @@ export function buildCommands() {
         window.AC2?.workbench?.setWorkbench(true);
         if (!window.AC2?.discover?.isActive?.()) _click('wb-disc-place');
       } },
+    { id: 'open-nightboard', group: 'Go to', label: 'Open Nightboard',
+      sub: 'Full-bleed canvas — build + visualize a set',
+      run: () => window.AC2?.nightboard?.open?.() },
     { id: 'go-cues', group: 'Go to', label: 'Go to Cues', run: () => _goto('cues') },
     { id: 'go-library', group: 'Go to', label: 'Go to Library', run: () => _goto('library') },
     { id: 'go-discover', group: 'Go to', label: 'Go to Discover',

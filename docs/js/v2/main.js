@@ -53,3 +53,15 @@ initRestoreSheet();
 import { initDiscoverPlace, activate as activateDiscover, deactivate as deactivateDiscover, isActive as discoverActive, focusRelease as discoverFocusRelease } from './workbench/discover.js';
 window.AC2.discover = { activate: activateDiscover, deactivate: deactivateDiscover, isActive: discoverActive, focusRelease: discoverFocusRelease };
 initDiscoverPlace();
+
+// P4 Nightboard — full-bleed set-builder canvas MODE (not a centre-pane place):
+// hides rail+grid+inspector and owns the body, keeping the global topbar. Built
+// on the existing setbuilder/transitions REST surface (no new analysis, no new
+// endpoint). Entered via the workbench toolbar verb + a ⌘K command.
+import { initNightboard, openNightboard, closeNightboard, isNightboardOpen } from './nightboard/mode.js';
+import { initJointPopover, close as closeJointPopover, isOpen as jointPopoverOpen } from './nightboard/joint-popover.js';
+import { initTray, focusTile, clearFocus } from './nightboard/tray.js';
+window.AC2.nightboard = { open: openNightboard, close: closeNightboard, isOpen: isNightboardOpen, closePopover: closeJointPopover, popoverOpen: jointPopoverOpen, focusTile, clearFocus };
+initNightboard();
+initJointPopover();
+initTray();

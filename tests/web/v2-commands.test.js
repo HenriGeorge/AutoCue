@@ -87,6 +87,22 @@ describe('buildCommands', () => {
     }
   })
 
+  it('build-set + open-nightboard open the Nightboard mode (P4)', () => {
+    const prev = window.AC2
+    try {
+      let opens = 0
+      window.AC2 = { nightboard: { open: () => { opens++ } } }
+      for (const id of ['build-set', 'open-nightboard']) {
+        const cmd = buildCommands().find((c) => c.id === id)
+        expect(cmd, `${id} must exist`).toBeTruthy()
+        cmd.run()
+      }
+      expect(opens).toBe(2)
+    } finally {
+      window.AC2 = prev
+    }
+  })
+
   it('toggle-workbench label reflects the current workbench state', () => {
     const label = () => buildCommands().find((c) => c.id === 'toggle-workbench').label
     const prev = window.AC2

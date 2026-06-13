@@ -71,7 +71,7 @@ function _renderCrates() {
 
 // Global controls that move into the top-bar toolbar in workbench mode. Their
 // original DOM slot is recorded so deactivate() can put them back exactly.
-const _TOOL_IDS = ['playlist-filter-bar', 'analysis-mode-bar'];
+const _TOOL_IDS = ['playlist-filter-bar', 'analysis-mode-bar', 'nb-open-bar'];
 const _toolHomes = new Map();
 
 function _relocateTools() {
