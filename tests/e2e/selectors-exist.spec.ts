@@ -39,6 +39,8 @@ const REQUIRED_SELECTORS: string[] = [
   "#tracks-sticky",
   // P2 workbench dense-grid column header (in DOM always; hidden until body.wb-active)
   "#wb-grid-head",
+  // P5 discover place — rail entry that swaps the centre pane to the feed
+  "#wb-disc-place",
   // P3 duplicates place — rail entry + centre-pane view (hidden until opened)
   "#wb-dupes-place",
   "#wb-dupes-pane",

@@ -45,3 +45,11 @@ initDuplicatesPlace();
 // fed by the autocue:duplicates-deleted event the legacy delete path dispatches.
 import { initRestoreSheet } from './restore-sheet.js';
 initRestoreSheet();
+
+// P5 Discover place — rail entry that swaps the workbench centre pane to the
+// restyled Discover feed (via switchTab). Delegation-only: re-drives the legacy
+// DiscoverV2 IIFE via window.DiscoverV2 / ACBridge.discover; owns the door + the
+// swap + the inspector re-host, nothing else. Mutually exclusive with Duplicates.
+import { initDiscoverPlace, activate as activateDiscover, deactivate as deactivateDiscover, isActive as discoverActive, focusRelease as discoverFocusRelease } from './workbench/discover.js';
+window.AC2.discover = { activate: activateDiscover, deactivate: deactivateDiscover, isActive: discoverActive, focusRelease: discoverFocusRelease };
+initDiscoverPlace();

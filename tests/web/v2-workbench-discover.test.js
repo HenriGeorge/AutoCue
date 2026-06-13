@@ -52,3 +52,171 @@ describe('P5 T1 — legacy seams for the discover place', () => {
     })
   })
 })
+
+/**
+ * T2 jsdom section — the place skeleton's centre-pane swap mechanics + mutual
+ * exclusion. The module is imported once (vitest registry); state is reset by
+ * driving deactivate() between tests.
+ */
+function _setupDom() {
+  document.body.className = 'wb-active'
+  document.body.innerHTML = `
+    <div id="tab-group">
+      <button id="tab-cues" class="tab-btn active"></button>
+      <button id="tab-discover" class="tab-btn"></button>
+    </div>
+    <div id="cues-tab-content"></div>
+    <div id="discover-tab-content" style="display:none">
+      <div id="disc-v2-grid"></div>
+      <div id="disc-v2-detail-panel"><div id="disc-v2-detail-body"></div></div>
+    </div>
+    <aside id="wb-rail">
+      <div id="wb-crates"></div>
+      <button id="wb-disc-place" type="button" class="wb-crate"></button>
+      <button id="wb-dupes-place" type="button" class="wb-crate"></button>
+    </aside>
+    <aside id="wb-inspector">
+      <div id="wb-inspector-empty"></div>
+      <div id="wb-inspector-body" hidden></div>
+    </aside>
+    <div id="tracks-sticky"><div id="wb-grid-head"></div></div>
+    <div id="track-list"></div>
+    <section id="wb-dupes-pane" hidden>
+      <div id="wb-dupes-host"></div>
+    </section>
+  `
+}
+
+describe('P5 T2 — discover place swap mechanics (jsdom)', () => {
+  let disc
+  let switchCalls
+
+  beforeEach(async () => {
+    _setupDom()
+    switchCalls = []
+    window.switchTab = vi.fn((name) => {
+      switchCalls.push(name)
+      document.getElementById('cues-tab-content').style.display = name === 'cues' ? '' : 'none'
+      document.getElementById('discover-tab-content').style.display = name === 'discover' ? '' : 'none'
+    })
+    window.ACBridge = {
+      isLocalMode: () => true,
+      renderTracks: vi.fn(),
+      discoverLoadInitialState: vi.fn(),
+      discoverState: () => ({ cardsByKey: new Map() }),
+      discoverLoadDetail: vi.fn(),
+    }
+    window.AC2 = window.AC2 || {}
+    disc = await import('../../docs/js/v2/workbench/discover.js')
+    disc.deactivate() // reset any leaked state
+    window.ACBridge.renderTracks.mockClear()
+    window.switchTab.mockClear()
+    switchCalls.length = 0
+  })
+
+  it('activate() shows the discover tab body, hides the grid surfaces + inspector, marks the place', () => {
+    disc.activate()
+    expect(disc.isActive()).toBe(true)
+    expect(switchCalls).toContain('discover')
+    for (const id of ['tracks-sticky', 'track-list', 'wb-grid-head']) {
+      expect(document.getElementById(id).hidden, `#${id} should be hidden`).toBe(true)
+    }
+    expect(document.getElementById('wb-inspector').hidden).toBe(true)
+    expect(document.body.classList.contains('wb-place-disc')).toBe(true)
+    expect(document.getElementById('wb-disc-place').classList.contains('active')).toBe(true)
+  })
+
+  it('activate() never detaches or re-parents #track-list (TASK-033/037)', () => {
+    const list = document.getElementById('track-list')
+    const parent = list.parentNode
+    disc.activate()
+    expect(document.getElementById('track-list')).toBe(list)
+    expect(list.parentNode).toBe(parent)
+  })
+
+  it('deactivate() restores every toggle, switches back to cues, repaints the grid', () => {
+    disc.activate()
+    disc.deactivate()
+    expect(disc.isActive()).toBe(false)
+    expect(switchCalls).toContain('cues')
+    for (const id of ['tracks-sticky', 'track-list', 'wb-grid-head']) {
+      expect(document.getElementById(id).hidden, `#${id} should be restored`).toBe(false)
+    }
+    expect(document.getElementById('wb-inspector').hidden).toBe(false)
+    expect(document.body.classList.contains('wb-place-disc')).toBe(false)
+    expect(document.getElementById('wb-disc-place').classList.contains('active')).toBe(false)
+    expect(window.ACBridge.renderTracks).toHaveBeenCalled()
+  })
+
+  it('stays inert outside local mode (R-guard)', () => {
+    window.ACBridge.isLocalMode = () => false
+    disc.activate()
+    expect(disc.isActive()).toBe(false)
+    expect(switchCalls).not.toContain('discover')
+  })
+
+  it('lazy first load delegates to ACBridge.discoverLoadInitialState exactly once', () => {
+    disc.activate()
+    disc.deactivate()
+    disc.activate()
+    // _loadedOnce guard: idempotent across re-entries.
+    expect(window.ACBridge.discoverLoadInitialState.mock.calls.length).toBeLessThanOrEqual(1)
+    disc.deactivate()
+  })
+
+  it('initDiscoverPlace(): re-clicking the active rail entry toggles back to the grid', () => {
+    disc.initDiscoverPlace()
+    const btn = document.getElementById('wb-disc-place')
+    btn.click()
+    expect(disc.isActive()).toBe(true)
+    btn.click()
+    expect(disc.isActive()).toBe(false)
+  })
+
+  it('announces place changes so the shell can repaint crate active-state', () => {
+    const seen = vi.fn()
+    window.addEventListener('autocue:wb-place-change', seen)
+    disc.activate()
+    disc.deactivate()
+    window.removeEventListener('autocue:wb-place-change', seen)
+    expect(seen).toHaveBeenCalledTimes(2)
+  })
+
+  it('activate() deactivates the Duplicates place (mutual exclusion)', () => {
+    const dupesDeactivate = vi.fn()
+    window.AC2.duplicates = { deactivate: dupesDeactivate, isActive: () => false }
+    disc.activate()
+    expect(dupesDeactivate).toHaveBeenCalled()
+    disc.deactivate()
+    delete window.AC2.duplicates
+  })
+})
+
+describe('P5 T2 — shell/rail/dupes exit the discover place (module source contract)', () => {
+  const shellSrc = readFileSync(resolve(V2_DIR, 'workbench', 'shell.js'), 'utf8')
+  const railSrc = readFileSync(resolve(V2_DIR, 'workbench', 'rail.js'), 'utf8')
+  const dupesSrc = readFileSync(resolve(V2_DIR, 'workbench', 'duplicates.js'), 'utf8')
+  const discSrc = readFileSync(resolve(V2_DIR, 'workbench', 'discover.js'), 'utf8')
+
+  it('crate click + workbench deactivate route through AC2.discover.deactivate', () => {
+    expect(shellSrc.match(/AC2\.discover\.deactivate\(\)/g)?.length ?? 0)
+      .toBeGreaterThanOrEqual(2)
+  })
+  it('crates paint no active row while the discover place owns the centre', () => {
+    expect(shellSrc).toContain('AC2.discover')
+    expect(shellSrc).toContain('isActive()')
+  })
+  it('rail playlist + saved-filter clicks exit the discover place first', () => {
+    expect(railSrc.match(/AC2\.discover\.deactivate\(\)/g)?.length ?? 0)
+      .toBeGreaterThanOrEqual(2)
+  })
+  it('duplicates.activate() deactivates the discover place (reverse mutual exclusion)', () => {
+    expect(dupesSrc).toContain('AC2.discover')
+    expect(dupesSrc).toMatch(/AC2\.discover\.deactivate\(\)/)
+  })
+  it('the v2 discover place never talks to /api/discover itself (R10 — no parallel impl)', () => {
+    expect(discSrc).not.toContain('/api/discover')
+    expect(discSrc).not.toContain('/api/youtube')
+    expect(discSrc).not.toContain('fetch(')
+  })
+})

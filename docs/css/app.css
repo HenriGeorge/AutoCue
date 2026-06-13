@@ -2717,6 +2717,15 @@
   body.wb-place-dupes #tracks-sticky,
   body.wb-place-dupes #track-list,
   body.wb-place-dupes #wb-grid-head { display: none !important; }
+
+  /* ── v2: Discover place (P5) ── rail place that swaps the workbench centre
+     pane from the grid to the restyled Discover feed (via switchTab). switchTab
+     already display:none's #cues-tab-content (which holds all three of these),
+     so this is the belt-and-braces backstop against a legacy style.display
+     write, mirroring the dupes backstop above. */
+  body.wb-place-disc #tracks-sticky,
+  body.wb-place-disc #track-list,
+  body.wb-place-disc #wb-grid-head { display: none !important; }
   .wb-dupes-toolbar {
     display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
     padding-bottom: 12px; margin-bottom: 14px;
