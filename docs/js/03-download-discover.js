@@ -1132,6 +1132,15 @@ const DiscoverV2 = (() => {
   };
 })();
 
+// P5: expose the IIFE's public surface so the v2 Discover place
+// (docs/js/v2/workbench/discover.js) can re-drive scans / state / detail
+// through it — the place NEVER re-implements an /api/discover/* fetch or the
+// SSE consumer (R10). Read-mostly; the returned object above is unchanged.
+window.DiscoverV2 = DiscoverV2;
+// P5: expose the detail-body renderer so the inspector re-host (T3) reuses the
+// exact legacy tracklist/YouTube/actions markup instead of duplicating it.
+window._renderDiscoverRenderDetail = _renderDetailBody;
+
 
 // Card renderer + DOM event wiring -------------------------------------------
 

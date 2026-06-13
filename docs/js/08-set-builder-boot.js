@@ -957,4 +957,12 @@ window.ACBridge = {
   scanDuplicates: () => scanDuplicates(),
   openDuplicatesConfirm: (opts) => _openDuplicatesConfirm(opts),
   onTracksDeleted: (ids) => _onTracksDeleted(ids),
+  // P5 Discover place — minimal delegating accessors into the legacy DiscoverV2
+  // IIFE (exposed as window.DiscoverV2). The place re-drives scan / initial-load
+  // / detail through THESE; every write (save/dismiss/snooze) still flows through
+  // the legacy grid delegation + detail-panel buttons, never re-implemented.
+  discoverRunScan: () => window.DiscoverV2?.runScan(),
+  discoverLoadInitialState: () => window.DiscoverV2?.loadInitialState(),
+  discoverState: () => (window.DiscoverV2 ? window.DiscoverV2.state : null),
+  discoverLoadDetail: (id) => window.DiscoverV2?.loadDetail(id),
 };
