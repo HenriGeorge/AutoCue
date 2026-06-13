@@ -2026,6 +2026,11 @@
     .toast-item, .toast-item.toast-out, .fade-in-up { animation-duration: 0.01ms !important; }
     .skeleton-card .skel-line { animation: none; }
     .disc-v2-card:hover { transform: none; }
+    /* P5 T5: place crossfade + save-pulse + scan-bar must not animate. */
+    .tab-entering { animation: none; }
+    .disc-v2-card-action.saved { animation: none; }
+    #disc-v2-scan-progress-fill { transition: none; }
+    .disc-v2-spinner { animation: none; }
   }
 
   /* ── Tooltip ──────────────────────────────────────────────────────────────── */
@@ -2132,6 +2137,16 @@
       background: var(--green-wash);
       border-color: var(--green);
       color: var(--green);
+    }
+    /* Aliveness r2 (P5 T5): a brief scale/opacity pulse confirms the optimistic
+       save — purely visual, no behaviour change. Gated to motion-OK users. */
+    @media (prefers-reduced-motion: no-preference) {
+      .disc-v2-card-action.saved { animation: disc-v2-save-pop 0.28s ease; }
+    }
+    @keyframes disc-v2-save-pop {
+      0%   { transform: scale(1); }
+      45%  { transform: scale(1.18); }
+      100% { transform: scale(1); }
     }
 
     /* ── Discover place chrome (P5 T4) — inline styles extracted to classes,
@@ -2472,9 +2487,12 @@
     display: flex; align-items: center; gap: 8px; width: 100%;
     padding: 7px 8px; border: none; background: none; border-radius: 8px;
     cursor: pointer; text-align: left; color: var(--text); font: inherit; font-size: 13px;
-    transition: background .12s;
+    transition: background .12s, transform .08s;
   }
   .wb-crate:hover { background: var(--surface-2, var(--surface2)); }
+  /* Aliveness r2: a subtle press confirms the click on rail rows. */
+  .wb-crate:active { transform: scale(.99); }
+  .wb-crate:focus-visible { outline: 2px solid var(--green-ring); outline-offset: -2px; }
   .wb-crate.active { background: var(--green-wash, color-mix(in srgb, var(--green) 8%, transparent)); box-shadow: inset 2px 0 0 var(--green); }
   .wb-crate .wb-crate-label { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .wb-crate .wb-crate-count { font-family: var(--font-mono, var(--mono)); font-size: 11px; color: var(--muted); }
@@ -2485,7 +2503,7 @@
   .wb-inspector-empty { color: var(--muted); text-align: center; padding: 48px 12px; font-size: 13px; }
   .wb-inspector-empty-icon { font-size: 32px; opacity: .4; margin-bottom: 12px; }
   .wb-inspector-empty-sub { font-size: 11px; margin-top: 6px; opacity: .8; }
-  @media (prefers-reduced-motion: reduce) { .wb-crate { transition: none; } }
+  @media (prefers-reduced-motion: reduce) { .wb-crate, .wb-crate:active { transition: none; transform: none; } }
 
   /* Declutter the centre in workbench mode — the status sentence already
      reports connection; cue prep chrome moves to the toolbar in T6. */
@@ -2512,6 +2530,7 @@
   .wb-insp-muted { font-size: 12px; color: var(--muted); }
   .wb-insp-simbtn { width: 100%; padding: 8px; border: 1px solid var(--border); background: none; border-radius: 8px; cursor: pointer; color: var(--text); font: inherit; font-size: 13px; }
   .wb-insp-simbtn:hover { background: var(--surface-2, var(--surface2)); }
+  .wb-insp-simbtn:focus-visible { outline: 2px solid var(--green-ring); outline-offset: 1px; }
   /* Focused row highlight in workbench mode */
   body.wb-active .track-card.wb-focused { box-shadow: inset 3px 0 0 var(--green); background: var(--green-wash, color-mix(in srgb, var(--green) 5%, transparent)); }
 

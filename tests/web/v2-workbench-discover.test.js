@@ -338,7 +338,7 @@ describe('P5 T4 — Discover restyle is token-clean + emoji-free', () => {
   // non-themeable) don't false-positive.
   const cardRegion = css.slice(
     css.indexOf('.disc-v2-card {'),
-    css.indexOf('.disc-v2-spinner {'),
+    css.indexOf('.disc-v2-spinner {\n      display: inline-block'),
   )
   const detailActionRegion = css.slice(
     css.indexOf('.disc-v2-detail-action {'),
@@ -346,7 +346,7 @@ describe('P5 T4 — Discover restyle is token-clean + emoji-free', () => {
   )
   const chromeRegion = css.slice(
     css.indexOf('.disc-v2-head {'),
-    css.indexOf('.disc-v2-spinner {'),
+    css.indexOf('.disc-v2-spinner {\n      display: inline-block'),
   )
 
   it('the restyled card region has no hardcoded hex or rgba (R5)', () => {
@@ -401,5 +401,47 @@ describe('P5 T4 — Discover restyle is token-clean + emoji-free', () => {
     expect(discJs).toContain('data-act="snooze"')
     expect(discJs).toContain('data-act="dismiss"')
     expect(discJs).toContain('data-detail-act="save"')
+  })
+})
+
+/**
+ * T5 — aliveness round 2. Every new transition/animation is reduced-motion-gated:
+ * either authored inside a `no-preference` block, or suppressed in the `reduce`
+ * block. JS-driven motion is guarded by _prefersReducedMotion.
+ */
+describe('P5 T5 — aliveness round 2 is reduced-motion-gated', () => {
+  const css = readFileSync(resolve(__dirname, '..', '..', 'docs', 'css', 'app.css'), 'utf8')
+  const discJs = readFileSync(resolve(__dirname, '..', '..', 'docs', 'js', '03-download-discover.js'), 'utf8')
+
+  it('the save-pop micro-feedback only animates under prefers-reduced-motion: no-preference', () => {
+    const noPref = css.slice(
+      css.indexOf('@media (prefers-reduced-motion: no-preference) {', css.indexOf('.disc-v2-card-action.saved {')),
+    )
+    expect(noPref.slice(0, noPref.indexOf('}\n'))).toContain('disc-v2-save-pop')
+  })
+
+  it('the reduce block suppresses the place crossfade, save-pulse, scan bar + spinner', () => {
+    const reduce = css.slice(
+      css.indexOf('.skeleton-card .skel-line { animation: none; }'),
+    )
+    const block = reduce.slice(0, reduce.indexOf('  }\n'))
+    expect(block).toContain('.tab-entering { animation: none; }')
+    expect(block).toContain('.disc-v2-card-action.saved { animation: none; }')
+    expect(block).toContain('#disc-v2-scan-progress-fill { transition: none; }')
+    expect(block).toContain('.disc-v2-spinner { animation: none; }')
+  })
+
+  it('the rail-crate press + reduced-motion suppression are both present', () => {
+    expect(css).toContain('.wb-crate:active { transform: scale(.99); }')
+    expect(css).toMatch(/@media \(prefers-reduced-motion: reduce\) { \.wb-crate, \.wb-crate:active { transition: none; transform: none; } }/)
+  })
+
+  it('JS-driven card motion (dismiss collapse, enter stagger) stays guarded by _prefersReducedMotion', () => {
+    const collapse = discJs.slice(
+      discJs.indexOf('function _collapseDiscoverCard('),
+      discJs.indexOf('function _handleDiscoverKeydown('),
+    )
+    expect(collapse).toContain('if (_prefersReducedMotion')
+    expect(discJs).toContain('if (freshRender && !_prefersReducedMotion)')
   })
 })
