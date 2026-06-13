@@ -631,10 +631,11 @@ function _sbUpdateSummary() {
   summary.textContent = `${n} tracks · ~${mins} min (edited)`;
 }
 
-async function sbSavePlaylist() {
-  const name = prompt('Playlist name:', 'AutoCue Set ' + new Date().toLocaleDateString());
-  if (!name) return;
-  const ids = _sbTracks.map(t => t.track_id);
+// Shared create-playlist write path (POST /api/playlists). Used by the legacy
+// set-builder Save button AND — via ACBridge.createSetPlaylist — by the P4
+// Nightboard Export action, so there is ONE write path (r.ok-checked, honest
+// toast), never a second create-playlist implementation on the canvas.
+async function _createPlaylist(name, ids) {
   try {
     const r = await fetch('/api/playlists', {
       method: 'POST',
@@ -650,6 +651,12 @@ async function sbSavePlaylist() {
   } catch (err) {
     showToast(`Failed to create playlist: ${err.message}`, true);
   }
+}
+
+async function sbSavePlaylist() {
+  const name = prompt('Playlist name:', 'AutoCue Set ' + new Date().toLocaleDateString());
+  if (!name) return;
+  await _createPlaylist(name, _sbTracks.map(t => t.track_id));
 }
 
 async function buildSet() {
@@ -965,4 +972,11 @@ window.ACBridge = {
   discoverLoadInitialState: () => window.DiscoverV2?.loadInitialState(),
   discoverState: () => (window.DiscoverV2 ? window.DiscoverV2.state : null),
   discoverLoadDetail: (id) => window.DiscoverV2?.loadDetail(id),
+  // P4 Nightboard — selection → set anchors (mirrors _useSelectedForSetBuilder's
+  // parseInt coercion, :35) and the shared create-playlist write path so the
+  // canvas Export delegates without re-implementing the write. set-model.js
+  // fetches /api/setbuilder|transitions|alternatives|tracks/*/energy directly
+  // (REST is allowed; the bridge only brokers legacy STATE + the write path).
+  anchorsFromSelection: () => [...selectedTrackIds].map((id) => parseInt(id, 10)),
+  createSetPlaylist: (name, ids) => _createPlaylist(name, ids),
 };
