@@ -7,7 +7,7 @@
  */
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import * as model from '../../docs/js/v2/nightboard/set-model.js'
-import { openNightboard, closeNightboard, isNightboardOpen } from '../../docs/js/v2/nightboard/mode.js'
+import { openNightboard, closeNightboard, isNightboardOpen, initNightboard } from '../../docs/js/v2/nightboard/mode.js'
 
 function track(id, score) {
   return { track_id: id, title: `T${id}`, artist: `A${id}`, bpm: 120 + id, key: '8A', category: 'peak', transition_score: score, relaxed: false }
@@ -142,5 +142,36 @@ describe('mode open/close (R1 local-mode gate)', () => {
     openNightboard()
     expect(isNightboardOpen()).toBe(false)
     expect(document.body.classList.contains('nb-active')).toBe(false)
+  })
+})
+
+describe('export (R10) — delegates to the create-playlist write path', () => {
+  it('clicking export calls ACBridge.createSetPlaylist with the set name + ids', async () => {
+    document.body.innerHTML = `
+      <input id="nb-set-name" value="Friday Warmup">
+      <button id="nb-export-btn"></button>
+      <span id="nb-status"></span>`
+    const createSetPlaylist = vi.fn()
+    window.ACBridge = { createSetPlaylist, isLocalMode: () => true }
+    stubFetch(async () => ({ ok: true, json: async () => ({ tracks: [track(1, 0), track(2, 88)] }) }))
+    await model.buildSet({})
+    initNightboard()
+
+    document.getElementById('nb-export-btn').click()
+    expect(createSetPlaylist).toHaveBeenCalledWith('Friday Warmup', [1, 2])
+  })
+
+  it('export with an empty set shows a notice and does not call the write path', () => {
+    model._reset()
+    document.body.innerHTML = `
+      <input id="nb-set-name" value="">
+      <button id="nb-export-btn"></button>
+      <span id="nb-status"></span>`
+    const createSetPlaylist = vi.fn()
+    window.ACBridge = { createSetPlaylist, isLocalMode: () => true }
+    initNightboard()
+    document.getElementById('nb-export-btn').click()
+    expect(createSetPlaylist).not.toHaveBeenCalled()
+    expect(document.getElementById('nb-status').textContent).toMatch(/build a set/i)
   })
 })

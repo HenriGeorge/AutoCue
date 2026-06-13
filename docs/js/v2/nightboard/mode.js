@@ -101,11 +101,25 @@ function _renderNotice(res) {
   }
 }
 
+// Export the set as a Rekordbox playlist via the existing create-playlist write
+// path (ACBridge.createSetPlaylist → POST /api/playlists). r.ok-checked + 409
+// honest when Rekordbox is running, both handled by the shared legacy helper —
+// no new write path (R10).
+function _export() {
+  const set = model.getSet();
+  const status = document.getElementById('nb-status');
+  if (!set.length) { if (status) status.textContent = 'Build a set before exporting'; return; }
+  const name = (document.getElementById('nb-set-name')?.value || '').trim() || 'AutoCue Set';
+  const ids = set.map((t) => t.track_id);
+  if (window.ACBridge && window.ACBridge.createSetPlaylist) window.ACBridge.createSetPlaylist(name, ids);
+}
+
 export function initNightboard() {
   document.getElementById('nb-open-btn')?.addEventListener('click', () => {
     _open ? closeNightboard() : openNightboard();
   });
   document.getElementById('nb-build-btn')?.addEventListener('click', _build);
+  document.getElementById('nb-export-btn')?.addEventListener('click', _export);
   if (!_escWired) {
     _escWired = true;
     document.addEventListener('keydown', (ev) => {
