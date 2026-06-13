@@ -1,0 +1,25 @@
+#!/bin/sh
+# AutoCue — block direct commits to main/master. Enforce the worktree + PR
+# workflow so concurrent AI sessions never collide on main and every change
+# goes through review. Tracked + activated via `git config core.hooksPath
+# .githooks` (see CLAUDE.md "Worktree + PR workflow").
+#
+# Emergency override (use sparingly, never for AI-session work): git commit --no-verify
+branch="$(git symbolic-ref --short HEAD 2>/dev/null)"
+case "$branch" in
+  main|master)
+    echo "─────────────────────────────────────────────────────────────────"
+    echo "❌ Refusing to commit directly to '$branch'."
+    echo ""
+    echo "✅ Use the worktree + PR workflow instead:"
+    echo "     git worktree add -b feat/<name> .claude/worktrees/<name>"
+    echo "     # …commit in the worktree…"
+    echo "     git push -u origin feat/<name> && gh pr create ..."
+    echo "     gh pr merge <#> --merge   # after the three-leg gate is green"
+    echo ""
+    echo "   Emergency override (not for AI sessions): git commit --no-verify"
+    echo "─────────────────────────────────────────────────────────────────"
+    exit 1
+    ;;
+esac
+exit 0
