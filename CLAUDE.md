@@ -79,6 +79,27 @@ cd tests/e2e && npx playwright test      # Playwright e2e
 Do not re-add `.github/workflows/`. PRs and issues still work (free); merges are
 admin-merged after the local stack is green.
 
+## Worktree + PR workflow — never commit to `main` directly
+
+**Golden rule: never `git commit` on `main`/`master`.** A tracked pre-commit hook
+(`.githooks/pre-commit`) blocks it — activate it once per clone with
+`git config core.hooksPath .githooks`. This keeps concurrent AI sessions from
+colliding on `main` and routes every change through review.
+
+```bash
+git worktree add -b feat/<name> .claude/worktrees/<name>   # branch off main, isolated
+# …edit + commit in the worktree…
+git push -u origin feat/<name> && gh pr create ...
+gh pr merge <#> --merge                                    # after the three-leg gate is green
+```
+
+Applies to **everything** — code, docs, PRDs, plans, AI assets. No local
+`git merge`/ff onto `main`; land via PR + `gh pr merge`. Agent worktrees (the
+Agent tool's `isolation: "worktree"`) already follow this; manual work must too.
+Pitfalls: `git worktree add` without `-b` checks out `main` (always pass `-b`);
+don't force-push `main`. Emergency override (not for AI-session work):
+`git commit --no-verify`.
+
 ## Must-know constraints (read every session)
 
 - **Rekordbox must be closed** before any write (CLI or local-mode Apply). DB is SQLCipher-locked while open. Server enforces this at every write endpoint via `_rb_running(db)`.
