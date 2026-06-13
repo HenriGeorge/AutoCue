@@ -15,6 +15,7 @@
 
 import * as model from './set-model.js';
 import { render as renderCanvas } from './canvas.js';
+import { renderTray, clearFocus } from './tray.js';
 
 let _open = false;
 let _escWired = false;
@@ -44,6 +45,7 @@ export function closeNightboard() {
   if (!_open) return;
   _open = false;
   if (window.AC2 && window.AC2.nightboard && window.AC2.nightboard.closePopover) window.AC2.nightboard.closePopover();
+  clearFocus();                                       // drop tile focus + hide the reused inspector
   document.body.classList.remove('nb-active');
   document.getElementById('nb-canvas')?.setAttribute('hidden', '');
   document.getElementById('nb-open-btn')?.classList.remove('active');
@@ -70,8 +72,10 @@ async function _build() {
   if (status) status.textContent = 'Building…';
   try {
     const res = await model.buildSet(_readConfig());
+    clearFocus();                                     // new set → drop any prior tile focus
     renderCanvas();                                   // immediate paint (flat sparklines)
     _renderNotice(res);
+    if (res.tracks.length) renderTray(null);          // gravity tray anchored to the last tile
     // Repaint once the energy curves land (arc + tile sparklines fill in).
     const ids = model.getSet().map((t) => t.track_id);
     model.loadEnergyCurves(ids).then(() => renderCanvas());

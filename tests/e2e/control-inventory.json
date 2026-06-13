@@ -182,6 +182,10 @@
       "safeOnRealDb": false
     },
     {
+      "id": "nb-tray-toggle",
+      "kind": "button"
+    },
+    {
       "id": "status-restore",
       "kind": "button",
       "skipSweep": true,

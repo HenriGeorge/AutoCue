@@ -60,6 +60,8 @@ initDiscoverPlace();
 // endpoint). Entered via the workbench toolbar verb + a ⌘K command.
 import { initNightboard, openNightboard, closeNightboard, isNightboardOpen } from './nightboard/mode.js';
 import { initJointPopover, close as closeJointPopover, isOpen as jointPopoverOpen } from './nightboard/joint-popover.js';
-window.AC2.nightboard = { open: openNightboard, close: closeNightboard, isOpen: isNightboardOpen, closePopover: closeJointPopover, popoverOpen: jointPopoverOpen };
+import { initTray, focusTile, clearFocus } from './nightboard/tray.js';
+window.AC2.nightboard = { open: openNightboard, close: closeNightboard, isOpen: isNightboardOpen, closePopover: closeJointPopover, popoverOpen: jointPopoverOpen, focusTile, clearFocus };
 initNightboard();
 initJointPopover();
+initTray();

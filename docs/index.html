@@ -1407,7 +1407,15 @@ autocue --library --mode bar --bars-interval 8 --start-bar 1</pre>
       <div id="nb-timeline" class="nb-timeline" role="list"></div>
     </div>
 
-    <div id="nb-tray" class="nb-tray" hidden></div>
+    <div id="nb-tray" class="nb-tray" hidden>
+      <div class="nb-tray-head">
+        <span class="nb-tray-eyebrow">Up next</span>
+        <span id="nb-tray-context" class="nb-tray-context"></span>
+        <span class="nb-topstrip-spacer"></span>
+        <button type="button" id="nb-tray-toggle" class="nb-tray-toggle">Hide</button>
+      </div>
+      <div id="nb-tray-row" class="nb-tray-row"></div>
+    </div>
   </section>
 </main>
 

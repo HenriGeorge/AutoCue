@@ -3209,6 +3209,52 @@
     font-size: 11px; color: var(--muted);
   }
 
+  /* ── Nightboard (P4) T5 — gravity tray + tile-focus inspector ───────────── */
+  /* Re-show the existing P2 inspector flank while a tile is focused (higher
+     specificity than the nb-active hide), and pad the canvas so tiles don't
+     hide under it. */
+  body.nb-active.nb-inspecting #wb-inspector { display: block !important; }
+  body.nb-active.nb-inspecting #nb-canvas { padding-right: calc(var(--wb-insp-w) + 22px); }
+
+  .nb-tray {
+    position: sticky; bottom: 0; z-index: 30;
+    margin: 4px -22px -24px; padding: 10px 22px 14px;
+    background: var(--glass-bg); backdrop-filter: blur(12px);
+    border-top: 1px solid var(--border);
+  }
+  .nb-tray-head { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+  .nb-tray-eyebrow { font-size: 9.5px; letter-spacing: .08em; text-transform: uppercase; font-weight: 600; color: var(--muted-soft); }
+  .nb-tray-context { font-size: 11.5px; color: var(--muted); }
+  .nb-tray-context b { color: var(--text); font-weight: 600; }
+  .nb-tray-toggle {
+    font-family: var(--font-sans); font-size: 11px;
+    padding: 3px 10px; border-radius: var(--radius-pill);
+    border: 1px solid transparent; background: transparent; color: var(--muted);
+    cursor: pointer; transition: color .15s, border-color .15s;
+  }
+  .nb-tray-toggle:hover { color: var(--text); border-color: var(--border); }
+  .nb-tray-collapsed .nb-tray-row { display: none; }
+  .nb-tray-row { display: flex; gap: 10px; overflow-x: auto; padding-bottom: 2px; }
+  .nb-tray-loading { font-size: 11.5px; color: var(--muted-soft); padding: 6px 0; }
+  .nb-crate-card {
+    flex: 0 0 224px;
+    display: flex; flex-direction: column; gap: 3px;
+    border: 1px solid var(--border); border-radius: var(--radius-lg);
+    background: var(--surface); padding: 9px 11px;
+  }
+  .nb-crate-title { font-size: 12.5px; font-weight: 700; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .nb-crate-sub { font-size: 11px; color: var(--muted); margin-top: -2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .nb-crate-foot { display: flex; align-items: center; gap: 5px; margin-top: 4px; }
+  .nb-crate-score { font-family: var(--font-mono); font-size: 11px; font-weight: 700; color: var(--green); }
+  .nb-tray-add {
+    flex: 0 0 auto;
+    font-family: var(--font-sans); font-size: 11px;
+    padding: 3px 10px; border-radius: var(--radius-pill);
+    border: 1px solid var(--border); background: transparent; color: var(--text);
+    cursor: pointer; transition: border-color .15s, color .15s;
+  }
+  .nb-tray-add:hover { border-color: var(--green); color: var(--green); }
+
   @media (prefers-reduced-motion: reduce) {
     .nb-canvas * { transition: none !important; animation: none !important; }
     .nb-popover { animation: none !important; }
