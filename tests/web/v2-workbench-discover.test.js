@@ -220,3 +220,106 @@ describe('P5 T2 — shell/rail/dupes exit the discover place (module source cont
     expect(discSrc).not.toContain('fetch(')
   })
 })
+
+/**
+ * T3 — release detail re-hosted into the inspector (R4).
+ */
+describe('P5 T3 — legacy slide-in suppressed when the place owns the centre (source contract)', () => {
+  it('_openDetailPanel early-returns to focusRelease when the discover place is active', () => {
+    const fn = src.slice(
+      src.indexOf('async function _openDetailPanel('),
+      src.indexOf("const panel = document.getElementById('disc-v2-detail-panel');"),
+    )
+    expect(fn).toContain('window.AC2.discover.isActive()')
+    expect(fn).toContain('window.AC2.discover.focusRelease(releaseKey)')
+    expect(fn).toMatch(/return;\s*\n\s*}/)
+  })
+  it('exposes _renderDetailBody so the inspector reuses the legacy markup (not duplicated)', () => {
+    expect(src).toMatch(/window\._renderDiscoverRenderDetail\s*=\s*_renderDetailBody/)
+  })
+})
+
+function _inspectorDom() {
+  document.body.className = 'wb-active'
+  document.body.innerHTML = `
+    <aside id="wb-inspector">
+      <div id="wb-inspector-empty"></div>
+      <div id="wb-inspector-body" hidden></div>
+    </aside>
+    <div id="track-list"></div>
+    <div id="disc-v2-detail-panel"><div id="disc-v2-detail-body"></div></div>
+  `
+}
+
+describe('P5 T3 — inspector release re-host + mode flag (jsdom)', () => {
+  let insp
+  let renderCalls
+
+  beforeEach(async () => {
+    _inspectorDom()
+    renderCalls = []
+    window._renderDiscoverRenderDetail = vi.fn((release, detail, status) => {
+      renderCalls.push({ status })
+      const host = document.getElementById('disc-v2-detail-body')
+      if (host) host.textContent = `${status}:${release.release?.title || ''}`
+    })
+    window.ACBridge = {
+      tracks: () => [],
+      discoverState: () => ({
+        cardsByKey: new Map([[
+          'rk1', { release_key: 'rk1', release: { id: 101, title: 'Madvillainy', artist: 'Madvillain', label: 'Stones Throw', year: 2004, styles: ['Hip Hop'] } },
+        ]]),
+      }),
+      discoverLoadDetail: vi.fn().mockResolvedValue({ id: 101, tracklist: [] }),
+    }
+    insp = await import('../../docs/js/v2/workbench/inspector.js')
+    insp.clearInspector()
+  })
+
+  it('renderReleaseInspector populates the inspector body in release mode with mono data chips', () => {
+    insp.renderReleaseInspector('rk1')
+    expect(insp.inspectorMode()).toBe('release')
+    const body = document.getElementById('wb-inspector-body')
+    expect(body.hidden).toBe(false)
+    expect(body.querySelector('.wb-insp-title').textContent).toBe('Madvillainy')
+    const chips = Array.from(body.querySelectorAll('.wb-insp-chip')).map((c) => c.textContent)
+    expect(chips).toContain('2004')
+    expect(chips).toContain('Stones Throw')
+    expect(chips).toContain('#101')
+    expect(chips).toContain('Hip Hop')
+    // R6 — data chips are mono.
+    expect(body.querySelector('.wb-insp-chip').classList.contains('mono')).toBe(true)
+  })
+
+  it('reuses the legacy _renderDetailBody (loading then loaded) — no duplicated markup', async () => {
+    insp.renderReleaseInspector('rk1')
+    await Promise.resolve(); await Promise.resolve()
+    expect(window._renderDiscoverRenderDetail).toHaveBeenCalled()
+    expect(renderCalls.some((c) => c.status === 'loading')).toBe(true)
+  })
+
+  it('clearInspector resets mode to track + restores the detail node to its panel', () => {
+    insp.renderReleaseInspector('rk1')
+    // node relocated into the inspector
+    expect(document.getElementById('wb-inspector-body').contains(document.getElementById('disc-v2-detail-body'))).toBe(true)
+    insp.clearInspector()
+    expect(insp.inspectorMode()).toBe('track')
+    // node back inside the panel
+    expect(document.getElementById('disc-v2-detail-panel').contains(document.getElementById('disc-v2-detail-body'))).toBe(true)
+    expect(document.getElementById('wb-inspector-body').hidden).toBe(true)
+  })
+
+  it('a grid click while in release mode does not clobber the inspector with track detail', () => {
+    insp.renderReleaseInspector('rk1')
+    insp.initInspector()
+    const list = document.getElementById('track-list')
+    const card = document.createElement('div')
+    card.className = 'track-card'
+    card.dataset.trackId = '5'
+    list.appendChild(card)
+    card.click()
+    // still in release mode — the early-return held
+    expect(insp.inspectorMode()).toBe('release')
+    expect(document.getElementById('wb-inspector-body').querySelector('.wb-insp-title').textContent).toBe('Madvillainy')
+  })
+})

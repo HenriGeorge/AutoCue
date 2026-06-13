@@ -36,7 +36,7 @@
  * containing tab body is display-toggled by switchTab.
  */
 
-import { clearInspector, renderReleaseInspector, setInspectorMode } from './inspector.js';
+import { clearInspector, renderReleaseInspector, setInspectorMode, inspectorMode } from './inspector.js';
 
 // Centre-pane elements hidden while the place is active. switchTab('discover')
 // already display:none's #cues-tab-content (which contains all three), so this
@@ -46,8 +46,23 @@ const HIDE_IDS = ['tracks-sticky', 'track-list', 'wb-grid-head'];
 
 let _active = false;
 let _loadedOnce = false;
+let _escHandler = null;
 
 export function isActive() { return _active; }
+
+// Escape clears a focused release back to the inspector empty state. Scoped:
+// only installed while the place is active, only acts when a release is
+// re-hosted (mode 'release'), and yields to any open Discover dialog (the
+// detail-panel/snooze/help handlers run in capture and stop their own keys —
+// but with the place active the slide-in is suppressed, so the only release
+// surface is the inspector). Installed in the bubble phase so legacy capture
+// dialogs win first.
+function _onKeydown(ev) {
+  if (ev.key !== 'Escape') return;
+  if (inspectorMode() !== 'release') return;
+  clearInspector();              // resets mode → 'track' + empty state
+  document.getElementById('wb-inspector')?.removeAttribute('hidden');
+}
 
 function _announce() {
   // Shell + rail repaint their active states off this (e.g. crates paint no
@@ -71,6 +86,7 @@ export function activate() {
   document.getElementById('wb-inspector')?.setAttribute('hidden', '');
   document.body.classList.add('wb-place-disc');
   document.getElementById('wb-disc-place')?.classList.add('active');
+  if (!_escHandler) { _escHandler = _onKeydown; document.addEventListener('keydown', _escHandler); }
   _announce();
   // Lazy first load: Discover already loads its state at boot
   // (initDiscoverV2), so this is normally a no-op refresh — but the
@@ -91,6 +107,7 @@ export function deactivate() {
   document.getElementById('wb-inspector')?.removeAttribute('hidden');
   document.body.classList.remove('wb-place-disc');
   document.getElementById('wb-disc-place')?.classList.remove('active');
+  if (_escHandler) { document.removeEventListener('keydown', _escHandler); _escHandler = null; }
   // Reset the inspector back to 'track' mode + empty state.
   clearInspector();
   // Repaint the re-shown grid.

@@ -2014,6 +2014,14 @@ let _detailCurrentRelease = null;
 let _detailKeydownHandler = null;
 
 async function _openDetailPanel(releaseKey) {
+  // P5: when the v2 Discover place owns the workbench centre, the release
+  // detail is re-hosted in the right inspector — suppress the legacy slide-in
+  // panel entirely and route to the place's inspector re-host instead. The
+  // flag-off / legacy-tab path still gets the slide-in below.
+  if (window.AC2 && window.AC2.discover && window.AC2.discover.isActive && window.AC2.discover.isActive()) {
+    window.AC2.discover.focusRelease(releaseKey);
+    return;
+  }
   const panel = document.getElementById('disc-v2-detail-panel');
   const backdrop = document.getElementById('disc-v2-detail-backdrop');
   const body = document.getElementById('disc-v2-detail-body');
