@@ -48,6 +48,7 @@ const REQUIRED_SELECTORS: string[] = [
   "#status-restore",
   "#wb-restore-sheet",
   "#wb-restore-go",
+  "#wb-restore-dismiss",
 ];
 
 test.describe("selectors exist in docs/index.html", () => {

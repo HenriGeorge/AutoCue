@@ -911,7 +911,12 @@ function _showDuplicatesUndoToast(summary, requested) {
   const drain = document.createElement('div');
   drain.className = 'wb-dup-undo-drain';
   banner.appendChild(drain);
-  host.parentNode.insertBefore(banner, host);
+  // Insert at the top of the pane's content host (above the group list), NOT
+  // before #duplicates-summary — the summary now lives inside the flex
+  // #wb-dupes-toolbar (P3 T4), so anchoring to it would drop the banner into
+  // the toolbar row instead of as a full-width block above the groups.
+  const contentHost = document.getElementById('wb-dupes-host') || host.parentNode;
+  contentHost.insertBefore(banner, contentHost.firstChild);
   requestAnimationFrame(() => { drain.style.width = '0%'; });
   // Auto-dismiss after 30s — the backup is still in /api/backups if the
   // user wants it later. Fade out instead of snapping away.
