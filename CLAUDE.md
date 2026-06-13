@@ -42,7 +42,7 @@ AutoCue places hot cues on Rekordbox 7 tracks automatically and analyses a DJ li
 
 1. **Python CLI** (`autocue/`) — reads Rekordbox's database and ANLZ files directly. Fallback strategy: phrase → bar → heuristic. Outputs a Rekordbox XML for import.
 2. **Local server** (`autocue serve`) — FastAPI at `localhost:7432`. Serves the web UI and exposes a REST API that reads/writes the Rekordbox database directly. **All intelligence features** (energy, mixability, classification, similar tracks, transitions, set builder, library health, auto-tagging, comment enrichment, Discogs, discovery, download) are only available in this mode.
-3. **Web app** (`docs/index.html` + `docs/css/` + `docs/js/`) — browser-based, multi-file, **no build step**. Static / GitHub-Pages-ready (XML in/out); Pages is **not currently configured** (`/pages` 404s) — the app is reached via `autocue serve`, which also unlocks the full local-mode feature set.
+3. **Web app** (`docs/index.html` + `docs/css/` + `docs/js/`) — browser-based, multi-file, **no build step**. Static / GitHub-Pages-ready (XML in/out); Pages is **not currently configured** (`/pages` 404s) — the app is reached via `autocue serve`, which also unlocks the full local-mode feature set. In local mode the **2.0 "Crate Console" workbench is the default home** (`docs/js/v2/`, default-on; opt-out `ac_workbench='0'`): rail places (Duplicates, Discover) + ⌘K palette + crates. The legacy tab nav is retired (P0–P3+P5 shipped; P4 Nightboard plan queued); `switchTab` plumbing survives as the workbench's centre-pane swap. XML/Pages mode is frozen. Program: `.claude/PRPs/prds/autocue-2-program.prd.md`; current state: `HANDOFF.md`.
 
 ## Development commands
 

@@ -48,11 +48,13 @@ program; each phase ships as its own PRD + plan + PR.
 |---|---|---|
 | P0 | Foundations: file split + test migration + XML freeze | ✅ **MERGED** (main, #208) |
 | P1 | Global layer: status sentence + ⌘K palette + composer seam | ✅ **MERGED** (main, #209) |
-| P2 | Workbench-as-home (= **v1 milestone**): rail/grid/inspector, F stamps/ticks, H consent, G lede. **Flag-gated** (`ac_workbench`); retire-tabs deferred to post-parity | ✅ **MERGED** (main, #211) — gate 762/1442/185-0 |
-| P3 | Duplicates as a place (restyle existing logic into center-pane view) | |
-| P4 | Nightboard canvas mode | |
-| P5 | Discover restyle into the shell + theme audit + aliveness round 2 | |
-| P6 | `AUTOCUE_LLM` opt-in: palette composer routes to a Claude-API assistant with artifact responses (design after P2 usage) | |
+| P2 | Workbench-as-home (= **v1 milestone**): rail/grid/inspector, F stamps/ticks, H consent, G lede. **Default-on** in local mode (`ac_workbench !== '0'`, c3dcff0); opt-out reverts to the legacy UI | ✅ **MERGED** (main, #211) — default-on shipped post-merge |
+| P3 | Duplicates as a place (restyle existing logic into center-pane view) | ✅ **MERGED** (main, #212) |
+| P4 | Nightboard canvas mode | 📋 plan ready (PR #214); not started |
+| P5 | Discover restyle into the shell + theme audit + aliveness round 2 — **retires `#tab-discover`** | ✅ **MERGED** (main, #215) |
+| P6 | `AUTOCUE_LLM` opt-in: palette composer routes to a Claude-API assistant with artifact responses (design after P2 usage) | 📋 PRD only (deferred) |
+
+**Tab retirement:** the legacy tab nav (`#tab-nav`) has been `display:none` since P2; P5 removed the `#tab-discover` button. The workbench (rail places + ⌘K + crates) is the sole navigation in local mode. Residual `#tab-cues`/`#tab-library` buttons remain as inert hidden markup; the `switchTab` plumbing is reused by the workbench to swap the centre pane.
 
 ## What we're NOT building
 
