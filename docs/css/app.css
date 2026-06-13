@@ -3152,6 +3152,64 @@
   .nb-joint-bad .nb-joint-score { color: var(--danger); }
   .nb-joint-na .nb-joint-score { color: var(--muted-soft); }
 
+  /* ── Nightboard (P4) T4 — joint popover + swap ──────────────────────────── */
+  .nb-mono { font-family: var(--font-mono); }
+  .nb-band-good { color: var(--green); }
+  .nb-band-ok { color: var(--warn-amber); }
+  .nb-band-bad { color: var(--danger); }
+  .nb-band-na { color: var(--muted-soft); }
+
+  .nb-popover {
+    position: fixed; z-index: 200;
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: var(--radius-lg); box-shadow: var(--shadow-lg);
+    padding: 13px 15px;
+    animation: nbFadeUp .22s ease-out;
+  }
+  @keyframes nbFadeUp { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+  .nb-po-loading { font-size: 12px; color: var(--muted); }
+  .nb-po-head { display: flex; align-items: baseline; gap: 10px; }
+  .nb-po-pair { flex: 1; font-size: 12.5px; font-weight: 600; color: var(--text); }
+  .nb-po-arrow { color: var(--muted); }
+  .nb-po-score { font-family: var(--font-mono); font-size: 15px; font-weight: 700; }
+  .nb-po-score small { font-size: 9px; color: var(--muted-soft); font-weight: 400; }
+  .nb-po-reasons { list-style: none; margin: 9px 0 4px; padding: 0; display: flex; flex-direction: column; gap: 5px; }
+  .nb-po-reasons li {
+    position: relative; padding-left: 13px;
+    font-size: 11.5px; color: var(--muted); line-height: 1.35;
+  }
+  .nb-po-reasons li::before {
+    content: ''; position: absolute; left: 0; top: 6px;
+    width: 5px; height: 5px; border-radius: 50%; background: var(--border-hover);
+  }
+  .nb-po-alt-label {
+    margin: 10px 0 6px; font-size: 9.5px; letter-spacing: .08em;
+    text-transform: uppercase; color: var(--muted-soft);
+  }
+  .nb-po-alt {
+    display: flex; align-items: center; gap: 8px;
+    border: 1px solid var(--border); border-radius: var(--radius-md);
+    padding: 6px 8px; margin-bottom: 6px;
+  }
+  .nb-po-alt-meta { flex: 1; min-width: 0; }
+  .nb-po-alt-title { font-size: 12px; font-weight: 600; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .nb-po-alt-sub { font-size: 10.5px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .nb-po-alt-score { font-family: var(--font-mono); font-size: 12px; font-weight: 700; }
+  .nb-swap {
+    flex: 0 0 auto;
+    font-family: var(--font-sans); font-size: 11px;
+    padding: 4px 11px; border-radius: var(--radius-pill);
+    border: 1px solid var(--border); background: transparent; color: var(--text);
+    cursor: pointer; transition: border-color .15s, color .15s;
+  }
+  .nb-swap:hover { border-color: var(--green); color: var(--green); }
+  .nb-po-empty { font-size: 11.5px; color: var(--muted-soft); margin: 8px 0 2px; }
+  .nb-po-tip {
+    margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--border);
+    font-size: 11px; color: var(--muted);
+  }
+
   @media (prefers-reduced-motion: reduce) {
     .nb-canvas * { transition: none !important; animation: none !important; }
+    .nb-popover { animation: none !important; }
   }

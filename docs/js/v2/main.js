@@ -59,5 +59,7 @@ initDiscoverPlace();
 // on the existing setbuilder/transitions REST surface (no new analysis, no new
 // endpoint). Entered via the workbench toolbar verb + a ⌘K command.
 import { initNightboard, openNightboard, closeNightboard, isNightboardOpen } from './nightboard/mode.js';
-window.AC2.nightboard = { open: openNightboard, close: closeNightboard, isOpen: isNightboardOpen };
+import { initJointPopover, close as closeJointPopover, isOpen as jointPopoverOpen } from './nightboard/joint-popover.js';
+window.AC2.nightboard = { open: openNightboard, close: closeNightboard, isOpen: isNightboardOpen, closePopover: closeJointPopover, popoverOpen: jointPopoverOpen };
 initNightboard();
+initJointPopover();

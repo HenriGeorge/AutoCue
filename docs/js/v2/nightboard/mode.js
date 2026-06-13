@@ -43,6 +43,7 @@ export function openNightboard() {
 export function closeNightboard() {
   if (!_open) return;
   _open = false;
+  if (window.AC2 && window.AC2.nightboard && window.AC2.nightboard.closePopover) window.AC2.nightboard.closePopover();
   document.body.classList.remove('nb-active');
   document.getElementById('nb-canvas')?.setAttribute('hidden', '');
   document.getElementById('nb-open-btn')?.classList.remove('active');
