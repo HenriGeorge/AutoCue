@@ -112,7 +112,7 @@ test.describe("Web UI smoke (local mode)", () => {
     expect(errors, "console / page errors during load").toEqual([]);
   });
 
-  test("can switch between Cues / Library / Discover tabs", async ({
+  test("can switch between Cues / Library / Discover surfaces", async ({
     page,
     baseURL,
   }) => {
@@ -122,9 +122,11 @@ test.describe("Web UI smoke (local mode)", () => {
     await page.goto("/");
     await expect(page.locator("#tab-nav")).toBeVisible({ timeout: 10_000 });
 
-    for (const tabId of ["#tab-library", "#tab-discover", "#tab-cues"]) {
-      await page.locator(tabId).click();
-      // Tab switch is synchronous DOM toggle; give it one tick.
+    // P5: #tab-discover retired — Discover is the #wb-disc-place rail place;
+    // Cues + Library tab buttons survive in the (hidden) strip.
+    for (const sel of ["#tab-library", "#wb-disc-place", "#tab-cues"]) {
+      await page.locator(sel).click();
+      // Switch is a synchronous DOM toggle; give it one tick.
       await page.waitForTimeout(100);
     }
 

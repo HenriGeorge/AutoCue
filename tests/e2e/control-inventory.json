@@ -27,10 +27,6 @@
       "kind": "button"
     },
     {
-      "id": "tab-discover",
-      "kind": "button"
-    },
-    {
       "id": "playlist-select",
       "kind": "select"
     },
@@ -128,6 +124,12 @@
       "kind": "button",
       "skipSweep": true,
       "skipReason": "Opens the \u2318K command-palette overlay \u2014 covered by v2-global-layer.spec"
+    },
+    {
+      "id": "wb-disc-place",
+      "kind": "button",
+      "skipSweep": true,
+      "skipReason": "P5 workbench rail place \u2014 swaps the centre pane to the Discover feed; scans hit the network, covered (mocked) by v2-discover-shell.spec"
     },
     {
       "id": "wb-dupes-place",

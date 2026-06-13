@@ -44,7 +44,10 @@ function _renderCrates() {
   const tracks = window.ACBridge ? window.ACBridge.tracks() : [];
   // P3: while a centre-pane place (Duplicates) is active, no crate row paints
   // `.active` — the place owns the centre, not a crate filter.
-  const placeActive = !!(window.AC2 && window.AC2.duplicates && window.AC2.duplicates.isActive());
+  const placeActive = !!(
+    (window.AC2 && window.AC2.duplicates && window.AC2.duplicates.isActive()) ||
+    (window.AC2 && window.AC2.discover && window.AC2.discover.isActive())
+  );
   const current = placeActive ? null : (window.ACBridge ? window.ACBridge.crate() : 'all');
   host.innerHTML = '';
   for (const c of CRATES) {
@@ -56,8 +59,9 @@ function _renderCrates() {
       `<span class="wb-crate-label">${c.label}</span>` +
       `<span class="wb-crate-count">${count.toLocaleString()}</span>`;
     btn.addEventListener('click', () => {
-      // P3: leaving via a crate click exits the Duplicates place first.
+      // P3/P5: leaving via a crate click exits any active centre-pane place.
       if (window.AC2 && window.AC2.duplicates) window.AC2.duplicates.deactivate();
+      if (window.AC2 && window.AC2.discover) window.AC2.discover.deactivate();
       if (window.ACBridge) window.ACBridge.setCrate(c.id);
       _renderCrates(); // repaint active state
     });
@@ -123,8 +127,9 @@ function activate() {
 function deactivate() {
   if (!_active) return;
   _active = false;
-  // P3: a centre-pane place can't outlive the workbench — restore the grid.
+  // P3/P5: a centre-pane place can't outlive the workbench — restore the grid.
   if (window.AC2 && window.AC2.duplicates) window.AC2.duplicates.deactivate();
+  if (window.AC2 && window.AC2.discover) window.AC2.discover.deactivate();
   document.body.classList.remove('wb-active');
   document.getElementById('wb-rail')?.setAttribute('hidden', '');
   document.getElementById('wb-inspector')?.setAttribute('hidden', '');

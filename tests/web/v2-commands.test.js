@@ -22,7 +22,7 @@ describe('buildCommands', () => {
   it('covers the core surfaces', () => {
     const ids = cmds.map((c) => c.id)
     for (const want of ['preview-cues', 'apply', 'health-scan', 'find-duplicates',
-      'build-set', 'toggle-theme', 'go-cues', 'go-library', 'go-discover']) {
+      'find-releases', 'build-set', 'toggle-theme', 'go-cues', 'go-library', 'go-discover']) {
       expect(ids).toContain(want)
     }
   })
@@ -50,6 +50,36 @@ describe('buildCommands', () => {
       // when the place is already open, the command must NOT toggle it closed
       window.AC2.duplicates.isActive = () => true
       buildCommands().find((c) => c.id === 'find-duplicates').run()
+      expect(clicks).toBe(2)
+      btn.remove()
+    } finally {
+      window.AC2 = prev
+    }
+  })
+
+  it('find-releases + go-discover open the workbench discover place (P5)', () => {
+    const prev = window.AC2
+    try {
+      const setWorkbench = []
+      window.AC2 = {
+        workbench: { setWorkbench: (v) => setWorkbench.push(v) },
+        discover: { isActive: () => false },
+      }
+      const btn = document.createElement('button')
+      btn.id = 'wb-disc-place'
+      let clicks = 0
+      btn.addEventListener('click', () => { clicks++ })
+      document.body.appendChild(btn)
+      for (const id of ['find-releases', 'go-discover']) {
+        const cmd = buildCommands().find((c) => c.id === id)
+        expect(cmd, `${id} must exist`).toBeTruthy()
+        cmd.run()
+      }
+      expect(setWorkbench).toEqual([true, true]) // explicit intent overrides opt-out
+      expect(clicks).toBe(2) // delegation via the rail entry's own click
+      // already open → must NOT toggle it closed
+      window.AC2.discover.isActive = () => true
+      buildCommands().find((c) => c.id === 'go-discover').run()
       expect(clicks).toBe(2)
       btn.remove()
     } finally {

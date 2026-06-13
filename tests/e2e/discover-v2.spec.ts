@@ -19,29 +19,13 @@ import { test, expect, Route } from "@playwright/test";
  * the pytest suite's job (T-014..T-023).
  */
 
-const DISCOVER_TAB_SELECTOR = '[data-tab="discover"], #tab-discover-btn, .tab-discover';
-
 async function activateDiscover(page: import("@playwright/test").Page) {
-  // The tab button can appear under a few selectors depending on the v1
-  // → v2 transition state. Try them in order.
-  for (const sel of [
-    'button[data-tab="discover"]',
-    '#tab-discover-btn',
-    'a[href="#tab-discover"]',
-  ]) {
-    const loc = page.locator(sel);
-    if (await loc.count() > 0) {
-      await loc.first().click();
-      return;
-    }
-  }
-  // Last-resort fall back: click any button whose label is "Discover".
-  const generic = page.getByRole("button", { name: /^Discover$/ });
-  if (await generic.count() > 0) {
-    await generic.first().click();
-    return;
-  }
-  throw new Error("Could not find the Discover tab activator");
+  // P5: the legacy #tab-discover tab is retired — Discover is now the
+  // #wb-disc-place workbench rail place (which calls switchTab('discover') to
+  // show #discover-tab-content + re-hosts release detail in the inspector).
+  const place = page.locator("#wb-disc-place");
+  await expect(place).toBeVisible({ timeout: 10_000 });
+  await place.click();
 }
 
 async function mockDiscoverApi(page: import("@playwright/test").Page, overrides: {
@@ -166,7 +150,9 @@ test.describe("Discover v2", () => {
     await expect(grid.getByText("Donuts")).toBeVisible();
   });
 
-  test("clicking a card opens the detail panel and Escape closes it", async ({ page }) => {
+  test("focusing a card re-hosts the release detail in the inspector; Escape clears it", async ({ page }) => {
+    // P5: inside the workbench place, the legacy slide-in is suppressed — the
+    // release detail re-hosts in the right inspector (#wb-inspector-body).
     await mockDiscoverApi(page, {
       followedLabels: [{ label_id: 999, name: "Stones Throw" }],
     });
@@ -177,16 +163,19 @@ test.describe("Discover v2", () => {
     await expect(grid.locator(".disc-v2-card").first()).toBeVisible({ timeout: 8000 });
     await grid.locator(".disc-v2-card").first().click();
 
-    const panel = page.locator("#disc-v2-detail-panel");
-    await expect(panel).toHaveAttribute("aria-hidden", "false", { timeout: 3000 });
-    await expect(page.locator("#disc-v2-detail-heading")).toBeVisible();
+    const inspectorBody = page.locator("#wb-inspector-body");
+    await expect(inspectorBody).toBeVisible({ timeout: 3000 });
+    await expect(inspectorBody.locator(".wb-insp-title")).toBeVisible();
+    // The legacy slide-in stays suppressed.
+    await expect(page.locator("#disc-v2-detail-panel")).toHaveAttribute("aria-hidden", "true");
 
-    // Tracklist loads from the mocked /releases/{id}.
-    await expect(panel.locator(".disc-v2-detail-tracklist li")).toHaveCount(2);
+    // Tracklist loads from the mocked /releases/{id} into the re-hosted detail.
+    await expect(inspectorBody.locator(".disc-v2-detail-tracklist li")).toHaveCount(2, { timeout: 3000 });
 
-    // Escape closes.
+    // Escape clears the focused release back to the empty inspector state.
     await page.keyboard.press("Escape");
-    await expect(panel).toHaveAttribute("aria-hidden", "true", { timeout: 2000 });
+    await expect(inspectorBody).toBeHidden({ timeout: 2000 });
+    await expect(page.locator("#wb-inspector-empty")).toBeVisible();
   });
 
   test("`?` opens the keyboard help overlay", async ({ page }) => {

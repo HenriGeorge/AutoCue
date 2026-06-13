@@ -56,7 +56,11 @@
   <div id="tab-group">
     <button id="tab-cues" class="tab-btn active">Cues</button>
     <button id="tab-library" class="tab-btn">Library</button>
-    <button id="tab-discover" class="tab-btn">Discover</button>
+    <!-- P5: #tab-discover retired — Discover is now a workbench rail place
+         (#wb-disc-place). switchTab('discover') + #discover-tab-content survive
+         (the place USES them); only the tab-strip button is gone. With P2's
+         Cues + Library retirement, all three legacy tabs are now removed. -->
+    <!-- @control-inventory removed: tab-discover; @selectors-exist removed: #tab-discover -->
   </div>
   <!-- AutoCue 2.0 status sentence: facts are buttons (clickable) — the v2
        module docs/js/v2/status-sentence.js wires navigation + the rb poll.
@@ -1082,45 +1086,46 @@ autocue --library --mode bar --bars-interval 8 --start-bar 1</pre>
        novelty, served by /api/discover/feed SSE. The old v1 'scan library' panel
        is replaced by this surface. -->
   <section id="disc-v2-section" class="panel-card">
-    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;flex-wrap:wrap;gap:8px;">
+    <div class="disc-v2-head">
       <div>
-        <h2 style="margin:0;font-size:15px;font-weight:700;">Discover &amp; Watchlist</h2>
-        <p style="margin:4px 0 0;font-size:12px;color:var(--muted);">Personalized new releases from your library&apos;s artists + labels you follow, with novelty picks mixed in. Filtered against what you already own / saved / dismissed.</p>
+        <h2 class="disc-v2-head-title">Discover &amp; Watchlist</h2>
+        <p class="disc-v2-head-sub">Personalized new releases from your library&apos;s artists + labels you follow, with novelty picks mixed in. Filtered against what you already own / saved / dismissed.</p>
       </div>
-      <div style="display:flex;gap:6px;align-items:center;">
-        <button id="disc-v2-settings-btn" class="secondary-btn" style="font-size:12px;">⚙ Settings</button>
-        <button id="disc-v2-refresh-btn" class="primary" style="font-size:13px;">↻ Refresh</button>
+      <div class="disc-v2-head-actions">
+        <button id="disc-v2-settings-btn" class="secondary-btn disc-v2-pill-sm">Settings</button>
+        <button id="disc-v2-refresh-btn" class="primary disc-v2-scan-cta">Refresh</button>
       </div>
     </div>
 
-    <!-- Token banner — shown when DISCOGS_TOKEN is missing or rejected. -->
-    <div id="disc-v2-token-banner" style="display:none;font-size:12px;color:var(--muted);background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:8px 10px;margin-bottom:12px;"></div>
+    <!-- Token banner — shown when DISCOGS_TOKEN is missing or rejected.
+         display:none is the JS toggle contract (.style.display='' shows it). -->
+    <div id="disc-v2-token-banner" class="disc-v2-banner" style="display:none"></div>
 
     <!-- Onboarding banner — shown on first run when no labels followed. -->
-    <div id="disc-v2-onboarding-banner" style="display:none;font-size:13px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:12px;margin-bottom:12px;">
+    <div id="disc-v2-onboarding-banner" class="disc-v2-banner" style="display:none">
       <strong>Pick labels from your library to watch</strong>
-      <p style="margin:4px 0 8px;font-size:12px;color:var(--muted);">Discover scans the labels you follow for new releases. Here are the top labels you actually play, ranked by your library&apos;s history.</p>
-      <div id="disc-v2-onboarding-suggestions" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px;"></div>
-      <button id="disc-v2-onboarding-add-all" class="primary" style="font-size:12px;">Add all to watch list</button>
-      <button id="disc-v2-onboarding-skip" class="secondary-btn" style="font-size:12px;margin-left:6px;">Skip for now</button>
+      <p class="disc-v2-banner-sub">Discover scans the labels you follow for new releases. Here are the top labels you actually play, ranked by your library&apos;s history.</p>
+      <div id="disc-v2-onboarding-suggestions" class="disc-v2-onboarding-suggestions"></div>
+      <button id="disc-v2-onboarding-add-all" class="primary disc-v2-pill-sm">Add all to watch list</button>
+      <button id="disc-v2-onboarding-skip" class="secondary-btn disc-v2-pill-sm">Skip for now</button>
     </div>
 
     <!-- Filter bar (row 1) — server-side filters: source, sort, year. -->
-    <div id="disc-v2-filter-bar" style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:8px;">
-      <span style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.04em;">Source:</span>
+    <div id="disc-v2-filter-bar" class="disc-v2-filter-bar">
+      <span class="disc-v2-filter-label">Source:</span>
       <label class="disc-v2-chip"><input type="checkbox" data-source="artist" checked> Artist</label>
       <label class="disc-v2-chip"><input type="checkbox" data-source="label" checked> Label</label>
       <label class="disc-v2-chip"><input type="checkbox" data-source="novelty" checked> Novelty</label>
-      <span style="margin-left:10px;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.04em;">Sort:</span>
-      <select id="disc-v2-sort" style="font-size:12px;padding:4px 6px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--text);">
+      <span class="disc-v2-filter-label disc-v2-filter-label-gap">Sort:</span>
+      <select id="disc-v2-sort" class="disc-v2-select">
         <option value="taste">Taste match</option>
         <option value="newest">Newest</option>
         <option value="title">Title</option>
         <option value="artist">Artist</option>
         <option value="explore">Explore mode (50/50)</option>
       </select>
-      <span style="margin-left:10px;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.04em;">Year:</span>
-      <select id="disc-v2-year" style="font-size:12px;padding:4px 6px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--text);">
+      <span class="disc-v2-filter-label disc-v2-filter-label-gap">Year:</span>
+      <select id="disc-v2-year" class="disc-v2-select">
         <option value="">All</option>
         <option value="this">This year</option>
         <option value="last2">Last 2 years</option>
@@ -1128,24 +1133,21 @@ autocue --library --mode bar --bars-interval 8 --start-bar 1</pre>
         <option value="custom">Specific year…</option>
       </select>
       <input id="disc-v2-year-custom" type="number" min="1900" max="2099" step="1"
-             placeholder="YYYY" aria-label="Specific year"
-             style="display:none;width:72px;font-size:12px;padding:4px 6px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--text);">
+             placeholder="YYYY" aria-label="Specific year" class="disc-v2-input disc-v2-year-custom" style="display:none">
     </div>
 
     <!-- Filter bar (row 2) — client-side filters applied to the loaded feed.
          No re-scan needed; these narrow what's already on screen. -->
-    <div id="disc-v2-filter-bar-2" style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:12px;">
+    <div id="disc-v2-filter-bar-2" class="disc-v2-filter-bar">
       <input id="disc-v2-search" type="search" placeholder="Search artist or title…"
-             aria-label="Search Discover feed"
-             style="flex:1;min-width:180px;max-width:280px;font-size:12px;padding:6px 8px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--text);">
+             aria-label="Search Discover feed" class="disc-v2-input disc-v2-search">
       <label class="disc-v2-chip"><input type="checkbox" id="disc-v2-hide-saved"> Hide saved</label>
       <label class="disc-v2-chip"><input type="checkbox" id="disc-v2-hide-dismissed" checked> Hide dismissed</label>
-      <button id="disc-v2-styles-clear" class="secondary-btn"
-              style="display:none;font-size:11px;padding:3px 8px;"
-              title="Clear all style filters">Clear styles</button>
+      <button id="disc-v2-styles-clear" class="secondary-btn disc-v2-pill-xs"
+              title="Clear all style filters" style="display:none">Clear styles</button>
     </div>
     <!-- Style chips — populated from the visible feed's Discogs styles. -->
-    <div id="disc-v2-style-chips" style="display:none;flex-wrap:wrap;gap:6px;margin-bottom:12px;"></div>
+    <div id="disc-v2-style-chips" class="disc-v2-style-chips" style="display:none"></div>
 
     <!-- Inline scan-error banner (issue #169). Shown when a refresh attempt
          fails — most commonly 409 from a year-filter change racing the
@@ -1153,77 +1155,76 @@ autocue --library --mode bar --bars-interval 8 --start-bar 1</pre>
          feed grid may still have cards from a prior successful scan; we
          want to tell the user "your filter didn't apply" without blowing
          away their data. -->
-    <div id="disc-v2-scan-error-inline" style="display:none;font-size:12px;background:color-mix(in srgb, var(--amber, #c98a00) 12%, var(--surface2));border:1px solid var(--amber, #c98a00);border-radius:6px;padding:8px 10px;margin-bottom:12px;display:none;align-items:center;gap:8px;">
-      <span id="disc-v2-scan-error-inline-msg" style="flex:1;"></span>
-      <button id="disc-v2-scan-error-inline-retry" class="secondary-btn" style="font-size:11px;">Retry</button>
+    <div id="disc-v2-scan-error-inline" class="disc-v2-amber-banner" style="display:none">
+      <span id="disc-v2-scan-error-inline-msg" class="disc-v2-amber-banner-msg"></span>
+      <button id="disc-v2-scan-error-inline-retry" class="secondary-btn disc-v2-pill-xs">Retry</button>
     </div>
 
     <!-- Scan progress indicator -->
-    <div id="disc-v2-scan-progress" style="display:none;font-size:12px;color:var(--muted);background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:8px 10px;margin-bottom:12px;">
-      <div style="display:flex;align-items:center;gap:8px;">
+    <div id="disc-v2-scan-progress" class="disc-v2-banner disc-v2-scan-progress" style="display:none">
+      <div class="disc-v2-scan-progress-row">
         <span class="disc-v2-spinner" aria-hidden="true"></span>
         <span id="disc-v2-scan-progress-label">Scanning…</span>
-        <button id="disc-v2-scan-cancel-btn" class="secondary-btn" style="font-size:11px;margin-left:auto;">Cancel</button>
+        <button id="disc-v2-scan-cancel-btn" class="secondary-btn disc-v2-pill-xs disc-v2-scan-cancel">Cancel</button>
       </div>
-      <div id="disc-v2-scan-progress-breakdown" style="margin-top:6px;display:flex;gap:10px;flex-wrap:wrap;font-size:11px;"></div>
-      <div id="disc-v2-scan-progress-warning" style="margin-top:6px;font-size:11px;color:var(--amber, #c98a00);display:none;"></div>
-      <div class="cue-tools-progress" style="margin-top:6px;">
-        <div class="cue-tools-progress-fill" id="disc-v2-scan-progress-fill" style="width:0%"></div>
+      <div id="disc-v2-scan-progress-breakdown" class="disc-v2-scan-breakdown"></div>
+      <div id="disc-v2-scan-progress-warning" class="disc-v2-scan-warn" style="display:none"></div>
+      <div class="cue-tools-progress disc-v2-scan-bar">
+        <div class="cue-tools-progress-fill" id="disc-v2-scan-progress-fill"></div>
       </div>
     </div>
 
     <!-- Post-scan delta strip — appears for a few seconds after a scan finishes -->
-    <div id="disc-v2-scan-delta" style="display:none;font-size:11px;color:var(--muted);background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:6px 10px;margin-bottom:12px;"></div>
+    <div id="disc-v2-scan-delta" class="disc-v2-banner disc-v2-scan-delta" style="display:none"></div>
 
     <!-- Per-feeder warnings (non-fatal events surfaced by the orchestrator) -->
-    <div id="disc-v2-scan-warnings" style="display:none;font-size:11px;color:var(--amber, #c98a00);background:var(--surface2);border:1px solid var(--amber, #c98a00);border-radius:6px;padding:6px 10px;margin-bottom:12px;"></div>
+    <div id="disc-v2-scan-warnings" class="disc-v2-amber-banner disc-v2-scan-warnings" style="display:none"></div>
 
     <!-- Empty / error states -->
-    <div id="disc-v2-empty-state" style="display:none;text-align:center;padding:32px 12px;color:var(--muted);">
-      <p id="disc-v2-empty-state-msg" style="margin:0 0 12px;font-size:13px;"></p>
-      <button id="disc-v2-empty-action" class="primary" style="font-size:12px;display:none;"></button>
+    <div id="disc-v2-empty-state" class="disc-v2-empty-state" style="display:none">
+      <p id="disc-v2-empty-state-msg" class="disc-v2-empty-state-msg"></p>
+      <button id="disc-v2-empty-action" class="primary disc-v2-pill-sm" style="display:none"></button>
     </div>
 
-    <!-- Settings sub-panel (toggled by the ⚙ button). Placed ABOVE the
+    <!-- Settings sub-panel (toggled by the Settings button). Placed ABOVE the
          feed grid so opening Settings reveals in place — the user can
          tweak follows / blocks / export without scrolling past every card
          they were already browsing. -->
-    <div id="disc-v2-settings" style="display:none;margin-bottom:18px;border-bottom:1px solid var(--border);padding-bottom:18px;">
-      <h3 style="margin:0 0 10px;font-size:14px;font-weight:700;">Discover settings</h3>
-      <!-- Saved releases — gives 💚 Save a destination. Previously the user
+    <div id="disc-v2-settings" class="disc-v2-settings" style="display:none">
+      <h3 class="disc-v2-settings-h">Discover settings</h3>
+      <!-- Saved releases — gives Save a destination. Previously the user
            saved cards and they vanished into the void. UX audit M-4 (High). -->
-      <div id="disc-v2-settings-saved" style="margin-bottom:18px;">
-        <strong style="font-size:12px;">Saved releases <span id="disc-v2-saved-count" style="color:var(--muted);font-weight:normal;"></span></strong>
-        <div id="disc-v2-saved-list" style="margin:6px 0;font-size:12px;color:var(--muted);">No saved releases yet. Click 💚 on any card in the feed.</div>
+      <div id="disc-v2-settings-saved" class="disc-v2-settings-group">
+        <strong class="disc-v2-settings-label">Saved releases <span id="disc-v2-saved-count" class="disc-v2-settings-count"></span></strong>
+        <div id="disc-v2-saved-list" class="disc-v2-settings-body">No saved releases yet. Click Save on any card in the feed.</div>
       </div>
-      <div id="disc-v2-settings-followed" style="margin-bottom:18px;">
-        <strong style="font-size:12px;">Labels you watch</strong>
-        <div id="disc-v2-followed-list" style="margin:6px 0;font-size:12px;"></div>
-        <div style="display:flex;gap:6px;align-items:center;">
-          <input id="disc-v2-label-search" type="text" placeholder="Search Discogs to add a label…"
-                 style="flex:1;font-size:12px;padding:6px 8px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--text);">
-          <button id="disc-v2-label-search-btn" class="secondary-btn" style="font-size:12px;">Search</button>
-          <button id="disc-v2-label-suggest-btn" class="secondary-btn" style="font-size:12px;" title="Suggest labels from your Rekordbox library">Suggest</button>
+      <div id="disc-v2-settings-followed" class="disc-v2-settings-group">
+        <strong class="disc-v2-settings-label">Labels you watch</strong>
+        <div id="disc-v2-followed-list" class="disc-v2-settings-body"></div>
+        <div class="disc-v2-settings-row">
+          <input id="disc-v2-label-search" type="text" placeholder="Search Discogs to add a label…" class="disc-v2-input disc-v2-input-grow">
+          <button id="disc-v2-label-search-btn" class="secondary-btn disc-v2-pill-sm">Search</button>
+          <button id="disc-v2-label-suggest-btn" class="secondary-btn disc-v2-pill-sm" title="Suggest labels from your Rekordbox library">Suggest</button>
         </div>
-        <div id="disc-v2-label-search-results" style="margin-top:6px;font-size:12px;"></div>
-        <div id="disc-v2-label-suggest-results" style="margin-top:6px;font-size:12px;"></div>
+        <div id="disc-v2-label-search-results" class="disc-v2-settings-results"></div>
+        <div id="disc-v2-label-suggest-results" class="disc-v2-settings-results"></div>
       </div>
-      <div id="disc-v2-settings-blocked" style="margin-bottom:18px;">
-        <strong style="font-size:12px;">Blocked artists / labels</strong>
-        <div id="disc-v2-blocked-list" style="margin:6px 0;font-size:12px;color:var(--muted);">Nothing blocked. You can 🚫 block from a card&apos;s More menu.</div>
+      <div id="disc-v2-settings-blocked" class="disc-v2-settings-group">
+        <strong class="disc-v2-settings-label">Blocked artists / labels</strong>
+        <div id="disc-v2-blocked-list" class="disc-v2-settings-body">Nothing blocked. You can block from a card&apos;s More menu.</div>
       </div>
-      <div id="disc-v2-settings-export" style="margin-bottom:18px;">
-        <strong style="font-size:12px;">Sync between machines</strong>
-        <p style="margin:4px 0 8px;font-size:11px;color:var(--muted);">Export the local Discover state as a .gz; import on another machine to share your saves / dismisses / follows / blocks.</p>
-        <button id="disc-v2-export-btn" class="secondary-btn" style="font-size:12px;">Export discover.db</button>
-        <label class="secondary-btn" style="font-size:12px;cursor:pointer;display:inline-block;">
+      <div id="disc-v2-settings-export" class="disc-v2-settings-group">
+        <strong class="disc-v2-settings-label">Sync between machines</strong>
+        <p class="disc-v2-settings-note">Export the local Discover state as a .gz; import on another machine to share your saves / dismisses / follows / blocks.</p>
+        <button id="disc-v2-export-btn" class="secondary-btn disc-v2-pill-sm">Export discover.db</button>
+        <label class="secondary-btn disc-v2-pill-sm disc-v2-import-label">
           Import…
-          <input id="disc-v2-import-input" type="file" accept=".gz" style="display:none;">
+          <input id="disc-v2-import-input" type="file" accept=".gz" hidden>
         </label>
       </div>
       <div id="disc-v2-settings-stats">
-        <strong style="font-size:12px;">Stats</strong>
-        <div id="disc-v2-stats-block" style="margin:6px 0;font-size:12px;color:var(--muted);"></div>
+        <strong class="disc-v2-settings-label">Stats</strong>
+        <div id="disc-v2-stats-block" class="disc-v2-settings-body"></div>
       </div>
     </div>
 
@@ -1545,6 +1546,9 @@ autocue --library --mode bar --bars-interval 8 --start-bar 1</pre>
   <div class="wb-rail-section">
     <div class="wb-rail-head">Maintenance</div>
     <div class="wb-crate-list">
+      <button id="wb-disc-place" type="button" class="wb-crate">
+        <span class="wb-crate-label">Discover</span>
+      </button>
       <button id="wb-dupes-place" type="button" class="wb-crate">
         <span class="wb-crate-label">Duplicates</span>
       </button>

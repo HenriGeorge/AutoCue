@@ -9,6 +9,17 @@
  */
 
 let _focusedId = null;
+// P5: the inspector is dual-purpose. 'track' (default) hosts the focused grid
+// row; 'release' hosts a Discover release detail (re-hosted from the legacy
+// slide-in panel). The mode gates the grid-click handler so a release detail
+// isn't clobbered by a stray grid click while the Discover place owns the centre.
+let _mode = 'track';
+// Where the canonical #disc-v2-detail-body node lived before we relocated it
+// into the inspector for a release re-host. Restored on clearInspector().
+let _detailBodyHome = null;
+
+export function setInspectorMode(m) { _mode = m === 'release' ? 'release' : 'track'; }
+export function inspectorMode() { return _mode; }
 
 function _chip(text, mono) {
   const s = document.createElement('span');
@@ -140,12 +151,104 @@ export function renderInspector(trackId) {
   body.appendChild(simSec);
 }
 
+// P5: re-host a Discover release detail in the inspector (mode 'release').
+// Header + mono data chips (year / label / release-id / styles, R6) are built
+// here; the body / tracklist / YouTube / action buttons are delegated wholesale
+// to the legacy _renderDetailBody (exposed as window._renderDiscoverRenderDetail)
+// so the place never duplicates that markup or its delegation. loadDetail goes
+// through ACBridge.discoverLoadDetail — the place never re-fetches releases/{id}.
+export function renderReleaseInspector(releaseKey) {
+  const body = document.getElementById('wb-inspector-body');
+  const empty = document.getElementById('wb-inspector-empty');
+  if (!body) return;
+  const state = (window.ACBridge && window.ACBridge.discoverState && window.ACBridge.discoverState())
+    || (window.DiscoverV2 ? window.DiscoverV2.state : null);
+  const release = state && state.cardsByKey ? state.cardsByKey.get(releaseKey) : null;
+  if (!release) return;
+  _mode = 'release';
+  _focusedId = null;
+
+  if (empty) empty.hidden = true;
+  body.hidden = false;
+  // A re-focus (e.g. a click + focusin firing together, or focusing a second
+  // card) must not destroy the shared #disc-v2-detail-body node when we wipe
+  // the body — return it home first, then re-relocate below.
+  _restoreDetailHost();
+  body.innerHTML = '';
+
+  const r = release.release || {};
+
+  // ── Header: title / artist + mono data chips (R6) ──
+  const head = document.createElement('div');
+  head.className = 'wb-insp-head';
+  const title = document.createElement('div');
+  title.className = 'wb-insp-title';
+  title.textContent = r.title || '(untitled)';
+  const artist = document.createElement('div');
+  artist.className = 'wb-insp-artist';
+  artist.textContent = r.artist || 'Unknown Artist';
+  head.appendChild(title);
+  head.appendChild(artist);
+  const chips = document.createElement('div');
+  chips.className = 'wb-insp-chips';
+  if (r.year) chips.appendChild(_chip(String(r.year), true));
+  if (r.label) chips.appendChild(_chip(r.label, true));
+  if (r.id) chips.appendChild(_chip('#' + r.id, true));
+  for (const s of (r.styles || []).slice(0, 4)) chips.appendChild(_chip(s, true));
+  head.appendChild(chips);
+  body.appendChild(head);
+
+  // ── Detail body (tracklist + YouTube + actions) — reuse the legacy renderer ──
+  // The legacy _renderDetailBody writes into document.getElementById(
+  // 'disc-v2-detail-body'), which is the node inside the (suppressed) legacy
+  // slide-in panel. Relocate that real node into the inspector so the renderer
+  // (and its delegation) target our pane, not the hidden panel. _restoreDetailHost
+  // (clearInspector) puts it back. The wrapper marks where it lives now.
+  const wrap = document.createElement('div');
+  wrap.className = 'wb-insp-disc-detail';
+  body.appendChild(wrap);
+  const detailBody = document.getElementById('disc-v2-detail-body');
+  if (detailBody) {
+    if (!_detailBodyHome) {
+      _detailBodyHome = { parent: detailBody.parentNode, next: detailBody.nextSibling };
+    }
+    wrap.appendChild(detailBody); // move the canonical node into the inspector
+  }
+
+  const render = window._renderDiscoverRenderDetail;
+  if (typeof render === 'function') {
+    try { render(release, null, 'loading'); } catch (_) {}
+    const id = r.id;
+    if (id && window.ACBridge && window.ACBridge.discoverLoadDetail) {
+      Promise.resolve(window.ACBridge.discoverLoadDetail(id))
+        .then((detail) => { if (_mode === 'release') { try { render(release, detail, 'loaded'); } catch (_) {} } })
+        .catch((e) => { if (_mode === 'release') { try { render(release, null, 'error', String(e)); } catch (_) {} } });
+    } else {
+      try { render(release, null, 'loaded'); } catch (_) {}
+    }
+  }
+}
+
 export function clearInspector() {
   _focusedId = null;
+  _mode = 'track';
+  // Put the relocated legacy detail node back in its panel BEFORE wiping the
+  // inspector body (otherwise innerHTML='' would destroy the shared node).
+  _restoreDetailHost();
   const body = document.getElementById('wb-inspector-body');
   const empty = document.getElementById('wb-inspector-empty');
   if (body) { body.hidden = true; body.innerHTML = ''; }
   if (empty) empty.hidden = false;
+}
+
+function _restoreDetailHost() {
+  if (!_detailBodyHome) return;
+  const node = document.getElementById('disc-v2-detail-body');
+  if (node && _detailBodyHome.parent) {
+    node.innerHTML = '';
+    _detailBodyHome.parent.insertBefore(node, _detailBodyHome.next);
+  }
+  _detailBodyHome = null;
 }
 
 export function focusedId() { return _focusedId; }
@@ -157,6 +260,10 @@ export function initInspector() {
   if (!list) return;
   list.addEventListener('click', (e) => {
     if (!document.body.classList.contains('wb-active')) return;
+    // P5: while a Discover release is re-hosted in the inspector, a stray grid
+    // click must not clobber it with track detail. (The grid is hidden under
+    // the Discover place anyway, but guard defensively.)
+    if (_mode === 'release') return;
     if (e.target.closest('input, button, a, .cue-badge, .art-play-overlay, .cue-reason-btn')) return;
     const card = e.target.closest('[data-track-id]');
     if (!card) return;

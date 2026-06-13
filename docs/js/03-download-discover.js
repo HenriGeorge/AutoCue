@@ -1132,6 +1132,15 @@ const DiscoverV2 = (() => {
   };
 })();
 
+// P5: expose the IIFE's public surface so the v2 Discover place
+// (docs/js/v2/workbench/discover.js) can re-drive scans / state / detail
+// through it — the place NEVER re-implements an /api/discover/* fetch or the
+// SSE consumer (R10). Read-mostly; the returned object above is unchanged.
+window.DiscoverV2 = DiscoverV2;
+// P5: expose the detail-body renderer so the inspector re-host (T3) reuses the
+// exact legacy tracklist/YouTube/actions markup instead of duplicating it.
+window._renderDiscoverRenderDetail = _renderDetailBody;
+
 
 // Card renderer + DOM event wiring -------------------------------------------
 
@@ -1174,9 +1183,9 @@ function _renderDiscoverV2Card(release) {
       <p class="disc-v2-card-source">${_esc(sourceLabel)}${r.label ? ' · ' + _esc(r.label) : ''}${r.year ? ' · ' + r.year : ''}${_resurfacedBadge(release)}</p>
     </div>
     <div class="disc-v2-card-actions" data-actions>
-      <button class="disc-v2-card-action ${isSaved ? 'saved' : ''}" data-act="save" title="Save">${isSaved ? '✓' : '💚'}</button>
-      <button class="disc-v2-card-action" data-act="snooze" title="Snooze (1w / 1m / 3m)">💤</button>
-      <button class="disc-v2-card-action" data-act="dismiss" title="Dismiss">✕</button>
+      <button class="disc-v2-card-action ${isSaved ? 'saved' : ''}" data-act="save" title="Save" aria-label="Save">${isSaved ? '✓' : '+'}</button>
+      <button class="disc-v2-card-action" data-act="snooze" title="Snooze (1w / 1m / 3m)" aria-label="Snooze">zZ</button>
+      <button class="disc-v2-card-action" data-act="dismiss" title="Dismiss" aria-label="Dismiss">✕</button>
     </div>
   `;
   return card;
@@ -1877,7 +1886,7 @@ function _renderDiscoverV2Saved(rows) {
   const count = document.getElementById('disc-v2-saved-count');
   if (!list) return;
   if (!rows || !rows.length) {
-    list.innerHTML = 'No saved releases yet. Click 💚 on any card in the feed.';
+    list.innerHTML = 'No saved releases yet. Click Save on any card in the feed.';
     list.style.color = 'var(--muted)';
     if (count) count.textContent = '';
     return;
@@ -1949,7 +1958,7 @@ function _renderDiscoverV2Blocked() {
   const sa = DiscoverV2.state.blockedArtists || [];
   const sl = DiscoverV2.state.blockedLabels || [];
   if (!sa.length && !sl.length) {
-    list.innerHTML = 'Nothing blocked. You can 🚫 block an artist or label from the release detail panel.';
+    list.innerHTML = 'Nothing blocked. You can block an artist or label from the release detail panel.';
     list.style.color = 'var(--muted)';
     return;
   }
@@ -2005,6 +2014,14 @@ let _detailCurrentRelease = null;
 let _detailKeydownHandler = null;
 
 async function _openDetailPanel(releaseKey) {
+  // P5: when the v2 Discover place owns the workbench centre, the release
+  // detail is re-hosted in the right inspector — suppress the legacy slide-in
+  // panel entirely and route to the place's inspector re-host instead. The
+  // flag-off / legacy-tab path still gets the slide-in below.
+  if (window.AC2 && window.AC2.discover && window.AC2.discover.isActive && window.AC2.discover.isActive()) {
+    window.AC2.discover.focusRelease(releaseKey);
+    return;
+  }
   const panel = document.getElementById('disc-v2-detail-panel');
   const backdrop = document.getElementById('disc-v2-detail-backdrop');
   const body = document.getElementById('disc-v2-detail-body');
@@ -2211,21 +2228,21 @@ function _renderDetailBody(release, detail, status, errorMsg) {
     ${styles.length ? `<p style="margin:0 0 12px;font-size:12px;color:var(--muted);">${styles.map(_esc).join(' · ')}</p>` : ''}
     <div class="disc-v2-detail-actions">
       <button class="disc-v2-detail-action ${isSaved ? 'saved' : 'primary'}" data-detail-act="save">
-        ${isSaved ? '✓ Saved' : '💚 Save'}
+        ${isSaved ? 'Saved' : 'Save'}
       </button>
-      <button class="disc-v2-detail-action" data-detail-act="download">⬇ Download album</button>
-      <button class="disc-v2-detail-action" data-detail-act="snooze">💤 Snooze…</button>
+      <button class="disc-v2-detail-action" data-detail-act="download">Download album</button>
+      <button class="disc-v2-detail-action" data-detail-act="snooze">Snooze…</button>
       <button class="disc-v2-detail-action" data-detail-act="dismiss" ${isDismissed ? 'disabled' : ''}>
-        ✕ ${isDismissed ? 'Dismissed' : 'Dismiss'}
+        ${isDismissed ? 'Dismissed' : 'Dismiss'}
       </button>
       ${labelId && !followsLabel
         ? `<button class="disc-v2-detail-action" data-detail-act="follow-label" data-label-id="${labelId}" data-label-name="${_esc(label)}">+ Follow ${_esc(label)}</button>`
         : ''}
       ${artistId && !artistBlocked
-        ? `<button class="disc-v2-detail-action" data-detail-act="block-artist" data-artist-id="${artistId}" data-artist-name="${_esc(artist)}" title="Stop seeing this artist in Discover">🚫 Block ${_esc(artist)}</button>`
+        ? `<button class="disc-v2-detail-action" data-detail-act="block-artist" data-artist-id="${artistId}" data-artist-name="${_esc(artist)}" title="Stop seeing this artist in Discover">Block ${_esc(artist)}</button>`
         : ''}
       ${labelId && !labelBlocked
-        ? `<button class="disc-v2-detail-action" data-detail-act="block-label" data-label-id="${labelId}" data-label-name="${_esc(label)}" title="Stop seeing this label in Discover">🚫 Block ${_esc(label)}</button>`
+        ? `<button class="disc-v2-detail-action" data-detail-act="block-label" data-label-id="${labelId}" data-label-name="${_esc(label)}" title="Stop seeing this label in Discover">Block ${_esc(label)}</button>`
         : ''}
     </div>
     <div id="disc-v2-detail-youtube-slot"></div>

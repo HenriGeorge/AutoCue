@@ -4,7 +4,8 @@ import { test, expect } from "@playwright/test";
  * Pages mode smoke — the same docs/index.html served statically with no
  * API. Tests that:
  *   - The page loads without crashing
- *   - Local-mode-only panels (#tab-nav including #tab-discover) are NOT
+ *   - Local-mode-only chrome (#tab-nav, the workbench rail incl. its Discover
+ *     place #wb-disc-place) are NOT
  *     visible (the page detects no /api/status response and falls back to
  *     XML upload mode)
  *

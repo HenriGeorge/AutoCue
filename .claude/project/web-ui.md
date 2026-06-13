@@ -123,3 +123,32 @@
   layout or the sheet anchoring — `tests/e2e/v2-duplicates-place.spec.ts` covers those
   (it mocks `/api/duplicates` to an instant "0 groups" SSE so the lazy scan doesn't
   saturate the single sandbox server across sequential tests).
+- **Discover place (P5)** — `docs/js/v2/workbench/discover.js`. A rail *place*
+  (`#wb-disc-place`, Maintenance group) that swaps the workbench centre pane from the
+  grid to the restyled Discover feed. **Unlike Duplicates** (which toggles `hidden` on
+  a sibling pane inside the SAME tab body), Discover lives in a DIFFERENT tab content
+  block (`#discover-tab-content`) and MUST be shown via `switchTab('discover')` —
+  because the legacy `_handleDiscoverKeydown` gates its `j/k/Enter/s/x/z/D/?/Esc` map on
+  `#disc-v2-section.offsetParent !== null`, and `initDiscoverV2` re-parents overlays to
+  `<body>` for `position:fixed`; relocating `#disc-v2-grid` would break both. `activate()`
+  guards local mode, deactivates Duplicates first (mutual exclusion), `clearInspector()`,
+  `switchTab('discover')`, hides `#tracks-sticky`/`#track-list`/`#wb-grid-head` + the
+  inspector, adds `body.wb-place-disc`, lazy-loads initial state once. `deactivate()`
+  `switchTab('cues')` (accepted scroll-to-top on the grid-return leg — switchTab is
+  mandatory for the keyboard-guard invariant, so symmetric reuse beats reimplementing its
+  five side-effects) + `renderTracks()`. **Delegation-only**: re-drives the frozen
+  `DiscoverV2` IIFE via `window.DiscoverV2` + `ACBridge.discover*`; never fetches the
+  Discover REST surface. Release detail re-hosts in the **inspector** (mode flag
+  `'track'|'release'` in `inspector.js`): focusing a card → `renderReleaseInspector(key)`
+  builds a header + mono data chips and reuses the legacy `_renderDetailBody`
+  (`window._renderDiscoverRenderDetail`) by relocating the canonical `#disc-v2-detail-body`
+  node into the inspector (restored on `clearInspector()`); the legacy slide-in
+  `_openDetailPanel` early-returns to `focusRelease` when the place is active (the flag-off
+  path still gets the slide-in). Esc clears the focused release. The Discover/Duplicates
+  places are **mutually exclusive** — only one owns the centre. Aliveness r2: save-pop
+  pulse + scan-bar/spinner/crossfade all reduced-motion-gated. ⌘K `go-discover`/`find-releases`
+  force the workbench on + click `#wb-disc-place`. **`#tab-discover` is retired** (P5) — the
+  `switchTab('discover')` map entry + `#discover-tab-content` survive (the place uses them);
+  with P2's Cues+Library retirement, **all three legacy tabs are gone**. JSDOM can't see the
+  swap/scroll/sticky-pin — `tests/e2e/v2-discover-shell.spec.ts` (mocks every
+  `/api/discover/*` + `/api/youtube/search`) covers those + both themes + reduced-motion + R10.

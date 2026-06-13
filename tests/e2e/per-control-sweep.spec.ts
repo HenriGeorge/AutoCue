@@ -50,8 +50,16 @@ async function gotoPanel(page: Page, panel: PanelName | "global") {
   await page.goto("/");
   await expect(page.locator("#app-status")).toBeVisible({ timeout: 10_000 });
   if (panel === "global") return; // global rows interact with persistent chrome
-  const tabId = `#tab-${panel}`;
-  await page.locator(tabId).click();
+  if (panel === "discover") {
+    // P5: #tab-discover retired — Discover is now the #wb-disc-place workbench
+    // rail place (workbench is default-on in local mode). Mirrors the same
+    // navigation fix applied to control-inventory.spec.ts. Without this, these
+    // rows (network-gated-skipped today) would click a removed element if they
+    // ever un-skip with a Discogs token present.
+    await page.locator("#wb-disc-place").click();
+  } else {
+    await page.locator(`#tab-${panel}`).click();
+  }
   // Per-tab readiness signal — mirrors the drift guard.
   if (panel === "cues")
     await expect(page.locator("#tracks-section")).toBeAttached();

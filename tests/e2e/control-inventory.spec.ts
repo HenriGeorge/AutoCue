@@ -58,17 +58,19 @@ test.describe("control inventory drift guard", () => {
     // Collect across all three tabs (each tab gates a different subtree of
     // controls).
     const seen = new Set<string>();
-    for (const tabId of ["#tab-cues", "#tab-library", "#tab-discover"]) {
-      await page.locator(tabId).click();
-      // Per-tab readiness signal — match docs/qa_tester.md §3 in spirit.
-      if (tabId === "#tab-cues") {
-        await expect(page.locator("#tracks-section")).toBeAttached();
-      } else if (tabId === "#tab-library") {
-        await expect(page.locator("#health-section")).toBeAttached();
-      } else {
-        // Discover tab wrapper was renamed to `#disc-v2-section` during the
-        // Discover v2 rebuild (see `docs/index.html` § initDiscoverV2 guard).
-        await expect(page.locator("#disc-v2-section")).toBeAttached();
+    // P5: #tab-discover retired — Discover is now the #wb-disc-place rail place
+    // (which calls switchTab('discover') to reveal #discover-tab-content). The
+    // Cues + Library tab buttons survive in the (hidden) strip for parity and
+    // still drive switchTab directly.
+    const reveal = [
+      { how: "#tab-cues", ready: "#tracks-section" },
+      { how: "#tab-library", ready: "#health-section" },
+      { how: "#wb-disc-place", ready: "#disc-v2-section" },
+    ];
+    for (const { how, ready } of reveal) {
+      await page.locator(how).click();
+      await expect(page.locator(ready)).toBeAttached();
+      if (how === "#wb-disc-place") {
         await expect(page.locator("#download-section")).toBeAttached();
       }
       const tabIds = await enumerateLiveIds(page);

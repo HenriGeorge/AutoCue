@@ -1544,7 +1544,7 @@
     [hidden] { display: none !important; }
     .dl-inline-note > .dl-link-btn { margin-left:auto; color:var(--muted); }
     #download-unavailable {
-      font-size:12px; color:var(--amber, #c98a00); background:var(--surface2);
+      font-size:12px; color:var(--warn-amber); background:var(--surface2);
       border:1px solid var(--border); border-radius:6px; padding:8px 10px; margin-bottom:12px;
     }
     .dl-legal-disclosure { margin-top:12px; border-top:1px solid var(--border); padding-top:8px; }
@@ -2026,6 +2026,11 @@
     .toast-item, .toast-item.toast-out, .fade-in-up { animation-duration: 0.01ms !important; }
     .skeleton-card .skel-line { animation: none; }
     .disc-v2-card:hover { transform: none; }
+    /* P5 T5: place crossfade + save-pulse + scan-bar must not animate. */
+    .tab-entering { animation: none; }
+    .disc-v2-card-action.saved { animation: none; }
+    #disc-v2-scan-progress-fill { transition: none; }
+    .disc-v2-spinner { animation: none; }
   }
 
   /* ── Tooltip ──────────────────────────────────────────────────────────────── */
@@ -2052,10 +2057,11 @@
       border: 1px solid var(--green, #28e214);
       font-size: 12px;
     }
+    /* Chips → pills (rule 4); the checkbox accent is green (signal). */
     .disc-v2-chip {
       display: inline-flex; align-items: center; gap: 4px;
       padding: 3px 8px; font-size: 12px;
-      border: 1px solid var(--border); border-radius: 999px;
+      border: 1px solid var(--border); border-radius: var(--radius-pill);
       background: var(--bg); cursor: pointer; user-select: none;
     }
     .disc-v2-chip input { accent-color: var(--green); }
@@ -2064,19 +2070,24 @@
       grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
       gap: 12px;
     }
+    /* Elevated card (rule 5 — 16px radius, soft shadow lifts on hover only;
+       rule 1 — flat token surfaces). */
     .disc-v2-card {
       border: 1px solid var(--border);
-      border-radius: 8px;
+      border-radius: var(--radius-xl);
       background: var(--surface);
       overflow: hidden;
       cursor: pointer;
       transition: transform 0.1s ease, box-shadow 0.1s ease;
       position: relative;
     }
-    .disc-v2-card:hover { transform: translateY(-2px); box-shadow: 0 4px 12px rgba(0,0,0,0.08); }
-    .disc-v2-card.active {
-      outline: 2px solid var(--green);
+    .disc-v2-card:hover { transform: translateY(-2px); box-shadow: var(--shadow-lg); }
+    /* Active/focused card — green wash + ring (rule 2 wash discipline). */
+    .disc-v2-card.active,
+    .disc-v2-card:focus-visible {
+      outline: 2px solid var(--green-ring);
       outline-offset: 1px;
+      background: var(--green-wash);
     }
     .disc-v2-card.active .disc-v2-card-actions { opacity: 1; }
     .disc-v2-card-art {
@@ -2085,14 +2096,18 @@
     }
     .disc-v2-card-body { padding: 8px 10px; }
     .disc-v2-card-title {
+      font-family: var(--font-sans);
       font-weight: 600; font-size: 13px; margin: 0;
       overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
     }
     .disc-v2-card-artist {
+      font-family: var(--font-sans);
       font-size: 12px; color: var(--muted); margin: 2px 0 0;
       overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
     }
+    /* Source / label / year are measured data → mono (rule 3 / R6). */
     .disc-v2-card-source {
+      font-family: var(--font-mono);
       font-size: 10px; color: var(--muted); margin-top: 4px;
       text-transform: uppercase; letter-spacing: 0.04em;
     }
@@ -2100,15 +2115,120 @@
       position: absolute; top: 6px; right: 6px;
       display: flex; gap: 4px; opacity: 0; transition: opacity 0.15s ease;
     }
-    .disc-v2-card:hover .disc-v2-card-actions { opacity: 1; }
+    .disc-v2-card:hover .disc-v2-card-actions,
+    .disc-v2-card:focus-within .disc-v2-card-actions { opacity: 1; }
+    /* Action pills (rule 4). Neutral by default; save-applied is green
+       (rule 2 — green = success signal only). */
     .disc-v2-card-action {
-      width: 24px; height: 24px; border-radius: 50%;
-      border: none; background: rgba(0,0,0,0.55); color: #fff;
-      font-size: 12px; cursor: pointer; display: flex;
+      min-width: 24px; height: 24px; padding: 0 7px;
+      border-radius: var(--radius-pill);
+      border: 1px solid var(--border);
+      background: var(--surface);
+      color: var(--text);
+      font-family: var(--font-mono); font-size: 11px; font-weight: 600;
+      cursor: pointer; display: flex;
       align-items: center; justify-content: center;
     }
-    .disc-v2-card-action:hover { background: rgba(0,0,0,0.78); }
-    .disc-v2-card-action.saved { background: var(--green); }
+    .disc-v2-card-action:hover {
+      background: var(--surface2);
+      border-color: color-mix(in srgb, var(--text) 30%, transparent);
+    }
+    .disc-v2-card-action.saved {
+      background: var(--green-wash);
+      border-color: var(--green);
+      color: var(--green);
+    }
+    /* Aliveness r2 (P5 T5): a brief scale/opacity pulse confirms the optimistic
+       save — purely visual, no behaviour change. Gated to motion-OK users. */
+    @media (prefers-reduced-motion: no-preference) {
+      .disc-v2-card-action.saved { animation: disc-v2-save-pop 0.28s ease; }
+    }
+    @keyframes disc-v2-save-pop {
+      0%   { transform: scale(1); }
+      45%  { transform: scale(1.18); }
+      100% { transform: scale(1); }
+    }
+
+    /* ── Discover place chrome (P5 T4) — inline styles extracted to classes,
+       tokens only, both themes. ids unchanged so every discover-v2 test +
+       the #disc-v2-section visibility check still pass. ── */
+    .disc-v2-head {
+      display: flex; align-items: center; justify-content: space-between;
+      margin-bottom: 10px; flex-wrap: wrap; gap: 8px;
+    }
+    .disc-v2-head-title { margin: 0; font-size: 15px; font-weight: 700; }
+    .disc-v2-head-sub { margin: 4px 0 0; font-size: 12px; color: var(--muted); }
+    .disc-v2-head-actions { display: flex; gap: 6px; align-items: center; }
+    /* Scan CTA = ink pill (rule 2 — primary CTA is ink, never green). */
+    .disc-v2-scan-cta {
+      font-size: 13px; border-radius: var(--radius-pill);
+      background: var(--ink); color: var(--on-ink);
+    }
+    .disc-v2-pill-sm { font-size: 12px; border-radius: var(--radius-pill); }
+    .disc-v2-pill-xs { font-size: 11px; padding: 3px 10px; border-radius: var(--radius-pill); }
+    /* Banners (token surfaces, soft border, 12px panel radius). */
+    .disc-v2-banner {
+      font-size: 12px; color: var(--muted); background: var(--surface2);
+      border: 1px solid var(--border); border-radius: var(--radius-lg);
+      padding: 8px 10px; margin-bottom: 12px;
+    }
+    .disc-v2-banner-sub { margin: 4px 0 8px; font-size: 12px; color: var(--muted); }
+    .disc-v2-onboarding-suggestions { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
+    /* Amber warning banners — design-system amber token, no hex fallback. */
+    .disc-v2-amber-banner {
+      font-size: 12px; color: var(--warn-amber);
+      background: color-mix(in srgb, var(--warn-amber) 12%, var(--surface2));
+      border: 1px solid color-mix(in srgb, var(--warn-amber) 35%, transparent);
+      border-radius: var(--radius-lg); padding: 8px 10px; margin-bottom: 12px;
+    }
+    /* The inline display:none hides initially / on JS-hide; when JS shows via
+       style.display='' the element falls back to these stylesheet displays. */
+    #disc-v2-scan-error-inline { display: flex; align-items: center; gap: 8px; }
+    .disc-v2-amber-banner-msg { flex: 1; }
+    .disc-v2-scan-warnings { font-size: 11px; padding: 6px 10px; }
+    /* Filter bars + controls. Labels are uppercase eyebrows. */
+    .disc-v2-filter-bar {
+      display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 8px;
+    }
+    #disc-v2-filter-bar-2 { margin-bottom: 12px; }
+    .disc-v2-filter-label {
+      font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em;
+    }
+    .disc-v2-filter-label-gap { margin-left: 10px; }
+    .disc-v2-select, .disc-v2-input {
+      font-size: 12px; padding: 4px 6px;
+      border: 1px solid var(--border); border-radius: var(--radius-md);
+      background: var(--bg); color: var(--text);
+    }
+    .disc-v2-input { padding: 6px 8px; }
+    .disc-v2-year-custom { width: 72px; }
+    .disc-v2-search { flex: 1; min-width: 180px; max-width: 280px; }
+    .disc-v2-input-grow { flex: 1; }
+    .disc-v2-style-chips { flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
+    /* Scan progress chrome. */
+    .disc-v2-scan-progress-row { display: flex; align-items: center; gap: 8px; }
+    .disc-v2-scan-cancel { margin-left: auto; }
+    .disc-v2-scan-breakdown { margin-top: 6px; display: flex; gap: 10px; flex-wrap: wrap; font-size: 11px; }
+    .disc-v2-scan-warn { margin-top: 6px; font-size: 11px; color: var(--warn-amber); }
+    .disc-v2-scan-bar { margin-top: 6px; }
+    #disc-v2-scan-progress-fill { width: 0%; }
+    .disc-v2-scan-delta { font-size: 11px; }
+    /* Empty / error state. */
+    .disc-v2-empty-state { text-align: center; padding: 32px 12px; color: var(--muted); }
+    .disc-v2-empty-state-msg { margin: 0 0 12px; font-size: 13px; }
+    /* Settings panel. */
+    .disc-v2-settings {
+      margin-bottom: 18px; border-bottom: 1px solid var(--border); padding-bottom: 18px;
+    }
+    .disc-v2-settings-h { margin: 0 0 10px; font-size: 14px; font-weight: 700; }
+    .disc-v2-settings-group { margin-bottom: 18px; }
+    .disc-v2-settings-label { font-size: 12px; }
+    .disc-v2-settings-count { color: var(--muted); font-weight: normal; }
+    .disc-v2-settings-body { margin: 6px 0; font-size: 12px; color: var(--muted); }
+    .disc-v2-settings-row { display: flex; gap: 6px; align-items: center; }
+    .disc-v2-settings-results { margin-top: 6px; font-size: 12px; }
+    .disc-v2-settings-note { margin: 4px 0 8px; font-size: 11px; color: var(--muted); }
+    .disc-v2-import-label { cursor: pointer; display: inline-block; }
 
     .disc-v2-spinner {
       display: inline-block; width: 12px; height: 12px;
@@ -2151,16 +2271,20 @@
     .disc-v2-detail-actions {
       display: flex; gap: 8px; margin: 8px 0 14px; flex-wrap: wrap;
     }
+    /* Detail-panel actions → pills (rule 4). The primary Save is the ink pill
+       (rule 2 — primary CTA is ink, never green); save-APPLIED flips to the
+       green wash (green = success signal). */
     .disc-v2-detail-action {
-      padding: 6px 12px; border: 1px solid var(--border);
+      padding: 6px 14px; border: 1px solid var(--border);
       background: var(--surface2); color: var(--text);
-      border-radius: 6px; cursor: pointer; font-size: 12px;
+      border-radius: var(--radius-pill); cursor: pointer; font-size: 12px;
     }
+    .disc-v2-detail-action:hover { background: var(--surface); }
     .disc-v2-detail-action.primary {
-      background: var(--green); color: #fff; border-color: var(--green);
+      background: var(--ink); color: var(--on-ink); border-color: var(--ink);
     }
     .disc-v2-detail-action.saved {
-      background: var(--green); color: #fff; border-color: var(--green);
+      background: var(--green-wash); color: var(--green); border-color: var(--green);
     }
     .disc-v2-detail-tracklist {
       font-size: 13px; padding: 0; margin: 0 0 14px;
@@ -2174,9 +2298,9 @@
     .disc-v2-detail-tracklist .pos { color: var(--muted); }
     .disc-v2-detail-tracklist .dur { color: var(--muted); }
     .disc-v2-detail-error {
-      padding: 8px 12px; border-radius: 6px;
-      background: rgba(220, 80, 80, 0.1); color: var(--text);
-      border: 1px solid rgba(220, 80, 80, 0.3); font-size: 13px;
+      padding: 8px 12px; border-radius: var(--radius-md);
+      background: color-mix(in srgb, var(--danger) 10%, transparent); color: var(--text);
+      border: 1px solid color-mix(in srgb, var(--danger) 30%, transparent); font-size: 13px;
     }
     .disc-v2-yt-carousel {
       position: relative; margin: 0 0 14px;
@@ -2227,13 +2351,13 @@
       overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
     }
     .disc-v2-yt-mismatch {
-      color: var(--amber, #c98a00); font-size: 14px; flex-shrink: 0;
+      color: var(--warn-amber); font-size: 14px; flex-shrink: 0;
       cursor: help;
     }
     /* Failed suggestion chip in the onboarding banner (UX audit Issue 10). */
     .disc-v2-suggest-failed {
-      border-color: var(--amber, #c98a00) !important;
-      color: var(--amber, #c98a00) !important;
+      border-color: var(--warn-amber) !important;
+      color: var(--warn-amber) !important;
       cursor: help;
     }
     .disc-v2-yt-placeholder {
@@ -2363,9 +2487,12 @@
     display: flex; align-items: center; gap: 8px; width: 100%;
     padding: 7px 8px; border: none; background: none; border-radius: 8px;
     cursor: pointer; text-align: left; color: var(--text); font: inherit; font-size: 13px;
-    transition: background .12s;
+    transition: background .12s, transform .08s;
   }
   .wb-crate:hover { background: var(--surface-2, var(--surface2)); }
+  /* Aliveness r2: a subtle press confirms the click on rail rows. */
+  .wb-crate:active { transform: scale(.99); }
+  .wb-crate:focus-visible { outline: 2px solid var(--green-ring); outline-offset: -2px; }
   .wb-crate.active { background: var(--green-wash, color-mix(in srgb, var(--green) 8%, transparent)); box-shadow: inset 2px 0 0 var(--green); }
   .wb-crate .wb-crate-label { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .wb-crate .wb-crate-count { font-family: var(--font-mono, var(--mono)); font-size: 11px; color: var(--muted); }
@@ -2376,7 +2503,7 @@
   .wb-inspector-empty { color: var(--muted); text-align: center; padding: 48px 12px; font-size: 13px; }
   .wb-inspector-empty-icon { font-size: 32px; opacity: .4; margin-bottom: 12px; }
   .wb-inspector-empty-sub { font-size: 11px; margin-top: 6px; opacity: .8; }
-  @media (prefers-reduced-motion: reduce) { .wb-crate { transition: none; } }
+  @media (prefers-reduced-motion: reduce) { .wb-crate, .wb-crate:active { transition: none; transform: none; } }
 
   /* Declutter the centre in workbench mode — the status sentence already
      reports connection; cue prep chrome moves to the toolbar in T6. */
@@ -2403,6 +2530,7 @@
   .wb-insp-muted { font-size: 12px; color: var(--muted); }
   .wb-insp-simbtn { width: 100%; padding: 8px; border: 1px solid var(--border); background: none; border-radius: 8px; cursor: pointer; color: var(--text); font: inherit; font-size: 13px; }
   .wb-insp-simbtn:hover { background: var(--surface-2, var(--surface2)); }
+  .wb-insp-simbtn:focus-visible { outline: 2px solid var(--green-ring); outline-offset: 1px; }
   /* Focused row highlight in workbench mode */
   body.wb-active .track-card.wb-focused { box-shadow: inset 3px 0 0 var(--green); background: var(--green-wash, color-mix(in srgb, var(--green) 5%, transparent)); }
 
@@ -2717,6 +2845,15 @@
   body.wb-place-dupes #tracks-sticky,
   body.wb-place-dupes #track-list,
   body.wb-place-dupes #wb-grid-head { display: none !important; }
+
+  /* ── v2: Discover place (P5) ── rail place that swaps the workbench centre
+     pane from the grid to the restyled Discover feed (via switchTab). switchTab
+     already display:none's #cues-tab-content (which holds all three of these),
+     so this is the belt-and-braces backstop against a legacy style.display
+     write, mirroring the dupes backstop above. */
+  body.wb-place-disc #tracks-sticky,
+  body.wb-place-disc #track-list,
+  body.wb-place-disc #wb-grid-head { display: none !important; }
   .wb-dupes-toolbar {
     display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
     padding-bottom: 12px; margin-bottom: 14px;

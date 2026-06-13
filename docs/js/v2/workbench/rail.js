@@ -117,8 +117,9 @@ function _renderPlaylists() {
       count: cnt,
       active: opt.value === current && current !== '',
       onClick: () => {
-        // P3: leaving via a playlist click exits the Duplicates place first.
+        // P3/P5: leaving via a playlist click exits any active centre-pane place.
         if (window.AC2 && window.AC2.duplicates) window.AC2.duplicates.deactivate();
+        if (window.AC2 && window.AC2.discover) window.AC2.discover.deactivate();
         // Reuse the legacy filter path: set value + fire change. The existing
         // #playlist-select change handler calls loadTracksFromServer(id).
         sel.value = opt.value;
@@ -149,8 +150,9 @@ function _renderSaved() {
       active: false,
       extraClass: 'wb-saved-row',
       onClick: () => {
-        // P3: applying a saved filter is a grid intent — exit the place first.
+        // P3/P5: applying a saved filter is a grid intent — exit the place first.
         if (window.AC2 && window.AC2.duplicates) window.AC2.duplicates.deactivate();
+        if (window.AC2 && window.AC2.discover) window.AC2.discover.deactivate();
         _applyFilters(f.state);
       },
     });
