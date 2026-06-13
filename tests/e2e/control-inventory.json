@@ -183,7 +183,9 @@
     },
     {
       "id": "nb-tray-toggle",
-      "kind": "button"
+      "kind": "button",
+      "skipSweep": true,
+      "skipReason": "Lives inside the #nb-canvas mode (hidden until opened) + the tray only renders after a build; covered by v2-nightboard.spec"
     },
     {
       "id": "status-restore",
