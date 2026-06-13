@@ -170,6 +170,10 @@ export function renderReleaseInspector(releaseKey) {
 
   if (empty) empty.hidden = true;
   body.hidden = false;
+  // A re-focus (e.g. a click + focusin firing together, or focusing a second
+  // card) must not destroy the shared #disc-v2-detail-body node when we wipe
+  // the body — return it home first, then re-relocate below.
+  _restoreDetailHost();
   body.innerHTML = '';
 
   const r = release.release || {};

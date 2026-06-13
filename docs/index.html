@@ -56,7 +56,11 @@
   <div id="tab-group">
     <button id="tab-cues" class="tab-btn active">Cues</button>
     <button id="tab-library" class="tab-btn">Library</button>
-    <button id="tab-discover" class="tab-btn">Discover</button>
+    <!-- P5: #tab-discover retired — Discover is now a workbench rail place
+         (#wb-disc-place). switchTab('discover') + #discover-tab-content survive
+         (the place USES them); only the tab-strip button is gone. With P2's
+         Cues + Library retirement, all three legacy tabs are now removed. -->
+    <!-- @control-inventory removed: tab-discover; @selectors-exist removed: #tab-discover -->
   </div>
   <!-- AutoCue 2.0 status sentence: facts are buttons (clickable) — the v2
        module docs/js/v2/status-sentence.js wires navigation + the rb poll.

@@ -62,9 +62,25 @@ export function buildCommands() {
       run: () => _click('phrase-only-cb') },
     { id: 'filter-beats', group: 'Filter', label: 'Filter: has beat grid only',
       run: () => _click('beats-only-cb') },
+    // P5: Discover is a workbench rail place — both commands open it via the
+    // rail entry's own click (delegation, no parallel path), exactly like the
+    // duplicates commands. Explicit navigation overrides an ac_workbench opt-out
+    // (force the workbench on); the isActive() guard keeps #wb-disc-place's
+    // toggle semantics from CLOSING the place on a repeat run.
+    { id: 'find-releases', group: 'Library', label: 'Discover new releases',
+      sub: 'Personalized feed from your artists + labels',
+      run: () => {
+        window.AC2?.workbench?.setWorkbench(true);
+        if (!window.AC2?.discover?.isActive?.()) _click('wb-disc-place');
+      } },
     { id: 'go-cues', group: 'Go to', label: 'Go to Cues', run: () => _goto('cues') },
     { id: 'go-library', group: 'Go to', label: 'Go to Library', run: () => _goto('library') },
-    { id: 'go-discover', group: 'Go to', label: 'Go to Discover', run: () => _goto('discover') },
+    { id: 'go-discover', group: 'Go to', label: 'Go to Discover',
+      sub: 'The Discover place in the workbench rail',
+      run: () => {
+        window.AC2?.workbench?.setWorkbench(true);
+        if (!window.AC2?.discover?.isActive?.()) _click('wb-disc-place');
+      } },
   ];
 }
 

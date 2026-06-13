@@ -27,10 +27,6 @@
       "kind": "button"
     },
     {
-      "id": "tab-discover",
-      "kind": "button"
-    },
-    {
       "id": "playlist-select",
       "kind": "select"
     },

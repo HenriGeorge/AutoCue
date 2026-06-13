@@ -323,9 +323,12 @@ function switchTab(name) {
   document.body.setAttribute('data-active-tab', name);
   window.scrollTo({ top: 0, behavior: 'smooth' });
 }
-document.getElementById('tab-cues').addEventListener('click', () => switchTab('cues'));
-document.getElementById('tab-library').addEventListener('click', () => switchTab('library'));
-document.getElementById('tab-discover').addEventListener('click', () => switchTab('discover'));
+document.getElementById('tab-cues')?.addEventListener('click', () => switchTab('cues'));
+document.getElementById('tab-library')?.addEventListener('click', () => switchTab('library'));
+// P5: #tab-discover retired — Discover is now the #wb-disc-place rail place.
+// switchTab('discover') stays in the map (the place calls it); the tab button
+// + its listener are gone. (Cues + Library buttons survive in the now-hidden
+// strip for parity; the strip itself is display:none from P2.)
 
 // ── App status row ─────────────────────────────────────────────────────────
 let _lastScanAt = null;

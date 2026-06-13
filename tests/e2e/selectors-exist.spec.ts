@@ -14,7 +14,7 @@ const REQUIRED_SELECTORS: string[] = [
   "#tab-nav",
   "#tab-cues",
   "#tab-library",
-  "#tab-discover",
+  // P5: #tab-discover retired — Discover is the #wb-disc-place rail place.
   // App status row (AutoCue 2.0 status sentence — facts are buttons)
   "#app-status",
   "#status-needcues",
