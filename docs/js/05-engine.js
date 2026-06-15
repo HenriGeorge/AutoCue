@@ -152,6 +152,7 @@ function _startPlayRaf() {
     if (audioPlayer.paused || !nowPlayingId) { _playRafId = null; return; }
     updateTimeline();
     _drawMiniWaveform(nowPlayingId);
+    _traceEnergyPlayhead(nowPlayingId);
     _playRafId = requestAnimationFrame(_rafTick);
   }
   _playRafId = requestAnimationFrame(_rafTick);
@@ -212,9 +213,52 @@ function _drawMiniWaveform(trackId) {
   ctx.beginPath(); ctx.moveTo(phX, 0); ctx.lineTo(phX, H); ctx.stroke();
 }
 
+// Aliveness (step 3, P1) — trace a playhead across the now-playing track's
+// energy sparkline(s) (grid row + inspector drawer) and ping each phrase cue
+// marker as the playhead crosses it. Additive: acts only when those elements
+// exist. The moving line mirrors the existing timeline/mini-waveform playheads,
+// so it isn't PRM-gated; the cue-ping *pulse* IS gated (CSS @media).
+let _lastPingPct = 0;
+function _traceEnergyPlayhead(trackId) {
+  const track = parsedTracksById.get(String(trackId));
+  if (!track || !track.totalTime) return;
+  const pct = Math.min(audioPlayer.currentTime / track.totalTime, 1) * 100;
+  const hosts = document.querySelectorAll(
+    `.energy-sparkline[data-track-id="${trackId}"], .wb-insp-energy[data-track-id="${trackId}"]`
+  );
+  hosts.forEach((host) => {
+    let ph = host.querySelector(':scope > .energy-playhead');
+    if (!ph) { ph = document.createElement('div'); ph.className = 'energy-playhead'; host.appendChild(ph); }
+    ph.style.left = pct + '%';
+  });
+  _pingCrossedCues(trackId, pct);
+}
+
+function _pingCrossedCues(trackId, pct) {
+  const prev = _lastPingPct;
+  _lastPingPct = pct;
+  const dp = pct - prev;
+  if (dp < 0 || dp > 5) return; // seek / restart — don't ping every cue in between
+  const card = document.querySelector(`.track-card[data-track-id="${trackId}"]`);
+  if (!card) return;
+  card.querySelectorAll('.phrase-cue-tick').forEach((tick) => {
+    const tp = parseFloat(tick.style.left);
+    if (isNaN(tp) || tp <= prev || tp > pct) return;
+    tick.classList.remove('cue-ping');
+    void tick.offsetWidth; // restart the animation
+    tick.classList.add('cue-ping');
+    tick.addEventListener('animationend', () => tick.classList.remove('cue-ping'), { once: true });
+  });
+}
+
+function _clearEnergyPlayheads() {
+  document.querySelectorAll('.energy-playhead').forEach((el) => el.remove());
+}
+
 function playTrack(trackId, seekSec = 0) {
   const state = audioState[trackId];
   if (!state) return;
+  _clearEnergyPlayheads(); // drop any trace left on a previously-playing card
 
   const isNewSrc = nowPlayingId !== trackId;
   if (isNewSrc) {

@@ -2585,6 +2585,42 @@
     ::view-transition-group(ac-vt-title) { animation-duration: var(--dur-chrome); animation-timing-function: var(--ease-enter); }
   }
 
+  /* ── Aliveness (step 3): energy playhead trace · cue ping · cue drop-in ──
+     A green playhead tracks audio playback across the energy sparkline (grid row
+     + inspector drawer); it mirrors the existing timeline/mini-waveform
+     playheads so it is NOT motion to suppress. The cue ping + drop-in ARE
+     decorative → PRM-gated below. */
+  .energy-sparkline, .wb-insp-energy { position: relative; }
+  .energy-playhead {
+    position: absolute; top: 0; bottom: 0; width: 1.5px; left: 0;
+    transform: translateX(-50%); background: var(--green);
+    pointer-events: none; z-index: 3; border-radius: 1px;
+  }
+  @media (prefers-reduced-motion: no-preference) {
+    /* P1 — a phrase cue marker pulses green as the playhead crosses it. The
+       strip is overflow:hidden and the tick already carries transform:translateX,
+       so ping via a colour flash only — never a transform/scale. */
+    .phrase-cue-tick.cue-ping { animation: _cuePing .5s var(--ease-out) both; }
+    @keyframes _cuePing {
+      0%   { background: #fff; box-shadow: 0 0 0 1px rgba(0,0,0,.6); }
+      28%  { background: var(--green); box-shadow: 0 0 0 1px var(--green); }
+      100% { background: #fff; box-shadow: 0 0 0 1px rgba(0,0,0,.6); }
+    }
+    /* P3 — freshly-landed cue badges + ticks drop in one after another in slot
+       order A→H (staggered via --cue-drop-delay). The tick keeps its own
+       translateX(-1px) centering inside the keyframe so positioning is intact. */
+    .cue-badge.cue-drop { animation: _cueDrop .42s var(--ease-enter) var(--cue-drop-delay, 0ms) both; }
+    @keyframes _cueDrop {
+      from { opacity: 0; transform: translateY(-6px) scale(.92); }
+      to   { opacity: 1; transform: translateY(0) scale(1); }
+    }
+    .phrase-cue-tick.cue-drop { animation: _cueTickDrop .42s var(--ease-enter) var(--cue-drop-delay, 0ms) both; transform-origin: top; }
+    @keyframes _cueTickDrop {
+      from { opacity: 0; transform: translateX(-1px) scaleY(0); }
+      to   { opacity: 1; transform: translateX(-1px) scaleY(1); }
+    }
+  }
+
   /* Declutter the centre in workbench mode — the status sentence already
      reports connection; cue prep chrome moves to the toolbar in T6. */
   body.wb-active #local-mode-banner { display: none !important; }

@@ -777,12 +777,14 @@ audioPlayer.addEventListener('timeupdate', () => {
 
 audioPlayer.addEventListener('ended', () => {
   _stopPlayRaf(); // D1
+  _clearEnergyPlayheads(); // aliveness step 3 — drop the energy-sparkline trace
   nowPlayingId = null;
   updatePlaybackUI();
 });
 
 audioPlayer.addEventListener('error', () => {
   _stopPlayRaf(); // D1
+  _clearEnergyPlayheads(); // aliveness step 3 — drop the energy-sparkline trace
   showToast('Could not play this file — format may not be supported');
   nowPlayingId = null;
   updatePlaybackUI();
