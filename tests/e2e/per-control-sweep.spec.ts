@@ -57,9 +57,11 @@ async function gotoPanel(page: Page, panel: PanelName | "global") {
     // rows (network-gated-skipped today) would click a removed element if they
     // ever un-skip with a Discogs token present.
     await page.locator("#wb-disc-place").click();
-  } else {
-    await page.locator(`#tab-${panel}`).click();
+  } else if (panel === "library") {
+    // Tab bar retired — Library is the #wb-library-place workbench rail place.
+    await page.locator("#wb-library-place").click();
   }
+  // panel === "cues" is the default workbench centre — no navigation click needed.
   // Per-tab readiness signal — mirrors the drift guard.
   if (panel === "cues")
     await expect(page.locator("#tracks-section")).toBeAttached();

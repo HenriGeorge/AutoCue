@@ -62,9 +62,11 @@ test.describe("control inventory drift guard", () => {
     // (which calls switchTab('discover') to reveal #discover-tab-content). The
     // Cues + Library tab buttons survive in the (hidden) strip for parity and
     // still drive switchTab directly.
+    // Tab bar retired: Cues is the default centre (re-reached via the status-count
+    // fact, which exits any place), Library + Discover are rail places.
     const reveal = [
-      { how: "#tab-cues", ready: "#tracks-section" },
-      { how: "#tab-library", ready: "#health-section" },
+      { how: "#status-count", ready: "#tracks-section" },
+      { how: "#wb-library-place", ready: "#health-section" },
       { how: "#wb-disc-place", ready: "#disc-v2-section" },
     ];
     for (const { how, ready } of reveal) {
@@ -173,8 +175,8 @@ test.describe("control inventory drift guard", () => {
     page,
   }) => {
     await page.goto("/");
-    await expect(page.locator("#tab-cues")).toBeVisible();
-    await page.locator("#tab-cues").click();
+    // Cues is the default workbench centre (tab bar retired — no tab to click).
+    await expect(page.locator("#tab-nav")).toBeVisible();
     // Wait for tracks to render. Empty libraries (CI smoke) still render the
     // container; we just confirm the testid is scoped correctly.
     await expect(page.locator("#track-list")).toBeAttached();
