@@ -2,8 +2,9 @@
 
 Autonomous phased build of the B "Crate Console" redesign. **All planned build
 phases P0–P5 are MERGED to `main`** (P6 LLM composer is deferred by design — see
-table). The workbench is the default local-mode home and the legacy tab UI is
-retired. Decisions locked via socratic grill — see
+table). The workbench is the default local-mode home; the **Cues / Library** tab
+bar is still live alongside it in local mode (only `#tab-discover` was retired in
+P5 — see the corrected section below). Decisions locked via socratic grill — see
 `.claude/PRPs/prds/autocue-2-program.prd.md` + memory `project_autocue_2_redesign.md`.
 Do NOT re-litigate them.
 
@@ -28,14 +29,29 @@ Everything — code, docs, PRDs, plans — lands via: branch → commit → push
 
 `main` HEAD at handoff: `f4528b6` (post-P4 merge #217). Synced with origin.
 
-## What "the old UI is gone" means precisely
-- `#tab-nav` is `display:none` since P2; P5 removed the `#tab-discover` button.
-- Navigation = workbench **rail places** (Duplicates `#wb-dupes-place`, Discover
-  `#wb-disc-place`) + **⌘K palette** + **crates**. Users never see tabs.
-- Residual `#tab-cues`/`#tab-library` buttons remain as **inert hidden markup**;
-  the `switchTab(name)` plumbing is **load-bearing** (the Discover place calls
-  `switchTab('discover')` to swap the centre pane). Don't delete switchTab.
-- Deleting the two dead tab buttons is an optional cosmetic cleanup.
+## Tab nav — what's actually live (CORRECTED 2026-06-15; the docs overstated this)
+Earlier handoffs said "the tab nav is retired / `#tab-nav` is `display:none` /
+users never see tabs / the buttons are inert." **That is wrong for local mode** —
+verified against source + a live screenshot:
+- The **Cues / Library tab bar is VISIBLE and functional in local mode.** The
+  inline `style="display:none"` on `#tab-nav` is only the XML/Pages initial state;
+  local-mode boot un-hides it (`docs/js/08-set-builder-boot.js:811`,
+  `_tn.style.display=''`) and `app.css` `#tab-nav` renders it as a segmented
+  control. Clicking `#tab-cues`/`#tab-library` runs `switchTab('cues'/'library')`
+  → swaps the Cues section ↔ Health/Library section (+ download-bar toggle,
+  `body[data-active-tab]`). **These buttons are NOT inert — do not delete them.**
+- **P5 removed only `#tab-discover`** (Discover became the `#wb-disc-place` rail
+  place). `#tab-cues` + `#tab-library` remain live.
+- The workbench shell (crates rail, `⌘K` palette, rail places, inspector)
+  **coexists with** the tab bar: Discover/Duplicates are rail *places* and
+  Nightboard is a *mode*, but **Cues ↔ Library is still the tab bar**.
+- `switchTab(name)` is load-bearing for BOTH the tab buttons and the rail places.
+  Don't delete switchTab.
+- The QA harness navigates VIA `#tab-cues`/`#tab-library` and asserts `#tab-nav`
+  is visible (`tests/e2e/control-inventory.spec.ts`, `qa-smoke.spec.ts`) — so
+  deleting the buttons would break the harness, not just the UI.
+- True retirement (workbench owns Cues↔Library, tab bar removed) is unbuilt
+  follow-up work, NOT a cosmetic cleanup.
 
 ## The "place" pattern (P3 + P5 — copy this for any future place)
 A rail place swaps the workbench **centre pane** (not full-bleed):
