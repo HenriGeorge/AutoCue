@@ -71,6 +71,19 @@ describe('gravity tray (R8)', () => {
     await new Promise((r) => setTimeout(r, 0))
   })
 
+  it('guards against a double-click — the candidate is inserted once, not twice', async () => {
+    await model.buildSet({})
+    render()
+    await renderTray(2)
+    expect(model.getSet()).toHaveLength(3)
+    const btn = document.querySelector('.nb-tray-add')
+    btn.click()         // first Add: insertAfter runs synchronously, then awaits rescore
+    btn.click()         // rapid re-click while the first Add is still in flight
+    expect(model.getSet()).toHaveLength(4) // inserted once
+    await new Promise((r) => setTimeout(r, 0))
+    expect(model.getSet()).toHaveLength(4) // still once after the async settles
+  })
+
   it('toggle collapses / expands the tray row', async () => {
     await model.buildSet({})
     render()

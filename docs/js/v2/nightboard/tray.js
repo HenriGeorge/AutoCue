@@ -16,6 +16,7 @@ import { render as renderCanvas } from './canvas.js';
 import { renderInspector, clearInspector, setInspectorMode } from '../workbench/inspector.js';
 
 let _anchorIdx = null; // focused tile index → tray anchor; null means "last tile"
+let _adding = false;   // in-flight guard: one tray-Add at a time (no double-insert)
 
 function _esc(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
 function _fmtBpm(b) { const n = Number(b); return n > 0 ? n.toFixed(1) : '–'; }
@@ -121,11 +122,14 @@ export function initTray() {
   }
   const row = document.getElementById('nb-tray-row');
   if (row) {
-    row.addEventListener('click', (ev) => {
+    row.addEventListener('click', async (ev) => {
       const btn = ev.target.closest && ev.target.closest('.nb-tray-add');
-      if (!btn) return;
+      if (!btn || _adding) return;            // ignore re-entrant clicks while an Add is in flight
       const cands = row._nbCands || [];
-      _add(row._nbAnchorIdx, cands[Number(btn.dataset.k)]);
+      _adding = true;
+      btn.disabled = true;                    // immediate affordance; renderTray rebuilds fresh buttons
+      try { await _add(row._nbAnchorIdx, cands[Number(btn.dataset.k)]); }
+      finally { _adding = false; }
     });
   }
   const toggle = document.getElementById('nb-tray-toggle');
