@@ -806,7 +806,11 @@ detectLocalMode().then(async connected => {
     // AutoCue 2.0: signal v2 modules that local mode is confirmed (they gate
     // their UI on this — the global layer never renders in XML/Pages mode).
     try { window.dispatchEvent(new CustomEvent('autocue:local-mode')); } catch (_) {}
-    // Ease the tab chrome in — it used to pop over the already-painted XML UI
+    // #tab-nav is the global status row (it also hosts #app-status — the status
+    // sentence), so un-hide it in local mode. The Cues/Library tab BUTTONS
+    // (#tab-group) are retired — hidden via CSS — so the row shows only the
+    // status sentence; Cues is the default workbench centre and Library is the
+    // #wb-library-place rail place. switchTab + the tab markup stay load-bearing.
     const _tn = document.getElementById('tab-nav');
     _tn.style.display = '';
     _tn.classList.add('fade-in-up');

@@ -9,12 +9,6 @@
 function _click(id) {
   document.getElementById(id)?.click();
 }
-function _goto(tab, sectionId) {
-  if (window.switchTab) window.switchTab(tab);
-  if (sectionId) {
-    document.getElementById(sectionId)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-  }
-}
 
 // Descriptor: { id, group, label, sub?, run }. Pure to build (no DOM reads).
 export function buildCommands() {
@@ -27,7 +21,12 @@ export function buildCommands() {
       run: () => _click('download-btn') },
     { id: 'health-scan', group: 'Library', label: 'Scan library health',
       sub: 'Score every track 0–100',
-      run: () => { _goto('library', 'health-section'); _click('health-scan-btn'); } },
+      run: () => {
+        window.AC2?.workbench?.setWorkbench(true);
+        if (!window.AC2?.library?.isActive?.()) _click('wb-library-place');
+        document.getElementById('health-section')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        _click('health-scan-btn');
+      } },
     // P3: duplicates is a workbench rail place — both commands open it via
     // the rail entry's own click (delegation, no parallel path). Explicit
     // navigation intent overrides an ac_workbench opt-out, so force the
@@ -79,8 +78,23 @@ export function buildCommands() {
     { id: 'open-nightboard', group: 'Go to', label: 'Open Nightboard',
       sub: 'Full-bleed canvas — build + visualize a set',
       run: () => window.AC2?.nightboard?.open?.() },
-    { id: 'go-cues', group: 'Go to', label: 'Go to Cues', run: () => _goto('cues') },
-    { id: 'go-library', group: 'Go to', label: 'Go to Library', run: () => _goto('library') },
+    { id: 'go-cues', group: 'Go to', label: 'Go to Cues',
+      sub: 'The track grid',
+      run: () => {
+        window.AC2?.workbench?.setWorkbench(true);
+        window.AC2?.library?.deactivate?.();
+        window.AC2?.discover?.deactivate?.();
+        window.AC2?.duplicates?.deactivate?.();
+        if (window.switchTab) window.switchTab('cues');
+      } },
+    // Library is a workbench rail place (tab bar retired) — open it via the rail
+    // entry's own click, exactly like the duplicates/discover commands.
+    { id: 'go-library', group: 'Go to', label: 'Go to Library',
+      sub: 'Health, cue tools, tags, comments, set builder',
+      run: () => {
+        window.AC2?.workbench?.setWorkbench(true);
+        if (!window.AC2?.library?.isActive?.()) _click('wb-library-place');
+      } },
     { id: 'go-discover', group: 'Go to', label: 'Go to Discover',
       sub: 'The Discover place in the workbench rail',
       run: () => {

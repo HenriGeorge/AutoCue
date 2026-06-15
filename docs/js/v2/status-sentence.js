@@ -52,7 +52,9 @@ function _paint() {
 
 // Navigate to the Library health section; scan if no summary yet.
 function _revealHealth() {
-  if (window.switchTab) window.switchTab('library');
+  // Open the Library place (the health section lives in the Library surface).
+  window.AC2?.workbench?.setWorkbench(true);
+  if (!window.AC2?.library?.isActive?.()) document.getElementById('wb-library-place')?.click();
   document.getElementById('health-section')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   if (window.ACBridge && window.ACBridge.healthSummary() == null) {
     document.getElementById('health-scan-btn')?.click();
@@ -80,6 +82,10 @@ export function initStatusSentence() {
 
   // Click wiring (idempotent — the markup ids are static).
   document.getElementById('status-count')?.addEventListener('click', () => {
+    // Go to the cue grid — exit any active centre-pane place first.
+    window.AC2?.library?.deactivate?.();
+    window.AC2?.discover?.deactivate?.();
+    window.AC2?.duplicates?.deactivate?.();
     if (window.switchTab) window.switchTab('cues');
     document.getElementById('tracks-section')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   });
