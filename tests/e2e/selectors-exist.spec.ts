@@ -41,6 +41,8 @@ const REQUIRED_SELECTORS: string[] = [
   "#wb-grid-head",
   // P5 discover place — rail entry that swaps the centre pane to the feed
   "#wb-disc-place",
+  // Library place — rail entry (tab-bar retirement); swaps the centre to the tools
+  "#wb-library-place",
   // P3 duplicates place — rail entry + centre-pane view (hidden until opened)
   "#wb-dupes-place",
   "#wb-dupes-pane",

@@ -46,7 +46,8 @@ function _renderCrates() {
   // `.active` — the place owns the centre, not a crate filter.
   const placeActive = !!(
     (window.AC2 && window.AC2.duplicates && window.AC2.duplicates.isActive()) ||
-    (window.AC2 && window.AC2.discover && window.AC2.discover.isActive())
+    (window.AC2 && window.AC2.discover && window.AC2.discover.isActive()) ||
+    (window.AC2 && window.AC2.library && window.AC2.library.isActive())
   );
   const current = placeActive ? null : (window.ACBridge ? window.ACBridge.crate() : 'all');
   host.innerHTML = '';
@@ -62,6 +63,7 @@ function _renderCrates() {
       // P3/P5: leaving via a crate click exits any active centre-pane place.
       if (window.AC2 && window.AC2.duplicates) window.AC2.duplicates.deactivate();
       if (window.AC2 && window.AC2.discover) window.AC2.discover.deactivate();
+      if (window.AC2 && window.AC2.library) window.AC2.library.deactivate();
       if (window.ACBridge) window.ACBridge.setCrate(c.id);
       _renderCrates(); // repaint active state
     });
@@ -130,6 +132,7 @@ function deactivate() {
   // P3/P5: a centre-pane place can't outlive the workbench — restore the grid.
   if (window.AC2 && window.AC2.duplicates) window.AC2.duplicates.deactivate();
   if (window.AC2 && window.AC2.discover) window.AC2.discover.deactivate();
+  if (window.AC2 && window.AC2.library) window.AC2.library.deactivate();
   document.body.classList.remove('wb-active');
   document.getElementById('wb-rail')?.setAttribute('hidden', '');
   document.getElementById('wb-inspector')?.setAttribute('hidden', '');

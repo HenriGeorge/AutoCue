@@ -20,11 +20,21 @@
     },
     {
       "id": "tab-cues",
-      "kind": "button"
+      "kind": "button",
+      "skipSweep": true,
+      "skipReason": "Tab bar retired: #tab-group is hidden (display:none); the button stays in the DOM (switchTab + .tab-btn still query it) but isn't navigable. Cues is the default workbench centre."
     },
     {
       "id": "tab-library",
-      "kind": "button"
+      "kind": "button",
+      "skipSweep": true,
+      "skipReason": "Tab bar retired: #tab-group hidden; Library is now the #wb-library-place rail place. Button stays in the DOM (switchTab still queries it) but isn't navigable."
+    },
+    {
+      "id": "wb-library-place",
+      "kind": "button",
+      "skipSweep": true,
+      "skipReason": "Workbench rail place (tab-bar retirement): swaps the centre pane to the Library tools (health/cue-tools/discogs/comments/playlist-suggest/set-builder); covered by v2-library-place.spec"
     },
     {
       "id": "playlist-select",

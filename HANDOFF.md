@@ -29,27 +29,26 @@ Everything — code, docs, PRDs, plans — lands via: branch → commit → push
 
 `main` HEAD at handoff: `f4528b6` (post-P4 merge #217). Synced with origin.
 
-## Tab nav — what's actually live (CORRECTED 2026-06-15; the docs overstated this)
-Earlier handoffs said "the tab nav is retired / `#tab-nav` is `display:none` /
-users never see tabs / the buttons are inert." **That is wrong for local mode** —
-verified against source + a live screenshot:
-- The **Cues / Library tab bar is VISIBLE and functional in local mode.** The
-  inline `style="display:none"` on `#tab-nav` is only the XML/Pages initial state;
-  local-mode boot un-hides it (`docs/js/08-set-builder-boot.js:811`,
-  `_tn.style.display=''`) and `app.css` `#tab-nav` renders it as a segmented
-  control. Clicking `#tab-cues`/`#tab-library` runs `switchTab('cues'/'library')`
-  → swaps the Cues section ↔ Health/Library section (+ download-bar toggle,
-  `body[data-active-tab]`). **These buttons are NOT inert — do not delete them.**
-- **P5 removed only `#tab-discover`** (Discover became the `#wb-disc-place` rail
-  place). `#tab-cues` + `#tab-library` remain live.
-- The workbench shell (crates rail, `⌘K` palette, rail places, inspector)
-  **coexists with** the tab bar: Discover/Duplicates are rail *places* and
-  Nightboard is a *mode*, but **Cues ↔ Library is still the tab bar**.
-- `switchTab(name)` is load-bearing for BOTH the tab buttons and the rail places.
-  Don't delete switchTab.
-- The QA harness navigates VIA `#tab-cues`/`#tab-library` and asserts `#tab-nav`
-  is visible (`tests/e2e/control-inventory.spec.ts`, `qa-smoke.spec.ts`) — so
-  deleting the buttons would break the harness, not just the UI.
+## Tab nav — RETIRED via the Library place (2026-06-15)
+The Cues/Library tab bar is now **fully retired**. (It had been live in local mode
+— `#tab-nav` un-hidden on boot — which an earlier handoff wrongly called "gone";
+this slice made it actually gone.)
+- **Library is a workbench rail place** (`#wb-library-place`,
+  `docs/js/v2/workbench/library.js`) that swaps the centre to the Library tools
+  (`#library-tab-content`: health/cue-tools/discogs/comments/playlist-suggest/
+  set-builder) via `switchTab('library')` — mirrors the Duplicates/Discover places.
+- **The tab BUTTONS are hidden** (`#tab-group { display:none }`). `#tab-nav` stays
+  (it hosts `#app-status` — the status sentence), so the top row now shows only the
+  status sentence. **Cues is the default centre.**
+- `#tab-cues`/`#tab-library` markup + `switchTab` REMAIN (load-bearing: the places
+  call `switchTab`, and `.tab-btn` is still queried). They are inventoried as
+  `skipSweep` (still in the DOM). **Don't "clean up" by deleting them** — that
+  breaks `switchTab` and the rail places.
+- Callers repointed to the place: ⌘K `go-library`/`health-scan` + the
+  status-sentence health fact click `#wb-library-place`; `go-cues`/status-count
+  deactivate places. Mutual exclusion is 3-way (Library/Discover/Duplicates).
+- Tests: `tests/e2e/v2-library-place.spec.ts`; the harness navigates via the rail
+  place (not the hidden tab buttons).
 - True retirement (workbench owns Cues↔Library, tab bar removed) is unbuilt
   follow-up work, NOT a cosmetic cleanup.
 

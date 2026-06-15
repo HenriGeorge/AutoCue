@@ -122,9 +122,9 @@ test.describe("Web UI smoke (local mode)", () => {
     await page.goto("/");
     await expect(page.locator("#tab-nav")).toBeVisible({ timeout: 10_000 });
 
-    // P5: #tab-discover retired — Discover is the #wb-disc-place rail place;
-    // Cues + Library tab buttons survive in the (hidden) strip.
-    for (const sel of ["#tab-library", "#wb-disc-place", "#tab-cues"]) {
+    // Tab bar retired — Library + Discover are rail places; Cues is the default
+    // centre (re-reached via the status-count fact, which exits any place).
+    for (const sel of ["#wb-library-place", "#wb-disc-place", "#status-count"]) {
       await page.locator(sel).click();
       // Switch is a synchronous DOM toggle; give it one tick.
       await page.waitForTimeout(100);

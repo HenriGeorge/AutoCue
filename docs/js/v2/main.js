@@ -54,6 +54,13 @@ import { initDiscoverPlace, activate as activateDiscover, deactivate as deactiva
 window.AC2.discover = { activate: activateDiscover, deactivate: deactivateDiscover, isActive: discoverActive, focusRelease: discoverFocusRelease };
 initDiscoverPlace();
 
+// Library place — the LAST surface off the legacy #tab-nav tab bar. Mirrors the
+// Discover place (own tab-content block, shown via switchTab('library')); moving
+// it into the rail lets the Cues/Library tab bar be retired.
+import { initLibraryPlace, activate as activateLibrary, deactivate as deactivateLibrary, isActive as libraryActive } from './workbench/library.js';
+window.AC2.library = { activate: activateLibrary, deactivate: deactivateLibrary, isActive: libraryActive };
+initLibraryPlace();
+
 // P4 Nightboard — full-bleed set-builder canvas MODE (not a centre-pane place):
 // hides rail+grid+inspector and owns the body, keeping the global topbar. Built
 // on the existing setbuilder/transitions REST surface (no new analysis, no new

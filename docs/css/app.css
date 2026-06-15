@@ -1961,8 +1961,12 @@
     #app-status { gap: 10px; }
     #app-status #status-scan, #app-status #status-sep-scan { display: none; }
   }
+  /* Tab buttons retired: Cues is the default workbench centre, Library is the
+     #wb-library-place rail place. #tab-nav stays (it hosts #app-status — the
+     status sentence); only this Cues/Library button group is hidden. The markup
+     + switchTab remain, load-bearing for the rail-place centre-pane swaps. */
   #tab-group {
-    display: inline-flex;
+    display: none;
     background: var(--surface2);
     border-radius: 9999px;
     padding: 3px;
@@ -2854,6 +2858,10 @@
   body.wb-place-disc #tracks-sticky,
   body.wb-place-disc #track-list,
   body.wb-place-disc #wb-grid-head { display: none !important; }
+  /* Library place (tab-bar retirement) — same centre-pane backstop. */
+  body.wb-place-library #tracks-sticky,
+  body.wb-place-library #track-list,
+  body.wb-place-library #wb-grid-head { display: none !important; }
   .wb-dupes-toolbar {
     display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
     padding-bottom: 12px; margin-bottom: 14px;

@@ -73,8 +73,9 @@ function _announce() {
 export function activate() {
   if (_active) return;
   if (!(window.ACBridge && window.ACBridge.isLocalMode())) return;
-  // Mutual exclusion: only one place owns the centre. Leaving Duplicates first.
+  // Mutual exclusion: only one place owns the centre. Leave the others first.
   if (window.AC2 && window.AC2.duplicates) window.AC2.duplicates.deactivate();
+  if (window.AC2 && window.AC2.library) window.AC2.library.deactivate();
   _active = true;
   // The inspector describes a grid row — clear it before re-hosting release
   // detail (the focus path un-hides + repopulates it in 'release' mode, T3).

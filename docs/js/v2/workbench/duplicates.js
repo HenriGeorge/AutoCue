@@ -40,6 +40,7 @@ export function activate() {
   if (!(window.ACBridge && window.ACBridge.isLocalMode())) return;
   // P5 mutual exclusion: only one place owns the centre. Leave Discover first.
   if (window.AC2 && window.AC2.discover) window.AC2.discover.deactivate();
+  if (window.AC2 && window.AC2.library) window.AC2.library.deactivate();
   _active = true;
   // The inspector describes a grid row — clear it before hiding the pane.
   clearInspector();
