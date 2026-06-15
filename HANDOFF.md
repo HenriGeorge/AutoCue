@@ -1,4 +1,4 @@
-# HANDOFF — AutoCue 2.0 redesign (2026-06-14)
+# HANDOFF — AutoCue 2.0 redesign (2026-06-15)
 
 Autonomous phased build of the B "Crate Console" redesign. **All planned build
 phases P0–P5 are MERGED to `main`** (P6 LLM composer is deferred by design — see
@@ -85,31 +85,31 @@ admin-merge.
 ## Validate / gate
 Three-leg stack (run e2e ALONE — #189 contention flake):
 ```
-pytest                                   # 1449 passed, 7 skipped (2026-06-14)
-npm test                                 # 882 passed (2026-06-14)
+pytest                                   # 1449 passed, 7 skipped (2026-06-15)
+npm test                                 # 885 passed (2026-06-15)
 cd tests/e2e && npx playwright test      # run alone
 ```
 No linter is wired (no ruff/eslint); the three-leg stack is the gate.
 **Baseline e2e behaviour under full-suite contention (#189 — NOT regressions):**
-a contended full run drops up to ~14 tests, ALL in Discover + action-bar; each
-passes on an isolation re-run (verified 2026-06-14). The set:
+a contended full run drops ~12 tests, ALL in Discover; each passes on an
+isolation re-run (verified 2026-06-15). The set:
 - `v2-discover-shell.spec.ts` — the full 7-test P5 place suite (a–h)
 - `discover-v2.spec.ts` — feed-render / inspector-rehost / `?` help / Save (4)
-- `per-control-sweep` — `action-bar-clear` + `action-bar-preview` (the 2 that
-  want a dedicated triage) + `disc-v2-refresh-btn`
+- `per-control-sweep` — `disc-v2-refresh-btn`
 Re-run any failing Discover spec file ALONE (`npx playwright test <file>`) to
 confirm green before assuming a regression. P4 `v2-nightboard.spec.ts` is NOT in
-this set — it passes in the full run.
+this set — it passes in the full run. (The two `action-bar-*` per-control rows
+that used to fail deterministically were fixed in #221 — issue #219.)
 
 ## Open items
-- [PR #214](https://github.com/HenriGeorge/AutoCue/pull/214) — P4 plan-only PR,
-  now **redundant** (the plan merged inside #217) and CONFLICTING; **close it**.
-- Stale merged-branch worktrees prunable: `.claude/worktrees/v2-p4-nightboard`
-  (#217) + `.claude/worktrees/hopeful-turing-3fe017` (P2, #211) — `git worktree remove`.
-- [Issue #187](https://github.com/HenriGeorge/AutoCue/issues/187) — sticky-overlap on the *legacy* Cues tab; only reachable via opt-out (`ac_workbench='0'`) now — effectively moot, **closeable**.
-- 2 baseline action-bar e2e failures want a dedicated triage.
-- Optional cleanup: delete the inert `#tab-cues`/`#tab-library` buttons.
+- Optional cleanup: delete the inert `#tab-cues`/`#tab-library` buttons (cosmetic).
 - Next build work: only **P6** (AUTOCUE_LLM composer) remains, deferred by design.
+
+_Resolved 2026-06-15: #214 closed (plan merged via #217); merged-branch worktrees
+pruned; the two action-bar per-control e2e failures fixed (#221, closing #219);
+**#187 closed** — its "159px overlap" was a test false-positive (guard
+card-picking; fixed via `VISIBLE_THRESHOLD_PX=5`), product layout verified clean
+(re-measured 0.13px in title-sort + visual confirm)._
 
 ## Run / verify locally
 `python -m autocue serve --port 7434 --no-browser` (use 127.0.0.1, never
