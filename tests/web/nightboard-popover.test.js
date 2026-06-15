@@ -51,6 +51,35 @@ describe('joint popover (R6)', () => {
     expect(document.querySelector('.nb-joint[data-joint="0"]').classList.contains('nb-joint-open')).toBe(true)
   })
 
+  it('is an accessible dialog — aria-modal set and focus moves into the popover', async () => {
+    await model.buildSet({})
+    render()
+    await open(0)
+    const po = document.querySelector('.nb-popover')
+    expect(po.getAttribute('role')).toBe('dialog')
+    expect(po.getAttribute('aria-modal')).toBe('true')
+    expect(po.getAttribute('aria-label')).toBeTruthy()
+    expect(document.activeElement).toBe(po) // focus moved into the dialog, not left on the joint
+  })
+
+  it('closes instead of mis-positioning when the joint vanishes during the fetch (re-render safety)', async () => {
+    await model.buildSet({})
+    render()
+    // simulate a canvas repaint dropping the joint node mid-fetch (the bug: the
+    // captured node detaches → zero rect → popover flung to the viewport corner)
+    globalThis.fetch = vi.fn(async (url) => {
+      if (url === '/api/transitions/score') {
+        document.querySelector('.nb-joint[data-joint="1"]')?.remove()
+        return json({ overall: 90, explanation: [] })
+      }
+      if (url.startsWith('/api/setbuilder/alternatives')) return json({ alternatives: [] })
+      return json({})
+    })
+    await open(1)
+    expect(isOpen()).toBe(false)
+    expect(document.querySelector('.nb-popover')).toBeNull()
+  })
+
   it('re-clicking the same joint toggles it closed', async () => {
     await model.buildSet({})
     render()

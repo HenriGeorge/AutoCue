@@ -64,12 +64,17 @@ export async function open(jointIdx) {
   if (_openIdx === jointIdx) { close(); return; } // re-click toggles
   close();
   _openIdx = jointIdx;
-  const jointBtn = document.querySelector(`.nb-joint[data-joint="${jointIdx}"]`);
+  // `let` (not const): the timeline can re-render during the async fetch below,
+  // detaching this node — we re-point it to the live joint afterwards.
+  let jointBtn = document.querySelector(`.nb-joint[data-joint="${jointIdx}"]`);
   jointBtn?.classList.add('nb-joint-open');
 
   _el = document.createElement('div');
   _el.className = 'nb-popover';
   _el.setAttribute('role', 'dialog');
+  _el.setAttribute('aria-modal', 'true');
+  _el.setAttribute('aria-label', 'Transition detail');
+  _el.tabIndex = -1;
   _el.dataset.testid = 'nb-popover';
   _el.innerHTML = '<div class="nb-po-loading">Scoring…</div>';
   document.body.appendChild(_el);
@@ -91,8 +96,18 @@ export async function open(jointIdx) {
     _fetchAlternatives(b.track_id, a.track_id, nextId, excl),
   ]);
   if (_openIdx !== jointIdx || !_el) return; // closed / changed while fetching
+  // The timeline may have repainted during the fetch (e.g. a background energy
+  // reload calling renderCanvas), detaching the captured joint node — a stale
+  // node returns a zero rect and flings the popover to the viewport corner.
+  // Re-point to the live node; if the joint is gone entirely, close rather than
+  // orphan a mispositioned popover.
+  const liveBtn = document.querySelector(`.nb-joint[data-joint="${jointIdx}"]`);
+  if (!liveBtn) { close(); return; }
+  jointBtn = liveBtn;
+  jointBtn.classList.add('nb-joint-open');
   _renderBody(a, b, score, alts, jointIdx);
   _position(jointBtn);
+  _el.focus(); // move focus into the dialog (a11y — role=dialog + aria-modal)
 }
 
 async function _fetchScore(aId, bId) {
