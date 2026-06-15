@@ -1,10 +1,11 @@
-# HANDOFF — AutoCue 2.0 redesign (2026-06-15)
+# HANDOFF — AutoCue 2.0 redesign (2026-06-16)
 
 Autonomous phased build of the B "Crate Console" redesign. **All planned build
 phases P0–P5 are MERGED to `main`** (P6 LLM composer is deferred by design — see
-table). The workbench is the default local-mode home; the **Cues / Library** tab
-bar is still live alongside it in local mode (only `#tab-discover` was retired in
-P5 — see the corrected section below). Decisions locked via socratic grill — see
+table). The workbench is the default local-mode home; the legacy Cues/Library tab
+bar is **retired** — Library is now the `#wb-library-place` rail place (#224).
+A post-program **UI aliveness sequence** is the active next work (steps 1+1b
+merged; see the section after the phase table). Decisions locked via socratic grill — see
 `.claude/PRPs/prds/autocue-2-program.prd.md` + memory `project_autocue_2_redesign.md`.
 Do NOT re-litigate them.
 
@@ -27,7 +28,72 @@ Everything — code, docs, PRDs, plans — lands via: branch → commit → push
 | **P5 Discover into the shell** (retires `#tab-discover`) | ✅ merged **#215** |
 | P6 AUTOCUE_LLM composer | 📋 PRD only, deferred by design |
 
-`main` HEAD at handoff: `f4528b6` (post-P4 merge #217). Synced with origin.
+`main` HEAD at handoff: `cfb7390` (post #226, aliveness step 1b). Synced with origin.
+
+## Post-program: UI aliveness sequence (motion polish) — ACTIVE next work
+A separate, post-v2 effort to make the UI feel more dynamic WITHOUT breaking the
+restrained ElevenLabs-clean ethos. Audit + 7 propositions designed 2026-06-15.
+NOT part of the P0–P6 program. **Start here for the next session.**
+
+**DONE:**
+- **Step 1 (#225)** — A1 inspector reveal stagger (`app.css` `#wb-inspector-body > *`
+  fadeSlideIn) · P2 harmonic glow (selecting a track outlines its Camelot-compatible
+  neighbours green; `inspector.js _glowHarmonic` reuses `window._sbKeyCompat`; key-only)
+  · A3-lite rail hover green edge.
+- **Step 1b (#226)** — P6 commit wave (`06-render.js _commitWave`, fired AFTER the
+  primary apply path re-renders the cards, `04-app-chrome.js`) · A2 directional
+  place-swap (`body[class*=wb-place-] .tab-entering` → `_placeSlideIn`).
+- All additive + `prefers-reduced-motion`-gated; CSS in the "Aliveness" blocks in
+  `app.css` (just after the `.wb-crate` PRM line). NOTE: many tracks lack a Camelot key,
+  so P2 only fires on keyed tracks (correct — it lights where the data exists).
+
+**REMAINING — one PR each, three-leg gate green (e2e ALONE); verify headlessly with a
+throwaway `tests/e2e/_tmp*.spec.ts` (sandbox server; put `.venv/bin` on PATH so the
+harness `python3` has uvicorn; symlink `tests/e2e/node_modules` from the main checkout)
++ a screenshot; delete the temp spec before commit:**
+
+1. **Step 2 — Inspector drawer (idea B) + P4 View Transitions** *(riskiest: layout)*
+   - Today: inspector is a fixed flank — `#wb-inspector{right:0;width:var(--wb-insp-w)}`
+     + `body.wb-active main{padding-right:calc(var(--wb-insp-w)+24px)}` reserves the
+     column always; empty state until a row is clicked; hidden `<1180px`.
+   - Target: a **slide-over drawer** — grid full-width by default; on select add
+     `body.wb-inspecting` → inspector `transform:translateX(0)` from `translateX(100%)`
+     OVER the grid (NO reflow → no Virtualizer/sticky risk, TASK-033/037). Esc/deselect
+     removes the class → slides out. `renderInspector` adds the class; `clearInspector`
+     removes it. Keep the `<1180px` hide.
+   - **P4**: wrap the reveal in `document.startViewTransition(() => …)` (native, no deps;
+     guard `if (!document.startViewTransition)`) so the row's artwork/title morphs into
+     the drawer header (`view-transition-name` on the row + the drawer header).
+   - **Re-verify all 4 inspector consumers + their e2e**: `v2-workbench-grid (c)` (row
+     click → `#wb-inspector-body` populates, now slides), the place specs asserting
+     `#wb-inspector` hidden (Library/Discover/Duplicates via `body.wb-place-*`), Nightboard
+     tile-focus reuse (`body.nb-inspecting`), Discover release re-host (inspector mode
+     'release').
+
+2. **Step 3 — P1 energy/waveform playhead + P3 cues drop-in** *(additive)*
+   - P1: extend the existing RAF playhead (`.claude/project/web-ui.md` "RAF playhead /
+     mini waveform") to ALSO trace the energy sparkline during preview; **ping** each cue
+     marker (1-beat pulse) as the playhead crosses it.
+   - P3: when cues land (apply / lazy-phrase), animate cue badges onto the phrase strip in
+     slot order **A→H** (stagger), each settling into its phrase position.
+
+3. **Step 4 — P5 health-scan sweep** *(additive)* — the `/api/health` SSE (Library place
+   `#health-section`) renders as a sweep-line down the list + each track's score rolling
+   up + the overall 0–100 counting to final (reuse `_countPop`). PRM-gated.
+
+4. **Step 5 — Drag-to-playlist (idea C)** *(needs BACKEND first)*
+   - **No add-to-existing-playlist endpoint exists** (only `POST /api/playlists` CREATEs
+     from `track_ids`, `routes.py:2928`). Add `POST /api/playlists/{id}/tracks
+     {track_ids}`: insert into `DjmdSongPlaylist` (correct `TrackNo`/sort order),
+     `_rb_running` guard, per-session backup, single-writer commit; tests in
+     `test_serve_routes.py`.
+   - THEN UI: HTML5 DnD from grid cards → rail crates/playlists as drop targets, with
+     P6-style drop gravity (target swells + green wash on drag-over; count pops on drop).
+     Local-mode only; PRM-gated.
+
+**Ethos for all steps:** green = signal only; the only CTA is the ink pill; mono for
+data; honour `prefers-reduced-motion` on every new animation; reuse the
+`--ease-*`/`--dur-*`/`--shadow-*` tokens; no new deps (no-build).
 
 ## Tab nav — RETIRED via the Library place (2026-06-15)
 The Cues/Library tab bar is now **fully retired**. (It had been live in local mode
