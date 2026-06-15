@@ -84,6 +84,31 @@ function activeTracks() {
   return out;
 }
 
+// P6 — green "commit wave": after cues are applied, roll a brief green edge down
+// the just-applied rows that are currently in view (staggered per row = a wave).
+// The apply path re-renders the cards first, so this runs on the fresh rows.
+// Decorative + reduced-motion-gated (CSS) — wrapped so it can NEVER affect the
+// write result.
+function _commitWave(ids) {
+  try {
+    const set = new Set((ids || []).map(String));
+    if (!set.size) return;
+    const cards = Array.from(document.querySelectorAll('#track-list .track-card[data-track-id]'))
+      .filter((c) => set.has(String(c.dataset.trackId)))
+      .sort((a, b) => a.getBoundingClientRect().top - b.getBoundingClientRect().top);
+    cards.forEach((card, i) => {
+      card.classList.remove('cue-committed');
+      card.style.setProperty('--commit-delay', Math.min(i * 50, 600) + 'ms');
+      void card.offsetWidth; // restart the animation if the class lingered
+      card.classList.add('cue-committed');
+      card.addEventListener('animationend', () => {
+        card.classList.remove('cue-committed');
+        card.style.removeProperty('--commit-delay');
+      }, { once: true });
+    });
+  } catch (_) { /* decorative — never affect the write result */ }
+}
+
 function updateSelectionBar() {
   const count = selectedTrackIds.size;
   const countEl = document.getElementById('selection-count');
