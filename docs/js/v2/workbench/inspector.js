@@ -9,6 +9,7 @@
  */
 
 let _focusedId = null;
+let _glowTimer = null; // P2 — harmonic-glow cleanup timer
 // P5: the inspector is dual-purpose. 'track' (default) hosts the focused grid
 // row; 'release' hosts a Discover release detail (re-hosted from the legacy
 // slide-in panel). The mode gates the grid-click handler so a release detail
@@ -37,6 +38,34 @@ function _section(title) {
   return wrap;
 }
 
+// P2 — harmonic family glow: when a track is selected, briefly outline the
+// in-view tracks that are Camelot- + tempo-compatible with it (green = signal).
+// Reuses the legacy Camelot helper (window._sbKeyCompat); the CSS gates the
+// motion on prefers-reduced-motion. Decorative — wrapped so it can NEVER break
+// selection if the helper or grid is absent.
+function _glowHarmonic(sel) {
+  try {
+    document.querySelectorAll('.track-card.harmonic-glow').forEach((c) => c.classList.remove('harmonic-glow'));
+    if (_glowTimer) { clearTimeout(_glowTimer); _glowTimer = null; }
+    const compat = window._sbKeyCompat;
+    if (typeof compat !== 'function' || !sel || !sel.key) return;
+    const tracks = window.ACBridge ? window.ACBridge.tracks() : [];
+    const byId = new Map(tracks.map((x) => [String(x.id), x]));
+    for (const card of document.querySelectorAll('#track-list .track-card[data-track-id]')) {
+      const id = card.dataset.trackId;
+      if (id === String(sel.id)) continue;
+      const other = byId.get(String(id));
+      if (!other || !other.key) continue;
+      // Harmonic (Camelot) compatibility — the glow lights the key-family in view.
+      if (compat(sel.key, other.key) === true) card.classList.add('harmonic-glow');
+    }
+    _glowTimer = setTimeout(() => {
+      document.querySelectorAll('.track-card.harmonic-glow').forEach((c) => c.classList.remove('harmonic-glow'));
+      _glowTimer = null;
+    }, 1200);
+  } catch (_) { /* glow is decorative — never break selection */ }
+}
+
 export function renderInspector(trackId) {
   const body = document.getElementById('wb-inspector-body');
   const empty = document.getElementById('wb-inspector-empty');
@@ -45,6 +74,7 @@ export function renderInspector(trackId) {
   const t = tracks.find((x) => String(x.id) === String(trackId));
   if (!t) return;
   _focusedId = String(trackId);
+  _glowHarmonic(t); // P2 — light the harmonic family in the grid
 
   if (empty) empty.hidden = true;
   body.hidden = false;
