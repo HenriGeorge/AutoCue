@@ -187,7 +187,23 @@ async function applySetup(page: Page, row: ControlRow) {
     cb,
     `setup select-track for ${row.id}: no selectable track checkbox`,
   ).toBeVisible({ timeout: 15_000 });
-  await cb.check();
+  // Issue #219: the first visible track-select checkbox sits UNDER the sticky
+  // `#top-bar` + `#tracks-sticky`/`#wb-grid-head` chrome, so a real pointer
+  // click — even `{ force: true }` — lands on the occluding header rather than
+  // the checkbox (`.check()` times out, or reports "did not change its state").
+  // `force` skips the actionability *assertions*, not the physical occlusion of
+  // the synthetic click point. This is a SETUP step: its only job is to put a
+  // track in `selectedTrackIds` so `updateSelectionBar` slides #action-bar in
+  // for the row under test. So we set the state directly and fire the same
+  // `change` event the card wires (06-render.js) — the mutate-and-dispatch
+  // pattern this helper already uses for expandHiddenSections/forceShowAncestors
+  // rather than fighting the sticky chrome. The action-bar button itself is
+  // still clicked for real by safeInteract downstream.
+  await cb.evaluate((el) => {
+    if (!(el instanceof HTMLInputElement) || el.checked) return;
+    el.checked = true;
+    el.dispatchEvent(new Event("change", { bubbles: true }));
+  });
   await expect(
     page.locator("#action-bar"),
     `setup select-track for ${row.id}: #action-bar did not become visible`,
