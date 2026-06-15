@@ -2532,6 +2532,25 @@
      transform, so the :active press-scale stays intact; safe under reduced-motion). */
   .wb-crate:not(.active):hover { box-shadow: inset 2px 0 0 color-mix(in srgb, var(--green) 30%, transparent); }
 
+  /* ── Aliveness (step 1b): commit wave · directional place-swap ── */
+  @media (prefers-reduced-motion: no-preference) {
+    /* P6 — a green edge sweeps down the rows that just got cues (staggered via
+       --commit-delay, set per row in _commitWave) so the write is located, not
+       just a corner toast. */
+    .track-card.cue-committed { animation: _commitWave .8s var(--ease-out) var(--commit-delay, 0ms) both; }
+    @keyframes _commitWave {
+      0%, 100% { box-shadow: inset 0 0 0 0 transparent; }
+      25%      { box-shadow: inset 4px 0 0 0 var(--green); }
+    }
+    /* A2 — opening a rail place slides its centre content in from the rail side
+       (horizontal) instead of the default vertical tab fade. */
+    body[class*="wb-place-"] .tab-entering { animation: _placeSlideIn var(--dur-chrome) var(--ease-enter) both; }
+    @keyframes _placeSlideIn {
+      from { opacity: 0; transform: translateX(-18px); }
+      to   { opacity: 1; transform: translateX(0); }
+    }
+  }
+
   /* Declutter the centre in workbench mode — the status sentence already
      reports connection; cue prep chrome moves to the toolbar in T6. */
   body.wb-active #local-mode-banner { display: none !important; }

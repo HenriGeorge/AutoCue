@@ -277,6 +277,7 @@ async function applyToRekordbox() {
       // Refresh cards so existing-cue counts/chips reflect the write —
       // without this the tracks just written still render as un-cued.
       if (localMode) await loadTracksFromServer(activePlaylistId ?? null).catch(() => {});
+      _commitWave(trackIds); // P6 — green commit wave down the just-applied rows (now refreshed)
     }
   } catch (err) {
     showToast(`Error applying cues: ${err.message}`, true);
