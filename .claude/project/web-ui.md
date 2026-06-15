@@ -149,8 +149,9 @@
   pulse + scan-bar/spinner/crossfade all reduced-motion-gated. ⌘K `go-discover`/`find-releases`
   force the workbench on + click `#wb-disc-place`. **`#tab-discover` is retired** (P5) — the
   `switchTab('discover')` map entry + `#discover-tab-content` survive (the place uses them).
-  The `#tab-cues`/`#tab-library` tab bar is **still live in local mode** (un-hidden on boot
-  via `08-set-builder-boot.js:811`) — only `#tab-discover` is gone, not all three tabs. JSDOM can't see the
+  The Cues/Library tab bar is **retired**: `#tab-group` (the buttons) is CSS-hidden and Library
+  is the `#wb-library-place` rail place (`docs/js/v2/workbench/library.js`); `#tab-nav` stays
+  only as the `#app-status` status row. JSDOM can't see the
   swap/scroll/sticky-pin — `tests/e2e/v2-discover-shell.spec.ts` (mocks every
   `/api/discover/*` + `/api/youtube/search`) covers those + both themes + reduced-motion + R10.
 
