@@ -2479,8 +2479,8 @@
   #wb-rail[hidden], #wb-inspector[hidden] { display: none; }
   /* When the workbench owns the screen, the centre column = the legacy <main>,
      widened and inset by the flank widths. Document scroll & sticky preserved. */
-  body.wb-active main { max-width: none; margin: 0; padding-left: calc(var(--wb-rail-w) + 24px); padding-right: calc(var(--wb-insp-w) + 24px); }
-  body.wb-active #action-bar { left: var(--wb-rail-w); right: var(--wb-insp-w); width: auto; }
+  body.wb-active main { max-width: none; margin: 0; padding-left: calc(var(--wb-rail-w) + 24px); padding-right: 24px; }
+  body.wb-active #action-bar { left: var(--wb-rail-w); right: 0; width: auto; }
   @media (max-width: 1180px) { body.wb-active #wb-inspector { display: none; } body.wb-active main { padding-right: 40px; } }
 
   /* Rail */
@@ -2549,6 +2549,40 @@
       from { opacity: 0; transform: translateX(-18px); }
       to   { opacity: 1; transform: translateX(0); }
     }
+  }
+
+  /* ── Aliveness (step 2): inspector slide-over drawer + View Transitions ──
+     The inspector no longer reserves a permanent column — the grid is full-width
+     and the drawer slides OVER it on select. Pure transform/overlay, so the grid
+     never reflows (Virtualizer + #tracks-sticky untouched, TASK-033/037). Scoped
+     :not(.nb-active) so Nightboard's reserved-flank inspector is unaffected.
+     z-index 105 clears #tracks-sticky (100). */
+  body.wb-active:not(.nb-active) #wb-inspector {
+    z-index: 105; box-shadow: var(--shadow-lg);
+    transform: translateX(100%); pointer-events: none;
+    transition: transform var(--dur-chrome) var(--ease-enter);
+  }
+  body.wb-active:not(.nb-active).wb-inspecting #wb-inspector {
+    transform: translateX(0); pointer-events: auto;
+  }
+  /* Reserve the action-bar's right edge only while the drawer is out (wide only). */
+  @media (min-width: 1181px) {
+    body.wb-active:not(.nb-active).wb-inspecting #action-bar { right: var(--wb-insp-w); }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    body.wb-active:not(.nb-active) #wb-inspector { transition: none; }
+  }
+  @media (prefers-reduced-motion: no-preference) {
+    body.wb-active:not(.nb-active) #action-bar {
+      transition: transform 240ms cubic-bezier(.2,.7,.2,1), right var(--dur-chrome) var(--ease-enter);
+    }
+    /* P4 — View Transition: the grid row's title morphs into the drawer header,
+       and the drawer slides in as its own transition group. Progressive
+       enhancement only — JS guards on document.startViewTransition + PRM; the
+       translateX drawer above is the fallback (and what JSDOM/tests exercise). */
+    body.wb-active:not(.nb-active) #wb-inspector { view-transition-name: ac-vt-drawer; }
+    ::view-transition-group(ac-vt-drawer) { animation-duration: var(--dur-chrome); animation-timing-function: var(--ease-enter); }
+    ::view-transition-group(ac-vt-title) { animation-duration: var(--dur-chrome); animation-timing-function: var(--ease-enter); }
   }
 
   /* Declutter the centre in workbench mode — the status sentence already

@@ -66,7 +66,33 @@ function _glowHarmonic(sel) {
   } catch (_) { /* glow is decorative — never break selection */ }
 }
 
-export function renderInspector(trackId) {
+const _prmOK = () => !window.matchMedia || window.matchMedia('(prefers-reduced-motion: no-preference)').matches;
+
+// P4 — reveal the inspector via a View Transition: the grid row's title morphs
+// into the drawer header while the drawer slides in. Progressive enhancement —
+// when startViewTransition is absent (JSDOM/tests, older browsers) or the user
+// prefers reduced motion, `paint` runs synchronously and the CSS translateX
+// drawer is the reveal. `srcTitle` is the row title node to morph from (may be
+// null → no named morph); `after` runs once the reveal settles (the harmonic
+// glow fires there so it lands after the drawer, not mid-transition).
+function _reveal(srcTitle, paint, after) {
+  const canVT = typeof document.startViewTransition === 'function' && _prmOK() && srcTitle;
+  if (!canVT) { paint(); if (after) after(); return; }
+  const clear = () => {
+    try { srcTitle.style.viewTransitionName = ''; } catch (_) {}
+    const dt = document.querySelector('#wb-inspector-body .wb-insp-title');
+    if (dt) dt.style.viewTransitionName = '';
+  };
+  srcTitle.style.viewTransitionName = 'ac-vt-title';
+  let vt;
+  try {
+    vt = document.startViewTransition(() => { srcTitle.style.viewTransitionName = ''; paint(); });
+  } catch (_) { clear(); paint(); if (after) after(); return; }
+  const done = () => { clear(); if (after) after(); };
+  vt.finished.then(done, done);
+}
+
+export function renderInspector(trackId, srcEl) {
   const body = document.getElementById('wb-inspector-body');
   const empty = document.getElementById('wb-inspector-empty');
   if (!body) return;
@@ -74,8 +100,9 @@ export function renderInspector(trackId) {
   const t = tracks.find((x) => String(x.id) === String(trackId));
   if (!t) return;
   _focusedId = String(trackId);
-  _glowHarmonic(t); // P2 — light the harmonic family in the grid
+  document.body.classList.add('wb-inspecting'); // CSS drawer slides in
 
+  const paint = () => {
   if (empty) empty.hidden = true;
   body.hidden = false;
   body.innerHTML = '';
@@ -85,6 +112,7 @@ export function renderInspector(trackId) {
   head.className = 'wb-insp-head';
   const title = document.createElement('div');
   title.className = 'wb-insp-title';
+  title.style.viewTransitionName = 'ac-vt-title'; // P4 — morph target (row title → header)
   title.textContent = t.name || '(untitled)';
   const artist = document.createElement('div');
   artist.className = 'wb-insp-artist';
@@ -179,6 +207,9 @@ export function renderInspector(trackId) {
   simSec.appendChild(simBtn);
   simSec.appendChild(simPanel);
   body.appendChild(simSec);
+  }; // end paint
+
+  _reveal(srcEl ? srcEl.querySelector('.wb-tt') : null, paint, () => _glowHarmonic(t));
 }
 
 // P5: re-host a Discover release detail in the inspector (mode 'release').
@@ -197,6 +228,7 @@ export function renderReleaseInspector(releaseKey) {
   if (!release) return;
   _mode = 'release';
   _focusedId = null;
+  document.body.classList.add('wb-inspecting'); // CSS drawer slides in
 
   if (empty) empty.hidden = true;
   body.hidden = false;
@@ -262,6 +294,7 @@ export function renderReleaseInspector(releaseKey) {
 export function clearInspector() {
   _focusedId = null;
   _mode = 'track';
+  document.body.classList.remove('wb-inspecting'); // CSS drawer slides out
   // Put the relocated legacy detail node back in its panel BEFORE wiping the
   // inspector body (otherwise innerHTML='' would destroy the shared node).
   _restoreDetailHost();
@@ -300,6 +333,6 @@ export function initInspector() {
     e.stopPropagation();
     card.classList.add('wb-focused');
     list.querySelectorAll('.track-card.wb-focused').forEach((el) => { if (el !== card) el.classList.remove('wb-focused'); });
-    renderInspector(card.dataset.trackId);
+    renderInspector(card.dataset.trackId, card);
   }, true);
 }
