@@ -2012,8 +2012,13 @@
     40%  { transform: scale(1.13); color: var(--green); }
     100% { transform: scale(1); }
   }
-  .tracks-count.count-pop, .action-bar-count.count-pop, .status-item.count-pop { animation: _countPop 0.28s ease-out; }
+  .tracks-count.count-pop, .action-bar-count.count-pop, .status-item.count-pop, .health-score-ring.count-pop { animation: _countPop 0.28s ease-out; }
   .action-bar-count.count-pop { display: inline-block; } /* transform needs a box */
+  /* Aliveness (step 4) — per-track health chips pop in a top-to-bottom stagger
+     after a scan lands (--land-delay set per chip in _staggerHealthChips). */
+  @media (prefers-reduced-motion: no-preference) {
+    .health-chip.score-land { animation: _countPop 0.28s ease-out var(--land-delay, 0ms) both; display: inline-block; }
+  }
   .status-warmup-item, .status-warmup-sep { transition: opacity var(--dur-chrome) ease; }
 
   /* Cue badge active press */

@@ -262,10 +262,11 @@ async function scanLibraryHealth() {
     }
     fill.style.width = '100%';
     renderTracks();
+    requestAnimationFrame(_staggerHealthChips); // aliveness step 4 — scores roll in
   } catch (err) {
     if (err.name === 'AbortError') {
       showToast(`Health scan cancelled — ${Object.keys(healthData).length.toLocaleString()} tracks scanned`);
-      if (Object.keys(healthData).length > 0) renderTracks();
+      if (Object.keys(healthData).length > 0) { renderTracks(); requestAnimationFrame(_staggerHealthChips); }
     } else {
       showToast(`Health scan failed: ${err.message}`);
     }
@@ -952,6 +953,38 @@ function _showDuplicatesUndoToast(summary, requested) {
   });
 })();
 
+// Aliveness (step 4) — count the overall library-health score up to its final
+// value, then pop; PRM users get the final value with no animation.
+function _countPopEl(el) {
+  el.classList.remove('count-pop'); void el.offsetWidth; el.classList.add('count-pop');
+  el.addEventListener('animationend', () => el.classList.remove('count-pop'), { once: true });
+}
+function _animateScoreRing(el, to) {
+  if (_prefersReducedMotion) { el.textContent = to; return; }
+  const dur = 650, t0 = performance.now();
+  (function step(now) {
+    const p = Math.min((now - t0) / dur, 1);
+    const eased = 1 - Math.pow(1 - p, 3); // easeOutCubic
+    el.textContent = Math.round(to * eased);
+    if (p < 1) requestAnimationFrame(step);
+    else { el.textContent = to; _countPopEl(el); }
+  })(performance.now());
+}
+// Aliveness (step 4) — after a scan lands, the visible per-track health chips
+// pop in a top-to-bottom stagger ("scores rolling in down the list"). Works with
+// the virtualizer (only visible chips exist); hidden grid → no chips → no-op.
+function _staggerHealthChips() {
+  if (_prefersReducedMotion) return;
+  const chips = Array.from(document.querySelectorAll('#track-list .health-chip'));
+  if (!chips.length) return;
+  chips.sort((a, b) => a.getBoundingClientRect().top - b.getBoundingClientRect().top);
+  chips.forEach((chip, i) => {
+    chip.style.setProperty('--land-delay', Math.min(i * 45, 700) + 'ms');
+    chip.classList.remove('score-land'); void chip.offsetWidth; chip.classList.add('score-land');
+    chip.addEventListener('animationend', () => chip.classList.remove('score-land'), { once: true });
+  });
+}
+
 function _renderHealthSummary(s) {
   // AutoCue 2.0: notify v2 modules (status sentence) that a fresh health
   // summary landed — they read it via window.ACBridge.healthSummary().
@@ -975,7 +1008,7 @@ function _renderHealthSummary(s) {
     ring.textContent = '—';
     ring.className = 'health-score-ring hsr-none';
   } else {
-    ring.textContent = score;
+    _animateScoreRing(ring, score);
     ring.className = 'health-score-ring ' +
       (score >= 90 ? 'hsr-good' : score >= 70 ? 'hsr-ok' : 'hsr-bad');
   }
