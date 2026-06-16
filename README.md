@@ -74,6 +74,11 @@ Everything runs in your browser — no files are uploaded anywhere.
 The fastest end-to-end workflow. Run a local server that reads your Rekordbox database
 directly — no XML export, no XML import.
 
+> 📖 **Setting it up on a new machine?** See the step-by-step
+> [Setup & User Manual](docs/manual/AutoCue-Setup-and-Manual.pdf)
+> ([HTML source](docs/manual/setup-and-manual.html)) — install, run,
+> troubleshooting, and a full feature walkthrough.
+
 #### Install
 
 ```bash

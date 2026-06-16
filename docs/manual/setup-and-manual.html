@@ -1,0 +1,230 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>AutoCue — Setup &amp; User Manual</title>
+<style>
+  :root{
+    --ink:#0c0a09; --bg:#ffffff; --muted:#6b6660; --border:#e7e5e4;
+    --surface:#fafafa; --green:#159a05; --green-wash:rgba(21,154,5,.08);
+    --mono:'JetBrains Mono','SF Mono',ui-monospace,Menlo,Consolas,monospace;
+    --sans:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+  }
+  *{box-sizing:border-box}
+  @page{ size:A4; margin:18mm 16mm; }
+  html{ font-family:var(--sans); color:var(--ink); font-size:10.5pt; line-height:1.5; }
+  body{ margin:0; }
+  h1,h2,h3{ line-height:1.2; letter-spacing:-.01em; }
+  h1{ font-size:30pt; margin:0 0 4pt; }
+  h2{ font-size:16pt; margin:22pt 0 8pt; padding-bottom:5pt; border-bottom:2px solid var(--ink); break-after:avoid; }
+  h3{ font-size:12pt; margin:14pt 0 5pt; break-after:avoid; }
+  p,li{ margin:5pt 0; }
+  a{ color:var(--green); text-decoration:none; }
+  code,pre,.kbd,.pill,.mono,td code{ font-variant-ligatures:none; font-feature-settings:"liga" 0,"calt" 0,"dlig" 0,"clig" 0; }
+  code{ font-family:var(--mono); font-size:9pt; background:var(--surface); border:1px solid var(--border); border-radius:4px; padding:1px 5px; }
+  pre{ font-family:var(--mono); font-size:8.6pt; background:var(--surface); border:1px solid var(--border); border-radius:8px; padding:10px 12px; overflow:hidden; white-space:pre-wrap; word-break:break-word; line-height:1.55; }
+  pre .c{ color:var(--muted); } /* comment */
+  .lede{ font-size:12pt; color:var(--muted); margin:0 0 2pt; }
+  .pill{ display:inline-block; font-family:var(--mono); font-size:8pt; font-weight:600; color:var(--green); background:var(--green-wash); border:1px solid var(--green); border-radius:999px; padding:1px 9px; }
+  .cover{ padding:46mm 0 0; break-after:page; }
+  .cover .mark{ font-family:var(--mono); font-weight:700; font-size:11pt; letter-spacing:.04em; color:var(--green); }
+  .cover .sub{ color:var(--muted); font-size:12pt; margin-top:6pt; max-width:150mm; }
+  .meta{ margin-top:14pt; font-size:9pt; color:var(--muted); }
+  .toc{ margin-top:20pt; }
+  .toc a{ color:var(--ink); }
+  .toc ol{ margin:6pt 0; padding-left:18pt; }
+  table{ border-collapse:collapse; width:100%; margin:8pt 0; font-size:9.2pt; }
+  th,td{ text-align:left; vertical-align:top; padding:5pt 8pt; border-bottom:1px solid var(--border); }
+  th{ font-size:8pt; text-transform:uppercase; letter-spacing:.06em; color:var(--muted); }
+  td code{ font-size:8.4pt; }
+  .box{ border:1px solid var(--border); border-radius:10px; padding:10px 14px; margin:10pt 0; background:var(--surface); break-inside:avoid; }
+  .box.warn{ border-color:#e0b400; background:rgba(224,180,0,.07); }
+  .box.tip{ border-color:var(--green); background:var(--green-wash); }
+  .box .t{ font-weight:700; font-size:9.5pt; margin-bottom:2pt; }
+  .step{ display:flex; gap:10px; margin:10pt 0; break-inside:avoid; }
+  .step .n{ flex:0 0 auto; width:22px; height:22px; border-radius:999px; background:var(--ink); color:#fff; font-family:var(--mono); font-weight:700; font-size:9pt; display:flex; align-items:center; justify-content:center; }
+  .step .b{ flex:1; }
+  .step .b > :first-child{ margin-top:0; }
+  small{ color:var(--muted); }
+  .kbd{ font-family:var(--mono); font-size:8.4pt; border:1px solid var(--border); border-bottom-width:2px; border-radius:4px; padding:1px 5px; background:#fff; }
+  ul.tight{ margin:4pt 0; }
+</style>
+</head>
+<body>
+
+<!-- ───────────────────────── COVER ───────────────────────── -->
+<section class="cover">
+  <div class="mark">▮▮ AUTOCUE</div>
+  <h1>Setup &amp; User Manual</h1>
+  <p class="lede">Automatic hot cues + deep library intelligence for Rekordbox 7.</p>
+  <p class="sub">This guide gets AutoCue running on a friend's Mac from scratch, then walks through every feature of the local app.</p>
+  <div class="meta">
+    Local server (<code>autocue serve</code>) · Web UI at <code>http://localhost:7432</code><br>
+    Repository: github.com/HenriGeorge/AutoCue · Version 0.2.0
+  </div>
+  <div class="toc">
+    <strong>Contents</strong>
+    <ol>
+      <li>Part 1 — Setup on a new machine (prerequisites, install, run, troubleshooting)</li>
+      <li>Part 2 — User manual (the workbench &amp; every feature)</li>
+      <li>Part 3 — Quick reference (commands &amp; shortcuts)</li>
+    </ol>
+  </div>
+</section>
+
+<!-- ───────────────────────── PART 1 — SETUP ───────────────────────── -->
+<h2>Part 1 · Setup on a new machine</h2>
+
+<p>AutoCue reads your friend's Rekordbox database <strong>directly</strong> and writes hot cues back into it — no XML export/import. It runs as a small local web server on their own computer. Nothing is uploaded anywhere.</p>
+
+<h3>Before you start — prerequisites</h3>
+<table>
+  <tr><th>Requirement</th><th>Why / how</th></tr>
+  <tr><td><strong>macOS</strong> (recommended)</td><td>The Rekordbox database path is auto-detected on macOS. Windows works too but needs one extra flag (see troubleshooting).</td></tr>
+  <tr><td><strong>Rekordbox 6 or 7</strong>, installed &amp; opened at least once</td><td>AutoCue reads its library. The encryption key is taken automatically from the installed Rekordbox — so it must be a real Rekordbox install.</td></tr>
+  <tr><td>A library that has been <strong>analyzed</strong></td><td>In Rekordbox, tracks must have BPM + (ideally) phrase analysis run, or there will be nothing to cue.</td></tr>
+  <tr><td><strong>Python 3.10 or newer</strong></td><td>Check with <code>python3 --version</code>. If missing, install from python.org or via Homebrew (<code>brew install python</code>).</td></tr>
+</table>
+
+<div class="box warn">
+  <div class="t">⚠ Golden rule: quit Rekordbox before writing</div>
+  Rekordbox locks its database while open. AutoCue can browse/analyze, but every <em>write</em> (applying cues, deleting duplicates, saving playlists) requires Rekordbox to be <strong>fully quit</strong> — the app refuses the write otherwise with a clear message.
+</div>
+
+<h3>Install — step by step</h3>
+
+<div class="step"><div class="n">1</div><div class="b">
+  <strong>Open Terminal.</strong> (Applications → Utilities → Terminal, or <span class="kbd">⌘ Space</span> → "Terminal".)
+</div></div>
+
+<div class="step"><div class="n">2</div><div class="b">
+  <strong>Get the code.</strong> With git:
+  <pre>git clone https://github.com/HenriGeorge/AutoCue.git
+cd AutoCue</pre>
+  No git? Download the ZIP from the GitHub page (green <em>Code</em> button → <em>Download ZIP</em>), unzip it, then in Terminal <code>cd</code> into the unzipped <code>AutoCue</code> folder.
+</div></div>
+
+<div class="step"><div class="n">3</div><div class="b">
+  <strong>(Recommended) Create an isolated environment</strong> so AutoCue's packages don't touch the system Python:
+  <pre>python3 -m venv .venv
+source .venv/bin/activate</pre>
+  <small>You'll see <code>(.venv)</code> at the start of the prompt. Re-run <code>source .venv/bin/activate</code> in any new Terminal before <code>autocue</code>.</small>
+</div></div>
+
+<div class="step"><div class="n">4</div><div class="b">
+  <strong>Install AutoCue.</strong> This one command pulls everything it needs — including the SQLCipher reader for the encrypted Rekordbox DB — automatically:
+  <pre>pip install -e .</pre>
+  <small>Optional: add YouTube download support with <code>pip install -e ".[download]"</code> (also needs <code>ffmpeg</code> on the PATH — <code>brew install ffmpeg</code>).</small>
+</div></div>
+
+<div class="step"><div class="n">5</div><div class="b">
+  <strong>Quit Rekordbox</strong> (⌘Q — fully quit, not just close the window).
+</div></div>
+
+<div class="step"><div class="n">6</div><div class="b">
+  <strong>Start AutoCue.</strong>
+  <pre>autocue serve</pre>
+  It prints a line like <code>Serving on http://localhost:7432</code> and opens that page in the default browser. That's the app. Leave the Terminal window open while you use it; press <span class="kbd">Ctrl C</span> in Terminal to stop the server.
+</div></div>
+
+<div class="box tip">
+  <div class="t">✓ That's the whole install</div>
+  No Homebrew SQLCipher, no manual key download, no build step. <code>pip install -e .</code> brings in <code>pyrekordbox</code> (which bundles the database reader), <code>fastapi</code>, and <code>uvicorn</code>. The database key is read from the Rekordbox install automatically.
+</div>
+
+<h3>What AutoCue does to stay safe</h3>
+<p>Before <em>any</em> write to the Rekordbox database, AutoCue:</p>
+<ul class="tight">
+  <li>Confirms Rekordbox is <strong>not running</strong> — and aborts with a clear error if it is.</li>
+  <li>Creates a <strong>timestamped backup</strong> at <code>~/.autocue/backups/master_TIMESTAMP.db</code>.</li>
+  <li>Writes inside a transaction <strong>savepoint</strong> that rolls back automatically on any failure.</li>
+</ul>
+<p>You can roll back the most recent change from the app's <strong>Restore backup…</strong> button (top bar).</p>
+
+<h3>Troubleshooting</h3>
+<table>
+  <tr><th>Symptom</th><th>Fix</th></tr>
+  <tr><td><code>autocue: command not found</code></td><td>The environment isn't active. Run <code>source .venv/bin/activate</code> in the AutoCue folder, or re-run <code>pip install -e .</code>.</td></tr>
+  <tr><td>"Rekordbox is running — close it…" (409)</td><td>Fully quit Rekordbox (⌘Q) and retry the write. Browsing/analysis works, but writes need it closed.</td></tr>
+  <tr><td>Database won't open / cipher / key error</td><td>Make sure Rekordbox 6/7 is actually installed and has been opened at least once on this Mac (that's where the key comes from). Then restart <code>autocue serve</code>.</td></tr>
+  <tr><td>No tracks shown / "0 tracks"</td><td>Analyze the library in Rekordbox first (BPM + phrase). AutoCue only sees analyzed tracks.</td></tr>
+  <tr><td>Port already in use</td><td>Run on another port: <code>autocue serve --port 8080</code> (then open <code>localhost:8080</code>).</td></tr>
+  <tr><td>Windows machine</td><td>The DB path isn't auto-detected — pass it explicitly:<br><code>autocue serve --db-path "C:\Users\you\AppData\Roaming\Pioneer\rekordbox\master.db"</code></td></tr>
+  <tr><td>Python too old</td><td><code>python3 --version</code> must be ≥ 3.10. Install a newer Python and recreate the <code>.venv</code>.</td></tr>
+  <tr><td>Something looks wrong after a write</td><td>Use <strong>Restore backup…</strong> in the app, or copy a file from <code>~/.autocue/backups/</code> back over <code>master.db</code> (Rekordbox closed).</td></tr>
+</table>
+
+<h3>Updating &amp; removing</h3>
+<ul class="tight">
+  <li><strong>Update:</strong> in the AutoCue folder, <code>git pull</code> then <code>pip install -e .</code> again.</li>
+  <li><strong>Remove:</strong> stop the server, delete the <code>AutoCue</code> folder. Backups in <code>~/.autocue/</code> can be deleted separately.</li>
+</ul>
+
+<!-- ───────────────────────── PART 2 — MANUAL ───────────────────────── -->
+<h2>Part 2 · Using AutoCue</h2>
+
+<p>When AutoCue opens it lands on the <strong>Crate Console</strong> — a dense, keyboard-friendly workbench. <span class="pill">local mode</span></p>
+
+<h3>The layout</h3>
+<ul class="tight">
+  <li><strong>Left rail —</strong> crates (All tracks, No cues yet, Phrase-ready, Already cued), your Rekordbox <strong>playlists</strong>, saved filters, and a library-health ring.</li>
+  <li><strong>Centre —</strong> the track grid (one thin row per track: #, title/artist, BPM, key, energy, mix score, class, cues).</li>
+  <li><strong>Right —</strong> the <strong>inspector drawer</strong>. Click any row and it slides in from the right with that track's energy curve, scores, cues, a <strong>▶ Play</strong> button, and a "find similar" action. Click another row to switch focus; it clears when you open a rail place (Library / Duplicates / Discover).</li>
+  <li><strong>Top bar —</strong> playlist filter, analysis-mode toggle, Restore backup, Open Nightboard, and a live status sentence.</li>
+  <li><span class="kbd">⌘ K</span> — command palette: jump to any place or action by typing.</li>
+</ul>
+
+<h3>Placing hot cues (the core job)</h3>
+<div class="step"><div class="n">1</div><div class="b"><strong>Pick tracks.</strong> Tick rows in the grid, or use a crate/playlist to scope the set. (No selection = the current filtered set.)</div></div>
+<div class="step"><div class="n">2</div><div class="b"><strong>Choose a mode</strong> in the top bar: <strong>Bar intervals</strong> (a cue every N bars from bar 1) or <strong>✨ Phrase analysis</strong> (cues at detected Intro / Verse / Drop / Bridge / Outro boundaries — needs Rekordbox phrase data).</div></div>
+<div class="step"><div class="n">3</div><div class="b"><strong>Preview.</strong> AutoCue shows the cues it <em>would</em> write as coloured badges on each card, with a confidence level and a reasoning pop-up (the ℹ button).</div></div>
+<div class="step"><div class="n">4</div><div class="b"><strong>Apply</strong> (Rekordbox quit). Cues are written straight into the Rekordbox database after an automatic backup. Re-open Rekordbox to see them.</div></div>
+<div class="box tip"><div class="t">Cue colours (phrase mode)</div>Intro = green · Verse = blue · Drop = red · Bridge = cyan · Outro = orange · Build = pink. Slots are ordered A→H with a memory cue (CDJ Auto Cue) first.</div>
+
+<h3>Previewing audio</h3>
+<p>Select a track and press <strong>▶ Play</strong> in the inspector drawer to hear it (the original file must still be on disk). A green playhead traces the energy curve as it plays; press again to pause.</p>
+
+<h3>Library tools (the "Library" rail place)</h3>
+<table>
+  <tr><th>Tool</th><th>What it gives you</th></tr>
+  <tr><td><strong>Health check</strong></td><td>A 0–100 library score + a list of issues (missing cues, no beat grid, no phrase analysis, duplicate or unnamed cues…), with one-click fixes. The overall score rolls up when a scan finishes.</td></tr>
+  <tr><td><strong>Energy &amp; mixability</strong></td><td>Per-track energy curve and a 0–100 mixability score (how easy it is to blend) with an animated breakdown.</td></tr>
+  <tr><td><strong>Classification</strong></td><td>Sorts each track into DJ-set roles (warm-up, build, peak, etc.).</td></tr>
+  <tr><td><strong>Similar tracks</strong></td><td>Finds harmonically + energetically close tracks (6-dimension match with a BPM gate).</td></tr>
+  <tr><td><strong>Transition scoring</strong></td><td>Scores how well any two tracks mix (BPM 40% · key 35% · energy 25%) with advice.</td></tr>
+  <tr><td><strong>Set builder</strong></td><td>Beam-search a full set from a start track, target BPM curve, duration, and energy mode.</td></tr>
+  <tr><td><strong>Cue tools · Discogs · Comments · Playlist suggest</strong></td><td>Bulk cue cleanup, Discogs metadata enrichment, comment/My-Tag enrichment, and category-based playlist suggestions.</td></tr>
+</table>
+
+<h3>Other places &amp; modes</h3>
+<ul class="tight">
+  <li><strong>Duplicates</strong> (rail) — finds duplicate tracks by artist/title/length, picks the best keeper (you can override), and safely deletes the rest with a backup + inline undo.</li>
+  <li><strong>Discover</strong> (rail) — surfaces new releases based on the artists and labels you already play (plus a novelty feed); save, dismiss, or snooze.</li>
+  <li><strong>Nightboard</strong> (top bar → Open Nightboard) — a full-screen set-building canvas: tiles for tracks, scored "joints" between them, swap/insert alternatives, then export to a playlist.</li>
+  <li><strong>Drag-to-playlist</strong> — drag any grid row onto a playlist in the left rail to add it (the row glows green as a valid target; the count pops on drop). Rekordbox must be quit.</li>
+  <li><strong>Restore backup</strong> (top bar) — roll back the last database change.</li>
+</ul>
+
+<div class="box"><div class="t">The command-line alternative</div>
+  Prefer the terminal? <code>autocue --library --dry-run</code> previews cues for the whole library without writing; drop <code>--dry-run</code> to generate a Rekordbox-importable XML instead of writing to the database. The local server in this guide is the recommended path — it is the only mode with the intelligence features above (health, mixability, similar, transitions, set builder, Discover, Nightboard).<br>
+  <small>(A browser-only XML-in / XML-out web app also exists in the project, but it is not currently hosted at a public URL — run the local server instead.)</small>
+</div>
+
+<!-- ───────────────────────── PART 3 — QUICK REF ───────────────────────── -->
+<h2>Part 3 · Quick reference</h2>
+<table>
+  <tr><th>Command</th><th>Does</th></tr>
+  <tr><td><code>autocue serve</code></td><td>Start the local app at localhost:7432 (opens the browser).</td></tr>
+  <tr><td><code>autocue serve --port 8080</code></td><td>Use a different port.</td></tr>
+  <tr><td><code>autocue serve --no-browser</code></td><td>Start without opening a browser.</td></tr>
+  <tr><td><code>autocue serve --db-path "…master.db"</code></td><td>Point at a specific database (required on Windows).</td></tr>
+  <tr><td><code>autocue serve --reset-cache</code></td><td>Delete the analysis cache at startup (it's rebuilt lazily as you use the app).</td></tr>
+  <tr><td><code>autocue --library --dry-run</code></td><td>CLI: preview cues for the whole library (no writes).</td></tr>
+  <tr><td><span class="kbd">⌘ K</span></td><td>Command palette (jump anywhere / run any action).</td></tr>
+  <tr><td><span class="kbd">Esc</span></td><td>Close the inspector drawer / dialogs.</td></tr>
+  <tr><td><span class="kbd">Ctrl C</span> (in Terminal)</td><td>Stop the server.</td></tr>
+</table>
+<p><small>Remember: quit Rekordbox before any write · backups live in <code>~/.autocue/backups/</code> · nothing leaves the machine.</small></p>
+
+</body>
+</html>
