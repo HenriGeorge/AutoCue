@@ -2,7 +2,7 @@
 
 ## Overview
 
-AutoCue gives Rekordbox 7 users three ways to automate hot cue placement and analyse their library:
+AutoCue gives Rekordbox 6 and 7 users three ways to automate hot cue placement and analyse their library:
 
 **CLI** (`autocue --library`) — reads the Rekordbox database and ANLZ analysis files directly from disk, applies its phrase → bar → heuristic placement strategy, and writes a Rekordbox XML file for import. No internet connection. No server.
 
@@ -51,9 +51,10 @@ Used only when BPM is also unavailable. Places one cue every 30 seconds, named `
 When phrase mode is used, AutoCue does not assign slots sequentially. Instead it applies a priority model designed for DJ workflow:
 
 - **Slot A (hot cue 1)** — always the first non-Intro phrase in the track. This is the point you would press to start the track during a live transition. It is renamed to append "(Mix In)" so you can see it at a glance on a CDJ.
-- **Slots B–H** — remaining phrases sorted by musical importance: Drop (0) → Build (1) → Outro (2) → Verse (3) → Break (4) → Bridge (5) → Intro (6). Within each priority tier, phrases are ordered chronologically.
+- **Slot B (hot cue 2)** — hard-reserved for the **first Outro** phrase (the mix-out window), when the track has one. It is renamed to append "(Outro)". If there is no Outro phrase, Slot B is filled from the priority list below.
+- **Slots C–H** — remaining phrases sorted by musical importance: Drop (0) → Build (1) → Outro (2) → Verse (3) → Break (4) → Bridge (5) → Intro (6). Within each priority tier, phrases are ordered chronologically.
 
-This means pressing Slot A on a CDJ always starts you at the mix-in point, Slot B is always the first drop, and so on — regardless of the order in which phrases appear in the track.
+This means pressing Slot A on a CDJ always starts you at the mix-in point and Slot B is always the safe mix-out (first Outro) — regardless of the order in which phrases appear in the track.
 
 ### Memory cue (CDJ Auto Cue)
 
@@ -192,7 +193,7 @@ AutoCue classifies every track into one of five categories that map to positions
 Each category uses a **trapezoidal membership function** for BPM and energy separately, then combines them. The trapezoid has four breakpoints: `lo_zero` (score = 0 below this), `lo_full` (score ramps up from 0 to 1), `hi_full` (score stays at 1), `hi_zero` (score ramps back down to 0 above this).
 
 For example, the `build` category:
-- BPM trap: `(108, 118, 128, 140)` — a 120 BPM track scores ~0.18 (rising ramp), a 123 BPM track scores 1.0
+- BPM trap: `(108, 123, 123, 140)` — full membership at exactly 123 BPM; a 120 BPM track scores ~0.8 (rising ramp 108→123), falling off to 0 by 140
 - Energy trap: `(0.1, 0.35, 0.55, 0.72)` — medium energy is ideal
 - Combined: `bpm_score × (energy_score × 0.60 + 0.40)` — energy contributes 60%, but even with no energy data the BPM score still counts for 40%
 - Vocal factor: `0.85` if vocals detected (builds benefit from being instrumental)
@@ -303,7 +304,7 @@ score = 0   if delta ≥ 0.50
 score = 100 × (0.50 − delta) / 0.45  (linear interpolation)
 ```
 
-When energy data is unavailable, both windows default to 0.5 and the score is 100 (neutral — no penalty). This means the energy component only adds information when both tracks have been analysed; it never penalises unanalysed tracks.
+When energy data is unavailable, the score is a partial penalty rather than a perfect match — "unknown is not the same as a perfect handoff". If **both** tracks lack energy data the score is **50** (neutral); if only **one** side is missing, the computed score is **capped at 75** to reflect the uncertainty. So missing analysis lowers confidence in the energy component without fully tanking the transition.
 
 ### How to read the breakdown
 
@@ -467,7 +468,7 @@ The SSE stream emits one JSON event per track (as a `TrackHealthReport` schema),
 
 ## Feature 9b: Duplicate Tracks
 
-The **Duplicate Tracks** panel (Library tab) finds tracks that exist more than once in your library, suggests which copy to keep, and lets you delete the rest with a backup-before-write safety net and one-click undo.
+The **Duplicate Tracks** panel (the **Duplicates** rail place in the workbench) finds tracks that exist more than once in your library, suggests which copy to keep, and lets you delete the rest with a backup-before-write safety net and one-click undo.
 
 ### Finding duplicates
 
@@ -689,7 +690,7 @@ Under the **⚙ Settings** button next to the Discover header:
 
 ### Requirements
 
-A Discogs personal access token (free, from discogs.com/settings/developers). Set it via the `DISCOGS_TOKEN` environment variable or your project `.env`. The Discover tab's onboarding banner walks you through following labels the first time you open it.
+A Discogs personal access token (free, from discogs.com/settings/developers). Set it via the `DISCOGS_TOKEN` environment variable or your project `.env`. The Discover place's onboarding banner walks you through following labels the first time you open it.
 
 ---
 
@@ -697,7 +698,7 @@ A Discogs personal access token (free, from discogs.com/settings/developers). Se
 
 ### What it does
 
-The **Download** panel (in the Discover tab) fetches audio from YouTube using [yt-dlp](https://github.com/yt-dlp/yt-dlp) and extracts it to an audio file. You can download a track directly from any New-Release suggestion's **Download** button, or paste a YouTube URL / search term into the manual box.
+The **Download** panel (in the Discover place) fetches audio from YouTube using [yt-dlp](https://github.com/yt-dlp/yt-dlp) and extracts it to an audio file. You can download a track directly from any New-Release suggestion's **Download** button, or paste a YouTube URL / search term into the manual box.
 
 ### Setup
 
@@ -717,7 +718,7 @@ Downloads are saved to `~/Music/AutoCue` by default. Override this with the `AUT
 
 - A real `http(s)` URL is downloaded directly; a bare search term is resolved to the best YouTube match (`ytsearch1:`).
 - Audio is extracted to MP3 (192 kbps) via ffmpeg.
-- Progress streams over Server-Sent Events (`POST /api/download`, or `POST /api/download/album` for a multi-track album), so the UI shows a live percentage and the final saved path.
+- Each request is **enqueued** (`POST /api/download/enqueue`, or `POST /api/download/album/enqueue` for a multi-track album) and returns a `job_id`; progress then streams over Server-Sent Events from `GET /api/download/stream/{job_id}`, so the UI shows a live percentage and the final saved path. The queue is inspectable and cancelable (`GET /api/download/queue`, `POST /api/download/cancel/{job_id}`). _(The older one-shot `POST /api/download` / `/api/download/album` endpoints are deprecated — use the enqueue→stream flow.)_
 
 ### Legal note
 
@@ -797,3 +798,40 @@ For diagnosing slow operations there are two opt-in helpers:
 - **Client-side console marks** — In the browser DevTools console, run `localStorage.autocue_perf = '1'` and reload. The web app then logs `[AutoCue Perf] …` measurements for key UI operations (initial load, filter, scroll, tab switch). Set the value to `'0'` (or clear it) to disable.
 
 Neither is needed for normal use — they exist so you can attach concrete numbers to a perf issue when reporting one.
+
+---
+
+## Feature 17: Library Enrichment — My Tags, Comments & Discogs
+
+Beyond cues, AutoCue can write its analysis back into Rekordbox's own metadata fields so it shows up natively in the browser and on CDJs. All three writers are local-mode only, run behind the "Rekordbox closed" guard, take a backup first, and are fully reversible.
+
+### Auto-Tag (My Tags)
+
+`POST /api/auto-tag` writes AutoCue's analysis as native Rekordbox **My Tags** (`DjmdMyTag` / `DjmdSongMyTag` rows), so you can filter and build smart playlists by them in Rekordbox itself. Tags are organised into eight groups:
+
+| Group | Example tags |
+|---|---|
+| **category** | Warmup, Build, Peak, After Hours, Closing |
+| **vocal** | Vocal, Instrumental |
+| **energy_level** | High / Mid / Low Energy |
+| **energy_profile** | Build / Wave / Flat / Drop Track |
+| **intro_outro** | Long / Short Intro, Long / Short Outro |
+| **decade** | 60s … 20s |
+| **bpm_tier** | <120, 120–124, 125–128, 129–135, 136–144, >144 BPM |
+| **play_history** | Never / Rarely / Frequently Played |
+
+Each tag group is created once (idempotent) with a Rekordbox colour attribute. `dry_run` previews the changes; an overwrite option replaces AutoCue's previous tags; and `POST /api/auto-tag/undo` removes exactly what a run added (it tracks every inserted `DjmdSongMyTag`).
+
+### Comment enrichment
+
+`POST /api/enrich-comments` (and `/stream` for live progress) writes DJ-useful metadata to each track's **Comment** field (`DjmdContent.Comment`), which CDJs display under the title. For an empty comment the format is:
+
+```
+8A - Energy 7 | Peak | 4 bar intro
+```
+
+When a comment already exists, AutoCue appends inside a sentinel block instead of clobbering it — `existing text /* AutoCue: 8A / Peak / 4 bar intro */` — matching the convention Rekordbox uses for "Add My Tag to Comments", so the block is identifiable and removable. Output is capped at ~256 characters (the CDJ-readable limit). `/preview` shows the result without writing; `/undo` strips exactly the AutoCue block, restoring the original comment.
+
+### Discogs genre & style tags
+
+`POST /api/auto-tag/discogs` looks each track up on Discogs and adds its genres/styles as My Tags, giving you accurate genre metadata Rekordbox's own analysis doesn't provide. It requires a free Discogs personal access token (`DISCOGS_TOKEN` env var or `.env`); `POST /api/auto-tag/discogs/test` validates the token. Requests are rate-limited to stay within Discogs' API budget, and (like the others) support dry-run + undo.
