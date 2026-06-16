@@ -2012,8 +2012,13 @@
     40%  { transform: scale(1.13); color: var(--green); }
     100% { transform: scale(1); }
   }
-  .tracks-count.count-pop, .action-bar-count.count-pop, .status-item.count-pop { animation: _countPop 0.28s ease-out; }
+  .tracks-count.count-pop, .action-bar-count.count-pop, .status-item.count-pop, .health-score-ring.count-pop { animation: _countPop 0.28s ease-out; }
   .action-bar-count.count-pop { display: inline-block; } /* transform needs a box */
+  /* Aliveness (step 4) — per-track health chips pop in a top-to-bottom stagger
+     after a scan lands (--land-delay set per chip in _staggerHealthChips). */
+  @media (prefers-reduced-motion: no-preference) {
+    .health-chip.score-land { animation: _countPop 0.28s ease-out var(--land-delay, 0ms) both; display: inline-block; }
+  }
   .status-warmup-item, .status-warmup-sep { transition: opacity var(--dur-chrome) ease; }
 
   /* Cue badge active press */
@@ -2479,8 +2484,8 @@
   #wb-rail[hidden], #wb-inspector[hidden] { display: none; }
   /* When the workbench owns the screen, the centre column = the legacy <main>,
      widened and inset by the flank widths. Document scroll & sticky preserved. */
-  body.wb-active main { max-width: none; margin: 0; padding-left: calc(var(--wb-rail-w) + 24px); padding-right: calc(var(--wb-insp-w) + 24px); }
-  body.wb-active #action-bar { left: var(--wb-rail-w); right: var(--wb-insp-w); width: auto; }
+  body.wb-active main { max-width: none; margin: 0; padding-left: calc(var(--wb-rail-w) + 24px); padding-right: 24px; }
+  body.wb-active #action-bar { left: var(--wb-rail-w); right: 0; width: auto; }
   @media (max-width: 1180px) { body.wb-active #wb-inspector { display: none; } body.wb-active main { padding-right: 40px; } }
 
   /* Rail */
@@ -2549,6 +2554,90 @@
       from { opacity: 0; transform: translateX(-18px); }
       to   { opacity: 1; transform: translateX(0); }
     }
+  }
+
+  /* ── Aliveness (step 2): inspector slide-over drawer ──
+     The inspector no longer reserves a permanent column — the grid is full-width
+     and the drawer slides OVER it on select. Pure transform/overlay, so the grid
+     never reflows (Virtualizer + #tracks-sticky untouched, TASK-033/037). Scoped
+     :not(.nb-active) so Nightboard's reserved-flank inspector is unaffected.
+     z-index 105 clears #tracks-sticky (100).
+     (A View-Transition title-morph was prototyped here but dropped: its ~300ms
+     render-suppression window swallowed a rapid second track-click — a real
+     regression the slide doesn't have. The slide is the reveal.) */
+  body.wb-active:not(.nb-active) #wb-inspector {
+    z-index: 105; box-shadow: var(--shadow-lg);
+    transform: translateX(100%); pointer-events: none;
+    transition: transform var(--dur-chrome) var(--ease-enter);
+  }
+  body.wb-active:not(.nb-active).wb-inspecting #wb-inspector {
+    transform: translateX(0); pointer-events: auto;
+  }
+  /* Reserve the action-bar's right edge only while the drawer is out (wide only). */
+  @media (min-width: 1181px) {
+    body.wb-active:not(.nb-active).wb-inspecting #action-bar { right: var(--wb-insp-w); }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    body.wb-active:not(.nb-active) #wb-inspector { transition: none; }
+  }
+  @media (prefers-reduced-motion: no-preference) {
+    body.wb-active:not(.nb-active) #action-bar {
+      transition: transform 240ms cubic-bezier(.2,.7,.2,1), right var(--dur-chrome) var(--ease-enter);
+    }
+  }
+
+  /* ── Aliveness (step 3): energy playhead trace · cue ping · cue drop-in ──
+     A green playhead tracks audio playback across the energy sparkline (grid row
+     + inspector drawer); it mirrors the existing timeline/mini-waveform
+     playheads so it is NOT motion to suppress. The cue ping + drop-in ARE
+     decorative → PRM-gated below. */
+  .energy-sparkline, .wb-insp-energy { position: relative; }
+  .energy-playhead {
+    position: absolute; top: 0; bottom: 0; width: 1.5px; left: 0;
+    transform: translateX(-50%); background: var(--green);
+    pointer-events: none; z-index: 3; border-radius: 1px;
+  }
+  @media (prefers-reduced-motion: no-preference) {
+    /* P1 — a phrase cue marker pulses green as the playhead crosses it. The
+       strip is overflow:hidden and the tick already carries transform:translateX,
+       so ping via a colour flash only — never a transform/scale. */
+    .phrase-cue-tick.cue-ping { animation: _cuePing .5s var(--ease-out) both; }
+    @keyframes _cuePing {
+      0%   { background: #fff; box-shadow: 0 0 0 1px rgba(0,0,0,.6); }
+      28%  { background: var(--green); box-shadow: 0 0 0 1px var(--green); }
+      100% { background: #fff; box-shadow: 0 0 0 1px rgba(0,0,0,.6); }
+    }
+    /* P3 — freshly-landed cue badges + ticks drop in one after another in slot
+       order A→H (staggered via --cue-drop-delay). The tick keeps its own
+       translateX(-1px) centering inside the keyframe so positioning is intact. */
+    .cue-badge.cue-drop { animation: _cueDrop .42s var(--ease-enter) var(--cue-drop-delay, 0ms) both; }
+    @keyframes _cueDrop {
+      from { opacity: 0; transform: translateY(-6px) scale(.92); }
+      to   { opacity: 1; transform: translateY(0) scale(1); }
+    }
+    .phrase-cue-tick.cue-drop { animation: _cueTickDrop .42s var(--ease-enter) var(--cue-drop-delay, 0ms) both; transform-origin: top; }
+    @keyframes _cueTickDrop {
+      from { opacity: 0; transform: translateX(-1px) scaleY(0); }
+      to   { opacity: 1; transform: translateX(-1px) scaleY(1); }
+    }
+  }
+
+  /* ── Aliveness (step 5): drag-to-playlist drop gravity ──
+     Green wash = "valid target" (signal — fine under reduced motion); the swell
+     is motion → PRM-gated. While a track drag is in flight, a dashed green
+     outline hints which rail rows accept it. */
+  .wb-crate.drop-ready {
+    background: var(--green-wash, color-mix(in srgb, var(--green) 12%, transparent));
+    box-shadow: inset 0 0 0 1px var(--green);
+  }
+  /* The label/count spans must not intercept pointer/drag events, or moving the
+     cursor across them fires dragleave on the row and the drop swell flickers. */
+  .wb-crate .wb-crate-label, .wb-crate .wb-crate-count { pointer-events: none; }
+  body.ac-dragging-tracks #wb-playlists .wb-crate {
+    outline: 1px dashed color-mix(in srgb, var(--green) 35%, transparent); outline-offset: -2px;
+  }
+  @media (prefers-reduced-motion: no-preference) {
+    .wb-crate.drop-ready { transform: scale(1.04); transition: transform .12s var(--ease-out), background .12s; }
   }
 
   /* Declutter the centre in workbench mode — the status sentence already

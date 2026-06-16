@@ -75,6 +75,7 @@ export function renderInspector(trackId) {
   if (!t) return;
   _focusedId = String(trackId);
   _glowHarmonic(t); // P2 — light the harmonic family in the grid
+  document.body.classList.add('wb-inspecting'); // CSS drawer slides in
 
   if (empty) empty.hidden = true;
   body.hidden = false;
@@ -197,6 +198,7 @@ export function renderReleaseInspector(releaseKey) {
   if (!release) return;
   _mode = 'release';
   _focusedId = null;
+  document.body.classList.add('wb-inspecting'); // CSS drawer slides in
 
   if (empty) empty.hidden = true;
   body.hidden = false;
@@ -262,6 +264,7 @@ export function renderReleaseInspector(releaseKey) {
 export function clearInspector() {
   _focusedId = null;
   _mode = 'track';
+  document.body.classList.remove('wb-inspecting'); // CSS drawer slides out
   // Put the relocated legacy detail node back in its panel BEFORE wiping the
   // inspector body (otherwise innerHTML='' would destroy the shared node).
   _restoreDetailHost();

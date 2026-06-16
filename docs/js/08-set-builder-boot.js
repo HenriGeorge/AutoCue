@@ -653,6 +653,52 @@ async function _createPlaylist(name, ids) {
   }
 }
 
+// Rebuild the #playlist-select options from the server (silent — no change
+// event, so the active filter/track list is untouched). Used to refresh counts
+// after a drag-to-playlist add. Keeps option[0] (the "All tracks" sentinel).
+async function _reloadPlaylistOptions() {
+  try {
+    const playlists = await fetch('/api/playlists').then(r => r.json());
+    const sel = document.getElementById('playlist-select');
+    if (!sel || !Array.isArray(playlists)) return;
+    const cur = sel.value;
+    while (sel.options.length > 1) sel.remove(1);
+    for (const pl of playlists) {
+      const opt = document.createElement('option');
+      opt.value = pl.id;
+      opt.textContent = `${pl.name} (${pl.track_count})`;
+      sel.appendChild(opt);
+    }
+    sel.value = cur; // restore selection (no change event fired)
+  } catch {}
+}
+
+// Append tracks to an existing playlist (POST /api/playlists/{id}/tracks).
+// Drives the Step-5 drag-to-playlist drop; ONE write path, r.ok-checked, honest
+// toast. Returns the response (or null on failure) so the caller can pop counts.
+async function _addTracksToPlaylist(playlistId, ids) {
+  try {
+    const r = await fetch(`/api/playlists/${encodeURIComponent(playlistId)}/tracks`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ track_ids: ids.map(Number) }),
+    });
+    if (!r.ok) {
+      const err = await r.json().catch(() => ({ detail: r.statusText }));
+      throw new Error(err.detail || r.statusText);
+    }
+    const d = await r.json();
+    const parts = [`${d.added_count} added to "${d.name}"`];
+    if (d.skipped_count) parts.push(`${d.skipped_count} already there`);
+    showToast(parts.join(' · '));
+    await _reloadPlaylistOptions();
+    return d;
+  } catch (err) {
+    showToast(`Couldn't add to playlist: ${err.message}`, true);
+    return null;
+  }
+}
+
 async function sbSavePlaylist() {
   const name = prompt('Playlist name:', 'AutoCue Set ' + new Date().toLocaleDateString());
   if (!name) return;
@@ -983,4 +1029,7 @@ window.ACBridge = {
   // (REST is allowed; the bridge only brokers legacy STATE + the write path).
   anchorsFromSelection: () => [...selectedTrackIds].map((id) => parseInt(id, 10)),
   createSetPlaylist: (name, ids) => _createPlaylist(name, ids),
+  // P5 (aliveness step 5) — drag-to-playlist append. The rail drop target calls
+  // THIS; the write + toast + dropdown-count refresh live in one place.
+  addTracksToPlaylist: (playlistId, ids) => _addTracksToPlaylist(playlistId, ids),
 };

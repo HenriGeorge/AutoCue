@@ -172,6 +172,78 @@ class TestPlaylists:
 
 
 # ---------------------------------------------------------------------------
+# POST /api/playlists/{id}/tracks  (drag-to-playlist append)
+# ---------------------------------------------------------------------------
+
+
+class TestAddTracksToPlaylist:
+    def _db(self, playlist="__default__", existing=(), max_track_no=0):
+        """db mock whose session.query chain serves the playlist lookup, the
+        existing-ContentID query, and the max(TrackNo) scalar from one mock."""
+        db = _make_db()
+        db.session = MagicMock()
+        q = MagicMock()
+        q.filter.return_value = q
+        q.first.return_value = (
+            SimpleNamespace(ID="7", Name="My Set") if playlist == "__default__" else playlist
+        )
+        q.all.return_value = [(c,) for c in existing]
+        q.scalar.return_value = max_track_no
+        db.session.query.return_value = q
+        db.generate_unused_id = MagicMock(return_value="sp-new")
+        return db
+
+    def test_blocked_when_rekordbox_running(self):
+        with patch("autocue.db_writer.rekordbox_is_running", return_value=True):
+            client = _make_client(self._db())
+            r = client.post("/api/playlists/7/tracks", json={"track_ids": [1, 2]})
+        assert r.status_code == 409
+
+    def test_empty_track_ids_400(self):
+        client = _make_client(self._db())
+        r = client.post("/api/playlists/7/tracks", json={"track_ids": []})
+        assert r.status_code == 400
+
+    def test_404_when_playlist_missing(self):
+        db = self._db(playlist=None)
+        client = _make_client(db)
+        r = client.post("/api/playlists/999/tracks", json={"track_ids": [1]})
+        assert r.status_code == 404
+
+    def test_appends_new_tracks(self):
+        db = self._db(existing=(), max_track_no=0)
+        client = _make_client(db)
+        r = client.post("/api/playlists/7/tracks", json={"track_ids": [10, 11]})
+        assert r.status_code == 200
+        data = r.json()
+        assert data["added_count"] == 2
+        assert data["skipped_count"] == 0
+        assert data["track_count"] == 2
+        assert data["name"] == "My Set"
+        db.session.commit.assert_called_once()
+        assert db.session.add.call_count == 2
+
+    def test_skips_tracks_already_in_playlist(self):
+        db = self._db(existing=(10,), max_track_no=3)
+        client = _make_client(db)
+        r = client.post("/api/playlists/7/tracks", json={"track_ids": [10, 12]})
+        assert r.status_code == 200
+        data = r.json()
+        assert data["added_count"] == 1
+        assert data["skipped_count"] == 1
+        assert data["track_count"] == 2
+        assert db.session.add.call_count == 1
+
+    def test_rollback_on_error_500(self):
+        db = self._db()
+        db.session.commit.side_effect = RuntimeError("boom")
+        client = _make_client(db)
+        r = client.post("/api/playlists/7/tracks", json={"track_ids": [1]})
+        assert r.status_code == 500
+        db.session.rollback.assert_called()
+
+
+# ---------------------------------------------------------------------------
 # /api/tracks
 # ---------------------------------------------------------------------------
 

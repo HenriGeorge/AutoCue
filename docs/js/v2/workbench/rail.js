@@ -97,6 +97,67 @@ function _makeRow({ label, count, active, onClick, extraClass }) {
   return btn;
 }
 
+// ── Drag-to-playlist (step 5) ─────────────────────────────────────────────────
+const DND_MIME = 'application/x-autocue-tracks';
+
+// Make the grid the drag SOURCE: dragging a card carries its track id — or the
+// whole current selection when the dragged card is part of it. Wired once on
+// #track-list (cards set draggable=true themselves, local-mode only).
+function _initDragSource() {
+  const list = document.getElementById('track-list');
+  if (!list) return;
+  list.addEventListener('dragstart', (e) => {
+    const card = e.target.closest && e.target.closest('.track-card[data-track-id]');
+    if (!card || !e.dataTransfer) return;
+    const id = String(card.dataset.trackId);
+    let ids = [id];
+    try {
+      const sel = (window.ACBridge && window.ACBridge.selectedIds)
+        ? [...window.ACBridge.selectedIds()].map(String) : [];
+      if (sel.includes(id)) ids = sel;
+    } catch (_) {}
+    e.dataTransfer.setData(DND_MIME, JSON.stringify(ids));
+    e.dataTransfer.effectAllowed = 'copy';
+    document.body.classList.add('ac-dragging-tracks');
+  });
+  list.addEventListener('dragend', () => {
+    document.body.classList.remove('ac-dragging-tracks');
+    document.querySelectorAll('#wb-playlists .wb-crate.drop-ready')
+      .forEach((r) => r.classList.remove('drop-ready'));
+  });
+}
+
+// Make a rail playlist row a drop TARGET: P6 drop gravity (swell + green wash on
+// drag-over), then POST the dropped ids via the single ACBridge write path and
+// pop the row's count on success.
+function _wirePlaylistDrop(row, playlistId) {
+  row.dataset.playlistId = playlistId;
+  row.addEventListener('dragover', (e) => {
+    if (!e.dataTransfer || !Array.from(e.dataTransfer.types || []).includes(DND_MIME)) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'copy';
+    row.classList.add('drop-ready');
+  });
+  row.addEventListener('dragleave', () => row.classList.remove('drop-ready'));
+  row.addEventListener('drop', async (e) => {
+    row.classList.remove('drop-ready');
+    if (!e.dataTransfer) return;
+    let ids = [];
+    try { ids = JSON.parse(e.dataTransfer.getData(DND_MIME) || '[]'); } catch (_) {}
+    if (!Array.isArray(ids) || !ids.length) return;
+    e.preventDefault();
+    const fn = window.ACBridge && window.ACBridge.addTracksToPlaylist;
+    if (typeof fn !== 'function') return;
+    const res = await fn(playlistId, ids);
+    if (!res) return;
+    _renderPlaylists(); // repaint counts from the now-refreshed dropdown
+    const fresh = document.querySelector(
+      `#wb-playlists .wb-crate[data-playlist-id="${CSS.escape(String(playlistId))}"]`);
+    const cnt = fresh && fresh.querySelector('.wb-crate-count');
+    if (cnt) { cnt.classList.remove('count-pop'); void cnt.offsetWidth; cnt.classList.add('count-pop'); }
+  });
+}
+
 // ── Playlists ───────────────────────────────────────────────────────────────
 function _renderPlaylists() {
   const host = document.getElementById('wb-playlists');
@@ -112,7 +173,7 @@ function _renderPlaylists() {
     const m = /^(.*?)\s*\((\d+)\)\s*$/.exec(opt.textContent || '');
     const name = m ? m[1] : (opt.textContent || '').trim();
     const cnt = m ? Number(m[2]).toLocaleString() : null;
-    host.appendChild(_makeRow({
+    const row = _makeRow({
       label: name,
       count: cnt,
       active: opt.value === current && current !== '',
@@ -127,7 +188,9 @@ function _renderPlaylists() {
         sel.dispatchEvent(new Event('change', { bubbles: true }));
         _renderPlaylists(); // repaint active state
       },
-    }));
+    });
+    _wirePlaylistDrop(row, opt.value); // step 5 — drag tracks onto this playlist
+    host.appendChild(row);
   }
 }
 
@@ -257,6 +320,7 @@ export function initRail() {
   if (_wired) return;
   _wired = true;
 
+  _initDragSource(); // step 5 — grid cards become drag sources for rail playlists
   document.querySelector('.wb-saved-add')?.addEventListener('click', _saveCurrent);
 
   // Playlist options load asynchronously after local mode; keep counts/active
