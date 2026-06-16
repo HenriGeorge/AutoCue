@@ -196,8 +196,12 @@ this set — it passes in the full run. (The two `action-bar-*` per-control rows
 that used to fail deterministically were fixed in #221 — issue #219.)
 
 ## Open items
-- Aliveness steps 2–5 **MERGED** (#228); inspector play affordance on
-  `feat/workbench-play-affordance` (PR pending). Discover e2e flakes remain the
+- **Repo is now PUBLIC** (2026-06-16) and **GitHub Pages is live** at
+  https://henrigeorge.github.io/AutoCue/ (serves `docs/` from `main`, XML-only
+  hosted app; `docs/.nojekyll` present). CLAUDE.md's old "Pages 404s" note is
+  corrected. Recent merges: aliveness 2–5 (#228), inspector play affordance
+  (#229), cue-accuracy bench (#230), Setup & User Manual under `docs/manual/`
+  (#231), README+FEATURES accuracy pass (#232). Discover e2e flakes remain the
   documented #189 baseline (green in isolation).
 - New endpoint `POST /api/playlists/{id}/tracks` is live — there is still **no
   remove-from-playlist endpoint** (a misdrop is undone in Rekordbox, not via API).
