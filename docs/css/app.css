@@ -2556,12 +2556,15 @@
     }
   }
 
-  /* ── Aliveness (step 2): inspector slide-over drawer + View Transitions ──
+  /* ── Aliveness (step 2): inspector slide-over drawer ──
      The inspector no longer reserves a permanent column — the grid is full-width
      and the drawer slides OVER it on select. Pure transform/overlay, so the grid
      never reflows (Virtualizer + #tracks-sticky untouched, TASK-033/037). Scoped
      :not(.nb-active) so Nightboard's reserved-flank inspector is unaffected.
-     z-index 105 clears #tracks-sticky (100). */
+     z-index 105 clears #tracks-sticky (100).
+     (A View-Transition title-morph was prototyped here but dropped: its ~300ms
+     render-suppression window swallowed a rapid second track-click — a real
+     regression the slide doesn't have. The slide is the reveal.) */
   body.wb-active:not(.nb-active) #wb-inspector {
     z-index: 105; box-shadow: var(--shadow-lg);
     transform: translateX(100%); pointer-events: none;
@@ -2581,13 +2584,6 @@
     body.wb-active:not(.nb-active) #action-bar {
       transition: transform 240ms cubic-bezier(.2,.7,.2,1), right var(--dur-chrome) var(--ease-enter);
     }
-    /* P4 — View Transition: the grid row's title morphs into the drawer header,
-       and the drawer slides in as its own transition group. Progressive
-       enhancement only — JS guards on document.startViewTransition + PRM; the
-       translateX drawer above is the fallback (and what JSDOM/tests exercise). */
-    body.wb-active:not(.nb-active) #wb-inspector { view-transition-name: ac-vt-drawer; }
-    ::view-transition-group(ac-vt-drawer) { animation-duration: var(--dur-chrome); animation-timing-function: var(--ease-enter); }
-    ::view-transition-group(ac-vt-title) { animation-duration: var(--dur-chrome); animation-timing-function: var(--ease-enter); }
   }
 
   /* ── Aliveness (step 3): energy playhead trace · cue ping · cue drop-in ──
@@ -2634,6 +2630,9 @@
     background: var(--green-wash, color-mix(in srgb, var(--green) 12%, transparent));
     box-shadow: inset 0 0 0 1px var(--green);
   }
+  /* The label/count spans must not intercept pointer/drag events, or moving the
+     cursor across them fires dragleave on the row and the drop swell flickers. */
+  .wb-crate .wb-crate-label, .wb-crate .wb-crate-count { pointer-events: none; }
   body.ac-dragging-tracks #wb-playlists .wb-crate {
     outline: 1px dashed color-mix(in srgb, var(--green) 35%, transparent); outline-offset: -2px;
   }
