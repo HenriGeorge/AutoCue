@@ -1,7 +1,7 @@
 # AutoCue
 
-Automatically place hot cues on every track in your Rekordbox 7 library — and get deep
-intelligence about your tracks, transitions, and sets.
+Automatically place hot cues on every track in your Rekordbox 6 or 7 library — and get
+deep intelligence about your tracks, transitions, and sets.
 
 **[Try the web app →](https://henrigeorge.github.io/AutoCue/)**
 &nbsp;·&nbsp;
@@ -106,7 +106,7 @@ autocue serve --db-path "C:\Users\you\AppData\Roaming\Pioneer\rekordbox\master.d
 #### Requirements
 
 - Python 3.10+
-- Rekordbox 7 with tracks analyzed (BPM + phrase detection run)
+- Rekordbox 6 or 7 with tracks analyzed (BPM + phrase detection run)
 - Rekordbox **closed** before clicking Apply (the database is locked while Rekordbox is open)
 - macOS (DB path auto-detected); Windows requires `--db-path`
 
@@ -120,6 +120,28 @@ Before any write, AutoCue:
 ---
 
 ## Local server features
+
+### The Crate Console workbench
+
+In local mode the app opens on the **Crate Console** — a dense, keyboard-friendly
+workbench (no build step, native ES modules):
+
+- **Left rail** — crates (All tracks, No cues yet, Phrase-ready, Already cued), your
+  Rekordbox **playlists**, saved filters, and a library-health ring.
+- **Centre** — a virtualized track grid (one thin row per track: #, title/artist, BPM,
+  key, energy, mix score, class, cues).
+- **Inspector drawer** — click a row and it slides in from the right with that track's
+  energy curve, scores, cues, a **▶ Play** preview button, and "find similar".
+- **⌘K command palette** — jump to any place or action by typing.
+- **Rail places** — Library (health, cue tools, Discogs, comments, playlist-suggest,
+  set-builder), **Duplicates** (find + safely delete), and **Discover** (new releases)
+  swap the centre pane.
+- **Nightboard** — a full-bleed set-building canvas (tiles + scored transitions) entered
+  from the toolbar.
+- **Drag-to-playlist** — drag a grid row onto a rail playlist to add it (Rekordbox quit).
+
+The feature reference below applies within this workbench. (The XML-in/XML-out web app is
+a separate, frozen surface — see [Web app](#web-app-no-install).)
 
 ### Smart Cue Generation
 
@@ -271,10 +293,11 @@ Similar Track Discovery, Playlist Suggest, and Set Builder.
 Click **≈ Similar** on any track card to see the 5 most similar tracks in your library
 within ±8 BPM.
 
-Similarity is calculated using a 5-dimensional feature vector:
-- Key (cos/sin encoded Camelot position)
+Similarity is calculated using a 6-dimensional feature vector:
+- Key (cos/sin encoded Camelot position — 2 dims)
 - Energy mean + variance
 - Vocal proxy (has Verse phrases?)
+- Normalized BPM (with a ±8 BPM hard gate before scoring)
 
 All 3,000–50,000 tracks are held in a memory index (~3 MB). No cloud service, no API key.
 Similarity lookup is near-instant.
@@ -467,6 +490,7 @@ The local server exposes a full REST API at `http://localhost:7432`.
 | GET | `/api/tags` | All My Tags |
 | GET | `/api/playlists` | All playlists |
 | POST | `/api/playlists` | Create playlist |
+| POST | `/api/playlists/{id}/tracks` | Append tracks to an existing playlist (drag-to-playlist) |
 | POST | `/api/playlists/suggest` | Suggest tracks for a DJ category |
 
 #### Tracks
@@ -565,9 +589,9 @@ The local server exposes a full REST API at `http://localhost:7432`.
 
 ```bash
 pip install -e ".[dev]"              # install with test deps
-pytest                               # run all 1439 Python tests
+pytest                               # run the full Python suite (~1,480 tests)
 npm install                          # one-time: install JS test deps
-npm test                             # run 648 Vitest tests for the web app
+npm test                             # run the Vitest web-app suite (~890 tests)
 
 autocue serve --no-browser           # start local server without opening browser
 autocue --library --dry-run          # preview CLI output without writing
@@ -613,20 +637,23 @@ autocue/
     deps.py         — DB connection lifecycle + L2 wiring + warm-up pipeline
 
 docs/
-  index.html        — Single-file web app (no build step, no framework, no dependencies)
+  index.html        — Web app entry (markup only; no build step, no framework). CSS in
+                      css/app.css; legacy JS in js/01-…08 (classic scripts); all new 2.0
+                      code is native ES modules under js/v2/
+  manual/           — Setup & User Manual (PDF + HTML source)
   FEATURES.md       — End-user feature documentation
   reference/        — Per-feature reference docs (rest-api, discover-v2, set-builder,
                       library-duplicates, …)
   guides/           — Static DJ learning guides
 
 tests/
-  test_*.py         — 1446 Python tests covering CLI, generator, writer, db_writer,
+  test_*.py         — 1,400+ Python tests covering CLI, generator, writer, db_writer,
                       analysis modules, perf, cache, snapshot, serve routes, duplicates
                       (unit + real-SQLite integration), and Discover v2 (taste,
                       style_graph, feeders, ranker, orchestrator, store)
   e2e/              — Playwright smoke harness (autocue-qa agent) — sandbox port-0 server
   perf/             — Perf-budget tests (gated by RUN_PERF=1; `make perf`)
-  web/              — 648 Vitest tests across 38 spec files (xml-processing, ui-logic,
+  web/              — 880+ Vitest tests across 58 spec files (xml-processing, ui-logic,
                       Discover v2 onboarding/snooze/download/integration/sort/stats/…,
                       duplicates panel + delete-confirm, virtualizer, sticky structure,
                       UX PRs, warmup badge, perf helper)
