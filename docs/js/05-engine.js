@@ -406,6 +406,15 @@ function updatePlaybackUI() {
     (document.getElementById('mini-play-btn').innerHTML =
       isPlaying ? SVG_PAUSE : SVG_PLAY);
 
+  // Update the workbench inspector play button (the only play control in the
+  // dense wb-row grid). String-coerce both ids — dataset is a string.
+  const inspPlay = document.getElementById('wb-insp-play');
+  if (inspPlay) {
+    const active = String(inspPlay.dataset.trackId) === String(nowPlayingId) && isPlaying;
+    inspPlay.textContent = active ? '⏸ Pause' : '▶ Play';
+    inspPlay.classList.toggle('playing', active);
+  }
+
   // Update timeline playhead
   updateTimeline();
 }

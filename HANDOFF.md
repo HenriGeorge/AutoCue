@@ -72,6 +72,15 @@ NOT part of the P0–P6 program. **Start here for the next session.**
    track-switch/ended/error. P3: `_fadeFreshCueUI` (`06-render.js`) staggers cue badges +
    ticks A→H via `--cue-drop-delay`. Ping/drop PRM-gated; the playhead line is not (it's a
    functional indicator like the existing playheads).
+   **Reachability (post-QA, `50f5a04`):** the dense wb-row grid has NO play control, so the
+   trace was dormant in the default workbench. Added a play/pause pill to the inspector
+   header (`#wb-insp-play`, `inspector.js`) that drives the legacy playback path
+   (`window.ensureLocalAudio` + `window.togglePlayTrack`) and is synced by `updatePlaybackUI`
+   — selecting a track + pressing it lights the trace on the inspector energy + row
+   sparkline. CAVEAT still: the **cue ping** (`.phrase-cue-tick`) and **cue drop-in**
+   (`.cue-badge`) only exist on legacy 160px cards, NOT wb-rows — so those two are
+   legacy-view-only; the energy trace renders only for tracks that HAVE energy data (sparse
+   in real libraries — many show "no waveform").
 
 4. **Step 4 — health-scan score roll-up + staggered chips** (`bff3415`).
    `_animateScoreRing` counts the overall ring 0→score (easeOutCubic) then pops (reuses
@@ -187,10 +196,14 @@ this set — it passes in the full run. (The two `action-bar-*` per-control rows
 that used to fail deterministically were fixed in #221 — issue #219.)
 
 ## Open items
-- **Aliveness steps 2–5 PR (`feat/aliveness-steps-2-5`) awaits merge** — three-leg gate
-  green (Discover e2e flakes are the documented #189 baseline, green in isolation).
-- New endpoint `POST /api/playlists/{id}/tracks` is now live — there is still **no
+- Aliveness steps 2–5 **MERGED** (#228); inspector play affordance on
+  `feat/workbench-play-affordance` (PR pending). Discover e2e flakes remain the
+  documented #189 baseline (green in isolation).
+- New endpoint `POST /api/playlists/{id}/tracks` is live — there is still **no
   remove-from-playlist endpoint** (a misdrop is undone in Rekordbox, not via API).
+- Step 3 cue-ping / cue-drop-in are legacy-card-only (no phrase strip / cue
+  badges on wb-rows); a future option is to surface a positioned cue strip in the
+  inspector so they have a home in the default workbench.
 - Optional cleanup: delete the inert `#tab-cues`/`#tab-library` buttons (cosmetic).
 - Next build work: only **P6** (AUTOCUE_LLM composer) remains, deferred by design.
 
