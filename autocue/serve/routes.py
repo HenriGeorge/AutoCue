@@ -54,6 +54,8 @@ from .schemas import (
     DiscogsTagRequest,
     DiscogsTagEvent,
     SetBuilderRequest,
+    AddTracksToPlaylistRequest,
+    AddTracksToPlaylistResponse,
     CreatePlaylistRequest,
     CreatePlaylistResponse,
     SetAlternativeItem,
@@ -2981,6 +2983,88 @@ def create_playlist(req: CreatePlaylistRequest, db=Depends(get_db)):
     except Exception as exc:
         db.session.rollback()
         raise HTTPException(500, f"Failed to create playlist: {exc}")
+
+
+@router.post("/playlists/{playlist_id}/tracks", response_model=AddTracksToPlaylistResponse)
+def add_tracks_to_playlist(
+    playlist_id: int, req: AddTracksToPlaylistRequest, db=Depends(get_db)
+):
+    """Append tracks to an existing Rekordbox playlist (drag-to-playlist).
+
+    Additive + reversible, so it mirrors create_playlist: _rb_running guard,
+    single-writer commit, rollback-on-error, NO backup (unlike the destructive
+    duplicates-delete path). Tracks already in the playlist are skipped so a
+    re-drag never creates duplicate rows. New tracks append after the current
+    max TrackNo, preserving the playlist's existing sort order.
+    """
+    from datetime import datetime
+    from uuid import uuid4
+    from sqlalchemy import func as _func
+
+    if not req.track_ids:
+        raise HTTPException(400, "No tracks provided")
+    if _rb_running(db):
+        raise HTTPException(409, "Rekordbox is running — close it before editing playlists")
+
+    from pyrekordbox.db6.tables import DjmdPlaylist, DjmdSongPlaylist
+
+    pl = (
+        db.session.query(DjmdPlaylist)
+        .filter(DjmdPlaylist.ID == str(playlist_id))
+        .first()
+    )
+    if pl is None:
+        raise HTTPException(404, "Playlist not found")
+
+    try:
+        existing_rows = (
+            db.session.query(DjmdSongPlaylist.ContentID)
+            .filter(DjmdSongPlaylist.PlaylistID == str(playlist_id))
+            .all()
+        )
+        existing_ids = {str(c[0]) for c in existing_rows}
+        max_track_no = (
+            db.session.query(_func.max(DjmdSongPlaylist.TrackNo))
+            .filter(DjmdSongPlaylist.PlaylistID == str(playlist_id))
+            .scalar()
+            or 0
+        )
+
+        now = datetime.utcnow()
+        track_no = int(max_track_no)
+        added = 0
+        skipped = 0
+        for tid in req.track_ids:
+            if str(tid) in existing_ids:
+                skipped += 1
+                continue
+            track_no += 1
+            sp_id = db.generate_unused_id(DjmdSongPlaylist)
+            db.session.add(DjmdSongPlaylist(
+                ID=str(sp_id),
+                PlaylistID=str(playlist_id),
+                ContentID=str(tid),
+                TrackNo=track_no,
+                UUID=str(uuid4()),
+                created_at=now,
+                updated_at=now,
+            ))
+            existing_ids.add(str(tid))
+            added += 1
+
+        db.session.commit()
+        return AddTracksToPlaylistResponse(
+            playlist_id=playlist_id,
+            name=str(pl.Name or ""),
+            added_count=added,
+            skipped_count=skipped,
+            track_count=len(existing_rows) + added,
+        )
+    except HTTPException:
+        raise
+    except Exception as exc:
+        db.session.rollback()
+        raise HTTPException(500, f"Failed to add tracks to playlist: {exc}")
 
 
 # ── Auto-Tag ────────────────────────────────────────────────────────────────

@@ -512,6 +512,18 @@ class CreatePlaylistResponse(BaseModel):
     track_count: int
 
 
+class AddTracksToPlaylistRequest(BaseModel):
+    track_ids: list[int]
+
+
+class AddTracksToPlaylistResponse(BaseModel):
+    playlist_id: int
+    name: str
+    added_count: int
+    skipped_count: int
+    track_count: int  # total rows in the playlist after the add
+
+
 class SetAlternativeItem(BaseModel):
     track_id: int
     title: str

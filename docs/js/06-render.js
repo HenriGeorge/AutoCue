@@ -643,6 +643,7 @@ function buildTrackCard(track, cues, willSkip, opts = {}) {
   card.className = 'track-card';
   card.dataset.testid = 'track-card';
   card.dataset.trackId = track.id;
+  if (localMode) card.draggable = true; // step 5 — drag a card onto a rail playlist
   if (track.colorName) card.dataset.color = track.colorName;
   if (nowPlayingId === track.id && !audioPlayer.paused) card.classList.add('now-playing');
 
@@ -1118,6 +1119,7 @@ function buildWbRow(track, cues, willSkip, rowIndex) {
   row.className = 'track-card wb-row';
   row.dataset.testid = 'track-card';
   row.dataset.trackId = track.id;
+  if (localMode) row.draggable = true; // step 5 — drag a row onto a rail playlist
   if (track.colorName) row.dataset.color = track.colorName;
 
   // ── checkbox (bulk select) — wired exactly like buildTrackCard's ──
