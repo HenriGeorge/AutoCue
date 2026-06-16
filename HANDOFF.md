@@ -51,16 +51,19 @@ NOT part of the P0–P6 program. **Start here for the next session.**
 
 **Steps 2–5 — IMPLEMENTED on `feat/aliveness-steps-2-5` (one commit each):**
 
-2. **Step 2 — Inspector slide-over drawer + P4 View Transitions** (`338e73f`).
+2. **Step 2 — Inspector slide-over drawer** (`338e73f` + review fix `c2b9908`).
    `#wb-inspector` no longer reserves a column — grid is full-width; `body.wb-inspecting`
    (added in `renderInspector`/`renderReleaseInspector`, removed in `clearInspector`)
    slides the drawer in via `transform:translateX` OVER the grid (no reflow,
    TASK-033/037). Scoped `:not(.nb-active)` so Nightboard's reserved flank is unchanged;
    z-index 105 clears `#tracks-sticky` (100); action-bar reserves its right edge only
-   while inspecting (wide only). VT: the row title (`.wb-tt`) morphs into the drawer
-   header (`.wb-insp-title`) via `view-transition-name: ac-vt-title`, drawer slides as
-   `ac-vt-drawer` — guarded on `document.startViewTransition` + PRM, CSS translateX is the
-   fallback (and what JSDOM tests hit). All 4 inspector consumers re-verified green in e2e.
+   while inspecting (wide only). All 4 inspector consumers re-verified green in e2e.
+   **P4 View Transitions were prototyped then DROPPED** (review fix): the title-morph's
+   ~300ms render-suppression window swallowed a rapid second track-click (the selection
+   was lost — verified the same click lands under reduced-motion / no-VT; pointer-events
+   on the whole `::view-transition` pseudo-tree did not recover it). The morph is an
+   optional flourish; the translateX slide is the real reveal and has no such regression.
+   Don't re-add a VT here without solving the during-transition click loss.
 
 3. **Step 3 — energy playhead trace + cue ping + cue drop-in** (`b618c95`).
    `_traceEnergyPlayhead` (in `_rafTick`, `05-engine.js`) draws a green playhead across
