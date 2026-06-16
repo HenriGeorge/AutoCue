@@ -101,6 +101,30 @@ export function renderInspector(trackId) {
     chips.appendChild(_chip(`${m}:${String(s).padStart(2, '0')}`, true));
   }
   head.appendChild(chips);
+
+  // ── Play affordance ──
+  // The dense workbench grid has no play control, so the inspector is where you
+  // start playback — which is what lights up the energy playhead trace (step 3).
+  // Reuses the legacy playback path via window.* (classic-script globals);
+  // updatePlaybackUI() keeps the icon in sync with play/pause/ended.
+  const play = document.createElement('button');
+  play.type = 'button';
+  play.id = 'wb-insp-play';
+  play.className = 'wb-insp-playbtn';
+  play.dataset.trackId = _focusedId;
+  play.textContent = '▶ Play';
+  play.addEventListener('click', () => {
+    const toggle = window.togglePlayTrack;
+    if (typeof toggle !== 'function') return;
+    try {
+      if (typeof window.ensureLocalAudio === 'function') {
+        window.ensureLocalAudio(t).then(() => toggle(t.id)).catch(() => {});
+      } else {
+        toggle(t.id);
+      }
+    } catch (_) { /* playback is best-effort */ }
+  });
+  head.appendChild(play);
   body.appendChild(head);
 
   // ── Energy curve (reuse _renderEnergySparkline) ──
@@ -180,6 +204,9 @@ export function renderInspector(trackId) {
   simSec.appendChild(simBtn);
   simSec.appendChild(simPanel);
   body.appendChild(simSec);
+
+  // Sync the play button's icon if this track is already the one playing.
+  try { window.updatePlaybackUI?.(); } catch (_) {}
 }
 
 // P5: re-host a Discover release detail in the inspector (mode 'release').
