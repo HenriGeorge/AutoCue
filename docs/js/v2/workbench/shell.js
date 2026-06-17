@@ -69,6 +69,70 @@ function _renderCrates() {
     });
     host.appendChild(btn);
   }
+  _renderPlaces();
+}
+
+// Places section: primary nav (design). Crate Console is the grid home — active
+// when no centre-pane place owns the screen; Library carries the amber "needs
+// cues" health badge. Library/Discover/Duplicates buttons are wired by their own
+// modules (.active toggling); here we only wire the id-less Crate Console +
+// Nightboard launchers and repaint the home/badge state.
+let _navWired = false;
+function _renderPlaces() {
+  const host = document.getElementById('wb-places');
+  if (!host) return;
+  const tracks = window.ACBridge ? window.ACBridge.tracks() : [];
+  const placeActive = !!(
+    (window.AC2 && window.AC2.duplicates && window.AC2.duplicates.isActive()) ||
+    (window.AC2 && window.AC2.discover && window.AC2.discover.isActive()) ||
+    (window.AC2 && window.AC2.library && window.AC2.library.isActive())
+  );
+  const nbActive = document.body.classList.contains('nb-active');
+  const consoleBtn = host.querySelector('[data-place="cues"]');
+  if (consoleBtn) consoleBtn.classList.toggle('active', !placeActive && !nbActive);
+  const badge = document.getElementById('wb-library-badge');
+  if (badge) {
+    const need = tracks.filter((t) => Number(t.existingHotCues) === 0).length;
+    badge.textContent = need > 0 ? need.toLocaleString() : '';
+    badge.hidden = need === 0;
+  }
+}
+function _wirePlaces() {
+  if (_navWired) return;
+  const host = document.getElementById('wb-places');
+  if (!host) return;
+  _navWired = true;
+  host.querySelector('[data-place="cues"]')?.addEventListener('click', () => {
+    if (window.AC2 && window.AC2.duplicates) window.AC2.duplicates.deactivate();
+    if (window.AC2 && window.AC2.discover) window.AC2.discover.deactivate();
+    if (window.AC2 && window.AC2.library) window.AC2.library.deactivate();
+    if (window.switchTab) window.switchTab('cues');
+    _renderCrates();
+  });
+  host.querySelector('[data-place="nightboard"]')?.addEventListener('click', () => {
+    if (window.AC2 && window.AC2.nightboard && window.AC2.nightboard.open) window.AC2.nightboard.open();
+  });
+}
+
+// Inline selection batch bar: tools delegate to existing controls so all legacy
+// guards fire on the real path (the palette uses the same delegation pattern).
+// Preview/Clear are selection-scoped; Auto-tag/Enrich open the Library tools.
+function _wireBatchBar() {
+  const bar = document.getElementById('wb-batch-bar');
+  if (!bar || bar.dataset.wired) return;
+  bar.dataset.wired = '1';
+  const go = (id) => document.getElementById(id)?.click();
+  const openLibrary = (sectionId) => {
+    setWorkbench(true);
+    if (!(window.AC2 && window.AC2.library && window.AC2.library.isActive && window.AC2.library.isActive())) {
+      document.getElementById('wb-library-place')?.click();
+    }
+    if (sectionId) document.getElementById(sectionId)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  };
+  bar.querySelector('[data-batch="preview"]')?.addEventListener('click', () => go('action-bar-preview'));
+  bar.querySelector('[data-batch="clear"]')?.addEventListener('click', () => go('action-bar-clear'));
+  bar.querySelector('[data-batch="autotag"]')?.addEventListener('click', () => openLibrary('cue-tools-section'));
+  bar.querySelector('[data-batch="enrich"]')?.addEventListener('click', () => openLibrary('comment-enrich-section'));
 }
 
 // Global controls that move into the top-bar toolbar in workbench mode. Their
@@ -115,6 +179,8 @@ function activate() {
   // Re-render so the album-group view collapses into the uniform flat grid.
   if (window.ACBridge) window.ACBridge.renderTracks();
   _renderCrates();
+  _wirePlaces();
+  _wireBatchBar();
   initRail();
   initInspector();
   // Keep crate counts fresh as the library loads / changes.

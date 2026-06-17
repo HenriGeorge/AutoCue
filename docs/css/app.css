@@ -92,6 +92,13 @@
       --glass-bg:    rgba(12,10,9,.80);
     }
 
+    /* ── Design-system aliveness keyframes (AutoCue Workbench) ──
+       Mirror the prototype's bare-named keyframes under the app's _-prefixed
+       convention. Every consumer is guarded by prefers-reduced-motion. */
+    @keyframes _pulseDot { 0%, 100% { opacity: 1; transform: scale(1); } 50% { opacity: .45; transform: scale(.82); } }
+    @keyframes _fadeUp   { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+    @keyframes _sparkDraw { from { stroke-dashoffset: 100; } to { stroke-dashoffset: 0; } }
+
     /* ── Global button reset ── */
     button { border-radius: 9999px; font-family: var(--font); cursor: pointer; transition: all .15s; }
 
@@ -124,7 +131,11 @@
       position: sticky;
       top: 0;
       z-index: 200;
-      background: var(--bg);
+      /* Glass at rest (design: chrome reads as one frosted unit over the
+         scrolling content); .scrolled deepens the blur + lifts a shadow. */
+      background: var(--glass-bg);
+      backdrop-filter: blur(14px);
+      -webkit-backdrop-filter: blur(14px);
       border-bottom: 1px solid var(--border);
       transition: box-shadow 0.3s ease, background 0.3s ease;
     }
@@ -170,6 +181,8 @@
       letter-spacing: -0.4px;
       transition: font-size 0.28s cubic-bezier(0.4,0,0.2,1);
     }
+    /* "2.0" version suffix — muted, lighter weight, beside the wordmark */
+    .logo-suffix { color: var(--muted); font-weight: 500; margin-left: 5px; }
     #top-bar.scrolled .logo-text { font-size: 15px; }
     header nav { margin-left: auto; }
     header a {
@@ -988,20 +1001,22 @@
     @media (prefers-reduced-motion: reduce) {
       #action-bar { transition: none; }
     }
+    /* Content-sized glass pill (design action dock), centred over the grid */
     .action-bar-inner {
-      max-width: 1100px; margin: 0 auto;
+      width: max-content; max-width: calc(100vw - 40px); margin: 0 auto;
       display: flex; align-items: center; gap: 16px;
-      padding: 10px 14px 10px 18px;
-      background: var(--surface-card);
+      padding: 8px 10px 8px 22px;
+      background: var(--glass-bg);
       border: 1px solid var(--border);
-      border-radius: 14px;
-      box-shadow: 0 10px 32px rgba(0,0,0,.18), 0 2px 8px rgba(0,0,0,.08);
-      backdrop-filter: blur(14px);
-      -webkit-backdrop-filter: blur(14px);
+      border-radius: var(--radius-pill, 999px);
+      box-shadow: var(--shadow-lg);
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
     }
     .action-bar-left { display: inline-flex; align-items: center; gap: 12px; min-width: 0; }
     .action-bar-count {
-      font-size: 14px; font-weight: 500; color: var(--muted);
+      font-size: 12px; font-weight: 500; color: var(--muted);
+      font-family: var(--font-mono, var(--mono));
       font-variant-numeric: tabular-nums; white-space: nowrap;
     }
     .action-bar-count strong { color: var(--text); font-weight: 700; }
@@ -1720,27 +1735,30 @@
 
     /* ── Toast stack ── */
     #toast-stack {
-      position: fixed; bottom: 72px; left: 50%; transform: translateX(-50%);
+      position: fixed; bottom: 88px; right: 20px; left: auto; transform: none;
       z-index: 9999; display: flex; flex-direction: column-reverse;
-      align-items: center; gap: 8px; pointer-events: none;
+      align-items: flex-end; gap: 8px; pointer-events: none; max-width: 420px;
     }
+    /* Glass card, bottom-right, with a leading status glyph (design) */
     .toast-item {
-      background: #292524; color: #fafaf9;
-      border-radius: 9999px; padding: 10px 20px;
-      font-size: 13px; font-weight: 600;
-      box-shadow: 0 4px 24px rgba(0,0,0,.4);
-      pointer-events: auto; white-space: nowrap; cursor: default;
+      display: flex; align-items: center; gap: 10px;
+      background: var(--glass-bg); color: var(--text);
+      border: 1px solid var(--border);
+      border-radius: 12px; padding: 12px 16px;
+      font-size: 13px; font-weight: 500;
+      box-shadow: var(--shadow-lg);
+      backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
+      pointer-events: auto; cursor: default;
       animation: _toastIn 0.24s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
-      transform-origin: bottom center;
+      transform-origin: bottom right;
     }
     .toast-item.toast-out {
       animation: _toastOut 0.18s ease-in forwards;
     }
-    .toast-item.toast-error { background: #7f1d1d; color: #fecaca; }
-    .toast-item.toast-success { background: #14532d; color: #bbf7d0; }
-    html.dark .toast-item { background: #fafaf9; color: #0c0a09; }
-    html.dark .toast-item.toast-error { background: #fecaca; color: #7f1d1d; }
-    html.dark .toast-item.toast-success { background: #bbf7d0; color: #14532d; }
+    .toast-item::before { content: "✓"; color: var(--green); font-weight: 700; flex: none; }
+    .toast-item.toast-error { border-color: color-mix(in srgb, var(--danger) 45%, var(--border)); }
+    .toast-item.toast-error::before { content: "!"; color: var(--danger); }
+    .toast-item.toast-success::before { content: "✓"; color: var(--green); }
     @keyframes _toastIn {
       from { opacity: 0; transform: translateY(10px) scale(0.88); }
       to   { opacity: 1; transform: translateY(0) scale(1); }
@@ -1871,8 +1889,11 @@
   #app-status {
     display: none;
     align-items: center;
+    justify-content: center;
     gap: 8px;
-    margin-left: auto;
+    /* Centred in the chrome (design: status sentence is the header's centre
+       element). #tab-group is hidden, so auto side-margins centre this row. */
+    margin: 0 auto;
     font-size: 12px;
     color: var(--muted);
     font-variant-numeric: tabular-nums;
@@ -1901,14 +1922,23 @@
   }
 
   /* ── v2: command palette (⌘K) ── */
+  /* "Type a command ⌘K" pill (design): descriptive label + inset mono key */
   #cmdk-hint-btn {
-    background: none; border: 1px solid var(--border); border-radius: 6px;
-    padding: 3px 8px; font-size: 11px; font-weight: 700; color: var(--muted);
-    cursor: pointer; font-family: var(--font-mono, var(--mono));
-    transition: border-color .15s, color .15s;
+    display: inline-flex; align-items: center; gap: 8px;
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: var(--radius-pill, 999px);
+    padding: 6px 14px; font-size: 12.5px; font-weight: 500; color: var(--muted);
+    cursor: pointer; font-family: var(--font);
+    transition: border-color .18s, color .18s, transform .18s, box-shadow .18s;
   }
-  #cmdk-hint-btn:hover { border-color: var(--border-hover); color: var(--text); }
+  #cmdk-hint-btn:hover { border-color: var(--border-hover); color: var(--text); transform: translateY(-1px); box-shadow: var(--shadow-sm); }
+  #cmdk-hint-btn kbd {
+    font-family: var(--font-mono, var(--mono)); font-size: 11px;
+    background: var(--surface2); border: 1px solid var(--border); border-radius: 4px;
+    padding: 1px 6px; color: var(--text);
+  }
   #cmdk-hint-btn[hidden] { display: none; }
+  @media (prefers-reduced-motion: reduce) { #cmdk-hint-btn:hover { transform: none; } }
   #cmd-veil {
     position: fixed; inset: 0; z-index: 10000;
     display: flex; align-items: flex-start; justify-content: center;
@@ -1918,7 +1948,7 @@
   html.dark #cmd-veil { background: rgba(0,0,0,.55); }
   #cmd-veil[hidden] { display: none; }
   #cmd-palette {
-    width: min(560px, 92vw); max-height: 64vh; display: flex; flex-direction: column;
+    width: min(600px, 92vw); max-height: 64vh; display: flex; flex-direction: column;
     background: var(--surface); border: 1px solid var(--border);
     border-radius: var(--radius-xl, 16px); box-shadow: var(--shadow-lg, 0 16px 48px rgba(0,0,0,.28));
     overflow: hidden; animation: _palRise .16s var(--ease-enter, cubic-bezier(.2,.7,.2,1)) both;
@@ -1942,6 +1972,15 @@
   .pal-item .pal-meta.mono { font-family: var(--font-mono, var(--mono)); }
   .pal-item.active { background: var(--green-wash, color-mix(in srgb, var(--green) 8%, transparent)); }
   .pal-item.active .pal-label { color: var(--text); }
+  /* Per-result icon tile (design): 30px rounded square; tracks read green */
+  .pal-item .pal-ico {
+    flex: none; width: 30px; height: 30px; border-radius: 8px;
+    background: var(--surface2); border: 1px solid var(--border);
+    display: grid; place-items: center; font-size: 14px; line-height: 1;
+    color: var(--muted);
+  }
+  .pal-item .pal-ico.track { background: var(--green-wash); border-color: transparent; color: var(--green); }
+  #pal-foot .pal-count { margin-left: auto; font-family: var(--font-mono, var(--mono)); }
   .pal-composer-hint { padding: 12px 14px; font-size: 13px; color: var(--muted); }
   #pal-foot { display: flex; gap: 14px; padding: 8px 14px; border-top: 1px solid var(--border); font-size: 11px; color: var(--muted); }
   #pal-foot kbd { font-family: var(--font-mono, var(--mono)); font-size: 10px; border: 1px solid var(--border); border-radius: 3px; padding: 1px 4px; margin-right: 2px; }
@@ -1953,6 +1992,9 @@
     box-shadow: 0 0 0 2px transparent;
   }
   #app-status .status-dot.status-ok { background: var(--green); box-shadow: 0 0 0 3px color-mix(in srgb, var(--green) 18%, transparent); }
+  /* Live "Rekordbox state" dot pulses (design): a heartbeat on the chrome */
+  #app-status #status-rb .status-dot { animation: _pulseDot 2.4s ease-in-out infinite; }
+  @media (prefers-reduced-motion: reduce) { #app-status #status-rb .status-dot { animation: none; } }
   #app-status .status-dot.status-warn { background: #f0801a; box-shadow: 0 0 0 3px rgba(240,128,26,.18); }
   #app-status .status-dot.status-bad { background: #e4384e; box-shadow: 0 0 0 3px rgba(228,56,78,.18); }
   #app-status .status-text strong { color: var(--text); font-weight: 600; }
@@ -2506,6 +2548,15 @@
   .wb-crate .wb-crate-label { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .wb-crate .wb-crate-count { font-family: var(--font-mono, var(--mono)); font-size: 11px; color: var(--muted); }
   .wb-crate.active .wb-crate-count { color: var(--green); }
+  /* Places-section leading icon + amber "needs cues" health badge (design) */
+  .wb-crate .wb-place-ico { flex: none; width: 15px; text-align: center; color: var(--muted-soft); font-size: 13px; line-height: 1; }
+  .wb-crate.active .wb-place-ico { color: var(--green); }
+  .wb-place-badge {
+    font-family: var(--font-mono, var(--mono)); font-size: 10px; font-weight: 600;
+    color: var(--warn-amber); background: rgba(255,160,0,.10);
+    border-radius: 999px; padding: 1px 6px;
+  }
+  .wb-place-badge[hidden] { display: none; }
   .wb-rail-card { margin-top: auto; border: 1px solid var(--border); border-radius: var(--radius-xl, 16px); padding: 12px; }
 
   /* Inspector */
@@ -2513,6 +2564,50 @@
   .wb-inspector-empty-icon { font-size: 32px; opacity: .4; margin-bottom: 12px; }
   .wb-inspector-empty-sub { font-size: 11px; margin-top: 6px; opacity: .8; }
   @media (prefers-reduced-motion: reduce) { .wb-crate, .wb-crate:active { transition: none; transform: none; } }
+
+  /* ── Inline selection batch bar (design) ── selection-scoped tools on a green
+     wash; visibility driven by the existing body.has-action-bar selection flag. */
+  #wb-batch-bar { display: none; }
+  body.wb-active.has-action-bar #wb-batch-bar {
+    display: flex; align-items: center; gap: 10px;
+    padding: 9px 16px; border-bottom: 1px solid var(--border);
+    background: var(--green-wash); animation: _fadeUp .25s var(--ease-enter, ease) both;
+  }
+  body.wb-place-dupes #wb-batch-bar { display: none; }
+  #wb-batch-count { font-size: 12.5px; font-weight: 600; color: var(--text); }
+  #wb-batch-count .wb-batch-n { font-family: var(--font-mono, var(--mono)); color: var(--green); font-weight: 600; }
+  .wb-batch-btn {
+    border: 1px solid var(--border); background: var(--surface); color: var(--text);
+    border-radius: var(--radius-pill, 999px); padding: 5px 13px; font-size: 12px; font-weight: 500;
+    font-family: var(--font); transition: border-color .16s, transform .16s;
+  }
+  .wb-batch-btn:hover { border-color: var(--border-hover); transform: translateY(-1px); }
+  .wb-batch-spacer { flex: 1; }
+  .wb-batch-clear {
+    border: none; background: none; color: var(--muted); font-size: 12px;
+    text-decoration: underline; font-family: var(--font);
+  }
+  .wb-batch-clear:hover { color: var(--text); }
+
+  /* ── Footer keyboard-hint strip (design) ── present in workbench mode ── */
+  #wb-grid-hints { display: none; }
+  body.wb-active #wb-grid-hints {
+    display: flex; gap: 16px; align-items: center;
+    padding: 8px 16px; border-top: 1px solid var(--border);
+    background: var(--surface); font-size: 11px; color: var(--muted-soft);
+  }
+  body.wb-place-dupes #wb-grid-hints { display: none; }
+  #wb-grid-hints kbd {
+    font-family: var(--font-mono, var(--mono)); font-size: 10px;
+    border: 1px solid var(--border); border-radius: 4px; padding: 0 5px;
+    background: var(--surface2); color: var(--muted); margin-right: 3px;
+  }
+  .wb-grid-hints-spacer { flex: 1; }
+  .wb-grid-hints-drag { font-family: var(--font-mono, var(--mono)); }
+  @media (prefers-reduced-motion: reduce) {
+    body.wb-active.has-action-bar #wb-batch-bar { animation: none; }
+    .wb-batch-btn:hover { transform: none; }
+  }
 
   /* ── Aliveness (step 1): inspector reveal · harmonic glow ── */
   @media (prefers-reduced-motion: no-preference) {

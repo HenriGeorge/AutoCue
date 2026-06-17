@@ -134,6 +134,9 @@ function updateSelectionBar() {
       void c.offsetWidth;
       c.classList.add('count-pop');
     }
+    // Mirror the count into the inline workbench batch bar (design).
+    const wbc = document.getElementById('wb-batch-count');
+    if (wbc) wbc.innerHTML = `<span class="wb-batch-n">${count.toLocaleString()}</span> selected`;
     // P1 T6: contextual relabel only — the apply button states its target.
     // (P2 replaces this whole bar with the global action dock; do not grow it.)
     const abApply = document.getElementById('action-bar-apply');
