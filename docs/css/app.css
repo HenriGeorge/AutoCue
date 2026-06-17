@@ -2758,6 +2758,8 @@
   .wb-insp-playbtn:focus-visible { outline: 2px solid var(--green-ring); outline-offset: 2px; }
   .wb-insp-chip { font-size: 11px; padding: 2px 8px; border: 1px solid var(--border); border-radius: 4px; color: var(--muted); }
   .wb-insp-chip.mono { font-family: var(--font-mono, var(--mono)); color: var(--text); }
+  /* BPM reads as signal (design): green wash chip, no border */
+  .wb-insp-chip.accent { background: var(--green-wash, color-mix(in srgb, var(--green) 8%, transparent)); color: var(--green); border-color: transparent; }
   .wb-insp-section { margin-bottom: 16px; }
   .wb-insp-h { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); margin-bottom: 8px; }
   .wb-insp-energy { height: 28px; }
@@ -2778,7 +2780,20 @@
 
   /* T4 inspector polish: breathing room + constrain the reused mix breakdown
      to the 360px pane (the legacy breakdown row is wider by default). */
-  #wb-inspector .wb-insp-energy { height: 32px; margin-bottom: 18px; }
+  /* Tall energy curve in a bordered card (design) + a left→right draw reveal. */
+  #wb-inspector .wb-insp-energy {
+    height: 92px; margin-bottom: 8px;
+    border: 1px solid var(--border); border-radius: 12px; padding: 10px;
+  }
+  #wb-inspector .wb-insp-energy svg { height: 72px; }
+  .wb-insp-energy-axis {
+    display: flex; justify-content: space-between; margin-bottom: 18px;
+    font-family: var(--font-mono, var(--mono)); font-size: 10px; color: var(--muted-soft);
+  }
+  @media (prefers-reduced-motion: no-preference) {
+    #wb-inspector .wb-insp-energy svg { animation: _energyReveal .9s var(--ease-out, ease) both; }
+    @keyframes _energyReveal { from { clip-path: inset(0 100% 0 0); } to { clip-path: inset(0 0 0 0); } }
+  }
   #wb-inspector .wb-insp-mixbreak { font-size: 11px; }
   #wb-inspector .wb-insp-mixbreak > * { display: flex; align-items: center; gap: 8px; min-width: 0; }
   #wb-inspector .wb-insp-mixbreak .mix-bar-label { flex: 0 0 64px; color: var(--muted); white-space: nowrap; }

@@ -22,9 +22,9 @@ let _detailBodyHome = null;
 export function setInspectorMode(m) { _mode = m === 'release' ? 'release' : 'track'; }
 export function inspectorMode() { return _mode; }
 
-function _chip(text, mono) {
+function _chip(text, mono, accent) {
   const s = document.createElement('span');
-  s.className = 'wb-insp-chip' + (mono ? ' mono' : '');
+  s.className = 'wb-insp-chip' + (mono ? ' mono' : '') + (accent ? ' accent' : '');
   s.textContent = text;
   return s;
 }
@@ -94,7 +94,7 @@ export function renderInspector(trackId) {
   head.appendChild(artist);
   const chips = document.createElement('div');
   chips.className = 'wb-insp-chips';
-  if (Number(t.bpm) > 0) chips.appendChild(_chip(Number(t.bpm).toFixed(1) + ' BPM', true));
+  if (Number(t.bpm) > 0) chips.appendChild(_chip(Number(t.bpm).toFixed(1) + ' BPM', true, true));
   if (t.key) chips.appendChild(_chip(t.key, true));
   if (t.totalTime) {
     const m = Math.floor(t.totalTime / 60), s = Math.floor(t.totalTime % 60);
@@ -128,11 +128,24 @@ export function renderInspector(trackId) {
   body.appendChild(head);
 
   // ── Energy curve (reuse _renderEnergySparkline) ──
-  const energySec = _section('Energy');
+  const energySec = _section('Energy curve');
   const energy = document.createElement('div');
   energy.className = 'wb-insp-energy';
   energy.dataset.trackId = _focusedId;
   energySec.appendChild(energy);
+  // Time axis under the curve (design): start … duration.
+  const axis = document.createElement('div');
+  axis.className = 'wb-insp-energy-axis';
+  const a0 = document.createElement('span');
+  a0.textContent = '0:00';
+  const a1 = document.createElement('span');
+  if (t.totalTime) {
+    const am = Math.floor(t.totalTime / 60), as = Math.floor(t.totalTime % 60);
+    a1.textContent = `${am}:${String(as).padStart(2, '0')}`;
+  }
+  axis.appendChild(a0);
+  axis.appendChild(a1);
+  energySec.appendChild(axis);
   body.appendChild(energySec);
   try { window._renderEnergySparkline?.(energy); } catch (_) {}
 
