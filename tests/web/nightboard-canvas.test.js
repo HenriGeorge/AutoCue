@@ -6,7 +6,7 @@
  */
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import * as model from '../../docs/js/v2/nightboard/set-model.js'
-import { jointBand, zoneFractions, buildArcPath, render, JOINT_BANDS } from '../../docs/js/v2/nightboard/canvas.js'
+import { jointBand, zoneFractions, buildArcPath, render, JOINT_BANDS, camRel } from '../../docs/js/v2/nightboard/canvas.js'
 
 const T = (id, cat, score = 80) => ({ track_id: id, title: `T${id}`, artist: `A${id}`, bpm: 124, key: '8A', category: cat, transition_score: score, relaxed: false })
 
@@ -26,6 +26,23 @@ describe('jointBand thresholds (R6)', () => {
     expect(jointBand(null)).toBe('na')
     expect(jointBand(undefined)).toBe('na')
     expect(jointBand(NaN)).toBe('na')
+  })
+})
+
+describe('camRel (Camelot harmonic-relation label)', () => {
+  it('classifies the relation between two adjacent keys', () => {
+    expect(camRel('8A', '8A')).toBe('same key')
+    expect(camRel('8A', '8B')).toBe('parallel')   // same number, swapped mode
+    expect(camRel('8A', '9A')).toBe('harmonic')   // adjacent on the wheel, same mode
+    expect(camRel('8A', '7A')).toBe('harmonic')   // adjacent down
+    expect(camRel('12A', '1A')).toBe('harmonic')  // wheel wrap 12→1
+    expect(camRel('8A', '11A')).toBe('3 steps')
+  })
+  it('returns empty string for missing / unparseable keys', () => {
+    expect(camRel('8A', null)).toBe('')
+    expect(camRel('', '8A')).toBe('')
+    expect(camRel('xx', '8A')).toBe('')
+    expect(camRel(undefined, undefined)).toBe('')
   })
 })
 
@@ -99,6 +116,8 @@ describe('render() DOM (R4)', () => {
     expect(document.querySelector('.nb-chip-bpm').textContent).toBe('124.5')  // mono BPM
     expect(document.querySelector('.nb-chip-relaxed')).toBeTruthy()           // tile 2 relaxed
     expect(document.querySelector('.nb-joint-good')).toBeTruthy()             // score 88 → good
+    expect(document.querySelector('.nb-joint-pip')).toBeTruthy()              // restructured: banded pip
+    expect(document.querySelector('.nb-joint-rel')?.textContent).toBe('harmonic') // 8A→9A harmonic label
     expect(document.querySelector('.nb-cue-ok')).toBeTruthy()                 // tile 1 has cues
     expect(document.querySelector('.nb-cue-warn')).toBeTruthy()               // tile 2 none
     expect(document.getElementById('nb-stats').textContent).toContain('tracks')

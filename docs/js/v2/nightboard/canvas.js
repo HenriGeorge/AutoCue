@@ -27,6 +27,24 @@ export function jointBand(score) {
   return 'bad';
 }
 
+// Camelot relation between two adjacent keys — the at-a-glance harmonic label on
+// each joint (reverse-synced from the design prototype). Presentation-only: a
+// missing/unparseable key yields '' so the joint just shows its score.
+function _camelot(k) {
+  const m = /^\s*(\d{1,2})\s*([AB])\s*$/i.exec(String(k == null ? '' : k));
+  return m ? { n: Number(m[1]), l: m[2].toUpperCase() } : null;
+}
+export function camRel(a, b) {
+  const A = _camelot(a), B = _camelot(b);
+  if (!A || !B) return '';
+  if (A.n === B.n && A.l === B.l) return 'same key';
+  if (A.n === B.n) return 'parallel';            // same number, swapped mode (A↔B)
+  let dn = Math.abs(A.n - B.n);
+  dn = Math.min(dn, 12 - dn);                    // wheel distance (12↔1 = 1)
+  if (dn === 1 && A.l === B.l) return 'harmonic'; // adjacent on the wheel, same mode
+  return `${dn} step${dn === 1 ? '' : 's'}`;
+}
+
 // build_set categories → the four zone buckets (design-D zone washes).
 const ZONE_OF = { warmup: 'warmup', build: 'build', peak: 'peak', after_hours: 'closing', closing: 'closing' };
 const ZONES = ['warmup', 'build', 'peak', 'closing'];
@@ -148,14 +166,15 @@ function _tile(t, meta) {
   return tile;
 }
 
-function _joint(score, jointIdx) {
+function _joint(score, jointIdx, prevKey, curKey) {
   const b = document.createElement('button');
   b.type = 'button';
   b.className = `nb-joint nb-joint-${jointBand(score)}`;
   b.dataset.testid = 'nb-joint';
   b.dataset.joint = String(jointIdx);
   const txt = (score == null || !Number.isFinite(Number(score))) ? '–' : Math.round(Number(score));
-  b.innerHTML = `<span class="nb-joint-score">${txt}</span><small>/100</small>`;
+  const rel = camRel(prevKey, curKey);
+  b.innerHTML = `<span class="nb-joint-pip"><span class="nb-joint-score">${txt}</span><small>/100</small></span>${rel ? `<span class="nb-joint-rel">${_esc(rel)}</span>` : ''}`;
   return b;
 }
 
@@ -206,7 +225,8 @@ function _renderTimeline(set) {
   const meta = _meta();
   set.forEach((t, i) => {
     // joint i-1 sits between tile i-1 and tile i; its score is on SET[i].
-    if (i > 0) tl.appendChild(_joint(set[i].transition_score, i - 1));
+    // Pass the adjacent keys so the joint shows the Camelot relation label.
+    if (i > 0) tl.appendChild(_joint(set[i].transition_score, i - 1, set[i - 1].key, set[i].key));
     const tile = _tile(t, meta);
     // Staggered deal-in (L→R); capped so long sets don't lag. Gated by the
     // .nb-canvas reduced-motion rule. The tile's sparkline reads the same var.
