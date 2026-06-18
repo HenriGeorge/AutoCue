@@ -121,7 +121,7 @@ function _sparkSVG(id) {
   });
   const line = pts.map(([x, y], i) => `${i === 0 ? 'M' : 'L'}${x.toFixed(1)},${y.toFixed(1)}`).join(' ');
   const area = `${line} L100,40 L0,40 Z`;
-  return `<svg class="nb-spark" viewBox="0 0 100 40" preserveAspectRatio="none" aria-hidden="true"><path class="nb-spark-area" d="${area}"/><path class="nb-spark-line" d="${line}"/></svg>`;
+  return `<svg class="nb-spark" viewBox="0 0 100 40" preserveAspectRatio="none" aria-hidden="true"><path class="nb-spark-area" d="${area}"/><path class="nb-spark-line" pathLength="100" d="${line}"/></svg>`;
 }
 
 function _tile(t, meta) {
@@ -196,7 +196,7 @@ function _renderArc(set, durMap) {
   if (!svg) return;
   if (!set.length) { svg.innerHTML = ''; return; }
   const { line, area } = buildArcPath(set, durMap);
-  svg.innerHTML = `<path class="nb-arc-area" d="${area}"/><path class="nb-arc-line" d="${line}"/>`;
+  svg.innerHTML = `<path class="nb-arc-area" d="${area}"/><path class="nb-arc-line" pathLength="100" d="${line}"/>`;
 }
 
 function _renderTimeline(set) {
@@ -207,7 +207,11 @@ function _renderTimeline(set) {
   set.forEach((t, i) => {
     // joint i-1 sits between tile i-1 and tile i; its score is on SET[i].
     if (i > 0) tl.appendChild(_joint(set[i].transition_score, i - 1));
-    tl.appendChild(_tile(t, meta));
+    const tile = _tile(t, meta);
+    // Staggered deal-in (L→R); capped so long sets don't lag. Gated by the
+    // .nb-canvas reduced-motion rule. The tile's sparkline reads the same var.
+    tile.style.setProperty('--nb-tile-delay', `${Math.min(i, 8) * 45}ms`);
+    tl.appendChild(tile);
   });
 }
 

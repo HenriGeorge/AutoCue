@@ -1470,7 +1470,10 @@ autocue --library --mode bar --bars-interval 8 --start-bar 1</pre>
        (TASK-033/037). Populated by docs/js/v2/nightboard/*. -->
   <section id="nb-canvas" class="nb-canvas" hidden aria-label="Nightboard set canvas">
     <header id="nb-topstrip" class="nb-topstrip">
-      <input id="nb-set-name" class="nb-set-name" type="text" value="Untitled set" aria-label="Set name" spellcheck="false">
+      <div class="nb-title-block">
+        <span class="nb-eyebrow">Nightboard</span>
+        <input id="nb-set-name" class="nb-set-name" type="text" value="Untitled set" aria-label="Set name" spellcheck="false">
+      </div>
       <div id="nb-stats" class="nb-stats" aria-live="polite"></div>
       <div class="nb-topstrip-spacer"></div>
       <button type="button" id="nb-export-btn" class="primary nb-export" data-tip="Save this set as a Rekordbox playlist. Rekordbox must be closed.">Export to Rekordbox</button>
