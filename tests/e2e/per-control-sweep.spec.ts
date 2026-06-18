@@ -123,6 +123,12 @@ async function expandHiddenSections(page: Page) {
         }
       }
     }
+    // AutoCue 2.0 console rehome: the Filters / ⚙ Settings triggers hide their
+    // controls behind body classes (CSS `body.wb-active:not(.show-wb-filters)
+    // …` / `:not(.show-wb-settings) …`). Open both panels so the panel-gated
+    // rows — facet filters, #sort-bar, #bpm-legend, cue-settings, and the
+    // phrase/beats/audio toggles — are reachable by the per-control sweep.
+    document.body.classList.add("show-wb-filters", "show-wb-settings");
   });
 }
 

@@ -135,6 +135,66 @@ function _wireBatchBar() {
   bar.querySelector('[data-batch="enrich"]')?.addEventListener('click', () => openLibrary('comment-enrich-section'));
 }
 
+// Console rehome (design: a slim, table-first console). Two triggers reveal
+// the controls that are collapsed by default in workbench mode — Filters
+// (facet rows + sort bar + colour-key legend) and ⚙ Settings (the cue-settings
+// accordion). Body classes drive the reveal via CSS, so there's no per-control
+// show/hide here — the legacy controls keep their place and wiring.
+function _wireConsoleRehome() {
+  const fBtn = document.getElementById('wb-filters-toggle');
+  const sBtn = document.getElementById('wb-settings-toggle');
+  if (fBtn && !fBtn.dataset.wired) {
+    fBtn.dataset.wired = '1';
+    fBtn.addEventListener('click', () => {
+      const on = document.body.classList.toggle('show-wb-filters');
+      fBtn.classList.toggle('on', on);
+      fBtn.setAttribute('aria-expanded', on ? 'true' : 'false');
+    });
+  }
+  if (sBtn && !sBtn.dataset.wired) {
+    sBtn.dataset.wired = '1';
+    sBtn.addEventListener('click', () => {
+      const on = document.body.classList.toggle('show-wb-settings');
+      sBtn.classList.toggle('on', on);
+      sBtn.setAttribute('aria-expanded', on ? 'true' : 'false');
+      // the accordion body can be independently collapsed — expand on reveal
+      if (on) document.getElementById('settings-section')?.classList.remove('collapsed');
+    });
+  }
+}
+
+// Click-to-sort on the grid-head columns (design: sort lives in the headers).
+// Delegates to the existing #sort-bar buttons — all sort logic + re-render
+// stays there — then mirrors the active sort + direction (read from the same
+// localStorage.ac_sort the legacy handler persists) as a green arrow.
+function _reflectSort() {
+  let sort = { by: 'album', order: 'asc' };
+  try { sort = JSON.parse(localStorage.getItem('ac_sort')) || sort; } catch (_) {}
+  const head = document.getElementById('wb-grid-head');
+  if (!head) return;
+  head.querySelectorAll('.wb-sortable').forEach((cell) => {
+    const on = cell.dataset.sort === sort.by;
+    const base = cell.dataset.label || (cell.dataset.label = cell.textContent.trim());
+    cell.classList.toggle('sorted', on);
+    cell.innerHTML = on
+      ? `${base}<span class="wb-sort-arrow">${sort.order === 'asc' ? '▲' : '▼'}</span>`
+      : base;
+  });
+}
+function _wireConsoleSort() {
+  const head = document.getElementById('wb-grid-head');
+  if (!head) return;
+  if (head.dataset.sortWired) { _reflectSort(); return; }
+  head.dataset.sortWired = '1';
+  head.querySelectorAll('.wb-sortable').forEach((cell) => {
+    cell.addEventListener('click', () => {
+      document.querySelector(`.sort-btn[data-sort="${cell.dataset.sort}"]`)?.click();
+      _reflectSort();
+    });
+  });
+  _reflectSort();
+}
+
 // Global controls that move into the top-bar toolbar in workbench mode. Their
 // original DOM slot is recorded so deactivate() can put them back exactly.
 const _TOOL_IDS = ['playlist-filter-bar', 'analysis-mode-bar', 'nb-open-bar'];
@@ -181,6 +241,8 @@ function activate() {
   _renderCrates();
   _wirePlaces();
   _wireBatchBar();
+  _wireConsoleRehome();
+  _wireConsoleSort();
   initRail();
   initInspector();
   // Keep crate counts fresh as the library loads / changes.
@@ -189,6 +251,10 @@ function activate() {
   if (!_placeWired) {
     _placeWired = true;
     window.addEventListener('autocue:wb-place-change', _renderCrates);
+    // Keep the grid-head sort arrow in sync when the sort is triggered via the
+    // legacy #sort-bar (reachable from the Filters panel), not just the column
+    // click — every sort path signals 'filters' (07-helpers-events.js).
+    if (window.AppState) window.AppState.subscribe('filters', _reflectSort);
   }
 }
 
@@ -200,6 +266,14 @@ function deactivate() {
   if (window.AC2 && window.AC2.discover) window.AC2.discover.deactivate();
   if (window.AC2 && window.AC2.library) window.AC2.library.deactivate();
   document.body.classList.remove('wb-active');
+  // Clear the console-rehome panel state so a later re-activate starts clean —
+  // otherwise a stale show-wb-* body class reopens a panel while its trigger
+  // button still reads closed (visual + ARIA desync).
+  document.body.classList.remove('show-wb-filters', 'show-wb-settings');
+  for (const id of ['wb-filters-toggle', 'wb-settings-toggle']) {
+    const b = document.getElementById(id);
+    if (b) { b.classList.remove('on'); b.setAttribute('aria-expanded', 'false'); }
+  }
   document.getElementById('wb-rail')?.setAttribute('hidden', '');
   document.getElementById('wb-inspector')?.setAttribute('hidden', '');
   _restoreTools();
