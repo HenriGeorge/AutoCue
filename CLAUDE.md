@@ -44,6 +44,34 @@ AutoCue places hot cues on Rekordbox 7 tracks automatically and analyses a DJ li
 2. **Local server** (`autocue serve`) — FastAPI at `localhost:7432`. Serves the web UI and exposes a REST API that reads/writes the Rekordbox database directly. **All intelligence features** (energy, mixability, classification, similar tracks, transitions, set builder, library health, auto-tagging, comment enrichment, Discogs, discovery, download) are only available in this mode.
 3. **Web app** (`docs/index.html` + `docs/css/` + `docs/js/`) — browser-based, multi-file, **no build step**. Static / GitHub-Pages-ready (XML in/out); **Pages is live** at https://henrigeorge.github.io/AutoCue/ (serves `docs/` from `main`, enabled 2026-06-16; `docs/.nojekyll` makes assets serve as-is) — but the hosted app is XML-only, so the full local-mode feature set still requires `autocue serve`. In local mode the **2.0 "Crate Console" workbench is the default home** (`docs/js/v2/`, default-on; opt-out `ac_workbench='0'`): rail places (Library, Duplicates, Discover) + ⌘K palette + crates. **The Cues/Library tab bar is retired** — the buttons (`#tab-group`) are CSS-hidden; `#tab-nav` stays only as the `#app-status` status-sentence row. **Cues** is the default centre; **Library** (health/cue-tools/discogs/comments/playlist-suggest/set-builder) is the `#wb-library-place` rail place. `switchTab` is load-bearing for the rail-place centre-pane swaps. **P4 Nightboard** is the full-bleed set-canvas *mode* the workbench swaps into. XML/Pages mode is frozen. Program: `.claude/PRPs/prds/autocue-2-program.prd.md`; current state: `HANDOFF.md`.
 
+```mermaid
+flowchart LR
+    subgraph RB["Rekordbox data"]
+        DB[("master.db<br/>SQLCipher")]
+        ANLZ["ANLZ files<br/>phrase · beat grid"]
+    end
+
+    CLI["Python CLI<br/>autocue/"]
+    SRV["Local server<br/>autocue serve · FastAPI :7432<br/>+ all intelligence features"]
+    CACHE[("sidecar cache<br/>autocue_cache.sqlite")]
+
+    subgraph WEB["Web app · docs/ · no build step"]
+        PAGES["Pages mode<br/>XML in/out · frozen"]
+        WB["Local mode<br/>2.0 Crate Console workbench"]
+    end
+
+    DB --> CLI
+    ANLZ --> CLI
+    CLI -->|writes| XML["Rekordbox XML<br/>for import"]
+
+    DB <-->|read / write| SRV
+    ANLZ --> SRV
+    SRV <--> CACHE
+    SRV -->|serves UI + REST / SSE| WB
+
+    XML -.import.-> PAGES
+```
+
 ## Development commands
 
 ```bash
