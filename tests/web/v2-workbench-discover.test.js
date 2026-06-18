@@ -445,3 +445,58 @@ describe('P5 T5 — aliveness round 2 is reduced-motion-gated', () => {
     expect(discJs).toContain('if (freshRender && !_prefersReducedMotion)')
   })
 })
+
+/**
+ * 2.0 workbench redesign — the feed card became a horizontal 2-col layout
+ * with a surfacing-reason pill + an always-visible Save/Snooze/Dismiss row,
+ * off the same data + wiring (the design's richer taste-phrasings would need
+ * a backend per-card reason). DOM render verified by e2e + manual Chrome.
+ */
+describe('Discover 2-col redesign — card + reason pill', () => {
+  const css = readFileSync(resolve(__dirname, '..', '..', 'docs', 'css', 'app.css'), 'utf8')
+  const discJs = readFileSync(resolve(__dirname, '..', '..', 'docs', 'js', '03-download-discover.js'), 'utf8')
+  const cardBuilder = discJs.slice(
+    discJs.indexOf('function _renderDiscoverV2Card('),
+    discJs.indexOf('function _applyDiscoverV2Sort('),
+  )
+
+  it('feed grid is a fixed 2-col grid (design)', () => {
+    const start = css.indexOf('.disc-v2-grid {')
+    const block = css.slice(start, css.indexOf('}', start))
+    expect(block).toMatch(/grid-template-columns:\s*1fr 1fr/)
+  })
+
+  it('card render is horizontal (art-left main row) with a surfacing-reason pill', () => {
+    expect(cardBuilder).toContain('disc-v2-card-main')
+    expect(cardBuilder).toContain('disc-v2-card-reason')
+    expect(cardBuilder).toContain('_discoverV2Reason(release)')
+    // friendly Save label, not a bare glyph — and the wiring hooks survive
+    expect(cardBuilder).toContain("'Saved ✓' : 'Save'")
+    expect(cardBuilder).toContain('data-act="save"')
+    expect(cardBuilder).toContain('data-act="snooze"')
+    expect(cardBuilder).toContain('data-act="dismiss"')
+  })
+
+  it('the reason is derived per feeder source + resurfaced state', () => {
+    const fn = discJs.slice(
+      discJs.indexOf('function _discoverV2Reason('),
+      discJs.indexOf('function _renderDiscoverV2Card('),
+    )
+    expect(fn).toContain('resurfacedKeys')
+    expect(fn).toMatch(/artist[\s\S]*library/)
+    expect(fn).toMatch(/label[\s\S]*you follow/)
+    expect(fn).toMatch(/novelty[\s\S]*usual labels/)
+  })
+
+  it('art is the 54px square thumbnail (design), not a full-width top image', () => {
+    const start = css.indexOf('.disc-v2-card-art {')
+    const block = css.slice(start, css.indexOf('}', start))
+    expect(block).toMatch(/width:\s*54px/)
+    expect(block).toMatch(/height:\s*54px/)
+  })
+
+  it('the new action-button hover transform is reduced-motion gated', () => {
+    const reduce = css.slice(css.indexOf('@media (prefers-reduced-motion: reduce)'))
+    expect(reduce).toContain('.disc-v2-card-action:hover { transform: none')
+  })
+})
