@@ -77,9 +77,9 @@ flowchart LR
 ```bash
 pip install -e ".[dev]"              # install with test deps (fastapi, uvicorn, psutil, httpx, hypothesis)
 pip install -e ".[download]"         # OPTIONAL: YouTube download support (yt-dlp; also needs ffmpeg on PATH)
-pytest                               # run all 1446 Python tests
+pytest                               # run all 1484 Python tests
 npm install                          # one-time: install JS test deps
-npm test                             # run 671 Vitest tests for the web app
+npm test                             # run 886 Vitest tests for the web app
 
 AUTOCUE_POOL_SIZE=8 autocue serve    # override the shared analysis pool size (default min(8, cpu_count))
 AUTOCUE_PERF=1 autocue serve         # enable /api/perf/recent + perf_span ring buffer
