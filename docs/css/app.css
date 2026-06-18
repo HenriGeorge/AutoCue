@@ -3442,6 +3442,8 @@
 
   /* Top strip: set name (sans) · live stats (mono) · ink-pill export CTA. */
   .nb-topstrip { display: flex; align-items: center; gap: 14px; }
+  .nb-title-block { display: flex; flex-direction: column; gap: 0; }
+  .nb-eyebrow { font-size: 9.5px; letter-spacing: .08em; text-transform: uppercase; font-weight: 600; color: var(--muted-soft); }
   .nb-set-name {
     font-family: var(--font-sans);
     font-size: 18px; font-weight: 700; letter-spacing: -.3px;
@@ -3535,19 +3537,22 @@
 
   /* Set-wide energy arc — green is the data-signal stroke. */
   .nb-arc-area { fill: var(--green-wash); stroke: none; }
-  .nb-arc-line { fill: none; stroke: var(--green); stroke-width: 1.5; vector-effect: non-scaling-stroke; stroke-linejoin: round; }
+  .nb-arc-line { fill: none; stroke: var(--green); stroke-width: 1.5; vector-effect: non-scaling-stroke; stroke-linejoin: round; stroke-dasharray: 100; animation: _sparkDraw 1.1s var(--ease-out) backwards; }
 
   /* Timeline tiles. */
-  .nb-timeline { gap: 0; padding-top: 8px; }
+  .nb-timeline { gap: 8px; padding-top: 8px; }
   .nb-tile {
     flex: 1 1 0; min-width: 150px;
     display: flex; flex-direction: column; gap: 4px;
     height: var(--nb-tile-height);
     padding: 9px 11px; z-index: 1;
     border: 1px solid var(--border);
-    border-radius: var(--radius-lg);
+    border-radius: var(--radius-xl);
     background: var(--surface-card);
+    box-shadow: var(--shadow-sm);
     transition: border-color .15s, box-shadow .15s, transform .15s;
+    animation: _sbPopIn .34s var(--ease-enter) backwards;
+    animation-delay: var(--nb-tile-delay, 0ms);
   }
   .nb-tile:hover { border-color: var(--border-hover); box-shadow: var(--shadow-md); transform: translateY(-2px); }
   .nb-tile.nb-tile-active { border-color: var(--green); box-shadow: 0 0 0 3px var(--green-ring), var(--shadow-md); }
@@ -3565,31 +3570,41 @@
   .nb-tile-spark { flex: 1; min-height: 0; margin: 2px -2px; }
   .nb-spark { width: 100%; height: 100%; display: block; }
   .nb-spark-area { fill: var(--green-wash); stroke: none; }
-  .nb-spark-line { fill: none; stroke: var(--green); stroke-width: 1.25; vector-effect: non-scaling-stroke; stroke-linejoin: round; }
+  .nb-spark-line { fill: none; stroke: var(--green); stroke-width: 1.25; vector-effect: non-scaling-stroke; stroke-linejoin: round; stroke-dasharray: 100; animation: _sparkDraw .9s var(--ease-out) backwards; animation-delay: calc(var(--nb-tile-delay, 0ms) + .12s); }
   .nb-tile-foot { display: flex; justify-content: space-between; font-family: var(--font-mono); font-size: 10px; color: var(--muted-soft); }
   .nb-cue-ok { color: var(--green); }
   .nb-cue-warn { color: var(--warn-amber); }
 
-  /* Scored joints float on the wire between tiles (negative margin overlap). */
+  /* Scored joints sit in-flow between tiles: a banded score pip + a harmonic
+     relation micro-label (reverse-synced from the design prototype's joint). */
   .nb-joint {
-    flex: 0 0 auto; align-self: center;
+    flex: 0 0 auto; align-self: center; z-index: 3;
+    display: flex; flex-direction: column; align-items: center; gap: 4px;
+    max-width: 96px; padding: 0; border: none; background: transparent;
+    cursor: pointer; transition: transform .15s;
+  }
+  .nb-joint:hover { transform: scale(1.06); }
+  .nb-joint:hover .nb-joint-pip { box-shadow: var(--shadow-md); }
+  .nb-joint-pip {
     width: var(--nb-joint-size); height: var(--nb-joint-size);
-    margin: 0 -8px; z-index: 3;
     display: flex; flex-direction: column; align-items: center; justify-content: center;
     border-radius: var(--radius-pill);
     background: var(--surface); border: 1.5px solid var(--border-hover);
-    cursor: pointer;
-    transition: transform .15s, box-shadow .15s;
+    transition: box-shadow .15s, border-color .15s, background .15s;
   }
-  .nb-joint:hover { transform: scale(1.1); box-shadow: var(--shadow-md); }
-  .nb-joint.nb-joint-open { box-shadow: 0 0 0 3px var(--green-ring), var(--shadow-md); }
+  .nb-joint.nb-joint-open .nb-joint-pip { box-shadow: 0 0 0 3px var(--green-ring), var(--shadow-md); }
   .nb-joint-score { font-family: var(--font-mono); font-size: 12.5px; font-weight: 700; line-height: 1; }
-  .nb-joint small { font-size: 7.5px; color: var(--muted-soft); margin-top: -1px; }
-  .nb-joint-good { border-color: var(--green); }
+  .nb-joint-pip small { font-size: 7.5px; color: var(--muted-soft); margin-top: -1px; }
+  .nb-joint-rel {
+    font-family: var(--font-mono); font-size: 8px; font-weight: 600;
+    text-transform: uppercase; letter-spacing: .04em; color: var(--muted-soft);
+    text-align: center; line-height: 1.15; max-width: 96px;
+  }
+  .nb-joint-good .nb-joint-pip { border-color: var(--green); background: var(--green-wash); }
   .nb-joint-good .nb-joint-score { color: var(--green); }
-  .nb-joint-ok { border-color: var(--warn-amber); }
+  .nb-joint-ok .nb-joint-pip { border-color: var(--warn-amber); background: color-mix(in srgb, var(--warn-amber) 8%, transparent); }
   .nb-joint-ok .nb-joint-score { color: var(--warn-amber); }
-  .nb-joint-bad { border-color: var(--danger); }
+  .nb-joint-bad .nb-joint-pip { border-color: var(--danger); background: color-mix(in srgb, var(--danger) 8%, transparent); }
   .nb-joint-bad .nb-joint-score { color: var(--danger); }
   .nb-joint-na .nb-joint-score { color: var(--muted-soft); }
 
@@ -3603,7 +3618,7 @@
   .nb-popover {
     position: fixed; z-index: 200;
     background: var(--surface); border: 1px solid var(--border);
-    border-radius: var(--radius-lg); box-shadow: var(--shadow-lg);
+    border-radius: var(--radius-xl); box-shadow: var(--shadow-lg);
     padding: 13px 15px;
     animation: nbFadeUp .22s ease-out;
   }
@@ -3680,9 +3695,12 @@
   .nb-crate-card {
     flex: 0 0 224px;
     display: flex; flex-direction: column; gap: 3px;
-    border: 1px solid var(--border); border-radius: var(--radius-lg);
+    border: 1px solid var(--border); border-radius: var(--radius-xl);
     background: var(--surface); padding: 9px 11px;
+    box-shadow: var(--shadow-sm);
+    transition: border-color .15s, box-shadow .15s, transform .15s;
   }
+  .nb-crate-card:hover { border-color: var(--border-hover); box-shadow: var(--shadow-md); transform: translateY(-2px); }
   .nb-crate-title { font-size: 12.5px; font-weight: 700; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .nb-crate-sub { font-size: 11px; color: var(--muted); margin-top: -2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .nb-crate-foot { display: flex; align-items: center; gap: 5px; margin-top: 4px; }
