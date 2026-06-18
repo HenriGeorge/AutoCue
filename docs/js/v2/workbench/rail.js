@@ -300,10 +300,11 @@ function _renderHealth() {
     `<button type="button" class="rh-fix wb-rail-fix-btn">Fix it</button>`;
 
   host.querySelector('.wb-rail-fix-btn')?.addEventListener('click', () => {
-    // Reuse the legacy fix path: the phrase-quality fix button is the first
-    // button inside #health-fix-row. Fall back to a fresh scan when there's
-    // nothing to fix (no button rendered).
-    const fixBtn = document.querySelector('#health-fix-row button');
+    // Reuse the legacy fix path: prefer the "Fix all phrase-quality" pill
+    // (batch) over an individual card's "Fix it"; fall back to a fresh scan
+    // when there's nothing to fix (no fix stack rendered).
+    const fixBtn = document.querySelector('#health-fix-row .lh-fix-all')
+                || document.querySelector('#health-fix-row button');
     if (fixBtn) fixBtn.click();
     else document.getElementById('health-scan-btn')?.click();
   });
