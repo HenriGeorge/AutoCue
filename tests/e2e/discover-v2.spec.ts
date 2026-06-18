@@ -206,13 +206,15 @@ test.describe("Discover v2", () => {
     const firstCard = page.locator("#disc-v2-grid .disc-v2-card").first();
     await expect(firstCard).toBeVisible({ timeout: 8000 });
 
-    // Hover-reveal the action buttons, then click Save.
-    await firstCard.hover();
+    // P5 redesign: the action pills are always visible (no longer hover-revealed)
+    // and the Save pill carries a text label. Click Save.
     const saveBtn = firstCard.locator('[data-act="save"]');
     await expect(saveBtn).toBeVisible();
+    await expect(saveBtn).toHaveText("Save");
     await saveBtn.click();
 
-    // The card renderer redraws on notify(); the save button should now read ✓.
-    await expect(saveBtn).toHaveText("✓", { timeout: 3000 });
+    // The card renderer redraws on notify(); the save pill should now read
+    // "Saved ✓" (the saved state — green fill + check).
+    await expect(saveBtn).toHaveText("Saved ✓", { timeout: 3000 });
   });
 });

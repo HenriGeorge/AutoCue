@@ -1114,16 +1114,31 @@ autocue --library --mode bar --bars-interval 8 --start-bar 1</pre>
   <!-- Discover & Watchlist v2 (T-024+). Personalized feed from labels + artists +
        novelty, served by /api/discover/feed SSE. The old v1 'scan library' panel
        is replaced by this surface. -->
-  <section id="disc-v2-section" class="panel-card">
+  <section id="disc-v2-section" class="panel-card disc-v2-surface">
+
+    <!-- Workbench hero (P5 redesign): eyebrow + H1 + the Settings/Refresh verbs.
+         Visual-only restructure of the old .disc-v2-head — the Settings + Refresh
+         ids are unchanged so every discover-v2 contract still resolves. -->
     <div class="disc-v2-head">
-      <div>
-        <h2 class="disc-v2-head-title">Discover &amp; Watchlist</h2>
+      <div class="disc-v2-hero">
+        <p class="disc-v2-eyebrow">Discover</p>
+        <h2 class="disc-v2-head-title">New releases for your taste</h2>
         <p class="disc-v2-head-sub">Personalized new releases from your library&apos;s artists + labels you follow, with novelty picks mixed in. Filtered against what you already own / saved / dismissed.</p>
       </div>
       <div class="disc-v2-head-actions">
         <button id="disc-v2-settings-btn" class="secondary-btn disc-v2-pill-sm">Settings</button>
         <button id="disc-v2-refresh-btn" class="primary disc-v2-scan-cta">Refresh</button>
       </div>
+    </div>
+
+    <!-- Read-only taste fingerprint (P5 redesign). Populated by
+         _renderDiscoverTasteRow from DiscoverV2 state already on hand (top feed
+         genres + labels-followed count) — NO new fetch. Class-selector only, no
+         id, so it stays outside the disc-v2-* id contract. Hidden until it has
+         at least one chip to show. -->
+    <div class="disc-v2-taste-row" style="display:none">
+      <span class="disc-v2-taste-label">Your taste:</span>
+      <span class="disc-v2-taste-chips"></span>
     </div>
 
     <!-- Token banner — shown when DISCOGS_TOKEN is missing or rejected.

@@ -1155,37 +1155,71 @@ function _resurfacedBadge(release) {
   return ` <span class="disc-v2-resurfaced-badge"${titleAttr}>🔁 Resurfaced</span>`;
 }
 
+// Map a raw feeder source to a human-readable surfacing-reason sentence + a
+// glyph. The reason pill is its own row on the card — it answers "why am I
+// seeing this?" in the user's own taste terms (UX audit M-5: "via artist" was
+// jargon). Novelty sub-families ("novelty:style"/"novelty:label"/"novelty:
+// artist") all collapse to the same "fresh find" reason — the distinction
+// isn't meaningful to the user.
+function _discoverReason(release) {
+  const r = release.release || {};
+  const fam = (release.source || '').split(':')[0];
+  if (fam === 'artist') {
+    return { glyph: '≈', text: r.artist
+      ? `Sounds like ${r.artist}` : 'Matches an artist you play' };
+  }
+  if (fam === 'label') {
+    return { glyph: '◎', text: r.label
+      ? `From ${r.label}, a label you watch` : 'From a label you watch' };
+  }
+  if (fam === 'novelty') {
+    return { glyph: '✦', text: 'Fresh find near your taste' };
+  }
+  return { glyph: '•', text: fam || 'Recommended for you' };
+}
+
 function _renderDiscoverV2Card(release) {
   const r = release.release || {};
-  const isSaved = DiscoverV2.state.savedKeys.has(release.release_key);
+  const key = release.release_key;
+  const isSaved = DiscoverV2.state.savedKeys.has(key);
+  const isDismissed = DiscoverV2.state.dismissedKeys.has(key);
   const card = document.createElement('div');
   card.className = 'disc-v2-card';
-  card.setAttribute('data-release-key', release.release_key);
+  // Saved / dismissed cards that survive the client-side filters read as
+  // "already actioned" — dim them so the live, un-actioned releases stand out.
+  if (isSaved || isDismissed) card.classList.add('disc-v2-card-dimmed');
+  card.setAttribute('data-release-key', key);
   card.setAttribute('role', 'button');
   card.setAttribute('tabindex', '0');
   const art = r.thumb || r.cover_image || '';
-  // Map the feeder source to a human-readable origin label. The raw values
-  // ("artist", "label", "novelty:style", "novelty:label", "novelty:artist")
-  // came straight from the backend; "via artist" was jargon (UX audit M-5).
-  const rawSource = (release.source || '');
-  const SOURCE_LABEL = {
-    artist:           'Artist match',
-    label:            'Label match',
-    'novelty':        'Novelty pick',
-  };
-  const sourceFamily = rawSource.split(':')[0];
-  const sourceLabel = SOURCE_LABEL[sourceFamily] || sourceFamily;
+  const reason = _discoverReason(release);
+  // The mono meta line carries only measured data: label · year (rule 3 / R6).
+  const metaBits = [];
+  if (r.label) metaBits.push(_esc(r.label));
+  if (r.year)  metaBits.push(String(r.year));
+  const metaLine = metaBits.join(' · ');
+  // State label: which "already actioned" badge (if any) this card wears.
+  let stateLabel = '';
+  if (isSaved) stateLabel = 'Saved';
+  else if (isDismissed) stateLabel = 'Dismissed';
   card.innerHTML = `
-    <div class="disc-v2-card-art" style="${art ? `background-image:url('${_esc(art)}')` : ''}"></div>
-    <div class="disc-v2-card-body">
-      <p class="disc-v2-card-title">${_esc(r.title || 'Untitled')}</p>
-      <p class="disc-v2-card-artist">${_esc(r.artist || 'Unknown Artist')}</p>
-      <p class="disc-v2-card-source">${_esc(sourceLabel)}${r.label ? ' · ' + _esc(r.label) : ''}${r.year ? ' · ' + r.year : ''}${_resurfacedBadge(release)}</p>
+    <div class="disc-v2-card-head">
+      <div class="disc-v2-card-art" style="${art ? `background-image:url('${_esc(art)}')` : ''}"></div>
+      <div class="disc-v2-card-body">
+        <p class="disc-v2-card-title">${_esc(r.title || 'Untitled')}</p>
+        <p class="disc-v2-card-artist">${_esc(r.artist || 'Unknown Artist')}</p>
+        <p class="disc-v2-card-source">${metaLine}${_resurfacedBadge(release)}</p>
+      </div>
+    </div>
+    <div class="disc-v2-card-reason">
+      <span class="disc-v2-card-reason-icon" aria-hidden="true">${_esc(reason.glyph)}</span>
+      <span class="disc-v2-card-reason-text">${_esc(reason.text)}</span>
     </div>
     <div class="disc-v2-card-actions" data-actions>
-      <button class="disc-v2-card-action ${isSaved ? 'saved' : ''}" data-act="save" title="Save" aria-label="Save">${isSaved ? '✓' : '+'}</button>
-      <button class="disc-v2-card-action" data-act="snooze" title="Snooze (1w / 1m / 3m)" aria-label="Snooze">zZ</button>
-      <button class="disc-v2-card-action" data-act="dismiss" title="Dismiss" aria-label="Dismiss">✕</button>
+      <button class="disc-v2-card-action disc-v2-card-action-save ${isSaved ? 'saved' : ''}" data-act="save" title="Save" aria-label="Save">${isSaved ? 'Saved ✓' : 'Save'}</button>
+      <button class="disc-v2-card-action" data-act="snooze" title="Snooze (1w / 1m / 3m)" aria-label="Snooze">Snooze</button>
+      <button class="disc-v2-card-action disc-v2-card-action-dismiss" data-act="dismiss" title="Dismiss" aria-label="Dismiss">Dismiss</button>
+      ${stateLabel ? `<span class="disc-v2-card-state">${_esc(stateLabel)}</span>` : ''}
     </div>
   `;
   return card;
@@ -1395,9 +1429,59 @@ function _renderDiscoverScanErrorInline() {
   el.style.display = 'flex';
 }
 
+// Read-only "Your taste:" fingerprint row. Derived ENTIRELY from data the
+// frozen DiscoverV2 engine already exposes — no new fetch, no invented values:
+//   • top genres   — the most common `release.styles` across the loaded feed
+//                     (same source the style-chip strip reads).
+//   • labels watched — DiscoverV2.state.followedLabels.length.
+// If a signal is unavailable (empty styles, zero follows) its chip is simply
+// omitted. The row hides itself when there's nothing to show. The container is
+// a class-selector (no id) so it stays out of the disc-v2-* id contract.
+function _renderDiscoverTasteRow() {
+  const row = document.querySelector('.disc-v2-taste-row');
+  if (!row) return;
+  const chipsHost = row.querySelector('.disc-v2-taste-chips');
+  if (!chipsHost) return;
+  const s = DiscoverV2.state;
+  const chips = [];
+
+  // Top genres from the loaded feed's Discogs styles.
+  const counts = new Map();
+  for (const c of (s.cards || [])) {
+    const styles = Array.isArray(c.release?.styles) ? c.release.styles : [];
+    for (const st of styles) {
+      const key = String(st || '').trim();
+      if (!key) continue;
+      counts.set(key, (counts.get(key) || 0) + 1);
+    }
+  }
+  const topGenres = Array.from(counts.entries())
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 3)
+    .map(([g]) => g);
+  for (const g of topGenres) {
+    chips.push(`<span class="disc-v2-taste-chip">${_esc(g.replace(/\b\w/g, (c) => c.toUpperCase()))}</span>`);
+  }
+
+  // Labels watched.
+  const followCount = (s.followedLabels || []).length;
+  if (followCount > 0) {
+    chips.push(`<span class="disc-v2-taste-chip">${followCount} label${followCount === 1 ? '' : 's'} followed</span>`);
+  }
+
+  if (!chips.length) {
+    row.style.display = 'none';
+    chipsHost.innerHTML = '';
+    return;
+  }
+  row.style.display = '';
+  chipsHost.innerHTML = chips.join('');
+}
+
 function _renderDiscoverV2Feed() {
   const grid = document.getElementById('disc-v2-grid');
   if (!grid) return;
+  _renderDiscoverTasteRow();
   // Stagger only when the grid populates from empty (post-scan reveal) —
   // re-staggering on every save/dismiss re-render would read as flicker.
   const freshRender = !grid.children.length;

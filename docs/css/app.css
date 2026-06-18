@@ -2116,21 +2116,33 @@
       background: var(--bg); cursor: pointer; user-select: none;
     }
     .disc-v2-chip input { accent-color: var(--green); }
+    /* P5 redesign — fixed 2-column grid (replaces the auto-fill that overshot
+       to 3–4 columns on wide viewports). Collapses to a single column on narrow
+       screens. */
     .disc-v2-grid {
       display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
-      gap: 12px;
+      grid-template-columns: 1fr 1fr;
+      gap: 14px;
     }
-    /* Elevated card (rule 5 — 16px radius, soft shadow lifts on hover only;
-       rule 1 — flat token surfaces). */
+    @media (max-width: 720px) {
+      .disc-v2-grid { grid-template-columns: 1fr; }
+    }
+    /* Release card (P5 redesign) — vertical stack: art thumb + body head, a
+       distinct reason pill row, then always-visible action pills. Border + 14px
+       radius + soft shadow that lifts on hover only (rule 5); flat token
+       surface (rule 1). */
     .disc-v2-card {
       border: 1px solid var(--border);
-      border-radius: var(--radius-xl);
+      border-radius: 14px;
       background: var(--surface);
-      overflow: hidden;
       cursor: pointer;
-      transition: transform 0.1s ease, box-shadow 0.1s ease;
+      transition: transform 0.12s ease, box-shadow 0.12s ease, opacity 0.12s ease;
       position: relative;
+      padding: 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      box-shadow: var(--shadow-sm);
     }
     .disc-v2-card:hover { transform: translateY(-2px); box-shadow: var(--shadow-lg); }
     /* Active/focused card — green wash + ring (rule 2 wash discipline). */
@@ -2140,15 +2152,22 @@
       outline-offset: 1px;
       background: var(--green-wash);
     }
-    .disc-v2-card.active .disc-v2-card-actions { opacity: 1; }
+    /* Already-actioned cards (saved / dismissed that survived the filters) dim
+       so the live, un-actioned releases lead the eye. */
+    .disc-v2-card-dimmed { opacity: 0.4; }
+    .disc-v2-card-dimmed:hover, .disc-v2-card-dimmed:focus-within { opacity: 1; }
+    /* Head row: 54×54 art thumb + title/artist/meta column. */
+    .disc-v2-card-head { display: flex; gap: 12px; align-items: flex-start; }
     .disc-v2-card-art {
-      width: 100%; aspect-ratio: 1; background: var(--surface2);
+      flex: 0 0 auto;
+      width: 54px; height: 54px; border-radius: 10px;
+      background: var(--surface2);
       background-size: cover; background-position: center;
     }
-    .disc-v2-card-body { padding: 8px 10px; }
+    .disc-v2-card-body { min-width: 0; flex: 1; }
     .disc-v2-card-title {
       font-family: var(--font-sans);
-      font-weight: 600; font-size: 13px; margin: 0;
+      font-weight: 700; font-size: 14px; margin: 0;
       overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
     }
     .disc-v2-card-artist {
@@ -2156,38 +2175,65 @@
       font-size: 12px; color: var(--muted); margin: 2px 0 0;
       overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
     }
-    /* Source / label / year are measured data → mono (rule 3 / R6). */
+    /* Label / year are measured data → mono (rule 3 / R6). */
     .disc-v2-card-source {
       font-family: var(--font-mono);
-      font-size: 10px; color: var(--muted); margin-top: 4px;
-      text-transform: uppercase; letter-spacing: 0.04em;
+      font-size: 11px; color: var(--muted); margin: 4px 0 0;
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
     }
+    /* Surfacing-reason pill — its own row on the inset --surface2 panel so it
+       reads as a distinct "why you're seeing this" band (rule 5: borders +
+       flat surfaces). */
+    .disc-v2-card-reason {
+      display: flex; align-items: center; gap: 6px;
+      padding: 6px 9px; border-radius: 8px;
+      background: var(--surface2);
+      font-family: var(--font-sans); font-size: 11.5px; color: var(--muted);
+    }
+    .disc-v2-card-reason-icon {
+      flex: 0 0 auto; font-size: 12px; color: var(--green);
+      line-height: 1;
+    }
+    .disc-v2-card-reason-text {
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+    /* Always-visible action pills (P5 redesign — no longer hover-revealed). */
     .disc-v2-card-actions {
-      position: absolute; top: 6px; right: 6px;
-      display: flex; gap: 4px; opacity: 0; transition: opacity 0.15s ease;
+      display: flex; gap: 6px; align-items: center; flex-wrap: wrap;
     }
-    .disc-v2-card:hover .disc-v2-card-actions,
-    .disc-v2-card:focus-within .disc-v2-card-actions { opacity: 1; }
+    .disc-v2-card.active .disc-v2-card-actions { opacity: 1; }
     /* Action pills (rule 4). Neutral by default; save-applied is green
        (rule 2 — green = success signal only). */
     .disc-v2-card-action {
-      min-width: 24px; height: 24px; padding: 0 7px;
+      height: 26px; padding: 0 12px;
       border-radius: var(--radius-pill);
       border: 1px solid var(--border);
       background: var(--surface);
       color: var(--text);
-      font-family: var(--font-mono); font-size: 11px; font-weight: 600;
-      cursor: pointer; display: flex;
+      font-family: var(--font-sans); font-size: 12px; font-weight: 600;
+      cursor: pointer; display: inline-flex;
       align-items: center; justify-content: center;
     }
     .disc-v2-card-action:hover {
       background: var(--surface2);
       border-color: color-mix(in srgb, var(--text) 30%, transparent);
     }
+    /* Dismiss reads as a quieter text button (rule 2 — keep the loud pills for
+       the constructive verbs). */
+    .disc-v2-card-action-dismiss {
+      border-color: transparent; background: transparent; color: var(--muted);
+    }
+    .disc-v2-card-action-dismiss:hover { color: var(--text); background: var(--surface2); }
     .disc-v2-card-action.saved {
       background: var(--green-wash);
       border-color: var(--green);
       color: var(--green);
+    }
+    /* State badge ("Saved" / "Dismissed") — mono micro-label after the verbs. */
+    .disc-v2-card-state {
+      margin-left: auto;
+      font-family: var(--font-mono); font-size: 10px;
+      text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted);
     }
     /* Aliveness r2 (P5 T5): a brief scale/opacity pulse confirms the optimistic
        save — purely visual, no behaviour change. Gated to motion-OK users. */
@@ -2199,17 +2245,62 @@
       45%  { transform: scale(1.18); }
       100% { transform: scale(1); }
     }
+    /* Staggered card entrance for the freshly-painted feed (P5 redesign).
+       Surface-scoped name so it can't collide with the parallel surface PRs'
+       keyframes. Hooked off the existing .fade-in-up flag set in
+       _renderDiscoverV2Feed; this is the Discover-local refinement of that
+       reveal. Gated to motion-OK users. */
+    @media (prefers-reduced-motion: no-preference) {
+      .disc-v2-card.fade-in-up { animation: _discPopIn 0.32s ease-out both; }
+    }
+    @keyframes _discPopIn {
+      from { opacity: 0; transform: translateY(8px); }
+      to   { opacity: 1; transform: none; }
+    }
 
     /* ── Discover place chrome (P5 T4) — inline styles extracted to classes,
        tokens only, both themes. ids unchanged so every discover-v2 test +
        the #disc-v2-section visibility check still pass. ── */
-    .disc-v2-head {
-      display: flex; align-items: center; justify-content: space-between;
-      margin-bottom: 10px; flex-wrap: wrap; gap: 8px;
+    /* P5 redesign — the Discover place is a centred reading column (~880px),
+       not a full-bleed panel. The legacy panel-card chrome is overridden to a
+       flat, borderless, centred surface so the hero + 2-col feed centre. */
+    .disc-v2-surface {
+      max-width: 880px; margin-left: auto; margin-right: auto;
+      background: transparent; border: none; box-shadow: none; padding: 0;
     }
-    .disc-v2-head-title { margin: 0; font-size: 15px; font-weight: 700; }
-    .disc-v2-head-sub { margin: 4px 0 0; font-size: 12px; color: var(--muted); }
-    .disc-v2-head-actions { display: flex; gap: 6px; align-items: center; }
+    .disc-v2-head {
+      display: flex; align-items: flex-start; justify-content: space-between;
+      margin-bottom: 14px; flex-wrap: wrap; gap: 12px;
+    }
+    .disc-v2-hero { min-width: 0; }
+    /* Eyebrow — uppercase mono micro-label above the H1 (rule 3 for the kicker). */
+    .disc-v2-eyebrow {
+      margin: 0 0 4px; font-family: var(--font-mono); font-size: 11px;
+      font-weight: 600; text-transform: uppercase; letter-spacing: 0.08em;
+      color: var(--green);
+    }
+    .disc-v2-head-title { margin: 0; font-size: 22px; font-weight: 700; line-height: 1.2; }
+    .disc-v2-head-sub { margin: 6px 0 0; font-size: 12px; color: var(--muted); max-width: 52ch; }
+    .disc-v2-head-actions { display: flex; gap: 6px; align-items: center; flex-shrink: 0; }
+    /* Read-only taste fingerprint row. */
+    .disc-v2-taste-row {
+      display: flex; align-items: center; flex-wrap: wrap;
+      gap: 6px; margin-bottom: 14px;
+    }
+    .disc-v2-taste-label {
+      font-size: 11px; color: var(--muted);
+      text-transform: uppercase; letter-spacing: 0.04em;
+    }
+    .disc-v2-taste-chips { display: inline-flex; flex-wrap: wrap; gap: 6px; }
+    /* Taste chips — bordered green-wash pills (rule 2: wash = signal accent;
+       rule 4: pill radius). Data values are mono (rule 3). */
+    .disc-v2-taste-chip {
+      display: inline-flex; align-items: center;
+      padding: 3px 10px; border-radius: var(--radius-pill);
+      border: 1px solid var(--green-ring); background: var(--green-wash);
+      font-family: var(--font-mono); font-size: 11px; color: var(--text);
+      white-space: nowrap;
+    }
     /* Scan CTA = ink pill (rule 2 — primary CTA is ink, never green). */
     .disc-v2-scan-cta {
       font-size: 13px; border-radius: var(--radius-pill);
