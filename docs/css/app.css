@@ -2129,7 +2129,7 @@
        lifts on hover; rule 1 — flat token surfaces). */
     .disc-v2-card {
       border: 1px solid var(--border);
-      border-radius: 14px;
+      border-radius: var(--radius-xl);
       background: var(--surface);
       padding: 16px;
       cursor: pointer;
@@ -2186,7 +2186,7 @@
     .disc-v2-card-actions-spacer { flex: 1; }
     /* Action pills (rule 4). Neutral by default; save-applied is green. */
     .disc-v2-card-action {
-      border-radius: 999px;
+      border-radius: var(--radius-pill);
       border: 1px solid var(--border);
       background: var(--surface);
       color: var(--text);
