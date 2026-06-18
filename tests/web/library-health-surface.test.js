@@ -17,6 +17,7 @@ import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { dirname, resolve } from 'node:path'
 import { JSDOM } from 'jsdom'
+import { loadAppHtml } from './_source.js'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const DOCS = resolve(__dirname, '..', '..', 'docs')
@@ -24,7 +25,10 @@ const DOCS = resolve(__dirname, '..', '..', 'docs')
 let doc
 let css
 beforeAll(() => {
-  doc = new JSDOM(readFileSync(resolve(DOCS, 'index.html'), 'utf8'), { url: 'http://localhost/' }).window.document
+  // CLAUDE.md: source-reading specs use loadAppHtml() (inlines local CSS/JS into
+  // the single-file view), never readFileSync(index.html). JSDOM's default
+  // runScripts is off, so the inlined <script> bodies are inert text.
+  doc = new JSDOM(loadAppHtml(), { url: 'http://localhost/' }).window.document
   css = readFileSync(resolve(DOCS, 'css', 'app.css'), 'utf8')
 })
 

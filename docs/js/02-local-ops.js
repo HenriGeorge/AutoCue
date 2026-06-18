@@ -1073,7 +1073,7 @@ function _renderHealthSummary(s) {
       ? 'Beat-grid coverage is complete'
       : `${(s.no_beatgrid).toLocaleString()} track${s.no_beatgrid !== 1 ? 's need' : ' needs'} a beat grid`;
     const dupeLine = dupes === 0 ? 'there are no duplicate cues'
-      : `${dupes.toLocaleString()} ${dupes !== 1 ? 'have' : 'has'} duplicate cues`;
+      : `${dupes.toLocaleString()} track${dupes !== 1 ? 's have' : ' has'} duplicate cues`;
     subEl.append(`${beatLine} and ${dupeLine}. `);
     if (noCues > 0) {
       const b = document.createElement('b');
