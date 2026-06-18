@@ -900,50 +900,89 @@ autocue --library --mode bar --bars-interval 8 --start-bar 1</pre>
   </section>
 
   <!-- Set Builder (local mode only) -->
-  <section id="setbuilder-section" class="panel-card" style="display:none">
-    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
-      <h2 style="margin:0;font-size:15px;font-weight:700;">Set Builder</h2>
+  <section id="setbuilder-section" class="panel-card sb2-section" style="display:none">
+    <!-- Hero: eyebrow + headline + lede -->
+    <div class="sb2-hero">
+      <span class="sb2-eyebrow">Set builder</span>
+      <h2 class="sb2-h1">Build a set by BPM arc</h2>
+      <p class="sb2-lede">Beam-search assembles a deduplicated path through your library — every step scored for transition compatibility.</p>
     </div>
 
-    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px;margin-bottom:12px;">
-      <div class="cue-tools-param-group">
-        <label>Start BPM</label>
-        <input type="number" id="sb-start-bpm" value="110" min="60" max="200" step="1">
+    <!-- Config card -->
+    <div class="sb2-config">
+      <div class="sb2-grid">
+        <!-- Start BPM slider -->
+        <div class="sb2-field">
+          <div class="sb2-field-head">
+            <label class="sb2-label" for="sb-start-bpm">Start BPM</label>
+            <output class="sb2-readout sb2-readout-bpm" id="sb-start-bpm-out">110</output>
+          </div>
+          <input type="range" id="sb-start-bpm" class="sb2-range" value="110" min="60" max="200" step="1">
+        </div>
+        <!-- End BPM slider -->
+        <div class="sb2-field">
+          <div class="sb2-field-head">
+            <label class="sb2-label" for="sb-end-bpm">End BPM</label>
+            <output class="sb2-readout sb2-readout-bpm" id="sb-end-bpm-out">135</output>
+          </div>
+          <input type="range" id="sb-end-bpm" class="sb2-range" value="135" min="60" max="200" step="1">
+        </div>
+        <!-- Duration slider -->
+        <div class="sb2-field">
+          <div class="sb2-field-head">
+            <label class="sb2-label" for="sb-duration">Duration</label>
+            <output class="sb2-readout" id="sb-duration-out">60 min</output>
+          </div>
+          <input type="range" id="sb-duration" class="sb2-range" value="60" min="10" max="300" step="5">
+        </div>
+        <!-- Energy mode: visually-hidden <select> data source + id-less segmented toggle -->
+        <div class="sb2-field">
+          <span class="sb2-label" id="sb-energy-label">Energy mode</span>
+          <select id="sb-energy-mode" class="sb2-vh-select" aria-hidden="true" tabindex="-1">
+            <option value="build">Build (ascending)</option>
+            <option value="flat">Flat</option>
+            <option value="drop">Drop (descending)</option>
+          </select>
+          <div class="sb2-segmented" role="radiogroup" aria-labelledby="sb-energy-label">
+            <button type="button" class="sb2-seg" data-energy="build" role="radio" aria-checked="true">
+              <span class="sb2-seg-glyph">▲</span>Build
+            </button>
+            <button type="button" class="sb2-seg" data-energy="flat" role="radio" aria-checked="false">
+              <span class="sb2-seg-glyph">▬</span>Flat
+            </button>
+            <button type="button" class="sb2-seg" data-energy="drop" role="radio" aria-checked="false">
+              <span class="sb2-seg-glyph">▼</span>Drop
+            </button>
+          </div>
+        </div>
       </div>
-      <div class="cue-tools-param-group">
-        <label>End BPM</label>
-        <input type="number" id="sb-end-bpm" value="135" min="60" max="200" step="1">
+
+      <!-- CTA spanning both columns + live set-size readout -->
+      <div class="sb2-cta-row">
+        <button id="sb-build-btn" class="sb2-cta primary">Build set</button>
+        <button id="sb-use-selected-btn" class="secondary-btn sb2-anchor-btn" title="Use selected tracks as must-include anchors in the set">Use selected as anchors</button>
+        <span class="sb2-set-size" id="sb-summary"></span>
+        <span id="sb-status" class="sb2-status"></span>
       </div>
-      <div class="cue-tools-param-group">
-        <label>Duration (min)</label>
-        <input type="number" id="sb-duration" value="60" min="10" max="300" step="5">
+
+      <div id="sb-seed-row" class="sb2-seed-row" style="display:none;">
+        Anchors: <span id="sb-seed-label" class="sb2-seed-label"></span>
+        <button id="sb-seed-clear" class="sb2-seed-clear" title="Clear anchors">×</button>
       </div>
-      <div class="cue-tools-param-group">
-        <label>Energy mode</label>
-        <select id="sb-energy-mode" style="padding:4px 8px;border:1px solid var(--border);border-radius:6px;background:var(--bg);color:var(--text);font-size:13px;">
-          <option value="build">Build (ascending)</option>
-          <option value="flat">Flat</option>
-          <option value="drop">Drop (descending)</option>
-        </select>
+      <div class="cue-tools-progress indeterminate" id="sb-progress" style="display:none;">
+        <div class="cue-tools-progress-fill" id="sb-progress-fill"></div>
       </div>
     </div>
-    <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:6px;">
-      <button id="sb-build-btn" class="primary" style="font-size:13px;">Build Set</button>
-      <button id="sb-use-selected-btn" class="secondary-btn" style="font-size:12px;padding:5px 12px;" title="Use selected tracks as must-include anchors in the set">Use selected as anchors</button>
-      <span id="sb-status" style="font-size:12px;color:var(--muted);"></span>
-    </div>
-    <div id="sb-seed-row" style="display:none;font-size:12px;color:var(--muted);margin-bottom:6px;">
-      Anchors: <span id="sb-seed-label" style="color:var(--text);font-weight:500;"></span>
-      <button id="sb-seed-clear" style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:11px;padding:0 4px;margin-left:4px;" title="Clear anchors">×</button>
-    </div>
-    <div class="cue-tools-progress indeterminate" id="sb-progress" style="display:none;">
-      <div class="cue-tools-progress-fill" id="sb-progress-fill"></div>
-    </div>
-    <div id="sb-result" style="display:none;margin-top:14px;">
-      <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;flex-wrap:wrap;">
-        <div style="font-size:12px;color:var(--muted);flex:1;" id="sb-summary"></div>
-        <button class="copy-list-btn" id="sb-copy-btn">Copy list</button>
-        <button class="secondary-btn" id="sb-save-playlist-btn" style="font-size:12px;padding:5px 14px;">Save as Rekordbox playlist</button>
+
+    <!-- Generated set -->
+    <div id="sb-result" style="display:none;margin-top:18px;">
+      <div class="sb2-result-head">
+        <h3 class="sb2-result-title">Generated set</h3>
+        <div class="sb2-result-actions">
+          <button class="copy-list-btn" id="sb-copy-btn">Copy list</button>
+          <button class="secondary-btn" id="sb-save-playlist-btn" style="font-size:12px;padding:5px 14px;">Save as Rekordbox playlist</button>
+          <button type="button" class="sb2-nightboard-btn" title="Open this set in the full-bleed Nightboard canvas">Open in Nightboard</button>
+        </div>
       </div>
       <div id="sb-tracklist"></div>
     </div>
