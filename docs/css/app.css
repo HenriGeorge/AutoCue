@@ -2104,6 +2104,51 @@
   }
   #cmdk-hint-btn[hidden] { display: none; }
   @media (prefers-reduced-motion: reduce) { #cmdk-hint-btn:hover { transform: none; } }
+
+  /* ── AutoCue 2.0 workbench chrome ──────────────────────────────────────
+     Compact the chrome toward the design's tight glass bar. The status row
+     (#tab-nav, which holds the centred #app-status sentence) STAYS visible —
+     that's a load-bearing invariant (CLAUDE.md: "#tab-nav stays only as the
+     #app-status status-sentence row") asserted by several e2e specs — so we
+     only slim the padding, never empty or hide it. wb-active only; legacy/
+     Pages chrome untouched. */
+  body.wb-active #top-bar header,
+  body.wb-active #top-bar.scrolled header { padding: 8px 20px; }
+  body.wb-active .logo-text { font-size: 15px; }
+  body.wb-active #tab-nav { padding: 2px 20px 8px; gap: 16px; }
+  body.wb-active header nav { gap: 12px; }
+
+  /* ── AutoCue 2.0 console (design: slim, table-first) ───────────────────
+     In workbench mode the legacy settings accordion, the multi-row filter
+     facets, the sort-button bar, the colour-key legend and the onboarding
+     help wall are hidden by default and rehomed behind the ⚙ Settings /
+     Filters triggers (sort folds into the grid-head columns — see shell.js
+     _wireConsoleSort). Everything stays reachable; the centre reads as the
+     mockup. Legacy/Pages chrome is untouched — these are wb-active only. */
+  body.wb-active .tracks-header,
+  body.wb-active #local-how-to,
+  body.wb-active #cli-reference { display: none !important; }
+  body.wb-active:not(.show-wb-settings) #settings-section.visible { display: none; }
+  body.wb-active:not(.show-wb-filters) #filter-bar .filter-row-facets { display: none; }
+  body.wb-active:not(.show-wb-filters) #sort-bar { display: none !important; }
+  body.wb-active:not(.show-wb-filters) #bpm-legend.visible { display: none; }
+  /* primary filter row → the design's slim console header: the filter input
+     plus the rehome triggers; per-track toggles + transient chips fold into
+     the Filters panel (revealed by show-wb-filters) so the row stays clean
+     while every control remains reachable */
+  body.wb-active:not(.show-wb-filters) .filter-row-primary .phrase-only-pill,
+  body.wb-active:not(.show-wb-filters) #transition-score-btn,
+  body.wb-active:not(.show-wb-filters) #active-filters-chip { display: none; }
+  /* rehome triggers — workbench only, ink-pill secondary buttons */
+  .wb-rehome-trigger { display: none; }
+  body.wb-active .wb-rehome-trigger { display: inline-flex; align-items: center; gap: 5px; }
+  body.wb-active .wb-rehome-trigger.on { border-color: var(--green); color: var(--green); }
+  /* click-to-sort grid-head columns (design: sort lives in the headers) */
+  body.wb-active #wb-grid-head .wb-sortable { cursor: pointer; transition: color .12s; }
+  body.wb-active #wb-grid-head .wb-sortable:hover { color: var(--text); }
+  body.wb-active #wb-grid-head .wb-sortable.sorted { color: var(--green); }
+  body.wb-active #wb-grid-head .wb-sort-arrow { font-size: 9px; color: var(--green); margin-left: 3px; }
+
   #cmd-veil {
     position: fixed; inset: 0; z-index: 10000;
     display: flex; align-items: flex-start; justify-content: center;

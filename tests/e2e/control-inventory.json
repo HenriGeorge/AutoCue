@@ -53,6 +53,14 @@
       "kind": "button"
     },
     {
+      "id": "wb-filters-toggle",
+      "kind": "button"
+    },
+    {
+      "id": "wb-settings-toggle",
+      "kind": "button"
+    },
+    {
       "id": "skip-colored-cb",
       "kind": "checkbox",
       "safeOnRealDb": false
