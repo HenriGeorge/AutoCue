@@ -70,15 +70,17 @@
   3. Writer-side per-track work runs ON THE GENERATOR'S THREAD — writes, commits, emits SSE.
   4. Per-track exceptions in the worker are forwarded as a third tuple element; the writer
      emits an error event and continues. One bad row never aborts the stream.
-- **`AUTOCUE_PARALLEL_*` env flags** (default-off until TASK-008 signoff): the six SSE
-  refactors are gated to preserve current behaviour for users until the maintainer runs the
-  stress test below.
+- **`AUTOCUE_PARALLEL_*` env flags** (now **default-on** — TASK-008 verified 2026-06-07): the
+  six SSE refactors run their pool-fanout path by default; set `AUTOCUE_PARALLEL_<NAME>=0` to
+  force the serial path. Sole exception: the `/api/auto-tag/discogs` SSE branch stays opt-in
+  (`AUTOCUE_PARALLEL_AUTO_TAG=1`, a `routes.py` `== "1"` check). The stress test below was the
+  gating signal.
 - **TASK-008 verification** (gated `RUN_ANLZ_STRESS=1`):
   ```
   RUN_ANLZ_STRESS=1 AUTOCUE_DB_PATH=~/Library/Pioneer/rekordbox \
       pytest tests/test_concurrency.py::test_anlz_read_concurrent -v
   ```
-  Hammers `db.read_anlz_file()` from 16 threads against a real Rekordbox library. Passing
-  is the gating signal to flip the six `AUTOCUE_PARALLEL_*` flags to default-on. If it
-  fails, the fallback is a `thread_local_db(db_dir)` helper in
+  Hammers `db.read_anlz_file()` from 16 threads against a real Rekordbox library. It passed
+  (2026-06-07), which flipped the six `AUTOCUE_PARALLEL_*` flags to default-on. Had it
+  failed, the fallback was a `thread_local_db(db_dir)` helper in
   `autocue/analysis/concurrency.py` giving each worker its own `Rekordbox6Database` instance.

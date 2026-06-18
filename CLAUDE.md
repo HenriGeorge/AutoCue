@@ -44,6 +44,34 @@ AutoCue places hot cues on Rekordbox 7 tracks automatically and analyses a DJ li
 2. **Local server** (`autocue serve`) — FastAPI at `localhost:7432`. Serves the web UI and exposes a REST API that reads/writes the Rekordbox database directly. **All intelligence features** (energy, mixability, classification, similar tracks, transitions, set builder, library health, auto-tagging, comment enrichment, Discogs, discovery, download) are only available in this mode.
 3. **Web app** (`docs/index.html` + `docs/css/` + `docs/js/`) — browser-based, multi-file, **no build step**. Static / GitHub-Pages-ready (XML in/out); **Pages is live** at https://henrigeorge.github.io/AutoCue/ (serves `docs/` from `main`, enabled 2026-06-16; `docs/.nojekyll` makes assets serve as-is) — but the hosted app is XML-only, so the full local-mode feature set still requires `autocue serve`. In local mode the **2.0 "Crate Console" workbench is the default home** (`docs/js/v2/`, default-on; opt-out `ac_workbench='0'`): rail places (Library, Duplicates, Discover) + ⌘K palette + crates. **The Cues/Library tab bar is retired** — the buttons (`#tab-group`) are CSS-hidden; `#tab-nav` stays only as the `#app-status` status-sentence row. **Cues** is the default centre; **Library** (health/cue-tools/discogs/comments/playlist-suggest/set-builder) is the `#wb-library-place` rail place. `switchTab` is load-bearing for the rail-place centre-pane swaps. **P4 Nightboard** is the full-bleed set-canvas *mode* the workbench swaps into. XML/Pages mode is frozen. Program: `.claude/PRPs/prds/autocue-2-program.prd.md`; current state: `HANDOFF.md`.
 
+```mermaid
+flowchart LR
+    subgraph RB["Rekordbox data"]
+        DB[("master.db<br/>SQLCipher")]
+        ANLZ["ANLZ files<br/>phrase · beat grid"]
+    end
+
+    CLI["Python CLI<br/>autocue/"]
+    SRV["Local server<br/>autocue serve · FastAPI :7432<br/>+ all intelligence features"]
+    CACHE[("sidecar cache<br/>autocue_cache.sqlite")]
+
+    subgraph WEB["Web app · docs/ · no build step"]
+        PAGES["Pages mode<br/>XML in/out · frozen"]
+        WB["Local mode<br/>2.0 Crate Console workbench"]
+    end
+
+    DB --> CLI
+    ANLZ --> CLI
+    CLI -->|writes| XML["Rekordbox XML<br/>for import"]
+
+    DB <-->|read / write| SRV
+    ANLZ --> SRV
+    SRV <--> CACHE
+    SRV -->|serves UI + REST / SSE| WB
+
+    XML -.import.-> PAGES
+```
+
 ## Development commands
 
 ```bash
@@ -115,7 +143,7 @@ don't force-push `main`. Emergency override (not for AI-session work):
 - **Discover YouTube preview** (`/api/youtube/search` + `_loadYouTubePreview` in `docs/index.html`): caller passes `artist` + `album` query params; the backend tags candidates whose result title + channel name contains no 4+ char artist token as `mismatch=true`, and DROPS mismatches when ≥1 candidate is a real match. Artist is the discriminating signal — album-only token overlap is too weak (place names like "Vénissieux" appear in both legit and corporate-services videos). The frontend filters mismatch-flagged candidates from the carousel; when every candidate is flagged, shows a "No YouTube match found" placeholder instead of loading a random video.
 - **Track-card render: intelligence widgets + phrase strip ALWAYS render** (energy sparkline, mix-score chip, classification chip, similar button; and in phrase mode the phrase-structure strip) — even on Skipped cards (tracks with existing hot cues). The Skipped path in `buildTrackCard` calls `_appendPhraseStrip(...)` then `_appendIntelligenceWidgets(cardMain, track)` so these per-track surfaces appear regardless of cue-gen outcome. **Only auto-cue badges stay hidden on Skipped cards** (those describe what *would* be written; intelligence + structure describe the track itself). On a Skipped card the strip **merges the existing hot-cue positions onto itself as tick marks** (slot letter + name/time on hover, via `buildPhraseStrip(phrases, totalTime, cueTicks)`), so the #163 existing-cue chips and the strip share one 16px row inside the fixed 160px card (TASK-033) — the separate chip row is the **no-phrase-data fallback only**. `_updateTrackCardCues(trackId)` rebuilds Skipped cards when lazy phrase data lands. **Phrase cues load lazily by viewport** (#201): `_collectPhraseLazyIds`/`_flushPhraseLazyQueue` fetch only visible uncached phrase tracks (debounced) via `/api/generate` — no eager full-library "Computing phrase cues N/M" pass. Issue #173 fix: `#preview-cues-btn` uses `activeTracks()` not `filteredTracks()` — Preview targets the selection like every other write op.
 - **Sidecar analysis cache** (`autocue/cache.py`) lives at `<rekordbox_dir>/autocue_cache.sqlite`. Plain SQLite (no SQLCipher) — contains no audio, no credentials, no Discogs tokens. Per-track rows invalidate by `anlz_mtime`; ANLZ-missing tracks store `anlz_mtime=-1` sentinel so cold tracks don't re-attempt on every call. `/api/restore` calls `CacheStore.invalidate_all()`; `/api/apply` should call `invalidate_mixability(content_id)` (mixability depends on cue positions). Schema-version bumps drop + recreate all tables — no migrations in v1 (cache is regenerable from ANLZ). Reset via `autocue serve --reset-cache`. See `.agent/prd/PERFORMANCE_PRD.md` §7 for DDL.
-- **Analysis thread-pool** (`autocue/analysis/concurrency.py`) is a process-singleton `ThreadPoolExecutor` shared by every multi-track analysis fanout (`/api/generate-apply-stream`, `/api/health`, `/api/classify`, `/api/auto-tag`, `/api/enrich-comments/stream`, similar index build). Default size is `min(8, cpu_count())`; override via `AUTOCUE_POOL_SIZE`. **Single-writer rule for `master.db` is preserved**: only one thread ever calls `db.commit()` on a given multi-track endpoint. Pyrekordbox `read_anlz_file()` thread-safety was verified 2026-06-07 (TASK-008, `tests/test_concurrency.py::test_anlz_read_concurrent` — gated `RUN_ANLZ_STRESS=1`); the six `AUTOCUE_PARALLEL_*` paths are **default-on** as a result. Set `AUTOCUE_PARALLEL_<NAME>=0` to disable any specific endpoint's parallel path if a regression is observed.
+- **Analysis thread-pool** (`autocue/analysis/concurrency.py`) is a process-singleton `ThreadPoolExecutor` shared by every multi-track analysis fanout (`/api/generate-apply-stream`, `/api/health`, `/api/classify`, `/api/auto-tag`, `/api/enrich-comments/stream`, similar index build). Default size is `min(8, cpu_count())`; override via `AUTOCUE_POOL_SIZE`. **Single-writer rule for `master.db` is preserved**: only one thread ever calls `db.commit()` on a given multi-track endpoint. Pyrekordbox `read_anlz_file()` thread-safety was verified 2026-06-07 (TASK-008, `tests/test_concurrency.py::test_anlz_read_concurrent` — gated `RUN_ANLZ_STRESS=1`); the `AUTOCUE_PARALLEL_*` paths are **default-on** as a result — **except `/api/auto-tag/discogs`**, which stays opt-in (`AUTOCUE_PARALLEL_AUTO_TAG=1`; a `routes.py` `== "1"` check vs `!= "0"` for the rest). Set `AUTOCUE_PARALLEL_<NAME>=0` to disable any default-on endpoint's parallel path if a regression is observed.
 - **Perf instrumentation** (`autocue/perf.py`) — `perf_span(name)` context manager + ring buffer; zero overhead when `AUTOCUE_PERF` env is unset. Exposed dev-only via `GET /api/perf/recent` (404 unless `AUTOCUE_PERF=1`). Frontend mirror at `_perf` in `docs/index.html` is gated by `localStorage.autocue_perf === '1'`.
 - **Virtualizer card-height invariant** (TASK-033): every track card MUST render at the same fixed height. The `Virtualizer` IIFE in `docs/index.html` computes the visible window in O(1) from `itemHeight`; variable-height cards would force per-card measurement. If a future feature needs in-list expansion, use a modal or overlay — NOT inline-expand on the card row.
 - **Sticky-layout invariant under virtualization** (TASK-037): `#tracks-sticky` (filter bar) uses `position: sticky` anchored to `document.documentElement` scroll, NOT to `#track-list`. `#action-bar` is `position: fixed` against the viewport. When wiring the Virtualizer into `#track-list` (TASK-032), the scroll source MUST stay at the document level — switching to an inner `overflow: auto` container would break the sticky bars and the existing shadow-on-scroll IntersectionObserver. Document-level scroll works fine with virtualization because the Virtualizer uses absolute-positioned cards inside a tall spacer; the body still scrolls the whole page.

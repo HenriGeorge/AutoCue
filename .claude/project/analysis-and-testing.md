@@ -63,7 +63,9 @@
   `db.session.commit()` per track). `tests/test_concurrency_invariants.py` pins this contract
   — adding a parallel write path will fire those tests.
 - **Flagged parallel SSE paths**: six endpoints gained pool-fanout implementations behind
-  env vars, default-off until TASK-008 pyrekordbox stress verification:
+  env vars, now **default-on** (TASK-008 verified 2026-06-07; set `AUTOCUE_PARALLEL_<NAME>=0`
+  to force serial). Sole exception: the `/api/auto-tag/discogs` branch stays opt-in (a
+  `routes.py` `== "1"` check), while the rest use `!= "0"`:
   - `AUTOCUE_PARALLEL_GENERATE_APPLY` → `/api/generate-apply-stream` (TASK-002, plus TASKs 039–043
     refinements: bounded in-flight `2 * pool_size`, `_wait_any` helper, threading.Event
     cancellation polling `request._is_disconnected`).
@@ -139,8 +141,8 @@ JS tests in `tests/web/` copy functions verbatim from `docs/index.html` and run 
   no thread leak across 100 fanouts, `_INDEX_LOCK` blocks concurrent builds.
 - **ANLZ stress test** (TASK-008, gated `RUN_ANLZ_STRESS=1`):
   `tests/test_concurrency.py::test_anlz_read_concurrent` hammers `db.read_anlz_file()` from 16
-  threads against a real Rekordbox library. Must pass before any `AUTOCUE_PARALLEL_*` flag
-  flips to default-on.
+  threads against a real Rekordbox library. It passed (2026-06-07), flipping the
+  `AUTOCUE_PARALLEL_*` flags to default-on.
 - **Parallel-path test convention**: each flagged-parallel endpoint has its own
   `tests/test_*_parallel.py` exercising default-off + flag-on + per-track exception isolation
   + (for write paths) undo round-trip. Files: `test_quality_parallel.py`,

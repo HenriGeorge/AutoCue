@@ -39,8 +39,9 @@ autocue/
     quality.py      — Cue Quality Checker: check_track_health(), check_library_health().
                       Pure DB reads (DjmdCue + DjmdContent). No ANLZ parsing.
                       Scores tracks 0–100; yields fix_tier: phrase/bar/heuristic/none.
-                      AUTOCUE_PARALLEL_HEALTH=1 enables pool-fanout path (TASK-003) — completion-order
-                      events, INTERNAL_ERROR isolation preserved. Default = serial (gated on TASK-008).
+                      AUTOCUE_PARALLEL_HEALTH pool-fanout path (TASK-003) — completion-order
+                      events, INTERNAL_ERROR isolation preserved. Default-on since TASK-008 verified
+                      (2026-06-07); set AUTOCUE_PARALLEL_HEALTH=0 to force serial.
     energy.py       — PWAV waveform reader: get_energy_curve(content, db, n_points=50) → a
                       normalized 0–1 curve resampled to n_points (raw PWAV / 31.0, 3-point
                       smoothed, average-downsampled). Returns None when PWAV/.DAT is unavailable.
@@ -123,20 +124,33 @@ autocue/
     schemas.py   — Pydantic models for all request/response types
 
 docs/
-  index.html     — entire web app (CSS + JS inline, no dependencies except CDN)
-                   Local mode: detects /api/status on load, hides XML drop zone, loads
-                   tracks from server, Apply button writes directly to Rekordbox DB.
-                   Server-only panels: Set Builder, Transition scoring, Similar tracks,
-                   Library Health scan, Auto-Tag / classification, Comment enrichment,
-                   Discogs style tagging, Playlist suggestions + create-playlist, Cue Tools.
-                   Three tabs (Cues / Library / Discover) via switchTab() + TAB_CONTENTS map.
-                   Discover tab: new-release discovery cards (_renderSuggestion) + YouTube download.
-                   _explainCue(cue): returns {confidence, reasons[]} for cue badge ℹ panel.
-                   filteredTracks() also applies rating / plays / last-played / My-Tag filters.
+  index.html     — web app entry: MARKUP ONLY, no build step (P0 split, 2026-06-12).
+                   Local mode: detects /api/status on load, hides the XML drop zone,
+                   loads tracks from the server, Apply writes directly to the Rekordbox
+                   DB. XML / GitHub-Pages mode is frozen (XML in/out only).
+  css/app.css    — all styles; CSS custom properties drive the light + html.dark themes.
+  js/01-core.js … 08-set-builder-boot.js
+                 — legacy JS as 8 ordered classic scripts (shared global scope;
+                   concatenated they reproduce the original app.js statement order).
+  js/v2/*        — ALL new code as native ES modules, rooted at js/v2/main.js
+                   (<script type="module">). Interop is one-way: v2 reads legacy via
+                   window.ACBridge and exposes window.AC2; legacy never imports v2.
+                   Hosts the 2.0 "Crate Console" workbench (local-mode default): rail
+                   PLACES — Library / Duplicates / Discover — + ⌘K command palette +
+                   crates, plus the full-bleed Nightboard set-canvas MODE. The legacy
+                   Cues/Library/Discover TAB BAR is retired (#tab-group CSS-hidden);
+                   switchTab() survives as load-bearing place-swap plumbing.
+                   Server-only features (local mode): Set Builder, Transition scoring,
+                   Similar tracks, Library Health, Auto-Tag / classification, Comment
+                   enrichment, Discogs tagging, Playlist suggestions, Cue Tools,
+                   Discover, YouTube download.
+                   _explainCue(cue) → {confidence, reasons[]} for the cue badge ℹ panel;
+                   filteredTracks() also applies rating / plays / last-played / My-Tag.
   FEATURES.md    — long-form end-user feature documentation (kept in sync with the app)
   guides/        — static DJ learning guides (rekordbox/mixing/hardware HTML)
 
-tests/
+tests/   (per-file counts below are INDICATIVE and drift as suites grow — live totals
+          come from `pytest` / `npm test`; see CLAUDE.md for the current headline numbers)
   conftest.py                — autouse fixture clears energy._cache, classify._class_cache,
                                score._mixability_cache, and calls similar.clear_index() before each test
   test_models.py             — 48 tests
@@ -175,7 +189,10 @@ tests/
 package.json      — dev tooling only (vitest + jsdom); the deployed app has no build step
 vitest.config.js  — jsdom environment for web tests
 pyproject.toml    — hatchling build; runtime + [dev] extras (pytest, httpx, hypothesis) + [download] extra (yt-dlp)
-.github/workflows/ci.yml — CI: pytest (Python 3.10–3.12) + Vitest (Node 20) on push / PR
+(no .github/workflows/) — there is NO CI; the workflow was removed intentionally to avoid
+                  GitHub billing. The merge gate is the LOCAL three-leg stack: pytest +
+                  npm test (Vitest) + Playwright e2e (tests/e2e). Do NOT re-add a workflow;
+                  merges are admin-merged after the stack is green.
 ```
 
 ## REST API endpoints (`serve/routes.py`)
@@ -286,6 +303,7 @@ write contract:
 - **Instrumentation**: `autocue/perf.py` ring buffer + `GET /api/perf/recent` (dev-only).
   Frontend mirror `_perf` in `docs/index.html` (`localStorage.autocue_perf === '1'`).
 - **Flagged parallel SSE**: 6 SSE endpoints gained AUTOCUE_PARALLEL_*-gated parallel paths
-  (TASKs 002/003/004/005/006/007). Default behaviour unchanged until the maintainer runs
-  TASK-008's `RUN_ANLZ_STRESS=1` verification against a real Rekordbox library; at that
-  point each flag flips to default-on.
+  (TASKs 002/003/004/005/006/007). TASK-008's `RUN_ANLZ_STRESS=1` pyrekordbox thread-safety
+  check passed (2026-06-07), so these now **default ON** — set `AUTOCUE_PARALLEL_<NAME>=0` to
+  disable any one. Sole exception: the `/api/auto-tag/discogs` SSE branch stays opt-in
+  (`AUTOCUE_PARALLEL_AUTO_TAG=1`, `routes.py` `== "1"`).
