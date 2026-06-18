@@ -29,13 +29,13 @@
         <line x1="16" y1="9"  x2="16" y2="11"/>
       </svg>
     </div>
-    <span class="logo-text">AutoCue</span>
+    <span class="logo-text">AutoCue<span class="logo-suffix">2.0</span></span>
   </a>
   <nav style="display:flex;align-items:center;gap:16px;">
     <a href="guides/index.html">DJ Guides</a>
     <a href="https://github.com/HenriGeorge/AutoCue" target="_blank" rel="noopener">GitHub ↗</a>
     <!-- AutoCue 2.0 command palette opener — hidden until local mode confirms -->
-    <button id="cmdk-hint-btn" type="button" title="Command palette (⌘K)" aria-label="Open command palette" hidden>⌘K</button>
+    <button id="cmdk-hint-btn" type="button" title="Command palette (⌘K)" aria-label="Open command palette" hidden>Type a command <kbd>⌘K</kbd></button>
     <button id="kbd-hint-btn" title="Keyboard shortcuts (?)" aria-label="Show keyboard shortcuts" style="background:none;border:1px solid var(--border);border-radius:6px;padding:3px 8px;font-size:11px;font-weight:700;color:var(--muted);cursor:pointer;font-family:monospace;transition:border-color .15s,color .15s;" onmouseover="this.style.borderColor='var(--border-hover)';this.style.color='var(--text)'" onmouseout="this.style.borderColor='';this.style.color=''">?</button>
     <button id="theme-toggle" aria-label="Switch to dark mode">
       <svg class="icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -445,7 +445,30 @@
       <div class="wb-c-more"></div>
     </div>
     </div><!-- /#tracks-sticky -->
+    <!-- Inline selection batch bar (design): selection-scoped tools on a green
+         wash, shown via body.wb-active.has-action-bar (no extra show/hide JS).
+         Tools delegate to existing controls; the dock (#action-bar) keeps Apply.
+         Buttons are id-less, so the control-inventory gate is untouched. -->
+    <div id="wb-batch-bar" aria-hidden="true">
+      <span id="wb-batch-count" class="wb-batch-count"><span class="wb-batch-n">0</span> selected</span>
+      <button type="button" class="wb-batch-btn" data-batch="autotag">Auto-tag</button>
+      <button type="button" class="wb-batch-btn" data-batch="enrich">Enrich comments</button>
+      <button type="button" class="wb-batch-btn" data-batch="preview">Preview cues</button>
+      <span class="wb-batch-spacer"></span>
+      <button type="button" class="wb-batch-clear" data-batch="clear">Clear</button>
+    </div>
     <div id="track-list"></div>
+    <!-- Footer keyboard-hint strip (design): present in workbench mode at the
+         end of the grid section. Pinned-at-bottom isn't possible here (document
+         scroll + fixed dock + virtualization invariants, TASK-037), so it sits
+         in-flow; the ? overlay stays the canonical shortcuts reference. -->
+    <div id="wb-grid-hints" aria-hidden="true">
+      <span><kbd>↑↓</kbd>navigate</span>
+      <span><kbd>X</kbd>select</span>
+      <span><kbd>⌘K</kbd>search &amp; commands</span>
+      <span class="wb-grid-hints-spacer"></span>
+      <span class="wb-grid-hints-drag">drag a row → a playlist to add it</span>
+    </div>
     <!-- P3: Duplicates place — the centre-pane view the #wb-dupes-place rail
          entry swaps in. The swap toggles `hidden` + body.wb-place-dupes ONLY;
          #track-list is never detached or re-parented (Virtualizer + sticky
@@ -1576,6 +1599,37 @@ autocue --library --mode bar --bars-interval 8 --start-bar 1</pre>
      centre (path a — Virtualizer + #tracks-sticky untouched). Hidden until the
      `workbench` flag + local mode; populated by docs/js/v2/workbench/shell.js. -->
 <aside id="wb-rail" hidden aria-label="Crates">
+  <!-- Places: primary navigation (design). Crate Console + Nightboard are
+       id-less nav buttons wired in shell.js (_wirePlaces); the control-inventory
+       gate only tracks id'd controls, so they add no inventory churn.
+       Library/Discover/Duplicates KEEP their inventoried ids + their owning
+       modules' .active toggling — only their section + icons moved here. -->
+  <div class="wb-rail-section">
+    <div class="wb-rail-head">Places</div>
+    <div id="wb-places" class="wb-crate-list">
+      <button type="button" class="wb-crate wb-place-nav" data-place="cues">
+        <span class="wb-place-ico" aria-hidden="true">⌗</span>
+        <span class="wb-crate-label">Crate Console</span>
+      </button>
+      <button id="wb-library-place" type="button" class="wb-crate wb-place-nav" data-place="library">
+        <span class="wb-place-ico" aria-hidden="true">♥</span>
+        <span class="wb-crate-label">Library</span>
+        <span id="wb-library-badge" class="wb-place-badge" hidden></span>
+      </button>
+      <button type="button" class="wb-crate wb-place-nav" data-place="nightboard">
+        <span class="wb-place-ico" aria-hidden="true">◳</span>
+        <span class="wb-crate-label">Nightboard</span>
+      </button>
+      <button id="wb-disc-place" type="button" class="wb-crate wb-place-nav" data-place="discover">
+        <span class="wb-place-ico" aria-hidden="true">◎</span>
+        <span class="wb-crate-label">Discover</span>
+      </button>
+      <button id="wb-dupes-place" type="button" class="wb-crate wb-place-nav" data-place="duplicates">
+        <span class="wb-place-ico" aria-hidden="true">⧉</span>
+        <span class="wb-crate-label">Duplicates</span>
+      </button>
+    </div>
+  </div>
   <div class="wb-rail-section">
     <div class="wb-rail-head">Crates</div>
     <div id="wb-crates" class="wb-crate-list"></div>
@@ -1590,22 +1644,6 @@ autocue --library --mode bar --bars-interval 8 --start-bar 1</pre>
       <button type="button" class="wb-saved-add" aria-label="Save current filter">+ Save current</button>
     </div>
     <div id="wb-saved-filters" class="wb-crate-list"></div>
-  </div>
-  <!-- P3: Maintenance places — rail entries that swap the centre pane instead
-       of filtering the grid. Owned by docs/js/v2/workbench/duplicates.js. -->
-  <div class="wb-rail-section">
-    <div class="wb-rail-head">Maintenance</div>
-    <div class="wb-crate-list">
-      <button id="wb-library-place" type="button" class="wb-crate">
-        <span class="wb-crate-label">Library</span>
-      </button>
-      <button id="wb-disc-place" type="button" class="wb-crate">
-        <span class="wb-crate-label">Discover</span>
-      </button>
-      <button id="wb-dupes-place" type="button" class="wb-crate">
-        <span class="wb-crate-label">Duplicates</span>
-      </button>
-    </div>
   </div>
   <div id="wb-rail-health" class="wb-rail-card" hidden></div>
 </aside>

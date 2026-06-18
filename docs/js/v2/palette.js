@@ -42,6 +42,26 @@ function _els() {
   };
 }
 
+// Presentation-only glyphs for the result tiles (design): the icon belongs in
+// the view, not the command registry. Falls back by group, then a generic mark.
+const _ICONS = {
+  'preview-cues': '✨', 'apply': '✓', 'health-scan': '♥', 'find-duplicates': '⧉',
+  'go-duplicates': '⧉', 'build-set': '⛓', 'toggle-theme': '◐', 'toggle-workbench': '⌗',
+  'filter-phrase': '✨', 'filter-beats': '▦', 'find-releases': '◎', 'open-nightboard': '◳',
+  'go-cues': '⌗', 'go-library': '♥', 'go-discover': '◎',
+};
+function _iconFor(r) {
+  if (r.group === 'Tracks') return '♪';
+  return _ICONS[r.id] || (r.group === 'Go to' ? '→' : '⌘');
+}
+function _updateFootCount(n) {
+  const foot = document.getElementById('pal-foot');
+  if (!foot) return;
+  let c = foot.querySelector('.pal-count');
+  if (!c) { c = document.createElement('span'); c.className = 'pal-count'; foot.appendChild(c); }
+  c.textContent = n > 0 ? `${n} result${n === 1 ? '' : 's'}` : '';
+}
+
 function _render() {
   const { input, list } = _els();
   if (!list) return;
@@ -60,6 +80,7 @@ function _render() {
       : 'Type a command or search your tracks…';
     list.appendChild(hint);
     input.removeAttribute('aria-activedescendant');
+    _updateFootCount(0);
     return;
   }
 
@@ -78,6 +99,11 @@ function _render() {
     item.setAttribute('role', 'option');
     item.id = 'pal-opt-' + i;
     item.setAttribute('aria-selected', i === _active ? 'true' : 'false');
+    const ico = document.createElement('span');
+    ico.className = 'pal-ico' + (r.group === 'Tracks' ? ' track' : '');
+    ico.setAttribute('aria-hidden', 'true');
+    ico.textContent = _iconFor(r);
+    item.appendChild(ico);
     const label = document.createElement('span');
     label.className = 'pal-label';
     label.textContent = r.label;
@@ -98,6 +124,7 @@ function _render() {
     item.addEventListener('click', () => _runActive(i));
     list.appendChild(item);
   });
+  _updateFootCount(_results.length);
   _syncActive();
 }
 
