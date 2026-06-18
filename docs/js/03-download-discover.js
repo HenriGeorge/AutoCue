@@ -1155,6 +1155,20 @@ function _resurfacedBadge(release) {
   return ` <span class="disc-v2-resurfaced-badge"${titleAttr}>🔁 Resurfaced</span>`;
 }
 
+// Why a release surfaced — a friendly reason derived from the feeder source +
+// resurfaced state (the backend has no per-card reason string). Richer
+// taste-phrasings ("…your peak 9A picks") would need a backend reason field.
+function _discoverV2Reason(release) {
+  if (release && DiscoverV2.state.resurfacedKeys.has(release.release_key)) {
+    return 'Resurfaced — you snoozed this earlier';
+  }
+  const fam = (release.source || '').split(':')[0];
+  if (fam === 'artist')  return 'New from an artist in your library';
+  if (fam === 'label')   return 'On a label you follow';
+  if (fam === 'novelty') return 'Novelty pick — outside your usual labels';
+  return 'Surfaced for your taste';
+}
+
 function _renderDiscoverV2Card(release) {
   const r = release.release || {};
   const isSaved = DiscoverV2.state.savedKeys.has(release.release_key);
@@ -1175,17 +1189,25 @@ function _renderDiscoverV2Card(release) {
   };
   const sourceFamily = rawSource.split(':')[0];
   const sourceLabel = SOURCE_LABEL[sourceFamily] || sourceFamily;
+  const reasonIco = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M18.4 5.6l-2.1 2.1M7.7 16.3l-2.1 2.1"/></svg>';
+  // Horizontal card: 54px art · title/artist/meta · surfacing-reason pill ·
+  // always-visible Save / Snooze / Dismiss row. Wiring hooks unchanged:
+  // .disc-v2-card[data-release-key], [data-act], .disc-v2-card-action.saved.
   card.innerHTML = `
-    <div class="disc-v2-card-art" style="${art ? `background-image:url('${_esc(art)}')` : ''}"></div>
-    <div class="disc-v2-card-body">
-      <p class="disc-v2-card-title">${_esc(r.title || 'Untitled')}</p>
-      <p class="disc-v2-card-artist">${_esc(r.artist || 'Unknown Artist')}</p>
-      <p class="disc-v2-card-source">${_esc(sourceLabel)}${r.label ? ' · ' + _esc(r.label) : ''}${r.year ? ' · ' + r.year : ''}${_resurfacedBadge(release)}</p>
+    <div class="disc-v2-card-main">
+      <div class="disc-v2-card-art" style="${art ? `background-image:url('${_esc(art)}')` : ''}">${art ? '' : 'ART'}</div>
+      <div class="disc-v2-card-body">
+        <p class="disc-v2-card-title">${_esc(r.title || 'Untitled')}</p>
+        <p class="disc-v2-card-artist">${_esc(r.artist || 'Unknown Artist')}</p>
+        <p class="disc-v2-card-source">${_esc(sourceLabel)}${r.label ? ' · ' + _esc(r.label) : ''}${r.year ? ' · ' + r.year : ''}${_resurfacedBadge(release)}</p>
+      </div>
     </div>
+    <div class="disc-v2-card-reason">${reasonIco}<span>${_esc(_discoverV2Reason(release))}</span></div>
     <div class="disc-v2-card-actions" data-actions>
-      <button class="disc-v2-card-action ${isSaved ? 'saved' : ''}" data-act="save" title="Save" aria-label="Save">${isSaved ? '✓' : '+'}</button>
-      <button class="disc-v2-card-action" data-act="snooze" title="Snooze (1w / 1m / 3m)" aria-label="Snooze">zZ</button>
-      <button class="disc-v2-card-action" data-act="dismiss" title="Dismiss" aria-label="Dismiss">✕</button>
+      <button class="disc-v2-card-action disc-v2-card-action-save ${isSaved ? 'saved' : ''}" data-act="save" title="Save" aria-label="Save">${isSaved ? 'Saved ✓' : 'Save'}</button>
+      <button class="disc-v2-card-action disc-v2-card-action-snooze" data-act="snooze" title="Snooze (1w / 1m / 3m)" aria-label="Snooze">Snooze</button>
+      <span class="disc-v2-card-actions-spacer"></span>
+      <button class="disc-v2-card-action disc-v2-card-action-dismiss" data-act="dismiss" title="Dismiss" aria-label="Dismiss">Dismiss</button>
     </div>
   `;
   return card;
