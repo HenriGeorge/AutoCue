@@ -39,8 +39,9 @@ autocue/
     quality.py      — Cue Quality Checker: check_track_health(), check_library_health().
                       Pure DB reads (DjmdCue + DjmdContent). No ANLZ parsing.
                       Scores tracks 0–100; yields fix_tier: phrase/bar/heuristic/none.
-                      AUTOCUE_PARALLEL_HEALTH=1 enables pool-fanout path (TASK-003) — completion-order
-                      events, INTERNAL_ERROR isolation preserved. Default = serial (gated on TASK-008).
+                      AUTOCUE_PARALLEL_HEALTH pool-fanout path (TASK-003) — completion-order
+                      events, INTERNAL_ERROR isolation preserved. Default-on since TASK-008 verified
+                      (2026-06-07); set AUTOCUE_PARALLEL_HEALTH=0 to force serial.
     energy.py       — PWAV waveform reader: get_energy_curve(content, db, n_points=50) → a
                       normalized 0–1 curve resampled to n_points (raw PWAV / 31.0, 3-point
                       smoothed, average-downsampled). Returns None when PWAV/.DAT is unavailable.
@@ -302,6 +303,7 @@ write contract:
 - **Instrumentation**: `autocue/perf.py` ring buffer + `GET /api/perf/recent` (dev-only).
   Frontend mirror `_perf` in `docs/index.html` (`localStorage.autocue_perf === '1'`).
 - **Flagged parallel SSE**: 6 SSE endpoints gained AUTOCUE_PARALLEL_*-gated parallel paths
-  (TASKs 002/003/004/005/006/007). Default behaviour unchanged until the maintainer runs
-  TASK-008's `RUN_ANLZ_STRESS=1` verification against a real Rekordbox library; at that
-  point each flag flips to default-on.
+  (TASKs 002/003/004/005/006/007). TASK-008's `RUN_ANLZ_STRESS=1` pyrekordbox thread-safety
+  check passed (2026-06-07), so these now **default ON** — set `AUTOCUE_PARALLEL_<NAME>=0` to
+  disable any one. Sole exception: the `/api/auto-tag/discogs` SSE branch stays opt-in
+  (`AUTOCUE_PARALLEL_AUTO_TAG=1`, `routes.py` `== "1"`).
