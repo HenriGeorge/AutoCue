@@ -1460,27 +1460,74 @@
     }
 
     /* ── Library Health Panel ── */
-    #health-section { margin: 0 auto 28px; max-width: 860px; }
-    .health-header { display:flex; align-items:center; gap:14px; margin-bottom:14px; }
-    .health-score-ring {
-      width:60px; height:60px; border-radius:50%; display:flex; align-items:center;
-      justify-content:center; flex-shrink:0; font-size:17px; font-weight:700; border:3px solid;
+    /* ── Library Health — "Cue-readiness scan" surface (2.0 workbench redesign) ── */
+    .lh-surface   { max-width:780px; margin:0 auto; padding:8px 0 90px; }
+    .lh-head      { display:flex; align-items:flex-end; justify-content:space-between; gap:16px; margin-bottom:24px; }
+    .lh-eyebrow   { font-size:10px; font-weight:600; text-transform:uppercase; letter-spacing:.08em; color:var(--muted-soft); }
+    .lh-h1        { font-size:28px; font-weight:600; letter-spacing:-.01em; margin:5px 0 0; }
+    .lh-rescan    { border:1px solid var(--border); background:var(--surface); color:var(--muted); border-radius:999px; padding:7px 16px; font-size:12.5px; font-weight:500; transition:border-color .18s, color .18s, transform .18s; display:inline-flex; align-items:center; gap:7px; }
+    .lh-rescan:hover    { border-color:var(--border-hover); color:var(--text); transform:translateY(-1px); }
+    .lh-rescan:disabled { opacity:.6; cursor:default; transform:none; }
+    .lh-rescan-ico      { flex:none; }
+
+    .lh-card      { display:flex; gap:28px; align-items:center; padding:26px; border:1px solid var(--border); border-radius:16px; background:var(--surface); box-shadow:var(--shadow-sm); }
+    .lh-ring-wrap { position:relative; width:124px; height:124px; flex:none; }
+    .lh-ring-svg  { transform:rotate(-90deg); }
+    .lh-ring-track{ stroke:var(--surface-2); }
+    .lh-ring-arc  { stroke:var(--green); transition:stroke-dashoffset .9s cubic-bezier(.22,1,.36,1); }
+    .lh-ring-center { position:absolute; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center; }
+    .lh-ring-num  { font-family:var(--font-mono); font-size:34px; font-weight:700; letter-spacing:-.02em; line-height:1; }
+    .lh-ring-denom{ font-family:var(--font-mono); font-size:11px; color:var(--muted-soft); margin-top:2px; }
+    .lh-body      { flex:1; min-width:0; }
+
+    .lh-scanning-head { display:flex; align-items:center; gap:9px; font-size:13.5px; font-weight:600; margin-bottom:3px; }
+    .lh-spinner   { width:13px; height:13px; border:2px solid var(--green-ring); border-top-color:var(--green); border-radius:50%; display:inline-block; animation:_spin .7s linear infinite; }
+    .lh-scanning-sub { font-family:var(--font-mono); font-size:12px; color:var(--muted); min-height:15px; }
+    .lh-scanning-sub b { color:var(--text); font-weight:600; }
+    .lh-scan-bar  { position:relative; height:8px; background:var(--surface-2); border-radius:999px; overflow:hidden; margin-top:14px; }
+    .lh-scan-fill { display:block; height:100%; background:var(--green); border-radius:999px; transition:width .12s linear; }
+    .lh-scan-shimmer { position:absolute; inset:0; background:linear-gradient(90deg,transparent,rgba(255,255,255,.5),transparent); background-size:360px 100%; animation:_scanSweep 1.1s linear infinite; }
+
+    .lh-done-head { font-size:18px; font-weight:600; letter-spacing:-.01em; }
+    .lh-done-desc { font-size:13px; color:var(--muted); line-height:1.55; margin:8px 0 14px; }
+    .lh-done-desc b { color:var(--text); font-weight:600; }
+    .lh-stats     { display:flex; gap:20px; }
+    .lh-stat-val  { font-family:var(--font-mono); font-size:22px; font-weight:700; }
+    .lh-stat-lbl  { font-size:11px; color:var(--muted); }
+    .lh-stat-div  { width:1px; background:var(--border); }
+
+    .lh-fixes        { margin-top:26px; }
+    .lh-fixes-label  { font-size:10px; font-weight:600; text-transform:uppercase; letter-spacing:.08em; color:var(--muted-soft); margin-bottom:11px; }
+    .lh-fix-stack    { display:flex; flex-direction:column; gap:8px; align-items:flex-start; }
+    .lh-fix-card     { display:flex; align-items:center; gap:14px; padding:13px 16px; border:1px solid var(--border); border-radius:12px; background:var(--surface); box-shadow:var(--shadow-sm); animation:_popIn .3s ease; align-self:stretch; }
+    .lh-fix-ico      { width:30px; height:30px; border-radius:8px; background:color-mix(in srgb, var(--warn-amber) 12%, transparent); display:grid; place-items:center; color:var(--warn-amber); flex:none; }
+    .lh-fix-meta     { flex:1; min-width:0; }
+    .lh-fix-title    { font-size:13px; font-weight:600; letter-spacing:-.2px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .lh-fix-sub      { font-size:11.5px; color:var(--muted); }
+    .lh-fix-badge    { font-size:9.5px; font-weight:600; text-transform:uppercase; letter-spacing:.04em; border:1px solid var(--green-ring); color:var(--green); background:var(--green-wash); border-radius:4px; padding:2px 7px; flex:none; }
+    .lh-fix-btn      { border:1px solid var(--border); background:var(--surface); color:var(--text); border-radius:999px; padding:6px 15px; font-size:12px; font-weight:600; transition:border-color .16s, color .16s, transform .16s; flex:none; }
+    .lh-fix-btn:hover{ border-color:var(--green); color:var(--green); transform:translateY(-1px); }
+    .lh-fix-all      { margin-top:4px; background:var(--ink); color:var(--on-ink); border:none; border-radius:999px; padding:11px 22px; font-size:13px; font-weight:600; box-shadow:var(--shadow-sm); transition:background .18s, transform .18s, box-shadow .18s; display:inline-flex; align-items:center; gap:8px; }
+    .lh-fix-all:hover{ background:var(--ink-hover); transform:translateY(-1px); box-shadow:var(--shadow-md); }
+    .lh-fix-all svg  { flex:none; }
+
+    .lh-other        { display:flex; flex-direction:column; gap:7px; margin-top:22px; align-items:flex-start; }
+    .lh-other:empty  { display:none; }
+    .lh-other-label  { font-size:10px; font-weight:600; text-transform:uppercase; letter-spacing:.08em; color:var(--muted-soft); margin-bottom:2px; }
+    .lh-other-row    { display:flex; align-items:center; gap:10px; font-size:13px; align-self:stretch; }
+    .lh-other-ico    { width:16px; text-align:center; flex:none; color:var(--muted-soft); }
+    .lh-other-count  { font-weight:600; min-width:30px; text-align:right; font-family:var(--font-mono); }
+    .lh-other-label-txt { flex:1; color:var(--muted); }
+    .lh-other-note   { font-size:11px; color:var(--muted-soft); white-space:nowrap; }
+    .lh-fix-remaining{ margin-top:4px; }
+
+    @keyframes _scanSweep { 0% { transform:translateX(-100%); } 100% { transform:translateX(100%); } }
+    @keyframes _popIn { from { opacity:0; transform:translateY(8px) scale(.97); } to { opacity:1; transform:translateY(0) scale(1); } }
+    @media (prefers-reduced-motion: reduce) {
+      .lh-ring-arc { transition:none; }
+      .lh-spinner, .lh-scan-shimmer, .lh-fix-card { animation:none; }
     }
-    .health-score-ring.hsr-good   { color:var(--green); border-color:var(--green); background:color-mix(in srgb, var(--green) 8%, transparent); }
-    .health-score-ring.hsr-ok     { color:#f0801a; border-color:#f0801a; background:rgba(240,128,26,.09); }
-    .health-score-ring.hsr-bad    { color:#e4384e; border-color:#e4384e; background:rgba(228,56,78,.09); }
-    .health-score-ring.hsr-none   { color:var(--muted); border-color:var(--border); }
-    .health-summary-title  { font-size:15px; font-weight:600; }
-    .health-summary-sub    { font-size:12px; color:var(--muted); margin-top:3px; }
-    .health-issue-list     { display:flex; flex-direction:column; gap:7px; margin-bottom:14px; }
-    .health-issue-row      { display:flex; align-items:center; gap:10px; font-size:13px; }
-    .health-issue-icon     { width:16px; text-align:center; flex-shrink:0; }
-    .health-issue-count    { font-weight:600; min-width:34px; text-align:right; }
-    .health-issue-label    { flex:1; }
-    .health-fix-note       { font-size:11px; color:var(--muted); white-space:nowrap; }
-    .health-fix-row        { display:flex; gap:8px; flex-wrap:wrap; }
-    .health-progress-bar   { height:3px; background:var(--border); border-radius:2px; margin-bottom:14px; overflow:hidden; }
-    .health-progress-fill  { height:100%; background:var(--green); border-radius:2px; transition:width .15s; }
+
     /* Small health chip on track cards */
     .health-chip { font-size:10px; font-weight:700; padding:1px 6px; border-radius:8px; border:1px solid; flex-shrink:0; cursor:default; }
     .hc-good { color:var(--green); border-color:var(--green); background:color-mix(in srgb, var(--green) 10%, transparent); }
@@ -2054,7 +2101,7 @@
     40%  { transform: scale(1.13); color: var(--green); }
     100% { transform: scale(1); }
   }
-  .tracks-count.count-pop, .action-bar-count.count-pop, .status-item.count-pop, .health-score-ring.count-pop { animation: _countPop 0.28s ease-out; }
+  .tracks-count.count-pop, .action-bar-count.count-pop, .status-item.count-pop, .health-score-ring.count-pop, .lh-ring-num.count-pop { animation: _countPop 0.28s ease-out; }
   .action-bar-count.count-pop { display: inline-block; } /* transform needs a box */
   /* Aliveness (step 4) — per-track health chips pop in a top-to-bottom stagger
      after a scan lands (--land-delay set per chip in _staggerHealthChips). */

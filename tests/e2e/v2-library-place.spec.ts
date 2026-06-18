@@ -45,6 +45,18 @@ test.describe("Library place (tab-bar retirement)", () => {
     if (pos !== null) expect(pos).toBe("fixed");
   });
 
+  test("renders the redesigned 'Cue-readiness scan' surface (ring + header, pre-scan)", async ({ page }) => {
+    await page.locator("#wb-library-place").click();
+    await expect(page.locator("#health-section.lh-surface")).toBeVisible();
+    await expect(page.locator("#health-section .lh-h1")).toHaveText("Cue-readiness scan");
+    await expect(page.locator("#health-scan-label-text")).toHaveText("Run health scan");
+    // the 124px cue-readiness ring arc exists with the r=54 circumference dasharray
+    await expect(page.locator("#health-ring-arc")).toHaveAttribute("stroke-dasharray", "339.3");
+    // pre-scan: the summary card + fix stack are not shown until a scan lands
+    await expect(page.locator("#health-summary")).toBeHidden();
+    await expect(page.locator("#health-fixes")).toBeHidden();
+  });
+
   test("swapping back restores the grid and the sticky bar still pins on scroll", async ({ page }) => {
     await page.locator("#wb-library-place").click();
     await expect(page.locator("#health-section")).toBeVisible();

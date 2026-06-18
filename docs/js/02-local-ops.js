@@ -185,13 +185,24 @@ async function scanLibraryHealth() {
 
   const abortCtrl = new AbortController();
   _setBtnCancellable(btn, 'Scanning…', abortCtrl);
-  label.style.display = '';
-  label.textContent = 'Scanning…';
+  // Show the card immediately with the scanning sub-state live inside it; the
+  // done sub-state + fix stack stay hidden until the summary event lands.
+  summary.style.display = '';
+  const _doneBox = document.getElementById('health-done');
+  const _fixesBox = document.getElementById('health-fixes');
+  if (_doneBox)  _doneBox.style.display = 'none';
+  if (_fixesBox) _fixesBox.style.display = 'none';
   progBar.style.display = '';
+  label.style.display = '';
+  label.textContent = 'Starting scan…';
   // Invalidate any pending delayed-hide from a previous scan's finally block
   progBar._hideTok = (progBar._hideTok || 0) + 1;
   fill.style.width = '0%';
-  summary.style.display = 'none';
+  // Reset the ring to its empty state (track ring fully covers the green arc).
+  const _ringNum0 = document.getElementById('health-score-ring');
+  const _ringArc0 = document.getElementById('health-ring-arc');
+  if (_ringNum0) _ringNum0.textContent = '—';
+  if (_ringArc0) _ringArc0.setAttribute('stroke-dashoffset', '339.3');
   healthData = {};
 
   const url = activePlaylistId
@@ -232,9 +243,19 @@ async function scanLibraryHealth() {
         } else {
           processed++;
           healthData[String(ev.track_id)] = ev;
-          const prog = `Scanning… ${processed.toLocaleString()}`;
-          label.textContent = prog;
-          _setBtnCancellable(btn, prog, abortCtrl);
+          // "N tracks · now checking <b>Title</b>" — title via the parsed-track
+          // map (keyed by String(id)); built with DOM nodes so a track name
+          // can never inject markup.
+          const _tk = (window.parsedTracksById && parsedTracksById.get(String(ev.track_id))) || null;
+          const _checking = _tk && _tk.name ? _tk.name : '';
+          label.textContent = `${processed.toLocaleString()} tracks`;
+          if (_checking) {
+            label.append(' · now checking ');
+            const _b = document.createElement('b');
+            _b.textContent = _checking;
+            label.append(_b);
+          }
+          _setBtnCancellable(btn, `Scanning… ${processed.toLocaleString()}`, abortCtrl);
           const pct = total
             ? processed / total * 100
             : Math.min(97, processed / Math.max(processed + 50, 1) * 100);
@@ -272,6 +293,10 @@ async function scanLibraryHealth() {
     }
   } finally {
     _setBtnLoading(btn, false);
+    // After the first scan the verb becomes "Re-run scan" (matches the design);
+    // the next scan re-captures this as the button's restore-state, so it sticks.
+    const _lt = document.getElementById('health-scan-label-text');
+    if (_lt) _lt.textContent = 'Re-run scan';
     // Let the 100% fill paint for a beat — completion used to be hidden in the
     // same tick it was reached, so the bar never visibly finished.
     const hideTok = progBar._hideTok;
@@ -985,98 +1010,184 @@ function _staggerHealthChips() {
   });
 }
 
+// Circumference of the r=54 ring = 2π·54 ≈ 339.3 (matches the SVG dasharray).
+const _LH_RING_LEN = 339.3;
+
 function _renderHealthSummary(s) {
   // AutoCue 2.0: notify v2 modules (status sentence) that a fresh health
   // summary landed — they read it via window.ACBridge.healthSummary().
   try { window.dispatchEvent(new CustomEvent('autocue:health-summary')); } catch (_) {}
   const summary   = document.getElementById('health-summary');
-  const ring      = document.getElementById('health-score-ring');
+  const ringNum   = document.getElementById('health-score-ring');
+  const ringArc   = document.getElementById('health-ring-arc');
+  const scanning  = document.getElementById('health-progress-bar');
+  const doneBox   = document.getElementById('health-done');
   const titleEl   = document.getElementById('health-summary-title');
   const subEl     = document.getElementById('health-summary-sub');
-  const issueList = document.getElementById('health-issue-list');
+  const statsEl   = document.getElementById('health-stats');
+  const fixesBox  = document.getElementById('health-fixes');
   const fixRow    = document.getElementById('health-fix-row');
+  const otherList = document.getElementById('health-issue-list');
 
-  // Ease the report in when it first appears — it used to pop via a bare display flip
+  // Ease the card in when it first appears — it used to pop via a bare display flip
   if (summary.style.display === 'none') {
     summary.classList.add('fade-in-up');
     summary.addEventListener('animationend', () => summary.classList.remove('fade-in-up'), { once: true });
   }
   summary.style.display = '';
-  const scannableCount = (s.total || 0) - (s.excluded_missing_audio || 0);
-  const score = Math.round(s.library_score);
+  if (scanning) scanning.style.display = 'none';   // the scan has finished
+  if (doneBox)  doneBox.style.display = '';
+
+  const excl           = s.excluded_missing_audio || 0;
+  const scannableCount = (s.total || 0) - excl;
+  const noCues         = s.no_cues || 0;
+  const dupes          = s.duplicate_cues || 0;
+  const score          = Math.round(s.library_score);
+
+  // ── Ring: animated number + arc sweep ──
   if (scannableCount === 0) {
-    ring.textContent = '—';
-    ring.className = 'health-score-ring hsr-none';
+    ringNum.textContent = '—';
+    if (ringArc) ringArc.setAttribute('stroke-dashoffset', String(_LH_RING_LEN));
   } else {
-    _animateScoreRing(ring, score);
-    ring.className = 'health-score-ring ' +
-      (score >= 90 ? 'hsr-good' : score >= 70 ? 'hsr-ok' : 'hsr-bad');
+    _animateScoreRing(ringNum, score);
+    if (ringArc) {
+      const off = Math.max(0, Math.min(_LH_RING_LEN, _LH_RING_LEN * (1 - score / 100)));
+      // Bump to a fresh frame so the CSS transition runs from the prior offset.
+      requestAnimationFrame(() => ringArc.setAttribute('stroke-dashoffset', off.toFixed(1)));
+    }
   }
 
-  titleEl.textContent = scannableCount === 0 ? 'No scannable tracks' : `${score}/100 library health`;
-  const excl = s.excluded_missing_audio || 0;
-  subEl.textContent = `${scannableCount.toLocaleString()} track${scannableCount !== 1 ? 's' : ''} scanned`
-    + (excl ? ` · ${excl} excluded (audio missing from disk)` : '');
+  // ── Headline state (mirrors the rail mini-ring thresholds) + description ──
+  titleEl.textContent = scannableCount === 0 ? 'No scannable tracks'
+    : score >= 90 ? 'Gig-ready'
+    : score >= 70 ? 'Almost gig-ready'
+    : 'Needs work';
 
-  issueList.innerHTML = '';
-  // scoreIssues affect hasIssues (block "looks great"); infoOnly rows are shown but don't block it
-  const issueRows = [
-    { count: s.no_cues,        icon: '✗', label: 'tracks have no hot cues',              cls: '#e4384e' },
-    { count: excl,             icon: '✗', label: 'tracks — audio file missing',            cls: '#e4384e' },
-    { count: s.duplicate_cues, icon: '⚠', label: 'tracks have duplicate cue positions' },
-    { count: s.no_phrase,      icon: 'ℹ', label: 'tracks have no phrase analysis',        note: 'Re-analyze in Rekordbox' },
-    { count: s.no_beatgrid,    icon: 'ℹ', label: 'tracks have no beat grid',              note: 'Re-analyze in Rekordbox' },
-    { count: s.unnamed_cues,   icon: 'ℹ', label: 'tracks have unnamed cues' },
-    { count: s.no_memory_cue,  icon: 'ℹ', label: 'tracks missing memory cue', infoOnly: true },
-  ];
-  let hasIssues = false;
-  for (const row of issueRows) {
-    if (!row.count) continue;
-    if (!row.infoOnly) hasIssues = true;
-    const el = document.createElement('div');
-    el.className = 'health-issue-row';
-    el.innerHTML =
-      `<span class="health-issue-icon" style="${row.cls ? 'color:'+row.cls : ''}">${row.icon}</span>` +
-      `<span class="health-issue-count">${row.count.toLocaleString()}</span>` +
-      `<span class="health-issue-label">${row.label}</span>` +
-      (row.note ? `<span class="health-fix-note">${row.note}</span>` : '');
-    issueList.appendChild(el);
-  }
-  if (!hasIssues) {
-    const ok = document.createElement('div');
-    ok.className = 'health-issue-row';
-    ok.innerHTML = `<span class="health-issue-icon" style="color:var(--green)">✓</span>`
-      + `<span class="health-issue-label" style="color:var(--green)">No issues — library looks great</span>`;
-    issueList.appendChild(ok);
+  subEl.textContent = '';
+  if (scannableCount === 0) {
+    subEl.textContent = excl
+      ? `All ${excl.toLocaleString()} track${excl !== 1 ? 's are' : ' is'} missing their audio file on disk.`
+      : 'No tracks to scan.';
+  } else {
+    const beatLine = (s.no_beatgrid || 0) === 0
+      ? 'Beat-grid coverage is complete'
+      : `${(s.no_beatgrid).toLocaleString()} track${s.no_beatgrid !== 1 ? 's need' : ' needs'} a beat grid`;
+    const dupeLine = dupes === 0 ? 'there are no duplicate cues'
+      : `${dupes.toLocaleString()} track${dupes !== 1 ? 's have' : ' has'} duplicate cues`;
+    subEl.append(`${beatLine} and ${dupeLine}. `);
+    if (noCues > 0) {
+      const b = document.createElement('b');
+      b.textContent = `${noCues.toLocaleString()} track${noCues !== 1 ? 's' : ''}`;
+      subEl.append(b, ' still need hot cues — all fixable at phrase quality.');
+    } else {
+      subEl.append('Every track has hot cues.');
+    }
   }
 
-  // Split fix buttons: phrase-quality vs lower-confidence
-  fixRow.innerHTML = '';
+  // ── 3-col stats: OK / need cues / duplicates ──
+  const okCount = Math.max(0, scannableCount - noCues);
+  statsEl.innerHTML = '';
+  const _stat = (val, lbl, color) => {
+    const wrap = document.createElement('div');
+    const v = document.createElement('div'); v.className = 'lh-stat-val'; if (color) v.style.color = color; v.textContent = val.toLocaleString();
+    const l = document.createElement('div'); l.className = 'lh-stat-lbl'; l.textContent = lbl;
+    wrap.append(v, l); return wrap;
+  };
+  const _div = () => { const d = document.createElement('div'); d.className = 'lh-stat-div'; return d; };
+  statsEl.append(
+    _stat(okCount, 'tracks OK', 'var(--green)'), _div(),
+    _stat(noCues, 'need cues', noCues ? 'var(--warn-amber)' : ''), _div(),
+    _stat(dupes, 'duplicates', dupes ? 'var(--danger)' : '')
+  );
+
+  // ── Prioritized fixes — phrase-quality no-cue tracks ──
   const noCuesByTier = { phrase: [], bar: [], heuristic: [] };
   for (const [tid, report] of Object.entries(healthData)) {
     if ((report.issues || []).some(i => i.code === 'NO_CUES') && noCuesByTier[report.fix_tier]) {
       noCuesByTier[report.fix_tier].push(parseInt(tid));
     }
   }
-  const phraseIds    = noCuesByTier.phrase;
-  const lowerIds     = [...noCuesByTier.bar, ...noCuesByTier.heuristic];
+  const phraseIds = noCuesByTier.phrase;
+  const lowerIds  = [...noCuesByTier.bar, ...noCuesByTier.heuristic];
 
+  fixRow.innerHTML = '';
   if (phraseIds.length) {
-    const b = document.createElement('button');
-    b.className = 'primary';
-    b.style.fontSize = '13px';
-    b.textContent = `Fix phrase-quality tracks (${phraseIds.length})`;
-    b.addEventListener('click', () => _applyHealthFix(phraseIds, false, b));
-    fixRow.appendChild(b);
+    fixesBox.style.display = '';
+    const MAX_CARDS = 6;
+    for (const tid of phraseIds.slice(0, MAX_CARDS)) {
+      const t = (window.parsedTracksById && parsedTracksById.get(String(tid))) || {};
+      fixRow.appendChild(_buildHealthFixCard(tid, t.name || `Track ${tid}`, t.artist || ''));
+    }
+    if (phraseIds.length > MAX_CARDS) {
+      const more = document.createElement('div');
+      more.className = 'lh-fix-sub';
+      more.style.padding = '2px 0 2px 4px';
+      const extra = phraseIds.length - MAX_CARDS;
+      more.textContent = `+ ${extra} more phrase-quality track${extra !== 1 ? 's' : ''}`;
+      fixRow.appendChild(more);
+    }
+    const all = document.createElement('button');
+    all.className = 'lh-fix-all';
+    all.type = 'button';
+    all.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>';
+    all.append(`Fix all ${phraseIds.length} phrase-quality track${phraseIds.length !== 1 ? 's' : ''}`);
+    all.addEventListener('click', () => _applyHealthFix(phraseIds, false, all));
+    fixRow.appendChild(all);
+  } else {
+    fixesBox.style.display = 'none';
   }
-  if (lowerIds.length) {
-    const b = document.createElement('button');
-    b.className = 'secondary-btn';
-    b.style.fontSize = '13px';
-    b.textContent = `Fix remaining (${lowerIds.length} — bar/heuristic quality)`;
-    b.addEventListener('click', () => _applyHealthFix(lowerIds, true, b));
-    fixRow.appendChild(b);
+
+  // ── Other findings (secondary) — preserves the issue breakdown + the
+  // lower-confidence (bar/heuristic) fix the clean design omits. ──
+  otherList.innerHTML = '';
+  const otherRows = [
+    { count: excl,             label: 'tracks — audio file missing from disk', ico: '✗', danger: true },
+    { count: s.no_phrase || 0,    label: 'tracks have no phrase analysis', ico: 'ℹ', note: 'Re-analyze in Rekordbox' },
+    { count: s.no_beatgrid || 0,  label: 'tracks have no beat grid',       ico: 'ℹ', note: 'Re-analyze in Rekordbox' },
+    { count: s.unnamed_cues || 0, label: 'tracks have unnamed cues',       ico: 'ℹ' },
+  ].filter(r => r.count > 0);
+  if (otherRows.length || lowerIds.length) {
+    const lbl = document.createElement('div'); lbl.className = 'lh-other-label'; lbl.textContent = 'Other findings';
+    otherList.appendChild(lbl);
+    for (const r of otherRows) {
+      const row = document.createElement('div'); row.className = 'lh-other-row';
+      const ico = document.createElement('span'); ico.className = 'lh-other-ico'; ico.textContent = r.ico;
+      if (r.danger) ico.style.color = 'var(--danger)';
+      const cnt = document.createElement('span'); cnt.className = 'lh-other-count'; cnt.textContent = r.count.toLocaleString();
+      const lt  = document.createElement('span'); lt.className = 'lh-other-label-txt'; lt.textContent = r.label;
+      row.append(ico, cnt, lt);
+      if (r.note) { const n = document.createElement('span'); n.className = 'lh-other-note'; n.textContent = r.note; row.appendChild(n); }
+      otherList.appendChild(row);
+    }
+    if (lowerIds.length) {
+      const b = document.createElement('button');
+      b.className = 'secondary-btn lh-fix-remaining';
+      b.style.fontSize = '12px';
+      b.type = 'button';
+      b.textContent = `Fix ${lowerIds.length} remaining (bar/heuristic quality)`;
+      b.addEventListener('click', () => _applyHealthFix(lowerIds, true, b));
+      otherList.appendChild(b);
+    }
   }
+}
+
+// One "Prioritized fixes" card: warn icon · title/artist · "phrase · 1.0" · Fix it
+function _buildHealthFixCard(tid, title, artist) {
+  const card = document.createElement('div');
+  card.className = 'lh-fix-card';
+  const ico = document.createElement('span');
+  ico.className = 'lh-fix-ico';
+  ico.innerHTML = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 9v4M12 17h.01M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/></svg>';
+  const meta = document.createElement('div');
+  meta.className = 'lh-fix-meta';
+  const tEl = document.createElement('div'); tEl.className = 'lh-fix-title'; tEl.textContent = title;
+  const sEl = document.createElement('div'); sEl.className = 'lh-fix-sub'; sEl.textContent = (artist ? artist + ' · ' : '') + 'no hot cues';
+  meta.append(tEl, sEl);
+  const badge = document.createElement('span'); badge.className = 'lh-fix-badge'; badge.textContent = 'phrase · 1.0';
+  const btn = document.createElement('button'); btn.className = 'lh-fix-btn'; btn.type = 'button'; btn.textContent = 'Fix it';
+  btn.addEventListener('click', () => _applyHealthFix([tid], false, btn));
+  card.append(ico, meta, badge, btn);
+  return card;
 }
 
 async function _applyHealthFix(trackIds, needsConfirm, srcBtn) {
@@ -1095,21 +1206,16 @@ async function _applyHealthFix(trackIds, needsConfirm, srcBtn) {
   // Progress goes to the button the user clicked + the health progress bar —
   // the old target (#download-btn) is display:none on the Library tab, so the
   // entire multi-track write used to run with zero visible feedback.
-  const progBar = document.getElementById('health-progress-bar');
-  const fill    = document.getElementById('health-progress-fill');
   const srcLabel = srcBtn ? srcBtn.textContent : '';
   const setFixProgress = (done) => {
     if (srcBtn) srcBtn.textContent = `Fixing… ${done} / ${trackIds.length}`;
-    if (fill) fill.style.width = `${Math.round(100 * done / trackIds.length)}%`;
   };
 
   _healthFixInProgress = true;
   if (srcBtn) srcBtn.disabled = true;
-  if (progBar) {
-    progBar.style.display = '';
-    progBar._hideTok = (progBar._hideTok || 0) + 1; // cancel any pending delayed-hide
-  }
-  if (fill) fill.style.width = '0%';
+  // Progress shows on the clicked button (Fixing… N / M). We deliberately do NOT
+  // reveal #health-progress-bar here: it is now the scan sub-state ("Scanning
+  // library…"), which would mislabel a fix. The fix button is always visible.
   setFixProgress(0);
 
   try {
@@ -1160,7 +1266,6 @@ async function _applyHealthFix(trackIds, needsConfirm, srcBtn) {
     // On success the fix row is rebuilt by the rescan; on error restore the
     // clicked button so it doesn't stay stuck at "Fixing… N / M".
     if (srcBtn && srcBtn.isConnected) { srcBtn.disabled = false; srcBtn.textContent = srcLabel; }
-    if (progBar) progBar.style.display = 'none';
   }
 }
 

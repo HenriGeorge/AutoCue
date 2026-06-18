@@ -601,27 +601,55 @@ autocue --library --mode bar --bars-interval 8 --start-bar 1</pre>
 
   <div id="library-tab-content" style="display:none">
 
-  <!-- Library Health (local mode only) -->
-  <section id="health-section" class="panel-card" style="display:none">
-    <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px;">
-      <h2 style="margin:0;font-size:15px;font-weight:700;">Library Health</h2>
-      <button id="health-scan-btn" class="secondary-btn" style="font-size:12px;padding:4px 12px;">Scan</button>
-      <span id="health-scanning-label" style="display:none;font-size:12px;color:var(--muted);"></span>
+  <!-- Library Health (local mode only) — "Cue-readiness scan" surface (2.0 workbench redesign) -->
+  <section id="health-section" class="lh-surface" style="display:none">
+    <div class="lh-head">
+      <div>
+        <div class="lh-eyebrow">Library health</div>
+        <h2 class="lh-h1">Cue-readiness scan</h2>
+      </div>
+      <button id="health-scan-btn" class="lh-rescan" type="button">
+        <svg class="lh-rescan-ico" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+        <span id="health-scan-label-text">Run health scan</span>
+      </button>
     </div>
-    <div id="health-progress-bar" class="health-progress-bar" style="display:none">
-      <div id="health-progress-fill" class="health-progress-fill" style="width:0%"></div>
-    </div>
-    <div id="health-summary" style="display:none">
-      <div class="health-header">
-        <div id="health-score-ring" class="health-score-ring hsr-none">—</div>
-        <div>
-          <div class="health-summary-title" id="health-summary-title">—</div>
-          <div class="health-summary-sub" id="health-summary-sub"></div>
+
+    <div id="health-summary" class="lh-card" style="display:none">
+      <div class="lh-ring-wrap">
+        <svg class="lh-ring-svg" width="124" height="124" viewBox="0 0 124 124" aria-hidden="true">
+          <circle class="lh-ring-track" cx="62" cy="62" r="54" fill="none" stroke-width="9"/>
+          <circle id="health-ring-arc" class="lh-ring-arc" cx="62" cy="62" r="54" fill="none" stroke-width="9" stroke-linecap="round" stroke-dasharray="339.3" stroke-dashoffset="339.3"/>
+        </svg>
+        <div class="lh-ring-center">
+          <span id="health-score-ring" class="lh-ring-num">—</span>
+          <span class="lh-ring-denom">/100</span>
         </div>
       </div>
-      <div class="health-issue-list" id="health-issue-list"></div>
-      <div class="health-fix-row" id="health-fix-row"></div>
+      <div class="lh-body">
+        <!-- scanning state -->
+        <div id="health-progress-bar" class="lh-scanning" style="display:none">
+          <div class="lh-scanning-head"><span class="lh-spinner" aria-hidden="true"></span>Scanning library…</div>
+          <div id="health-scanning-label" class="lh-scanning-sub"></div>
+          <div class="lh-scan-bar">
+            <i id="health-progress-fill" class="lh-scan-fill" style="width:0%"></i>
+            <span class="lh-scan-shimmer" aria-hidden="true"></span>
+          </div>
+        </div>
+        <!-- done state -->
+        <div id="health-done" class="lh-done" style="display:none">
+          <div id="health-summary-title" class="lh-done-head">—</div>
+          <p id="health-summary-sub" class="lh-done-desc"></p>
+          <div id="health-stats" class="lh-stats"></div>
+        </div>
+      </div>
     </div>
+
+    <div id="health-fixes" class="lh-fixes" style="display:none">
+      <div class="lh-fixes-label">Prioritized fixes — phrase quality</div>
+      <div id="health-fix-row" class="lh-fix-stack"></div>
+    </div>
+
+    <div id="health-issue-list" class="lh-other"></div>
   </section>
 
   <!-- P3: the Duplicates surface moved into the workbench centre-pane place
