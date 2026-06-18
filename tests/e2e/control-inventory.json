@@ -492,15 +492,15 @@
       },
       {
         "id": "sb-start-bpm",
-        "kind": "number"
+        "kind": "range"
       },
       {
         "id": "sb-end-bpm",
-        "kind": "number"
+        "kind": "range"
       },
       {
         "id": "sb-duration",
-        "kind": "number"
+        "kind": "range"
       },
       {
         "id": "sb-energy-mode",

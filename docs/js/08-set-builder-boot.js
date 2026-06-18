@@ -396,20 +396,27 @@ function _sbRenderSet() {
   const allIds = _sbTracks.map(t => t.track_id);
 
   _sbTracks.forEach((t, i) => {
-    // ── Track row ──
+    // ── Track card ──
     const row = document.createElement('div');
-    row.className = 'sb-row';
+    row.className = 'sb-row sb2-card';
     row.draggable = true;
     row.dataset.index = i;
+    // Staggered entrance (capped so a long set doesn't drag). Guarded by
+    // prefers-reduced-motion in CSS (.sb2-card animation disabled there).
+    row.style.setProperty('--sb2-delay', `${Math.min(i, 14) * 28}ms`);
 
     const catColor = _CAT_COLORS[t.category] || '#888';
-    const relaxedAttr = t.relaxed
-      ? ` title="Placed via relaxed constraints" style="opacity:.6"`
+
+    // Transition-score pill: green-wash + green text when ≥80, else neutral.
+    const score = t.transition_score;
+    const scoreOn = score != null && score >= 80;
+    const scorePill = score != null
+      ? `<span class="sb2-score-pill${scoreOn ? ' sb2-score-pill-on' : ''}" title="Transition compatibility into this track">${Math.round(score)}</span>`
       : '';
 
     row.innerHTML = `
       <div class="sb-drag-handle" title="Drag to reorder">⠿</div>
-      <div class="sb-row-num">${i + 1}</div>
+      <div class="sb2-idx">${i + 1}</div>
       <div class="sb-art" data-tid="${t.track_id}">
         <div class="sb-art-ph">♪</div>
         <div class="sb-art-play">▶</div>
@@ -418,13 +425,21 @@ function _sbRenderSet() {
         <div class="sb-row-title">${t.title || '(untitled)'}${t.relaxed ? ' <span style="font-size:9px;color:var(--muted-soft);font-weight:400">(relaxed)</span>' : ''}</div>
         <div class="sb-row-artist">${t.artist || ''}</div>
       </div>
+      <div class="sb2-spark" data-track-id="${t.track_id}"></div>
       <div class="sb-row-meta">
-        <span class="sb-track-bpm">${t.bpm.toFixed(1)}</span>
+        <span class="sb-track-bpm sb2-bpm">${t.bpm.toFixed(1)}</span>
         <span class="sb-track-key">${t.key || '—'}</span>
         <span class="sb-track-cat" style="color:${catColor};border-color:${catColor};background:${catColor}18">${t.category}</span>
+        ${scorePill}
       </div>
       <button class="sb-row-replace" data-idx="${i}">↻ Replace</button>
     `;
+
+    // Energy sparkline (reuse the inspector's fetch+cache fn).
+    const sparkEl = row.querySelector('.sb2-spark');
+    if (sparkEl && typeof window._renderEnergySparkline === 'function') {
+      window._renderEnergySparkline(sparkEl);
+    }
 
     // Artwork (lazy)
     const sbArtEl = row.querySelector('.sb-art');
@@ -705,6 +720,65 @@ async function sbSavePlaylist() {
   await _createPlaylist(name, _sbTracks.map(t => t.track_id));
 }
 
+// ── 2.0 surface wiring: range readouts, energy-mode segmented toggle, Nightboard ──
+// The redesigned Set Builder ("Build a set by BPM arc") uses range sliders with
+// live mono readouts and an id-less segmented toggle that is a thin VIEW over the
+// canonical `#sb-energy-mode` <select> (kept in the DOM, visually hidden) — so all
+// existing build logic keeps reading `#sb-energy-mode`. Sync runs both directions.
+function _sbInitControls() {
+  // Range slider → live readout (mono). BPM readouts show the raw value; the
+  // duration readout appends " min" per the design.
+  const ranges = [
+    ['sb-start-bpm',  'sb-start-bpm-out', (v) => v],
+    ['sb-end-bpm',    'sb-end-bpm-out',   (v) => v],
+    ['sb-duration',   'sb-duration-out',  (v) => `${v} min`],
+  ];
+  for (const [inId, outId, fmt] of ranges) {
+    const input = document.getElementById(inId);
+    const out   = document.getElementById(outId);
+    if (!input || !out) continue;
+    const sync = () => { out.textContent = fmt(input.value); };
+    input.addEventListener('input', sync);
+    sync();
+  }
+
+  // Energy-mode: id-less segmented buttons drive the canonical <select>.
+  const sel  = document.getElementById('sb-energy-mode');
+  const segs = document.querySelectorAll('.sb2-seg');
+  function paintSegs(value) {
+    segs.forEach((b) => {
+      const on = b.dataset.energy === value;
+      b.classList.toggle('sb2-seg-on', on);
+      b.setAttribute('aria-checked', on ? 'true' : 'false');
+    });
+  }
+  if (sel) {
+    segs.forEach((b) => {
+      b.addEventListener('click', () => {
+        if (sel.value === b.dataset.energy) return;
+        sel.value = b.dataset.energy;
+        // Dispatch change so any select-driven logic (and our mirror) reacts.
+        sel.dispatchEvent(new Event('change', { bubbles: true }));
+      });
+    });
+    // Mirror select → buttons (covers programmatic .value changes too).
+    sel.addEventListener('change', () => paintSegs(sel.value));
+    paintSegs(sel.value);
+  }
+
+  // "Open in Nightboard" — delegate to the existing Nightboard open path.
+  const nbBtn = document.querySelector('.sb2-nightboard-btn');
+  if (nbBtn) {
+    nbBtn.addEventListener('click', () => {
+      if (window.AC2 && window.AC2.nightboard && typeof window.AC2.nightboard.open === 'function') {
+        window.AC2.nightboard.open();
+      } else {
+        document.getElementById('nb-open-btn')?.click();
+      }
+    });
+  }
+}
+
 async function buildSet() {
   const btn      = document.getElementById('sb-build-btn');
   const status   = document.getElementById('sb-status');
@@ -908,6 +982,7 @@ detectLocalMode().then(async connected => {
     document.getElementById('setbuilder-section').style.display = '';
     document.getElementById('sb-build-btn').addEventListener('click', buildSet);
     document.getElementById('sb-use-selected-btn').addEventListener('click', _useSelectedForSetBuilder);
+    _sbInitControls();
     document.getElementById('sb-seed-clear').addEventListener('click', () => {
       _sbSeedTrackId = null;
       _sbAnchorTrackIds = [];
