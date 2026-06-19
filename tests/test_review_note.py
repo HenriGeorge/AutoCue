@@ -117,3 +117,48 @@ class TestReviewNoteEndpoint:
         r = client.post("/api/review-note", json={"note": "n"})
         assert r.status_code == 200
         assert "[unknown] n" in _notes(tmp_path).splitlines()[0]
+
+    def test_page_newline_injection_cannot_forge_a_second_line(self, client, monkeypatch, tmp_path):
+        """Auditor #1: a newline in `page` must NOT split the written line — the
+        'one line per note' invariant covers the WHOLE line, not just the note."""
+        _enable(monkeypatch, tmp_path)
+        r = client.post(
+            "/api/review-note",
+            json={
+                "page": "home\n[2099-01-01 00:00:00] [admin] FORGED",
+                "note": "real",
+            },
+        )
+        assert r.status_code == 200
+        content = _notes(tmp_path)
+        lines = content.splitlines()
+        assert len(lines) == 1, lines  # exactly ONE physical line, no forged entry
+        # The single line carries no embedded newline (rstrip the trailing \n only).
+        assert "\n" not in content.rstrip("\n")
+        # The forged token survives only as inert text inside the [page] segment.
+        assert "FORGED" in lines[0]
+
+    def test_page_strips_bracket_framing_chars(self, client, monkeypatch, tmp_path):
+        """`[`/`]` in page would break the [page] framing → stripped out."""
+        _enable(monkeypatch, tmp_path)
+        r = client.post("/api/review-note", json={"page": "ho[me]", "note": "n"})
+        assert r.status_code == 200
+        line = _notes(tmp_path).splitlines()[0]
+        page_seg = line.split("] [", 1)[1].split("]", 1)[0]
+        assert "[" not in page_seg and "]" not in page_seg, page_seg
+
+    def test_long_note_is_capped(self, client, monkeypatch, tmp_path):
+        """A pathologically long note is bounded (schema max_length=2000 → 422)."""
+        _enable(monkeypatch, tmp_path)
+        r = client.post("/api/review-note", json={"page": "p", "note": "x" * 5000})
+        assert r.status_code == 422
+        assert not (tmp_path / "crew" / "REVIEW-NOTES.md").exists()
+
+    def test_note_at_cap_is_accepted_and_bounded(self, client, monkeypatch, tmp_path):
+        """A note exactly at the cap is accepted; the written note never exceeds 2000."""
+        _enable(monkeypatch, tmp_path)
+        r = client.post("/api/review-note", json={"page": "p", "note": "y" * 2000})
+        assert r.status_code == 200
+        line = _notes(tmp_path).splitlines()[0]
+        note_seg = line.split("] ", 2)[2]
+        assert len(note_seg) <= 2000

@@ -856,7 +856,7 @@ class ReviewNote(BaseModel):
     (after stripping) — an empty note is a 422, not a blank log line."""
 
     page: str = ""
-    note: str
+    note: str = Field(max_length=2000)
 
     @field_validator("note")
     @classmethod
