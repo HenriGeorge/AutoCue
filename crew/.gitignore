@@ -2,6 +2,8 @@
 panes.env
 *.ready
 *.done
+# runtime feedback log — the review-dock endpoint creates/appends this at run time
+REVIEW-NOTES.md
 dispatch.sh
 crew_wait.sh
 crew_status.sh
