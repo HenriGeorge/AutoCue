@@ -1111,4 +1111,11 @@ window.ACBridge = {
   // P5 (aliveness step 5) — drag-to-playlist append. The rail drop target calls
   // THIS; the write + toast + dropdown-count refresh live in one place.
   addTracksToPlaylist: (playlistId, ids) => _addTracksToPlaylist(playlistId, ids),
+  // Fix 2 (parity-fixes — phrase strip in inspector): phraseCueState is a bare
+  // `let` in 01-core.js that is REASSIGNED (not just mutated) in 05-engine.js and
+  // 07-helpers-events.js, so `window.phraseCueState = phraseCueState` at
+  // declaration time would stale out after the first reassign. This closure
+  // captures the BINDING (via the shared classic-script lexical scope), so
+  // phraseState(id) always reads the current phraseCueState object at call time.
+  phraseState: (id) => (phraseCueState && phraseCueState[String(id)]) || [],
 };

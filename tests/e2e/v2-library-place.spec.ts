@@ -28,7 +28,10 @@ test.describe("Library place (tab-bar retirement)", () => {
   });
 
   test("rail place swaps the centre pane: grid/sticky/inspector hide, action bar stays fixed", async ({ page }) => {
-    await expect(page.locator("#track-list")).toBeVisible();
+    // #tracks-section is display:none until /api/tracks loads and adds .visible;
+    // against the real-sized sandbox DB that paint can exceed the 5s default, so
+    // wait explicitly (same pattern as the "swapping back" test below).
+    await expect(page.locator("#track-list")).toBeVisible({ timeout: 20_000 });
     await page.locator("#wb-library-place").click();
 
     await expect(page.locator("#health-section")).toBeVisible(); // a library tool now owns the centre
@@ -45,19 +48,32 @@ test.describe("Library place (tab-bar retirement)", () => {
     if (pos !== null) expect(pos).toBe("fixed");
   });
 
-  test("renders the redesigned 'Cue-readiness scan' surface (ring + header, pre-scan)", async ({ page }) => {
+  test("renders the redesigned 'Cue-readiness scan' surface (ring + header, auto-scan fires on entry)", async ({ page }) => {
     await page.locator("#wb-library-place").click();
     await expect(page.locator("#health-section.lh-surface")).toBeVisible();
     await expect(page.locator("#health-section .lh-h1")).toHaveText("Cue-readiness scan");
-    await expect(page.locator("#health-scan-label-text")).toHaveText("Run health scan");
     // the 124px cue-readiness ring arc exists with the r=54 circumference dasharray
     await expect(page.locator("#health-ring-arc")).toHaveAttribute("stroke-dasharray", "339.3");
-    // pre-scan: the summary card + fix stack are not shown until a scan lands
-    await expect(page.locator("#health-summary")).toBeHidden();
+    // Auto-scan-on-entry: the scan fires automatically on first Library place activation.
+    // `scanLibraryHealth()` sets `summary.style.display = ''` at scan START (before any
+    // SSE events), so #health-summary becoming visible proves the scan was triggered.
+    // Note: we can't assert on #health-scan-label-text — _setBtnCancellable() replaces
+    // the button's innerHTML (removing the span) while the scan is in-flight, making
+    // the element absent from DOM until the scan completes and _setBtnLoading restores it.
+    await expect(page.locator("#health-summary")).toBeVisible({ timeout: 10_000 });
+    // At scan START scanLibraryHealth() explicitly hides #health-fixes
+    // (`if (_fixesBox) _fixesBox.style.display = 'none'`). It must remain
+    // hidden until the summary SSE event lands — a premature appearance is a regression.
     await expect(page.locator("#health-fixes")).toBeHidden();
   });
 
   test("swapping back restores the grid and the sticky bar still pins on scroll", async ({ page }) => {
+    // #tracks-section { display: none } by default; only becomes visible (.visible class)
+    // once /api/tracks loads. We must wait for that before testing grid visibility after
+    // the place swap-back — otherwise the restored grid would still appear "hidden" because
+    // its container (#tracks-section) hasn't received .visible yet.
+    await expect(page.locator("#track-list")).toBeVisible({ timeout: 20_000 });
+
     await page.locator("#wb-library-place").click();
     await expect(page.locator("#health-section")).toBeVisible();
 

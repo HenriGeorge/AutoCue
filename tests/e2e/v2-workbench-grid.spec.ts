@@ -128,4 +128,117 @@ test.describe("AutoCue 2.0 workbench dense grid", () => {
     // Inspector header carries the track title section.
     await expect(page.locator("#wb-inspector-body .wb-insp-title")).toBeVisible();
   });
+
+  test("(d) phrase-mode lazy load: _updateTrackCardCues keeps 46px row height (TASK-033)", async ({ page }) => {
+    /**
+     * Regression spec for the phrase-mode grid overlap bug (pre-existing on main):
+     * _updateTrackCardCues() used buildTrackCard (160px) unconditionally when phrase
+     * cues lazy-landed, violating the Virtualizer's fixed-height invariant (TASK-033).
+     * After lazy load, EVERY visible .track-card must still be 46px = WB_ROW_H and
+     * consecutive translateY steps must be exactly 46px (no slot overlap).
+     *
+     * Fails before the fix (160px cards appear); passes after the fix (always buildWbRow
+     * in wb-active mode, mirroring the main render dispatch at lines 1735-1747).
+     */
+    test.setTimeout(60_000);
+
+    // Mock /api/generate → instant phrase data for any track IDs so the test
+    // doesn't depend on the sandbox DB having phrase-analysed tracks.
+    const MOCK_CUES = [
+      { position_ms:     0, label: "Intro", slot: 0, name: "", confidence: 1, phrase_bars: 16 },
+      { position_ms:  8000, label: "Build", slot: 1, name: "", confidence: 1, phrase_bars: 16 },
+      { position_ms: 16000, label: "Drop",  slot: 2, name: "", confidence: 1, phrase_bars: 16 },
+      { position_ms: 24000, label: "Outro", slot: 3, name: "", confidence: 1, phrase_bars: 16 },
+    ];
+    await page.route(/\/api\/generate(\?|$)/, async (r) => {
+      let ids: number[] = [];
+      try { ids = r.request().postDataJSON()?.track_ids || []; } catch (_) {}
+      await r.fulfill({ json: { tracks: ids.map((id) => ({ id, mode_used: "phrase", cues: MOCK_CUES })) } });
+    });
+
+    // Wait for the initial wb-rows to be visible
+    const rows = page.locator("#track-list .wb-row");
+    const n = await rows.count();
+    test.skip(n === 0, "sandbox library is empty");
+
+    // Force tracks' hasPhrase=true so _collectPhraseLazyIds queues them.
+    // The real /api/tracks field has_phrase reflects ANLZ data; we patch in-memory
+    // so the lazy loader sees them as phrase-ready regardless of actual analysis.
+    await page.evaluate(() => {
+      const AC = (window as any).ACBridge;
+      if (!AC?.tracks) return;
+      // Patch the in-memory parsedTracks so hasPhrase=true for visible cards.
+      const cards = Array.from(
+        document.querySelectorAll("#track-list .track-card[data-track-id]")
+      ) as HTMLElement[];
+      const visibleIds = new Set(cards.map(c => String(c.dataset.trackId)));
+      const tracks: any[] = AC.tracks();
+      for (const t of tracks) {
+        if (visibleIds.has(String(t.id))) t.hasPhrase = true;
+      }
+    });
+
+    // Enable phrase analysis mode — the lazy loader will then queue visible tracks.
+    await page.evaluate(() =>
+      (document.querySelector("#mode-phrase-btn") as HTMLElement | null)?.click()
+    );
+
+    // Immediately flush the lazy queue (bypasses the 120ms debounce).
+    await page.evaluate(() => {
+      try { (window as any)._flushPhraseLazyQueue?.(); } catch (_) {}
+    });
+
+    // Wait until at least one track has phrase state populated (mock responded).
+    await page.waitForFunction(() => {
+      const AC = (window as any).ACBridge;
+      if (!AC?.phraseState) return false;
+      const cards = Array.from(
+        document.querySelectorAll("#track-list .track-card[data-track-id]")
+      ) as HTMLElement[];
+      return cards.some(c => {
+        const s = AC.phraseState(c.dataset.trackId!);
+        return Array.isArray(s) && s.length > 0;
+      });
+    }, undefined, { timeout: 15_000 });
+
+    // Give _updateTrackCardCues a render tick to complete its DOM replacement.
+    await page.waitForTimeout(200);
+
+    // ── ASSERTIONS ──────────────────────────────────────────────────────────────
+    // Every visible .track-card must be 46px (WB_ROW_H).
+    // Before the fix: rebuilt cards are 160px (buildTrackCard); after: 46px (buildWbRow).
+    const cards = page.locator("#track-list .track-card");
+    const cardCount = await cards.count();
+    expect(cardCount, "need at least 1 card to measure").toBeGreaterThan(0);
+
+    const heights = await cards.evaluateAll((els) =>
+      (els as HTMLElement[]).map((el) => ({
+        id: el.dataset.trackId || "?",
+        h: Math.round(el.getBoundingClientRect().height),
+      }))
+    );
+
+    for (const { id, h } of heights) {
+      expect(
+        h,
+        `track-card [data-track-id="${id}"] height is ${h}px — must be WB_ROW_H=46px (TASK-033 violated by phrase lazy-load)`
+      ).toBe(46);
+    }
+
+    // Consecutive translateY steps must be exactly 46px (no slot overlap or gap).
+    const transforms = await cards.evaluateAll((els) =>
+      (els as HTMLElement[]).map((el) => {
+        const m = /translateY\(\s*([0-9.]+)px\s*\)/.exec(el.style.transform || "");
+        return m ? Number(m[1]) : null;
+      })
+    );
+    const ys = (transforms.filter((y) => y !== null) as number[]).sort((a, b) => a - b);
+    for (let i = 1; i < ys.length; i++) {
+      const delta = Math.round(ys[i] - ys[i - 1]);
+      expect(
+        delta,
+        `consecutive card translateY delta ${delta}px — must be 46px (slot overlap if <46, gap if >46)`
+      ).toBe(46);
+    }
+  });
 });

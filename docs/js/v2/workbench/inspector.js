@@ -52,6 +52,42 @@ function _section(title) {
   return wrap;
 }
 
+// Fix 1: Update the inspector score ring once the mix score is resolved.
+// _renderMixabilityChip is ASYNC (it fetches /api/tracks/{id}/mixability);
+// calling this synchronously at render time only works for cache-hot tracks.
+// The correct path:
+//   1. _renderMixabilityChip writes chip.dataset.resolvedScore synchronously
+//      when the fetch returns (before the 600ms _animateCount begins).
+//   2. The .then() chain in renderInspector() calls _updateScoreRing() so
+//      the ring fills as soon as the data lands, not at render time.
+// For already-cached tracks (or in tests that fake synchronous resolution)
+// this also fires correctly since .then() runs after the current microtask.
+// Reduced-motion: CSS kills the arc transition so it snaps rather than sweeps.
+function _updateScoreRing() {
+  try {
+    const arc = document.getElementById('wb-insp-ring-arc');
+    const num = document.getElementById('wb-insp-ring-num');
+    if (!arc || !num) return;
+    const chip = document.querySelector('#wb-inspector-body .mix-score-chip');
+    if (!chip) return;
+    // Prefer dataset.resolvedScore (set synchronously in _renderMixabilityChip
+    // before _animateCount starts, so it is always correct here). Fall back to
+    // text parsing only as a last resort (cached-only, text already settled).
+    let score;
+    if (chip.dataset.resolvedScore !== undefined && chip.dataset.resolvedScore !== '') {
+      score = Number(chip.dataset.resolvedScore);
+    } else {
+      const m = /(\d+)\s*\/\s*100/.exec(chip.textContent || '');
+      score = m ? Number(m[1]) : NaN;
+    }
+    if (!Number.isFinite(score) || score < 0) return;
+    const RING_C = 251.3;
+    const offset = RING_C * (1 - Math.min(100, score) / 100);
+    arc.setAttribute('stroke-dashoffset', String(offset.toFixed(2)));
+    num.textContent = String(Math.round(score));
+  } catch (_) { /* ring is decorative — never break selection */ }
+}
+
 // P2 — harmonic family glow: when a track is selected, briefly outline the
 // in-view tracks that are Camelot- + tempo-compatible with it (green = signal).
 // Reuses the legacy Camelot helper (window._sbKeyCompat); the CSS gates the
@@ -168,8 +204,34 @@ export function renderInspector(trackId) {
   body.appendChild(energySec);
   try { window._renderEnergySparkline?.(energy); } catch (_) {}
 
-  // ── Mixability + classification (reuse the chip builders) ──
-  const scoreSec = _section('Scores');
+  // ── Fix 1: Score ring — circular mix-score display ──────────────────────
+  // Mirrors the health-ring treatment (lh-ring-*) but scoped to the inspector.
+  // The ring circumference for r=40 is 2π×40 ≈ 251.3px. Score is written in by
+  // _renderMixabilityChip when it resolves; we start at 0 (full offset = empty
+  // arc). Reduced-motion: no count-up, just the final value (CSS gates this).
+  const RING_C = 251.3;
+  const ringWrap = document.createElement('div');
+  ringWrap.className = 'wb-insp-score-ring-wrap';
+  ringWrap.innerHTML = `
+    <div class="wb-insp-ring-outer">
+      <svg class="wb-insp-ring-svg" width="100" height="100" viewBox="0 0 100 100"
+           aria-hidden="true">
+        <circle class="wb-insp-ring-track" cx="50" cy="50" r="40"
+                fill="none" stroke-width="8"/>
+        <circle id="wb-insp-ring-arc" class="wb-insp-ring-arc" cx="50" cy="50" r="40"
+                fill="none" stroke-width="8" stroke-linecap="round"
+                stroke-dasharray="${RING_C}"
+                stroke-dashoffset="${RING_C}"/>
+      </svg>
+      <div class="wb-insp-ring-center">
+        <span id="wb-insp-ring-num" class="wb-insp-ring-num">–</span>
+        <span class="wb-insp-ring-denom">/100</span>
+      </div>
+    </div>`;
+  body.appendChild(ringWrap);
+
+  // ── Mixability breakdown (classification chip + mix breakdown bars) ──────
+  const scoreSec = _section('Mix score');
   const scoreRow = document.createElement('div');
   scoreRow.className = 'wb-insp-scorerow';
   const mix = document.createElement('span');
@@ -187,8 +249,67 @@ export function renderInspector(trackId) {
   scoreSec.appendChild(scoreRow);
   scoreSec.appendChild(mixBreak);
   body.appendChild(scoreSec);
-  try { window._renderMixabilityChip?.(mix, mixBreak); } catch (_) {}
+  // Wire up the legacy chip renderers, then update the ring from the resolved score.
+  // _renderMixabilityChip is ASYNC (fetches /api/.../mixability ~1.4s for un-cached
+  // tracks). Chain _updateScoreRing() in .then() so the ring fills when the score
+  // actually lands; dataset.resolvedScore is set synchronously inside the async fn
+  // before the count-up animation starts, so the ring reads the correct value.
+  try {
+    const p = window._renderMixabilityChip?.(mix, mixBreak);
+    if (p && typeof p.then === 'function') {
+      p.then(_updateScoreRing).catch(() => {});
+    } else {
+      // Synchronous resolution (test stub / cached) — run immediately.
+      _updateScoreRing();
+    }
+  } catch (_) {}
   try { window._renderCategoryChip?.(cls); } catch (_) {}
+
+  // ── Fix 2: Phrase-structure strip in the inspector ────────────────────────
+  // Reuse buildPhraseStrip (docs/js/01-core.js; window.buildPhraseStrip) with
+  // the current phraseCueState for this track. Mirror the per-card phrase strip
+  // (CLAUDE.md) but hosted in the inspector body.
+  const phraseSec = document.createElement('div');
+  phraseSec.className = 'wb-insp-section wb-insp-phrase-section';
+  const phraseH = document.createElement('div');
+  phraseH.className = 'wb-insp-h';
+  phraseH.textContent = 'Structure';
+  phraseSec.appendChild(phraseH);
+  // Fix 2: phraseCueState is a bare `let` in 01-core.js (classic-script) that is
+  // REASSIGNED (not just mutated) in 05-engine.js + 07-helpers-events.js, so
+  // `window.phraseCueState` is always `undefined` (the binding is never assigned
+  // to window). Read through the ACBridge accessor which captures the binding by
+  // closure and always reads the current reference at call time.
+  const phrases = (window.ACBridge && typeof window.ACBridge.phraseState === 'function')
+    ? (window.ACBridge.phraseState(String(trackId)) || [])
+    : [];
+  const cueTicks = (t.existingCueDetails || []).filter((c) => c.num >= 0);
+  if (phrases.length && t.totalTime) {
+    try {
+      const strip = (typeof window.buildPhraseStrip === 'function')
+        ? window.buildPhraseStrip(phrases, t.totalTime, cueTicks)
+        : null;
+      if (strip) {
+        phraseSec.appendChild(strip);
+      } else {
+        const noPhrase = document.createElement('div');
+        noPhrase.className = 'wb-insp-muted';
+        noPhrase.textContent = 'No phrase data yet.';
+        phraseSec.appendChild(noPhrase);
+      }
+    } catch (_) {
+      const noPhrase = document.createElement('div');
+      noPhrase.className = 'wb-insp-muted';
+      noPhrase.textContent = 'Phrase data unavailable.';
+      phraseSec.appendChild(noPhrase);
+    }
+  } else {
+    const noPhrase = document.createElement('div');
+    noPhrase.className = 'wb-insp-muted';
+    noPhrase.textContent = phrases.length ? 'No total time.' : 'No phrase analysis yet.';
+    phraseSec.appendChild(noPhrase);
+  }
+  body.appendChild(phraseSec);
 
   // ── Existing cues + reasoning (reuse _explainCue) ──
   const cues = (t.existingCueDetails || []).filter((c) => c.num >= 0);

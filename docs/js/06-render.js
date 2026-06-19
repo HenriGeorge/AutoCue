@@ -451,6 +451,10 @@ async function _renderMixabilityChip(chip, breakdown) {
       return;
     }
     chip.className = 'mix-score-chip' + (wbMix && d.score >= 80 ? ' hi' : '');
+    // Carry the raw numeric score on the element so async consumers (e.g. the
+    // inspector score ring in inspector.js) can read it without re-parsing
+    // animated chip text, which may still be mid-count-up when they fire.
+    chip.dataset.resolvedScore = String(d.score);
     _animateCount(chip, d.score, wbMix ? '' : 'Mix ', '/100');
     const comp = d.components || {};
     const rows = [
@@ -1358,10 +1362,19 @@ function _updateTrackCardCues(trackId) {
     return card;
   };
 
+  // Mirror the wb-active dispatch the main render uses at lines 1735-1747:
+  // buildWbRow(46px) when the workbench is on; buildTrackCard(160px) otherwise.
+  // Without this guard, every lazy phrase-cue rebuild produced a 160px legacy card
+  // inside a 46px Virtualizer slot → TASK-033 fixed-height invariant broken → grid overlap.
+  const wbActive = document.body.classList.contains('wb-active');
+
   // Album mode (or any non-virtualized render): patch via _cardMap.
   const albumCard = _cardMap.get(tid);
   if (albumCard && albumCard.parentNode) {
-    const newCard = _fadeFreshCueUI(buildTrackCard(track, cues, willSkip, {}));
+    const newCard = _fadeFreshCueUI(
+      wbActive ? buildWbRow(track, cues, willSkip, null)
+               : buildTrackCard(track, cues, willSkip, {})
+    );
     albumCard.parentNode.replaceChild(newCard, albumCard);
     _cardMap.set(tid, newCard);
     return;
@@ -1379,7 +1392,12 @@ function _updateTrackCardCues(trackId) {
     });
     if (targetNode && targetNode.parentNode) {
       const baseTransform = targetNode.style.transform || '';
-      const newCard = _fadeFreshCueUI(buildTrackCard(track, cues, willSkip, {}));
+      // Use the same wb-active builder as the main render — pass targetIdx so
+      // the # column shows the correct row number (null gives blank, fine for non-wb).
+      const newCard = _fadeFreshCueUI(
+        wbActive ? buildWbRow(track, cues, willSkip, targetIdx)
+                 : buildTrackCard(track, cues, willSkip, {})
+      );
       newCard.style.position = 'absolute';
       newCard.style.left = '0';
       newCard.style.right = '0';

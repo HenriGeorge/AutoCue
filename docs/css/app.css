@@ -3080,6 +3080,15 @@
   body.wb-active #wb-grid-head .wb-c-bpm,
   body.wb-active #wb-grid-head .wb-c-mix { text-align: right; }
 
+  /* Defensive backstop (TASK-033): no .track-card may overflow its slot in the
+     workbench grid, no matter which builder produced it. Scoped to body.wb-active
+     so legacy (non-wb) 160px cards are untouched. --wb-row-h falls back to 46px if
+     the token is not declared (e.g. during snapshot testing). */
+  body.wb-active #track-list .track-card {
+    max-height: var(--wb-row-h, 46px);
+    overflow: hidden;
+  }
+
   /* Data rows — fixed height so the Virtualizer window stays O(1) (TASK-033). */
   body.wb-active #track-list.virtualized .track-card.wb-row {
     height: 46px;
@@ -3782,6 +3791,139 @@
   @media (prefers-reduced-motion: reduce) {
     .nb-canvas * { transition: none !important; animation: none !important; }
     .nb-popover { animation: none !important; }
+  }
+
+  /* ── Fix 1: Inspector score ring ─────────────────────────────────────────
+     Big circular mix-score ring in the inspector, mirroring the health ring
+     treatment. The arc is --green (signal); the track stroke is surface-2.
+     Reduced-motion: transition suppressed (CLAUDE.md rule). */
+  .wb-insp-score-ring-wrap {
+    display: flex; justify-content: center; padding: 16px 0 8px;
+  }
+  .wb-insp-ring-outer {
+    position: relative; width: 100px; height: 100px; flex: none;
+  }
+  .wb-insp-ring-svg { transform: rotate(-90deg); display: block; }
+  .wb-insp-ring-track { stroke: var(--surface-2, var(--border)); }
+  .wb-insp-ring-arc   {
+    stroke: var(--green);
+    transition: stroke-dashoffset .9s cubic-bezier(.22,1,.36,1);
+  }
+  .wb-insp-ring-center {
+    position: absolute; inset: 0; display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+  }
+  .wb-insp-ring-num {
+    font-family: var(--font-mono, var(--mono));
+    font-size: 26px; font-weight: 700;
+    letter-spacing: -.02em; line-height: 1;
+  }
+  .wb-insp-ring-denom {
+    font-family: var(--font-mono, var(--mono));
+    font-size: 10px; color: var(--muted-soft); margin-top: 2px;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .wb-insp-ring-arc { transition: none; }
+  }
+
+  /* ── Fix 2: Inspector phrase-structure strip ──────────────────────────── */
+  .wb-insp-phrase-section .phrase-strip {
+    position: relative; height: 20px; border-radius: 4px; overflow: hidden;
+    width: 100%; display: flex;
+  }
+  .wb-insp-phrase-section .phrase-seg {
+    position: absolute; top: 0; bottom: 0;
+  }
+  .wb-insp-phrase-section .phrase-seg-lbl {
+    position: absolute; inset: 0; display: flex; align-items: center;
+    justify-content: center; font-size: 9px; font-weight: 700;
+    text-transform: uppercase; letter-spacing: .06em;
+    color: rgba(255,255,255,.85); pointer-events: none; white-space: nowrap; overflow: hidden;
+  }
+  .wb-insp-phrase-section .phrase-cue-tick {
+    position: absolute; top: 0; bottom: 0; width: 2px;
+    background: rgba(0,0,0,.55); transform: translateX(-50%);
+  }
+  .wb-insp-phrase-section .phrase-cue-slot {
+    position: absolute; top: -1px; left: 50%; transform: translateX(-50%);
+    font-size: 7px; font-weight: 700; line-height: 1;
+    background: rgba(0,0,0,.7); color: #fff; border-radius: 2px; padding: 1px 2px;
+  }
+  .wb-insp-phrase-section .wb-insp-muted {
+    font-size: 11px; padding: 4px 0;
+  }
+
+  /* ── Fix 3: Tag & Enrich ink CTAs ────────────────────────────────────────
+     Promote the outline secondary-btn pills in Discogs / Comment Enrich
+     to ink primary style. Scoped to these specific IDs so the rest of the
+     secondary-btn inventory stays untouched. */
+  #discogs-run-btn, #ce-run-btn {
+    background: var(--ink);
+    color: var(--on-ink);
+    border: none;
+    border-radius: var(--radius-pill);
+    padding: 8px 18px;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background .18s, transform .15s, box-shadow .15s;
+    box-shadow: var(--shadow-sm);
+  }
+  #discogs-run-btn:hover, #ce-run-btn:hover {
+    background: var(--ink-hover, color-mix(in srgb, var(--ink) 80%, transparent));
+    transform: translateY(-1px);
+    box-shadow: var(--shadow-md);
+  }
+  #discogs-run-btn:focus-visible, #ce-run-btn:focus-visible {
+    outline: 2px solid var(--green-ring); outline-offset: 2px;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    #discogs-run-btn, #ce-run-btn { transition: none; }
+  }
+
+  /* ── Fix 4: Nightboard empty-state ───────────────────────────────────────
+     Centred icon + message visible while #nb-timeline has no children.
+     Uses :has() to check the empty timeline (broad browser support 2024+).
+     Falls back gracefully: when :has() unsupported the empty state simply
+     doesn't auto-show; the JS render() call sets it explicitly anyway. */
+  #nb-stage:has(#nb-timeline:empty) .nb-empty-state,
+  #nb-stage.nb-empty .nb-empty-state {
+    display: flex;
+  }
+  .nb-empty-state {
+    position: absolute; inset: 0; display: none;
+    flex-direction: column; align-items: center; justify-content: center;
+    gap: 10px; pointer-events: none;
+  }
+  .nb-empty-icon { font-size: 32px; opacity: .35; }
+  .nb-empty-label {
+    font-size: 14px; font-weight: 600; color: var(--muted);
+    letter-spacing: -.2px;
+  }
+  .nb-empty-hint {
+    font-size: 12px; color: var(--muted-soft); text-align: center;
+    max-width: 240px; line-height: 1.5;
+  }
+
+  /* ── Fix 5: Discover source chips — green-wash active state ───────────────
+     When the source checkbox is checked, the wrapping .disc-v2-chip pill
+     switches to green-wash fill + green border (active = green signal).
+     Hide the checkbox input visually; the pill background is the indicator. */
+  .disc-v2-chip:has(input[data-source]:checked) {
+    background: var(--green-wash, color-mix(in srgb, var(--green) 8%, transparent));
+    border-color: var(--green-ring, color-mix(in srgb, var(--green) 22%, transparent));
+    color: var(--green);
+    font-weight: 600;
+  }
+  /* The checkbox itself is visually hidden — pill bg carries the active state.
+     Use the clip pattern (not opacity:0) so it stays keyboard-reachable, and
+     surface a focus ring on the wrapping pill so Tab focus is visible. */
+  .disc-v2-chip input[data-source] {
+    position: absolute; width: 1px; height: 1px; margin: -1px;
+    overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap;
+  }
+  .disc-v2-chip:has(input[data-source]:focus-visible) {
+    outline: 2px solid var(--green-ring); outline-offset: 2px;
   }
 
   /* ── Review Dock (dev-only feedback bar) ─────────────────────────────────
