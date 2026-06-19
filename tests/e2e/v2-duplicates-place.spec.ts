@@ -119,6 +119,64 @@ test.describe("P3 duplicates place", () => {
     expect(keeperBg).not.toBe("transparent");
   });
 
+  test("B2 — dupes toolbar renders from a token class, not inline font/padding (rescan left, delete right)", async ({ page }) => {
+    await page.locator("#wb-dupes-place").click();
+    await expect(page.locator("#wb-dupes-pane")).toBeVisible();
+
+    const rescan = page.locator("#wb-dupes-rescan");
+    const del = page.locator("#wb-dupes-bulk-delete");
+
+    // B2-5/6: the ids the control-inventory + e2e reference are intact.
+    await expect(rescan).toHaveCount(1);
+    await expect(del).toHaveCount(1);
+    await expect(rescan).toBeVisible();
+    await expect(del).toBeVisible();
+
+    // B2-7: the brand classes survive (green=signal / ink-pill CTA rule).
+    await expect(rescan).toHaveClass(/secondary-btn/);
+    await expect(del).toHaveClass(/primary/);
+
+    // B2-9: bulk-delete still ships `disabled` (JS re-enables on non-keeper select).
+    await expect(del).toBeDisabled();
+
+    // B2-1/2: NO inline font-size / padding left on either button's style attr.
+    // (margin-left:auto on bulk-delete is the ONE layout declaration allowed to
+    //  survive per DESIGN — so we only forbid font/padding, not all inline style.)
+    for (const btn of [rescan, del]) {
+      const styleAttr = (await btn.getAttribute("style")) || "";
+      expect(styleAttr.toLowerCase()).not.toContain("font-size");
+      expect(styleAttr.toLowerCase()).not.toContain("padding");
+    }
+
+    // B2-3: the shared class supplies font-size:12px + padding:4px 12px (computed).
+    for (const btn of [rescan, del]) {
+      const box = await btn.evaluate((el) => {
+        const cs = getComputedStyle(el as HTMLElement);
+        return {
+          fontSize: cs.fontSize,
+          padTop: cs.paddingTop, padBottom: cs.paddingBottom,
+          padLeft: cs.paddingLeft, padRight: cs.paddingRight,
+        };
+      });
+      expect(box.fontSize).toBe("12px");
+      expect(box.padTop).toBe("4px");
+      expect(box.padBottom).toBe("4px");
+      expect(box.padLeft).toBe("12px");
+      expect(box.padRight).toBe("12px");
+    }
+
+    // B2-4/10: layout parity — Rescan on the left, Delete pushed flush-right by
+    // the preserved margin-left:auto (its left edge sits right of rescan's right).
+    const geom = await page.evaluate(() => {
+      const a = document.getElementById("wb-dupes-rescan")!.getBoundingClientRect();
+      const b = document.getElementById("wb-dupes-bulk-delete")!.getBoundingClientRect();
+      const parent = document.getElementById("wb-dupes-bulk-delete")!.parentElement!.getBoundingClientRect();
+      return { aRight: a.right, bLeft: b.left, bRight: b.right, parentRight: parent.right };
+    });
+    expect(geom.bLeft).toBeGreaterThan(geom.aRight); // delete is right of rescan
+    expect(geom.parentRight - geom.bRight).toBeLessThan(40); // delete flush to toolbar's right edge
+  });
+
   test("restore sheet anchors under the right-aligned status fact, not the viewport origin", async ({ page }) => {
     // Simulate a completed delete that wrote a backup (T1 seam event).
     await page.evaluate(() => {
