@@ -3915,10 +3915,15 @@
     color: var(--green);
     font-weight: 600;
   }
-  /* The checkbox itself is hidden — pill bg carries the active state. */
+  /* The checkbox itself is visually hidden — pill bg carries the active state.
+     Use the clip pattern (not opacity:0) so it stays keyboard-reachable, and
+     surface a focus ring on the wrapping pill so Tab focus is visible. */
   .disc-v2-chip input[data-source] {
-    width: 0; height: 0; margin: 0; opacity: 0; pointer-events: none;
-    position: absolute;
+    position: absolute; width: 1px; height: 1px; margin: -1px;
+    overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap;
+  }
+  .disc-v2-chip:has(input[data-source]:focus-visible) {
+    outline: 2px solid var(--green-ring); outline-offset: 2px;
   }
 
   /* ── Review Dock (dev-only feedback bar) ─────────────────────────────────

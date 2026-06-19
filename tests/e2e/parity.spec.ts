@@ -57,8 +57,19 @@ function token(page: Page, name: string) {
  * BPM 0 / no phrase data (no mono BPM chip, no mix score). The "Beat grid only" filter
  * (#beats-only-cb) surfaces only BPM>0 tracks → a populated inspector (BPM chip + mix score).
  */
+/**
+ * Reveal the workbench filter pills. Post-#245 the canonical Workbench design
+ * collapses #beats-only-cb / #phrase-only-cb behind `body.show-wb-filters`
+ * (display:none until revealed; shell.js toggles it). Without this, .check()
+ * times out on a hidden checkbox. Mirror the shell's own class toggle.
+ */
+async function revealWbFilters(page: Page) {
+  await page.evaluate(() => document.body.classList.add("show-wb-filters"));
+}
+
 async function focusBeatGridTrack(page: Page) {
   await expect(page.locator("#track-list .track-card").first()).toBeVisible({ timeout: 20_000 });
+  await revealWbFilters(page);
   await page.locator("#beats-only-cb").check();
   // find a visible card whose track has bpm>0 (confirmed via ACBridge), then evaluate-click
   // it — a Playwright .click() fights the Virtualizer (it recycles the row on
@@ -192,6 +203,7 @@ test.describe("Design↔Live parity (Bucket-1 structure)", () => {
     await expect(page.locator("#track-list .track-card").first()).toBeVisible({ timeout: 20_000 });
     // surface phrase-ready cards: the lazy collector only queues has_phrase tracks, so the
     // Album-sorted head rows (no phrase data) would never trigger a /api/generate fetch.
+    await revealWbFilters(page); // post-#245 the filter pills are collapsed by default
     await page.locator("#phrase-only-cb").check();
     await page.waitForTimeout(300); // let the grid refilter to phrase-ready tracks
     // enable phrase analysis → the lazy loader fetches /api/generate for the visible cards.

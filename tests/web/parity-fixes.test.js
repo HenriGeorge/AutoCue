@@ -299,9 +299,12 @@ describe('Fix 5 — Discover source chip active styling', () => {
     expect(css).toMatch(/\.disc-v2-chip:has\(input\[data-source\]:checked\)\s*\{[^}]*border-color:\s*var\(--green-ring/)
   })
 
-  it('CSS hides the checkbox input[data-source] (pill bg is the visual indicator)', () => {
-    // The input must be visually hidden so the pill bg carries the state
-    expect(css).toMatch(/\.disc-v2-chip\s+input\[data-source\]\s*\{[^}]*opacity:\s*0/)
+  it('CSS visually hides the checkbox input[data-source] but keeps it keyboard-reachable', () => {
+    // Visually hidden via the clip pattern (NOT opacity:0/display:none) so the
+    // input stays in the tab order; the pill bg carries the visual state.
+    expect(css).toMatch(/\.disc-v2-chip\s+input\[data-source\]\s*\{[^}]*clip:\s*rect/)
+    // Focus must remain visible: the wrapping pill surfaces a ring on :focus-visible.
+    expect(css).toMatch(/\.disc-v2-chip:has\(input\[data-source\]:focus-visible\)/)
   })
 
   it('markup: source checkboxes have data-source attributes', () => {
