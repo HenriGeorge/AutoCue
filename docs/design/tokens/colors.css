@@ -43,6 +43,14 @@
   --cue-d: #c07800;  --cue-e: #c84800;  --cue-f: #c02010;
   --cue-g: #c8006a;  --cue-h: #9900cc;
 
+  /* ── Nightboard (P4) zone washes (~5%) — echo the cue palette:
+        warmup=cyan, build=amber, peak=red, closing=violet.
+        Vendored mirror of app.css runtime --zone-* (source of truth). ── */
+  --zone-warmup:  rgba(0, 153, 187, .05);
+  --zone-build:   rgba(192, 120, 0, .05);
+  --zone-peak:    rgba(192, 32, 16, .05);
+  --zone-closing: rgba(153, 0, 204, .05);
+
   /* ── Rekordbox track-color dots ── */
   --rb-pink:   #e4849b;
   --rb-red:    #e4384e;
@@ -91,6 +99,13 @@ html.dark {
   --cue-a: #28e214;  --cue-b: #305aff;  --cue-c: #00e0ff;
   --cue-d: #ffa000;  --cue-e: #ff6400;  --cue-f: #e0301e;
   --cue-g: #f51e8c;  --cue-h: #e600ff;
+
+  /* ── Nightboard (P4) zone washes (~5%, brighter on dark) — vendored mirror
+        of app.css runtime --zone-* (source of truth). ── */
+  --zone-warmup:  rgba(0, 224, 255, .05);
+  --zone-build:   rgba(255, 160, 0, .05);
+  --zone-peak:    rgba(224, 48, 30, .06);
+  --zone-closing: rgba(230, 0, 255, .05);
 
   --shadow-sm: 0 1px 3px rgba(0,0,0,.3);
   --shadow-md: 0 4px 12px rgba(0,0,0,.3);

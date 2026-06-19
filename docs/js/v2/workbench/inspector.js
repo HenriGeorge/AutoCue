@@ -22,6 +22,20 @@ let _detailBodyHome = null;
 export function setInspectorMode(m) { _mode = m === 'release' ? 'release' : 'track'; }
 export function inspectorMode() { return _mode; }
 
+// P-design — "Transition in" anchor card. Band cutoffs replicated locally (NOT
+// imported from nightboard/canvas.js — avoid cross-feature coupling); same
+// presentation thresholds as JOINT_BANDS (good ≥85 / ok ≥70, else weak).
+const ANCHOR_BANDS = { good: 85, ok: 70 };
+function _anchorBand(score) {
+  const s = Number(score);
+  if (!Number.isFinite(s)) return 'weak';
+  if (s >= ANCHOR_BANDS.good) return 'good';
+  if (s >= ANCHOR_BANDS.ok) return 'ok';
+  return 'weak';
+}
+// Monotonic token so a focus change mid-flight discards a stale score response.
+let _txToken = 0;
+
 function _chip(text, mono, accent) {
   const s = document.createElement('span');
   s.className = 'wb-insp-chip' + (mono ? ' mono' : '') + (accent ? ' accent' : '');
@@ -73,7 +87,9 @@ export function renderInspector(trackId) {
   const tracks = window.ACBridge ? window.ACBridge.tracks() : [];
   const t = tracks.find((x) => String(x.id) === String(trackId));
   if (!t) return;
+  const _prevFocusedId = _focusedId; // anchor fallback (the last focused track)
   _focusedId = String(trackId);
+  _mode = 'track'; // this is the track renderer — a prior release re-host is over
   _glowHarmonic(t); // P2 — light the harmonic family in the grid
   document.body.classList.add('wb-inspecting'); // CSS drawer slides in
 
@@ -126,6 +142,9 @@ export function renderInspector(trackId) {
   });
   head.appendChild(play);
   body.appendChild(head);
+
+  // ── Transition in (anchor → focused) advisory card — directly under header ──
+  _renderTransitionIn(body, _focusedId, _prevFocusedId);
 
   // ── Energy curve (reuse _renderEnergySparkline) ──
   const energySec = _section('Energy curve');
@@ -220,6 +239,77 @@ export function renderInspector(trackId) {
 
   // Sync the play button's icon if this track is already the one playing.
   try { window.updatePlaybackUI?.(); } catch (_) {}
+}
+
+// P-design — the "Transition in" advisory card. Scores how the focused track
+// mixes OUT OF the anchor (anchor = now-playing, fallback = previously-focused),
+// reusing the SAME contract Nightboard uses (POST /api/transitions/score). Zero
+// backend change; advisory only (silent on failure, hidden with no anchor).
+function _renderTransitionIn(body, focusedId, prevFocusedId) {
+  if (_mode === 'release') return; // release re-host never shows the card
+  const bridge = window.ACBridge;
+  const rawAnchor = bridge && typeof bridge.nowPlayingId === 'function' ? bridge.nowPlayingId() : null;
+  const anchorId = (rawAnchor != null ? String(rawAnchor) : '')
+    || (prevFocusedId != null ? String(prevFocusedId) : '');
+  // Hidden: no anchor, or the anchor IS the focused track (don't score self).
+  if (!anchorId || anchorId === String(focusedId)) return;
+
+  const tracks = bridge ? bridge.tracks() : [];
+  const anchorTrack = tracks.find((x) => String(x.id) === anchorId);
+
+  const sec = _section('Transition in');
+  sec.classList.add('wb-insp-tx-sec');
+  const row = document.createElement('div');
+  row.className = 'wb-insp-tx-row';
+  const score = document.createElement('span');
+  score.className = 'wb-insp-tx-score mono';
+  score.textContent = '…';
+  const from = document.createElement('span');
+  from.className = 'wb-insp-tx-from';
+  const anchorLabel = anchorTrack ? (anchorTrack.name || anchorTrack.artist || '#' + anchorId) : '#' + anchorId;
+  from.textContent = 'from ' + anchorLabel;
+  row.appendChild(score);
+  row.appendChild(from);
+  sec.appendChild(row);
+  const meta = document.createElement('div');
+  meta.className = 'wb-insp-tx-meta mono';
+  sec.appendChild(meta);
+  const reasons = document.createElement('div');
+  reasons.className = 'wb-insp-tx-reasons';
+  sec.appendChild(reasons);
+  body.appendChild(sec);
+
+  const token = ++_txToken;
+  const stale = () => token !== _txToken || _focusedId !== String(focusedId) || _mode !== 'track';
+  fetch('/api/transitions/score', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ track_a_id: parseInt(anchorId, 10), track_b_id: parseInt(focusedId, 10) }),
+  })
+    .then((r) => (r.ok ? r.json() : null))
+    .then((data) => {
+      if (stale()) return;
+      if (!data) { sec.remove(); return; } // !r.ok → silent, no lingering header
+      const band = _anchorBand(data.overall);
+      score.textContent = String(Math.round(Number(data.overall) || 0));
+      score.classList.add('tx-' + band); // green only on good (signal)
+      // Mono BPM/key fragments (data, not labels) when present.
+      const bits = [];
+      if (Number(data.bpm_a) > 0 && Number(data.bpm_b) > 0) {
+        bits.push(`${Math.round(data.bpm_a)}→${Math.round(data.bpm_b)} BPM`);
+      }
+      if (data.key_a && data.key_b) bits.push(`${data.key_a}→${data.key_b}`);
+      meta.textContent = bits.join('  ·  ');
+      if (!meta.textContent) meta.remove();
+      reasons.innerHTML = '';
+      for (const e of (Array.isArray(data.explanation) ? data.explanation : []).slice(0, 3)) {
+        const line = document.createElement('div');
+        line.className = 'wb-insp-tx-reason';
+        line.textContent = e;
+        reasons.appendChild(line);
+      }
+    })
+    .catch(() => { if (!stale()) sec.remove(); }); // network error → silent
 }
 
 // P5: re-host a Discover release detail in the inspector (mode 'release').

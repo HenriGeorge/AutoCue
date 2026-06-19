@@ -79,7 +79,7 @@
 
 - **ES modules only**, imported by `docs/js/v2/main.js` (`<script type="module">`).
   They read legacy state ONLY via `window.ACBridge` (`tracks()`, `healthSummary()`,
-  `isLocalMode()`, `selectedCount()` — accessor closures over the classic scripts'
+  `isLocalMode()`, `selectedCount()`, `nowPlayingId()` — accessor closures over the classic scripts'
   top-level `let`, defined at the end of `08-set-builder-boot.js`) and listen for two
   CustomEvents the legacy code dispatches: `autocue:health-summary` (in
   `_renderHealthSummary`) and `autocue:local-mode` (in the `detectLocalMode` local-mode
@@ -154,6 +154,13 @@
   only as the `#app-status` status row. JSDOM can't see the
   swap/scroll/sticky-pin — `tests/e2e/v2-discover-shell.spec.ts` (mocks every
   `/api/discover/*` + `/api/youtube/search`) covers those + both themes + reduced-motion + R10.
+
+- **inspector.js anchor-transition card (track mode)** — a "Transition in" advisory section scoring
+  **anchor → focused** via `POST /api/transitions/score` (no new backend). Anchor = `ACBridge.nowPlayingId()`,
+  fallback = previously-focused id; hidden when no anchor / anchor === focused / release mode. Band cutoffs
+  `≥85/≥70` replicated locally (`ANCHOR_BANDS`, NOT imported from `canvas.js`); colour maps to existing
+  tokens only (good→`--green`, ok→`--warn-amber`, weak→`--muted`); score/BPM/key mono; reveal RM-gated.
+  Monotonic `_txToken` discards stale responses on refocus.
 
 - **Nightboard (P4)** — `docs/js/v2/nightboard/{mode,set-model,canvas,joint-popover,tray}.js`,
   rendering into `#nb-canvas`. A full-bleed set-builder canvas **mode** (NOT a centre-pane

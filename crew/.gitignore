@@ -1,0 +1,8 @@
+# ephemeral / regenerated per worktree — only the *.md records travel to main
+panes.env
+*.ready
+*.done
+dispatch.sh
+crew_wait.sh
+crew_status.sh
+prompts/
