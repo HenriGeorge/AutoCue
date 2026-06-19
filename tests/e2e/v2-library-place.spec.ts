@@ -28,7 +28,10 @@ test.describe("Library place (tab-bar retirement)", () => {
   });
 
   test("rail place swaps the centre pane: grid/sticky/inspector hide, action bar stays fixed", async ({ page }) => {
-    await expect(page.locator("#track-list")).toBeVisible();
+    // #tracks-section is display:none until /api/tracks loads and adds .visible;
+    // against the real-sized sandbox DB that paint can exceed the 5s default, so
+    // wait explicitly (same pattern as the "swapping back" test below).
+    await expect(page.locator("#track-list")).toBeVisible({ timeout: 20_000 });
     await page.locator("#wb-library-place").click();
 
     await expect(page.locator("#health-section")).toBeVisible(); // a library tool now owns the centre
