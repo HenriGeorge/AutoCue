@@ -72,3 +72,10 @@ window.AC2.nightboard = { open: openNightboard, close: closeNightboard, isOpen: 
 initNightboard();
 initJointPopover();
 initTray();
+
+// Review Dock — dev-only in-page human→AI feedback bar. No-ops unless BOTH
+// local mode AND localStorage.ac_review_dock==='1' (the server's
+// AUTOCUE_REVIEW_DOCK env-gate is the second, independent guard). Last so the
+// workbench/places exist when _derivePage() reads the current page.
+import { initReviewDock } from './review-dock.js';
+initReviewDock();
