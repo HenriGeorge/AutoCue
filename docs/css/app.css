@@ -3301,10 +3301,15 @@
     border-bottom: 1px solid var(--border);
   }
   .wb-dupes-host { display: flex; flex-direction: column; gap: 10px; }
+  /* Dense toolbar pill sizing — folds the former inline font/padding nits on
+     the Dupes-toolbar verbs into the token layer (applied to Rescan +
+     bulk-delete). `.wb-toolbar-spacer` pushes the trailing verb right. */
+  .wb-toolbar-sm { font-size: 12px; padding: 4px 12px; }
+  .wb-toolbar-spacer { margin-left: auto; }
   /* Toolbar verbs: Rescan is a neutral pill; bulk-delete is the destructive
      ink-pill (danger tint, never green). */
   #wb-dupes-bulk-delete {
-    font-size: 12px; padding: 4px 14px; border-radius: var(--radius-pill);
+    font-size: 12px; padding: 4px 12px; border-radius: var(--radius-pill);
     color: var(--danger); border: 1px solid color-mix(in srgb, var(--danger) 40%, transparent);
     background: color-mix(in srgb, var(--danger) 8%, transparent);
   }
