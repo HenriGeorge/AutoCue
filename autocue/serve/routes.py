@@ -90,6 +90,7 @@ from .schemas import (
     PlaylistItem,
     RestoreRequest,
     RestoreResponse,
+    ReviewNote,
     StatusResponse,
     TrackHealthReport,
     TrackItem,
@@ -4717,6 +4718,37 @@ def perf_recent(limit: int = 100):
         ],
         "stats": stats,
     }
+
+
+# ── /api/review-note (Review Dock) ─────────────────────────────────────────
+# Dev-only human→AI feedback bridge: the in-page review dock POSTs a change
+# request here and we append one line to crew/REVIEW-NOTES.md (the AI tails it).
+# Disabled (403) unless AUTOCUE_REVIEW_DOCK=1 was set when the server started —
+# mirrors the /api/perf/recent env-gate precedent (403 per the spec, not 404).
+# No auth surface, no DB, no Rekordbox; the hosted Pages deploy has no FastAPI.
+
+@router.post("/review-note")
+def review_note(body: ReviewNote):
+    """Append a dev review note to crew/REVIEW-NOTES.md (one line per note)."""
+    import os
+    from datetime import datetime
+    from pathlib import Path
+
+    if os.environ.get("AUTOCUE_REVIEW_DOCK") != "1":
+        raise HTTPException(403, "Review dock disabled (set AUTOCUE_REVIEW_DOCK=1)")
+
+    # Sanitise: collapse all whitespace runs (incl. injected newlines) to single
+    # spaces so a note is always exactly one line; cap the page tag at 64 chars.
+    note = " ".join(body.note.split())
+    page = (body.page or "").strip()[:64] or "unknown"
+    ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+    notes_dir = Path.cwd() / "crew"
+    notes_dir.mkdir(parents=True, exist_ok=True)
+    with (notes_dir / "REVIEW-NOTES.md").open("a", encoding="utf-8") as f:
+        f.write(f"[{ts}] [{page}] {note}\n")
+
+    return {"ok": True}
 
 
 # ── /api/warmup (TASK-028) ────────────────────────────────────────────────

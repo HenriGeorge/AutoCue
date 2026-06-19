@@ -849,6 +849,23 @@ class DiscoverImportResponse(BaseModel):
     restored: bool
 
 
+# Review Dock — dev-only in-page feedback bridge -------------------------------
+
+class ReviewNote(BaseModel):
+    """Body for the dev-only POST /api/review-note. `note` must be non-empty
+    (after stripping) — an empty note is a 422, not a blank log line."""
+
+    page: str = ""
+    note: str
+
+    @field_validator("note")
+    @classmethod
+    def _note_not_blank(cls, v: str) -> str:
+        if not v or not v.strip():
+            raise ValueError("note must not be empty")
+        return v
+
+
 # T-020 — stats ---------------------------------------------------------------
 
 class DiscoverStatsResponse(BaseModel):
