@@ -1,0 +1,10 @@
+# ephemeral / regenerated per worktree — only the *.md records travel to main
+panes.env
+*.ready
+*.done
+# runtime feedback log — the review-dock endpoint creates/appends this at run time
+REVIEW-NOTES.md
+dispatch.sh
+crew_wait.sh
+crew_status.sh
+prompts/

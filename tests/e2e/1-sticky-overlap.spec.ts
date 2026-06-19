@@ -39,8 +39,11 @@ test.describe("Sticky filter bar — virtualized card overlap (regression)", () 
     // grouped by album). The regression is on the flat virtualized list
     // (any non-album sort), where the Virtualizer absolute-positions
     // cards inside `#track-list` and the sticky bar overlaps the first
-    // card. Switch to Title sort to reproduce.
-    await page.locator('button.sort-btn[data-sort="title"]').click();
+    // card. Switch to Title sort to reproduce. In the workbench the sort
+    // lives in the grid-head columns (the legacy #sort-bar is folded into
+    // the Filters panel), so click the Title column — it delegates to the
+    // same sort handler.
+    await page.locator('#wb-grid-head .wb-c-title.wb-sortable').click();
     await page.waitForFunction(
       () => {
         const list = document.getElementById("track-list");

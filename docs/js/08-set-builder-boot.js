@@ -1061,6 +1061,10 @@ window.ACBridge = {
   selectedIds: () => selectedTrackIds,
   pending: () => pendingCues,
   activePlaylistId: () => activePlaylistId,
+  // P-design: read-only now-playing id for the inspector anchor-transition card
+  // (mirrors the other read-only pass-throughs; nowPlayingId is a classic `let`
+  // in 01-core.js, not a window property, so v2 reaches it only through here).
+  nowPlayingId: () => nowPlayingId,
   // P2 proposal organ: parsed track-ids (ints) that are BOTH pending AND
   // approved — the Apply gate. Returns null (meaning "fall back to the normal
   // activeTracks() path") UNLESS the proposals module exists AND there are

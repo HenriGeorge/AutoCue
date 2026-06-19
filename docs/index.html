@@ -336,6 +336,12 @@
           <span id="selection-count"></span>
           <button id="transition-score-btn" style="display:none" onclick="showTransitionScore()">⇌ Score transition</button>
           <span id="active-filters-chip" title="Clear all filters" onclick="clearAllFilters()">✕ Filters active</span>
+          <!-- AutoCue 2.0 console rehome triggers (workbench only, CSS-gated to
+               .wb-rehome-trigger): the design keeps the console slim, so the
+               filter facets / sort / colour-key and the cue-settings accordion
+               are revealed on demand. Wired in shell.js (_wireConsoleRehome). -->
+          <button type="button" id="wb-filters-toggle" class="secondary-btn wb-rehome-trigger" aria-expanded="false" title="Show library &amp; music filters, sort, and colour key">Filters</button>
+          <button type="button" id="wb-settings-toggle" class="secondary-btn wb-rehome-trigger" aria-expanded="false" title="Cue settings">⚙ Settings</button>
         </div>
       </div>
       <!-- Row 2: Library filters + Music filters -->
@@ -435,9 +441,9 @@
     <div id="wb-grid-head" class="wb-row" aria-hidden="true">
       <div class="wb-c-ck"></div>
       <div class="wb-c-idx">#</div>
-      <div class="wb-c-title">Title / Artist</div>
-      <div class="wb-c-bpm">BPM</div>
-      <div class="wb-c-key">Key</div>
+      <div class="wb-c-title wb-sortable" data-sort="title">Title / Artist</div>
+      <div class="wb-c-bpm wb-sortable" data-sort="bpm">BPM</div>
+      <div class="wb-c-key wb-sortable" data-sort="key">Key</div>
       <div class="wb-c-energy">Energy</div>
       <div class="wb-c-mix">Mix</div>
       <div class="wb-c-class">Class</div>
@@ -476,10 +482,10 @@
          logic in docs/js/v2/workbench/duplicates.js. -->
     <section id="wb-dupes-pane" hidden aria-label="Duplicates">
       <div id="wb-dupes-toolbar" class="wb-dupes-toolbar">
-        <button id="wb-dupes-rescan" class="secondary-btn" style="font-size:12px;padding:4px 12px;">Rescan</button>
+        <button id="wb-dupes-rescan" class="secondary-btn wb-toolbar-sm">Rescan</button>
         <span id="duplicates-status-label" style="display:none;font-size:12px;color:var(--muted);"></span>
         <div id="duplicates-summary" style="display:none;font-size:13px;"></div>
-        <button id="wb-dupes-bulk-delete" class="primary" disabled style="font-size:12px;padding:4px 12px;margin-left:auto;">Delete non-keepers</button>
+        <button id="wb-dupes-bulk-delete" class="primary wb-toolbar-sm wb-toolbar-spacer" disabled>Delete non-keepers</button>
       </div>
       <div id="wb-dupes-host" class="wb-dupes-host">
         <div id="duplicates-progress" style="display:none;font-size:12px;color:var(--muted);background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:8px 10px;margin-bottom:12px;"></div>

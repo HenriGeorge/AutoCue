@@ -2104,6 +2104,51 @@
   }
   #cmdk-hint-btn[hidden] { display: none; }
   @media (prefers-reduced-motion: reduce) { #cmdk-hint-btn:hover { transform: none; } }
+
+  /* ── AutoCue 2.0 workbench chrome ──────────────────────────────────────
+     Compact the chrome toward the design's tight glass bar. The status row
+     (#tab-nav, which holds the centred #app-status sentence) STAYS visible —
+     that's a load-bearing invariant (CLAUDE.md: "#tab-nav stays only as the
+     #app-status status-sentence row") asserted by several e2e specs — so we
+     only slim the padding, never empty or hide it. wb-active only; legacy/
+     Pages chrome untouched. */
+  body.wb-active #top-bar header,
+  body.wb-active #top-bar.scrolled header { padding: 8px 20px; }
+  body.wb-active .logo-text { font-size: 15px; }
+  body.wb-active #tab-nav { padding: 2px 20px 8px; gap: 16px; }
+  body.wb-active header nav { gap: 12px; }
+
+  /* ── AutoCue 2.0 console (design: slim, table-first) ───────────────────
+     In workbench mode the legacy settings accordion, the multi-row filter
+     facets, the sort-button bar, the colour-key legend and the onboarding
+     help wall are hidden by default and rehomed behind the ⚙ Settings /
+     Filters triggers (sort folds into the grid-head columns — see shell.js
+     _wireConsoleSort). Everything stays reachable; the centre reads as the
+     mockup. Legacy/Pages chrome is untouched — these are wb-active only. */
+  body.wb-active .tracks-header,
+  body.wb-active #local-how-to,
+  body.wb-active #cli-reference { display: none !important; }
+  body.wb-active:not(.show-wb-settings) #settings-section.visible { display: none; }
+  body.wb-active:not(.show-wb-filters) #filter-bar .filter-row-facets { display: none; }
+  body.wb-active:not(.show-wb-filters) #sort-bar { display: none !important; }
+  body.wb-active:not(.show-wb-filters) #bpm-legend.visible { display: none; }
+  /* primary filter row → the design's slim console header: the filter input
+     plus the rehome triggers; per-track toggles + transient chips fold into
+     the Filters panel (revealed by show-wb-filters) so the row stays clean
+     while every control remains reachable */
+  body.wb-active:not(.show-wb-filters) .filter-row-primary .phrase-only-pill,
+  body.wb-active:not(.show-wb-filters) #transition-score-btn,
+  body.wb-active:not(.show-wb-filters) #active-filters-chip { display: none; }
+  /* rehome triggers — workbench only, ink-pill secondary buttons */
+  .wb-rehome-trigger { display: none; }
+  body.wb-active .wb-rehome-trigger { display: inline-flex; align-items: center; gap: 5px; }
+  body.wb-active .wb-rehome-trigger.on { border-color: var(--green); color: var(--green); }
+  /* click-to-sort grid-head columns (design: sort lives in the headers) */
+  body.wb-active #wb-grid-head .wb-sortable { cursor: pointer; transition: color .12s; }
+  body.wb-active #wb-grid-head .wb-sortable:hover { color: var(--text); }
+  body.wb-active #wb-grid-head .wb-sortable.sorted { color: var(--green); }
+  body.wb-active #wb-grid-head .wb-sort-arrow { font-size: 9px; color: var(--green); margin-left: 3px; }
+
   #cmd-veil {
     position: fixed; inset: 0; z-index: 10000;
     display: flex; align-items: flex-start; justify-content: center;
@@ -2955,6 +3000,21 @@
   .wb-insp-simbtn { width: 100%; padding: 8px; border: 1px solid var(--border); background: none; border-radius: 8px; cursor: pointer; color: var(--text); font: inherit; font-size: 13px; }
   .wb-insp-simbtn:hover { background: var(--surface-2, var(--surface2)); }
   .wb-insp-simbtn:focus-visible { outline: 2px solid var(--green-ring); outline-offset: 1px; }
+  /* "Transition in" anchor card — score (mono) + band colour + muted reasons.
+     Green is signal: only the good band (≥85) goes green; ok→amber, weak→muted.
+     No new colour token (reuses --green/--warn-amber/--muted). */
+  .wb-insp-tx-row { display: flex; align-items: baseline; gap: 8px; }
+  .wb-insp-tx-score { font-size: 20px; font-weight: 700; line-height: 1; color: var(--muted); }
+  .wb-insp-tx-score.tx-good { color: var(--green); }
+  .wb-insp-tx-score.tx-ok   { color: var(--warn-amber); }
+  .wb-insp-tx-score.tx-weak { color: var(--muted); }
+  .wb-insp-tx-from { font-size: 12px; color: var(--muted); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .wb-insp-tx-meta { font-size: 11px; color: var(--muted); margin-top: 5px; }
+  .wb-insp-tx-reasons { margin-top: 7px; display: flex; flex-direction: column; gap: 3px; }
+  .wb-insp-tx-reason { font-size: 12px; color: var(--muted); line-height: 1.35; }
+  .wb-insp-tx-sec { animation: wb-insp-tx-in .18s ease both; }
+  @keyframes wb-insp-tx-in { from { opacity: 0; transform: translateY(2px); } to { opacity: 1; transform: none; } }
+  @media (prefers-reduced-motion: reduce) { .wb-insp-tx-sec { animation: none; } }
   /* Focused row highlight in workbench mode */
   body.wb-active .track-card.wb-focused { box-shadow: inset 3px 0 0 var(--green); background: var(--green-wash, color-mix(in srgb, var(--green) 5%, transparent)); }
 
@@ -3310,10 +3370,15 @@
     border-bottom: 1px solid var(--border);
   }
   .wb-dupes-host { display: flex; flex-direction: column; gap: 10px; }
+  /* Dense toolbar pill sizing — folds the former inline font/padding nits on
+     the Dupes-toolbar verbs into the token layer (applied to Rescan +
+     bulk-delete). `.wb-toolbar-spacer` pushes the trailing verb right. */
+  .wb-toolbar-sm { font-size: 12px; padding: 4px 12px; }
+  .wb-toolbar-spacer { margin-left: auto; }
   /* Toolbar verbs: Rescan is a neutral pill; bulk-delete is the destructive
      ink-pill (danger tint, never green). */
   #wb-dupes-bulk-delete {
-    font-size: 12px; padding: 4px 14px; border-radius: var(--radius-pill);
+    font-size: 12px; padding: 4px 12px; border-radius: var(--radius-pill);
     color: var(--danger); border: 1px solid color-mix(in srgb, var(--danger) 40%, transparent);
     background: color-mix(in srgb, var(--danger) 8%, transparent);
   }
@@ -3854,4 +3919,63 @@
   .disc-v2-chip input[data-source] {
     width: 0; height: 0; margin: 0; opacity: 0; pointer-events: none;
     position: absolute;
+  }
+
+  /* ── Review Dock (dev-only feedback bar) ─────────────────────────────────
+     Fixed bottom bar, JS-injected only when the dev gates pass (never on the
+     hosted Pages deploy — the CSS ships but is inert). Glass chrome echoes the
+     sticky header; tokens only, both themes. The Send affordance is the INK
+     pill (green is signal, never a CTA); "✓ sent" is the only green here. */
+  .sr-only {
+    position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+    overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0;
+  }
+  .review-dock {
+    /* Above #action-bar (350) so the dock stays usable when a track is selected;
+       below #scroll-top-btn (400), the modals (500), and #toast-stack (9999) so
+       those still overlay the dock. */
+    position: fixed; left: 0; right: 0; bottom: 0; z-index: 360;
+    display: flex; align-items: center; gap: 10px;
+    min-height: 48px; padding: 8px 14px;
+    background: var(--glass-bg);
+    backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
+    border-top: 1px solid var(--border);
+    box-shadow: 0 -4px 14px rgba(0, 0, 0, .06);
+    font-family: var(--font);
+  }
+  .review-dock-glyph { color: var(--muted); font-size: 14px; flex: none; }
+  .review-dock-page {
+    font-family: var(--font-mono, var(--mono)); font-size: 12px;
+    color: var(--muted); flex: none; white-space: nowrap;
+  }
+  .review-dock-input {
+    flex: 1 1 auto; min-width: 0;
+    font: inherit; font-size: 13px; color: var(--text);
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: var(--radius-md); padding: 7px 12px;
+  }
+  .review-dock-input::placeholder { color: var(--muted-soft, var(--muted)); }
+  .review-dock-input:focus-visible,
+  .review-dock-input:focus {
+    outline: 2px solid var(--green-ring); outline-offset: 1px;
+    border-color: var(--green);
+  }
+  .review-dock-send {
+    flex: none; cursor: pointer; font: inherit; font-size: 13px; font-weight: 600;
+    background: var(--ink); color: var(--on-ink); border: none;
+    border-radius: var(--radius-pill); padding: 7px 18px;
+    transition: background .18s, transform .18s, box-shadow .18s;
+  }
+  .review-dock-send:hover:not(:disabled) { background: var(--ink-hover, var(--ink)); transform: translateY(-1px); box-shadow: var(--shadow-sm); }
+  .review-dock-send:focus-visible { outline: 2px solid var(--green-ring); outline-offset: 2px; }
+  .review-dock-send:disabled { opacity: .5; cursor: default; }
+  .review-dock-status {
+    flex: none; font-size: 12px; font-weight: 600; color: var(--green);
+    opacity: 0; transition: opacity .18s ease;
+  }
+  .review-dock-status.show { opacity: 1; }
+  @media (prefers-reduced-motion: reduce) {
+    .review-dock-send { transition: none; }
+    .review-dock-send:hover:not(:disabled) { transform: none; }
+    .review-dock-status { transition: none; }
   }

@@ -329,6 +329,8 @@ The response includes an `explanation` array with one human-readable string per 
 
 An overall score ≥ 80 is an excellent transition. 60–79 is good. 40–59 is workable but requires skill. Below 40 is a clash.
 
+In the workbench, focusing a track while another is playing shows a **"Transition in"** card in the inspector — the transition score (0–100, banded), the now-playing anchor, and the human-readable reasons for mixing the focused track in after it. Hidden when nothing is playing or you focus the playing track itself.
+
 ---
 
 ## Feature 7: Set Builder
