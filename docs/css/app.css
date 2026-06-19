@@ -2955,6 +2955,21 @@
   .wb-insp-simbtn { width: 100%; padding: 8px; border: 1px solid var(--border); background: none; border-radius: 8px; cursor: pointer; color: var(--text); font: inherit; font-size: 13px; }
   .wb-insp-simbtn:hover { background: var(--surface-2, var(--surface2)); }
   .wb-insp-simbtn:focus-visible { outline: 2px solid var(--green-ring); outline-offset: 1px; }
+  /* "Transition in" anchor card — score (mono) + band colour + muted reasons.
+     Green is signal: only the good band (≥85) goes green; ok→amber, weak→muted.
+     No new colour token (reuses --green/--warn-amber/--muted). */
+  .wb-insp-tx-row { display: flex; align-items: baseline; gap: 8px; }
+  .wb-insp-tx-score { font-size: 20px; font-weight: 700; line-height: 1; color: var(--muted); }
+  .wb-insp-tx-score.tx-good { color: var(--green); }
+  .wb-insp-tx-score.tx-ok   { color: var(--warn-amber); }
+  .wb-insp-tx-score.tx-weak { color: var(--muted); }
+  .wb-insp-tx-from { font-size: 12px; color: var(--muted); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .wb-insp-tx-meta { font-size: 11px; color: var(--muted); margin-top: 5px; }
+  .wb-insp-tx-reasons { margin-top: 7px; display: flex; flex-direction: column; gap: 3px; }
+  .wb-insp-tx-reason { font-size: 12px; color: var(--muted); line-height: 1.35; }
+  .wb-insp-tx-sec { animation: wb-insp-tx-in .18s ease both; }
+  @keyframes wb-insp-tx-in { from { opacity: 0; transform: translateY(2px); } to { opacity: 1; transform: none; } }
+  @media (prefers-reduced-motion: reduce) { .wb-insp-tx-sec { animation: none; } }
   /* Focused row highlight in workbench mode */
   body.wb-active .track-card.wb-focused { box-shadow: inset 3px 0 0 var(--green); background: var(--green-wash, color-mix(in srgb, var(--green) 5%, transparent)); }
 
