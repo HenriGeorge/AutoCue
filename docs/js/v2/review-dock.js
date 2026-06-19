@@ -8,6 +8,10 @@
  * localStorage opt-in) plus the server's AUTOCUE_REVIEW_DOCK env-gate (403).
  * On Pages (XML mode) localMode is false → the module no-ops, nothing injected.
  * Mirrors the `autocue_perf` localStorage gate.
+ *
+ * Enable (dev): start the server with AUTOCUE_REVIEW_DOCK=1, set
+ *   localStorage.ac_review_dock = '1' in the local-app tab, reload; then
+ *   tail -f crew/REVIEW-NOTES.md to read submitted change requests.
  */
 
 const FLAG = 'ac_review_dock';
