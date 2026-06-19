@@ -83,6 +83,7 @@ npm test                             # run 886 Vitest tests for the web app
 
 AUTOCUE_POOL_SIZE=8 autocue serve    # override the shared analysis pool size (default min(8, cpu_count))
 AUTOCUE_PERF=1 autocue serve         # enable /api/perf/recent + perf_span ring buffer
+AUTOCUE_REVIEW_DOCK=1 autocue serve  # enable POST /api/review-note (dev review dock; also set localStorage.ac_review_dock=1)
 autocue serve --no-browser           # start local server on localhost:7432
 autocue serve --reset-cache          # delete the sidecar cache before starting
 autocue --library --dry-run          # preview CLI output without writing

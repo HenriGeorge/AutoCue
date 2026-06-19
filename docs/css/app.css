@@ -3783,3 +3783,62 @@
     .nb-canvas * { transition: none !important; animation: none !important; }
     .nb-popover { animation: none !important; }
   }
+
+  /* ── Review Dock (dev-only feedback bar) ─────────────────────────────────
+     Fixed bottom bar, JS-injected only when the dev gates pass (never on the
+     hosted Pages deploy — the CSS ships but is inert). Glass chrome echoes the
+     sticky header; tokens only, both themes. The Send affordance is the INK
+     pill (green is signal, never a CTA); "✓ sent" is the only green here. */
+  .sr-only {
+    position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+    overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0;
+  }
+  .review-dock {
+    /* Above #action-bar (350) so the dock stays usable when a track is selected;
+       below #scroll-top-btn (400), the modals (500), and #toast-stack (9999) so
+       those still overlay the dock. */
+    position: fixed; left: 0; right: 0; bottom: 0; z-index: 360;
+    display: flex; align-items: center; gap: 10px;
+    min-height: 48px; padding: 8px 14px;
+    background: var(--glass-bg);
+    backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
+    border-top: 1px solid var(--border);
+    box-shadow: 0 -4px 14px rgba(0, 0, 0, .06);
+    font-family: var(--font);
+  }
+  .review-dock-glyph { color: var(--muted); font-size: 14px; flex: none; }
+  .review-dock-page {
+    font-family: var(--font-mono, var(--mono)); font-size: 12px;
+    color: var(--muted); flex: none; white-space: nowrap;
+  }
+  .review-dock-input {
+    flex: 1 1 auto; min-width: 0;
+    font: inherit; font-size: 13px; color: var(--text);
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: var(--radius-md); padding: 7px 12px;
+  }
+  .review-dock-input::placeholder { color: var(--muted-soft, var(--muted)); }
+  .review-dock-input:focus-visible,
+  .review-dock-input:focus {
+    outline: 2px solid var(--green-ring); outline-offset: 1px;
+    border-color: var(--green);
+  }
+  .review-dock-send {
+    flex: none; cursor: pointer; font: inherit; font-size: 13px; font-weight: 600;
+    background: var(--ink); color: var(--on-ink); border: none;
+    border-radius: var(--radius-pill); padding: 7px 18px;
+    transition: background .18s, transform .18s, box-shadow .18s;
+  }
+  .review-dock-send:hover:not(:disabled) { background: var(--ink-hover, var(--ink)); transform: translateY(-1px); box-shadow: var(--shadow-sm); }
+  .review-dock-send:focus-visible { outline: 2px solid var(--green-ring); outline-offset: 2px; }
+  .review-dock-send:disabled { opacity: .5; cursor: default; }
+  .review-dock-status {
+    flex: none; font-size: 12px; font-weight: 600; color: var(--green);
+    opacity: 0; transition: opacity .18s ease;
+  }
+  .review-dock-status.show { opacity: 1; }
+  @media (prefers-reduced-motion: reduce) {
+    .review-dock-send { transition: none; }
+    .review-dock-send:hover:not(:disabled) { transform: none; }
+    .review-dock-status { transition: none; }
+  }

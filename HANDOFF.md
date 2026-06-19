@@ -211,6 +211,7 @@ that used to fail deterministically were fixed in #221 — issue #219.)
 - Optional cleanup: delete the inert `#tab-cues`/`#tab-library` buttons (cosmetic).
 - Next build work: only **P6** (AUTOCUE_LLM composer) remains, deferred by design.
 - fix/design-workbench: design-reconcile tail shipped — zone tokens vendored into docs/design/tokens/colors.css; dupes-toolbar inline styles → .wb-toolbar-sm/.wb-toolbar-spacer; NEW inspector "Transition in" anchor card (ACBridge.nowPlayingId(), POST /api/transitions/score, no new backend).
+- feat/review-dock: dev-only Review Dock shipped — POST /api/review-note (403 unless AUTOCUE_REVIEW_DOCK=1, appends to crew/REVIEW-NOTES.md) + docs/js/v2/review-dock.js (renders only in local mode AND localStorage.ac_review_dock=1). Enable: AUTOCUE_REVIEW_DOCK=1 + the localStorage flag, then tail -f crew/REVIEW-NOTES.md.
 
 _Resolved 2026-06-15: #214 closed (plan merged via #217); merged-branch worktrees
 pruned; the two action-bar per-control e2e failures fixed (#221, closing #219);

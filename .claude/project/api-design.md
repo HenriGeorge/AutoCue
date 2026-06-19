@@ -70,6 +70,13 @@
   {count, p50, p95, p99}}}` from the in-process ring buffer. `?limit=` clamped to `[1, 1000]`.
   Endpoint not surfaced in the OpenAPI schema when disabled.
 
+- **`POST /api/review-note`** (dev-only review dock): returns **403** unless `AUTOCUE_REVIEW_DOCK=1`.
+  Body `{page: str = "", note: str}` (blank/whitespace `note` → 422). Appends
+  `[YYYY-MM-DD HH:MM:SS] [<page>] <note>\n` to `Path.cwd()/crew/REVIEW-NOTES.md` (whitespace/newlines
+  collapsed to one line; `page` stripped+`[:64]`, default `"unknown"`); returns `{"ok": true}`. No
+  auth/DB/Rekordbox surface. Second guard: the hosted Pages deploy has no FastAPI. Tests:
+  `tests/test_review_note.py`.
+
 - **`GET /api/warmup`** (TASK-028): returns `{step, done, total, finished_at}` from
   `app.state.warmup_progress` (under `warmup_lock`). UI polls every 2s while the sidecar
   cache hydrates; the response with `step === 'done'` (and a `finished_at` ISO string) is

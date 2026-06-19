@@ -90,6 +90,7 @@ from .schemas import (
     PlaylistItem,
     RestoreRequest,
     RestoreResponse,
+    ReviewNote,
     StatusResponse,
     TrackHealthReport,
     TrackItem,
@@ -4717,6 +4718,40 @@ def perf_recent(limit: int = 100):
         ],
         "stats": stats,
     }
+
+
+# ── /api/review-note (Review Dock) ─────────────────────────────────────────
+# Dev-only human→AI feedback bridge: the in-page review dock POSTs a change
+# request here and we append one line to crew/REVIEW-NOTES.md (the AI tails it).
+# Disabled (403) unless AUTOCUE_REVIEW_DOCK=1 was set when the server started —
+# mirrors the /api/perf/recent env-gate precedent (403 per the spec, not 404).
+# No auth surface, no DB, no Rekordbox; the hosted Pages deploy has no FastAPI.
+
+@router.post("/review-note")
+def review_note(body: ReviewNote):
+    """Append a dev review note to crew/REVIEW-NOTES.md (one line per note)."""
+    import os
+    from datetime import datetime
+    from pathlib import Path
+
+    if os.environ.get("AUTOCUE_REVIEW_DOCK") != "1":
+        raise HTTPException(403, "Review dock disabled (set AUTOCUE_REVIEW_DOCK=1)")
+
+    # Sanitise BOTH fields so the WHOLE written line is exactly one physical line
+    # (auditor #1): collapse all whitespace runs — incl. injected \n/\r — to single
+    # spaces. `page` also drops "[" / "]" so it can't forge the [page] framing, and
+    # is capped at 64 chars; `note` is bounded (schema max 2000) and re-capped here
+    # defensively so a forged/oversized note can never bloat the log line.
+    note = " ".join(body.note.split())[:2000]
+    page = " ".join((body.page or "").split()).replace("[", "").replace("]", "")[:64] or "unknown"
+    ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+    notes_dir = Path.cwd() / "crew"
+    notes_dir.mkdir(parents=True, exist_ok=True)
+    with (notes_dir / "REVIEW-NOTES.md").open("a", encoding="utf-8") as f:
+        f.write(f"[{ts}] [{page}] {note}\n")
+
+    return {"ok": True}
 
 
 # ── /api/warmup (TASK-028) ────────────────────────────────────────────────
