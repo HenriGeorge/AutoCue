@@ -244,4 +244,13 @@ export function render() {
   _renderZones(set, durMap);
   _renderArc(set, durMap);
   _renderTimeline(set);
+  // Fix 4: toggle the empty-state notice. The CSS :has() selector handles most
+  // cases automatically (timeline:empty), but we also set/clear the class for
+  // browsers that don't support :has() and for cases where the stage is
+  // shown before the timeline children are removed by the JS reset.
+  const stage = document.getElementById('nb-stage');
+  if (stage) {
+    if (set.length === 0) stage.classList.add('nb-empty');
+    else stage.classList.remove('nb-empty');
+  }
 }

@@ -1494,10 +1494,16 @@ autocue --library --mode bar --bars-interval 8 --start-bar 1</pre>
       <span id="nb-status" class="nb-status" aria-live="polite"></span>
     </div>
 
-    <div id="nb-stage" class="nb-stage">
+    <div id="nb-stage" class="nb-stage nb-empty">
       <div id="nb-zones" class="nb-zones" aria-hidden="true"></div>
       <svg id="nb-arc" class="nb-arc" viewBox="0 0 1000 84" preserveAspectRatio="none" aria-hidden="true"></svg>
       <div id="nb-timeline" class="nb-timeline" role="list"></div>
+      <!-- Fix 4: empty-state notice (hidden once a set is built) -->
+      <div class="nb-empty-state" aria-hidden="true">
+        <div class="nb-empty-icon">🎛</div>
+        <div class="nb-empty-label">No set on the board yet</div>
+        <div class="nb-empty-hint">Set a BPM range and duration above, then press Build set.</div>
+      </div>
     </div>
 
     <div id="nb-tray" class="nb-tray" hidden>

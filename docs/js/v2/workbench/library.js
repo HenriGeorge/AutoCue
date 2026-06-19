@@ -32,8 +32,42 @@ import { clearInspector } from './inspector.js';
 const HIDE_IDS = ['tracks-sticky', 'track-list', 'wb-grid-head', 'wb-inspector'];
 
 let _active = false;
+// Fix 6: track whether a scan has been triggered by this place (not the full
+// scan state — just "did we kick one off?"). Re-entry must NOT rescan.
+let _scanTriggered = false;
+// Fix 6 race: store the deferred timer id so deactivate() can cancel it.
+// Without this, a rapid activate() → deactivate() (e.g. entering Library then
+// immediately clicking a crate) leaves the setTimeout in flight; when it fires
+// it starts a scan that can conflict with the restored grid state.
+let _autoScanTimer = null;
 
 export function isActive() { return _active; }
+
+/** Returns true when a health scan has already completed (health-done box visible). */
+function _healthAlreadyDone() {
+  const done = document.getElementById('health-done');
+  return !!(done && done.style.display !== 'none');
+}
+
+/** Kick off the health scan on first place entry — mirrors design §4.
+ *  Guards:
+ *  • Active guard: no-op if the place is no longer active (rapid exit).
+ *  • Re-entry guard: once _scanTriggered, skip entirely; if the user manually
+ *    re-ran the scan from within the Library place, that's wired to the
+ *    `lh-rescan` button directly and doesn't reset this flag. */
+function _maybeAutoScan() {
+  _autoScanTimer = null;
+  if (!_active) return;                // guard: place deactivated before timer fired
+  if (_scanTriggered) return;          // re-entry guard
+  if (_healthAlreadyDone()) {
+    _scanTriggered = true;             // mark as done without scanning again
+    return;
+  }
+  _scanTriggered = true;
+  // Delegate to the existing scan button — no new write path (same contract as
+  // the palette "health-scan" command and the rail health-fix-row click path).
+  document.getElementById('health-scan-btn')?.click();
+}
 
 function _announce() {
   // Shell + rail repaint their active states off this (crates paint no `.active`
@@ -56,11 +90,23 @@ export function activate() {
   document.body.classList.add('wb-place-library');
   document.getElementById('wb-library-place')?.classList.add('active');
   _announce();
+  // Fix 6: auto-scan on FIRST entry if not already done (mirrors design §4).
+  // setTimeout(0) lets the tab-body swap render first so the scan progress
+  // bar is visible inside the Library place before any scan updates land.
+  // The timer id is stored so deactivate() can cancel it if the user exits
+  // the place before it fires (rapid enter→exit race — see lib:60 spec).
+  _autoScanTimer = setTimeout(_maybeAutoScan, 0);
 }
 
 export function deactivate() {
   if (!_active) return;
   _active = false;
+  // Fix 6 race: cancel the pending auto-scan timer before restoring the grid.
+  // If the user exits the Library place before setTimeout(0) fires, the timer
+  // would start a scan while the cue grid is the active view. Cancelling here
+  // is safe because _maybeAutoScan also guards on `_active`, but this avoids
+  // the scan starting at all (cleaner than checking at fire time alone).
+  if (_autoScanTimer !== null) { clearTimeout(_autoScanTimer); _autoScanTimer = null; }
   // Return to the cue grid (scroll-to-top accepted — same tradeoff as Discover).
   if (window.switchTab) window.switchTab('cues');
   for (const id of HIDE_IDS) document.getElementById(id)?.removeAttribute('hidden');

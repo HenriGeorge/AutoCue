@@ -183,6 +183,11 @@ async function scanLibraryHealth() {
   const fill     = document.getElementById('health-progress-fill');
   const summary  = document.getElementById('health-summary');
 
+  // Fix 6 item-4: record whether this scan was initiated from within the library
+  // place. If the place is deactivated while the scan is in-flight, we skip the
+  // renderTracks() call on completion — deactivate() already called it.
+  const _libActiveAtStart = !!(window.AC2 && window.AC2.library && window.AC2.library.isActive());
+
   const abortCtrl = new AbortController();
   _setBtnCancellable(btn, 'Scanning…', abortCtrl);
   // Show the card immediately with the scanning sub-state live inside it; the
@@ -282,12 +287,22 @@ async function scanLibraryHealth() {
       showToast('Health scan ended without a summary — results may be incomplete');
     }
     fill.style.width = '100%';
-    renderTracks();
-    requestAnimationFrame(_staggerHealthChips); // aliveness step 4 — scores roll in
+    // Fix 6 item-4: if the scan was triggered by the library place auto-scan and
+    // the place has since been deactivated, skip the re-render — deactivate()
+    // already called renderTracks(). If the scan was triggered outside the place
+    // (e.g., manual button click while in the cue grid), always render.
+    const _libStillActive = !!(window.AC2 && window.AC2.library && window.AC2.library.isActive());
+    if (!_libActiveAtStart || _libStillActive) {
+      renderTracks();
+      requestAnimationFrame(_staggerHealthChips); // aliveness step 4 — scores roll in
+    }
   } catch (err) {
     if (err.name === 'AbortError') {
       showToast(`Health scan cancelled — ${Object.keys(healthData).length.toLocaleString()} tracks scanned`);
-      if (Object.keys(healthData).length > 0) { renderTracks(); requestAnimationFrame(_staggerHealthChips); }
+      const _libStillActiveOnAbort = !!(window.AC2 && window.AC2.library && window.AC2.library.isActive());
+      if (Object.keys(healthData).length > 0 && (!_libActiveAtStart || _libStillActiveOnAbort)) {
+        renderTracks(); requestAnimationFrame(_staggerHealthChips);
+      }
     } else {
       showToast(`Health scan failed: ${err.message}`);
     }
