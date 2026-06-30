@@ -99,13 +99,14 @@ In team mode each worktree opens a window of six tiled panes. **Every pane is it
 Agent-tool subagent. The **coordinator** drives the others by `tmux send-keys` to their panes and
 reads their `crew/<role>.md` result files — there is no inter-pane messaging.
 
-> **Crew-ops guardrails.** The recurring coordination frictions — idle-pane triage, dev-port ownership
-> across worktrees, fresh-keyed wait, and test-ownership partition — are drawn as decision diagrams in
+> **Crew-ops guardrails.** The recurring coordination frictions — no-idle-wait / coordinator autonomy
+> (#107/#108), idle-pane triage, dev-port ownership across worktrees, fresh-keyed wait, and
+> test-ownership partition — are drawn as decision diagrams in
 > [`crew-workflow-guardrails.md`](crew-workflow-guardrails.md).
 
 | Pane          | Launches as agent   | Border color | Role                                                                |
 | ------------- | ------------------- | ------------ | ------------------------------------------------------------------- |
-| coordinator   | `crew-coordinator`  | cyan         | Orchestrates the spine; enforces GATE-1/GATE-2; never edits source. |
+| coordinator   | `crew-coordinator`  | cyan         | Orchestrates the spine; enforces GATE-1/GATE-2; keeps every idle pane filled (no-idle-wait); never edits source. |
 | implementer   | `crew-implementer`  | green        | Owns **all** source edits; runs the dev server on `PORT`.           |
 | researcher    | `codebase-explorer` | blue         | Read-only discovery, `file:line` citations.                         |
 | auditor       | `code-reviewer`     | red          | Adversarial `git diff` review + `/security-review`.                 |
@@ -156,12 +157,19 @@ pane ids, paths).
 ## Configuration — `.claude/worktrees.conf`
 
 `cc-worktrees init` autodetects and writes this; it is sourced on every create. All keys are optional.
+The template's `setup.sh` is also a writer — it seeds this file at scaffold time (and persists
+`STACK_PROFILE` / `TEST_CMD` / `RUN_CMD` below as the machine-readable source for `setup.sh --update`).
+Because the file is sourced, command values are written escaped so an embedded quote or `$(…)` is stored
+literally and never executed on create.
 
 | Key                    | Default                                                                              | Meaning                                                                                                                                      |
 | ---------------------- | ------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------- |
 | `SETUP`                | autodetect (`npm` if `package.json`, `py-editable` if `pyproject.toml`, else `none`) | First-run dependency install in the pane.                                                                                                    |
-| `PROFILE`              | `web` (npm) / `non-web`                                                              | Project profile.                                                                                                                             |
+| `PROFILE`              | `web` (npm) / `non-web`                                                              | Project profile (cc-worktrees schema: `web` \| `non-web`).                                                                                   |
+| `STACK_PROFILE`        | stack profile chosen at setup (`cli`; `web` for node)                                | `web` \| `service` \| `cli` \| `data` — the `docs/WORKFLOW.md` profile, distinct from cc-worktrees' `PROFILE` (which is derived from it). Persisted by `setup.sh`. |
 | `BASE_PORT`            | `3000`                                                                               | Base for the free-port search (the `-b` flag overrides).                                                                                     |
+| `TEST_CMD`             | —                                                                                    | Persisted by `setup.sh` at scaffold; machine-readable source for the `setup.sh --update` re-stamp (escaped on write; never auto-run here).   |
+| `RUN_CMD`              | —                                                                                    | Persisted by `setup.sh` at scaffold; machine-readable source for the `setup.sh --update` re-stamp (escaped on write; never auto-run here).   |
 | `CCWT_BASE`            | `origin/<default>` (auto)                                                            | Git ref new branches are based on. Auto-resolves to the freshly-fetched origin default; set `origin/develop`, a tag/sha, or `HEAD` (old local-HEAD behavior) to override. |
 | `SETUP_CMD`            | —                                                                                    | Custom install command (overrides `SETUP`'s default).                                                                                        |
 | `COPY_FILES`           | `.env .env.*`                                                                        | Gitignored files carried from the main checkout into each new worktree (patterns relative to root; idempotent).                              |

@@ -11,7 +11,7 @@ Inline Mermaid is canonical here (the repo's docs convention — no committed im
 
 | Guardrail | Encodes |
 |---|---|
-| D1 · Coordinator dispatch loop | #96 idle-pane triage · #26 one live driver · #105 pull-based reporting |
+| D1 · Coordinator dispatch loop | #107 NO-IDLE-WAIT hard gate · #108 autonomy contract · #96 idle-pane triage · #26 one live driver · #105 pull-based reporting |
 | D2 · Dev-port ownership across worktrees | #103 |
 | Dispatch & fresh-keyed wait | #98 |
 | Test-ownership partition at P3 | #99 |
@@ -20,31 +20,45 @@ Inline Mermaid is canonical here (the repo's docs convention — no committed im
 
 ## D1 — Coordinator dispatch loop
 
-While the single build pane runs a long task, the coordinator must neither leave every other pane idle
-(wasted parallelism) nor "keep them busy" by dispatching every phase at once — a reviewer with **no diff**
-or a verifier pointed at the **builder's live server** is worse than idle. Dispatch only INPUT-READY,
-non-colliding, non-live-driving phases; HOLD the rest; surface the pull-based report trail so a
-finished-and-logged pane doesn't read as stalled; roll quality the moment the builder is DONE.
+**★ HARD GATE — NO IDLE WAIT (#107).** Blocking on one pane while another idle pane has ready work is a
+**GATE VIOLATION** on par with GATE-1/GATE-2 — the #1 coordinator failure. *Before you run any `crew_wait`*
+(foreground OR background) you MUST first scan `crew_status.sh` and, for EVERY idle pane, dispatch its next
+input-ready / non-colliding / non-live-driving task — or explicitly `park` it with a one-line reason on the
+BOARD. The coordinator must neither leave every other pane idle (wasted parallelism) nor "keep them busy"
+by dispatching every phase at once — a reviewer with **no diff** or a verifier pointed at the **builder's
+live server** is worse than idle.
+
+**IDLE-FILL LOOP — the per-tick priority ladder** the hard gate enforces (after every dispatch AND before
+every wait), for each idle pane assign the FIRST applicable: **`rolling`** (audit/verify the last diff) →
+**`pre-spec N+1/N+2`** (research / test-design the next units) → **`on-call research`** (answer an open
+data/surface question) → **`park`** (none apply: park with a one-line reason — idle ≠ silent, #105).
 
 ```mermaid
 flowchart TD
-  B[Builder pane busy] --> S{An idle pane?}
-  S -->|no| RPT
-  S -->|yes| T1{Input-ready?<br/>diff / built page exists?}
-  T1 -->|no| HOLD[HOLD — park it<br/>reviewer w/o diff · verifier w/o page]
+  W[About to crew_wait?] --> SCAN[scan crew_status.sh — enumerate every pane]
+  SCAN --> S{An idle pane?}
+  S -->|no| WAIT[Run crew_wait in the BACKGROUND]
+  S -->|yes| T1{Input-ready?<br/>diff / built page / open question exists?}
+  T1 -->|no| HOLD[park it with a one-line reason on the BOARD]
   T1 -->|yes| T2{Non-colliding AND<br/>non-live-driving?}
   T2 -->|no| HOLD
-  T2 -->|yes| DISP[Dispatch advisory/research only<br/>test-designer map · researcher scout]
-  HOLD --> RPT[Report = show BOARD finish-lines + STATUS sentinels<br/>idle = done + reported, pull-based]
-  DISP --> RPT
+  T2 -->|yes| LAD[Dispatch by ladder:<br/>rolling → pre-spec N+1/N+2 → on-call research]
+  HOLD --> S
+  LAD --> S
+  WAIT --> RPT[Report = show BOARD finish-lines + STATUS sentinels<br/>idle = done + reported, pull-based]
   RPT --> DN{Builder DONE?}
-  DN -->|no| S
+  DN -->|no| W
   DN -->|yes| ROLL[Rolling quality: auditor on diff +<br/>verifier as the ONE live driver]
 ```
 
-Encodes **#96** (idle-pane triage — front-load only input-ready, non-colliding, non-live-driving phases;
-HOLD the rest), **#26** (one live driver at a time), and **#105** ("idle" ≠ "silent" — render the
-pull-based report trail so finished panes don't look unresponsive).
+Encodes **#107** (NO-IDLE-WAIT hard gate — fill or park every idle pane *before* you wait; blocking-while-idle
+is a GATE VIOLATION), **#96** (idle-pane triage — only input-ready, non-colliding, non-live-driving phases),
+**#26** (one live driver at a time), and **#105** ("idle" ≠ "silent" — render the pull-based report trail).
+
+**AUTONOMY CONTRACT (#108).** The coordinator runs autonomously; the ONLY three sanctioned human pauses are
+(a) **GATE-1 design sign-off**, (b) **cannot-converge** — GATE-2 still red after a bounded retry budget, and
+(c) a genuine **scope fork** / destructive op / missing credential. Everything else proceeds and reports —
+no "is this ok?" / "should I proceed?" round-trips.
 
 ---
 
