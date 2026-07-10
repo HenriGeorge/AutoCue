@@ -144,6 +144,38 @@ def has_existing_memory_cues(content, db) -> int:
     )
 
 
+def read_loops(content, db) -> list[dict]:
+    """Read the track's saved loops as dicts for the Serato exporter.
+
+    A DjmdCue row is a loop when OutMsec >= 0 (hot cue loops AND memory
+    loops alike). Ordered by start position; Serato has 8 loop slots.
+    """
+    from pyrekordbox.db6 import DjmdCue
+
+    rows = (
+        db.query(DjmdCue)
+        .filter(DjmdCue.ContentID == content.ID)
+        .all()
+    )
+    loops: list[dict] = []
+    for row in rows:
+        try:
+            out_msec = int(row.OutMsec)
+            in_msec = int(row.InMsec)
+        except (TypeError, ValueError):
+            continue
+        if out_msec < 0 or out_msec <= in_msec:
+            continue
+        loops.append({
+            "start_ms": in_msec,
+            "end_ms": out_msec,
+            "name": str(row.Comment or ""),
+            "locked": False,
+        })
+    loops.sort(key=lambda l: l["start_ms"])
+    return loops[:8]
+
+
 def read_hot_cues(content, db) -> list[CuePoint]:
     """Read the track's existing hot cues (Kind 1-8) back as CuePoints.
 

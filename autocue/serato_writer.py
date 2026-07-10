@@ -58,6 +58,8 @@ _SERATO_RGB: dict[int, bytes] = {
     8: bytes.fromhex("8800CC"),  # Purple
 }
 _DEFAULT_RGB = bytes.fromhex("CC0000")
+# Serato's observed default loop color (4-byte field, docs/serato-tools "field6").
+_LOOP_COLOR4 = bytes.fromhex("0027AAE1")
 
 SUPPORTED_SUFFIXES = {".mp3", ".aiff", ".aif", ".flac", ".m4a", ".mp4"}
 
@@ -76,8 +78,14 @@ def _cue_rgb(cue: CuePoint) -> bytes:
 
 # ---------------------------------------------------------------- serialization
 
-def build_markers2(cues: list[CuePoint]) -> bytes:
-    """Inner decoded payload: header + one CUE entry per hot cue + terminator."""
+def build_markers2(cues: list[CuePoint], loops: list[dict] | None = None) -> bytes:
+    """Inner decoded payload: header + CUE entries + LOOP entries + terminator.
+
+    `loops` items: {"start_ms", "end_ms", "name", "locked"} (see
+    db_writer.read_loops). LOOP layout per the serato-tools reference
+    (struct >cBII4s4sB? + NUL-terminated name): reserved, index, start,
+    end, 0xFFFFFFFF, 4-byte color, pad, locked.
+    """
     out = [b"\x01\x01"]
     for cue in sorted(cues, key=lambda c: c.slot):
         if cue.slot < 0 or cue.slot > 7:
@@ -94,6 +102,20 @@ def build_markers2(cues: list[CuePoint]) -> bytes:
             + b"\x00"
         )
         out.append(b"CUE\x00" + len(data).to_bytes(4, "big") + data)
+    for index, loop in enumerate((loops or [])[:8]):
+        data = (
+            b"\x00"
+            + bytes([index])
+            + int(loop["start_ms"]).to_bytes(4, "big")
+            + int(loop["end_ms"]).to_bytes(4, "big")
+            + b"\xff\xff\xff\xff"
+            + _LOOP_COLOR4
+            + b"\x00"
+            + (b"\x01" if loop.get("locked") else b"\x00")
+            + str(loop.get("name") or "").encode("utf-8")
+            + b"\x00"
+        )
+        out.append(b"LOOP\x00" + len(data).to_bytes(4, "big") + data)
     out.append(b"\x00")
     return b"".join(out)
 
@@ -150,6 +172,13 @@ def parse_markers2(outer: bytes) -> list[dict]:
                 position_ms=int.from_bytes(data[2:6], "big"),
                 color=data[7:10].hex(),
                 name=data[12:].split(b"\x00", 1)[0].decode("utf-8", "replace"),
+            )
+        elif etype == "LOOP" and length >= 21:
+            entry.update(
+                index=data[1],
+                start_ms=int.from_bytes(data[2:6], "big"),
+                end_ms=int.from_bytes(data[6:10], "big"),
+                name=data[20:].split(b"\x00", 1)[0].decode("utf-8", "replace"),
             )
         entries.append(entry)
         i = end + 5 + length
@@ -247,14 +276,16 @@ def write_comment(path: Path, comment: str) -> None:
         raise ValueError(f"Unsupported container for Serato export: {suffix}")
 
 
-def write_serato_tags(path: Path, cues: list[CuePoint], comment: str | None = None) -> None:
-    """Write the Markers2 tag for `cues` into `path`, deleting legacy tags.
+def write_serato_tags(path: Path, cues: list[CuePoint], comment: str | None = None,
+                      loops: list[dict] | None = None) -> None:
+    """Write the Markers2 tag for `cues` (+ saved `loops`) into `path`,
+    deleting legacy tags.
 
     When `comment` is a non-empty string, the file's standard comment tag is
     written in the same save; None/empty leaves the existing comment untouched.
     """
     _require_mutagen()
-    payload = build_markers2(cues)
+    payload = build_markers2(cues, loops)
     suffix = path.suffix.lower()
 
     if suffix in (".mp3", ".aiff", ".aif"):
@@ -338,7 +369,9 @@ def write_serato(
     summary = SeratoSummary()
     backup_path = Path(backup_path)
 
-    for content, cues in tracks:
+    for item in tracks:
+        content, cues = item[0], item[1]
+        loops = item[2] if len(item) > 2 else []
         path = Path(_resolve_file_path(content))
         title = content.Title or content.FileNameL or str(path)
         if not path.exists():
@@ -376,7 +409,8 @@ def write_serato(
                         }) + "\n")
             if comment_changed and current_comment:
                 _backup_comment(backup_path, path, current_comment)
-            write_serato_tags(path, cues, comment=comment if comment_changed else None)
+            write_serato_tags(path, cues, comment=comment if comment_changed else None,
+                              loops=loops)
             summary.written += 1
             if comment_changed:
                 summary.comments_updated += 1

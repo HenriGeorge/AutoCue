@@ -353,9 +353,10 @@ from unittest.mock import MagicMock  # noqa: E402
 from autocue.db_writer import read_hot_cues  # noqa: E402
 
 
-def _row(kind, in_msec=0, comment=None, color_table_index=None):
+def _row(kind, in_msec=0, comment=None, color_table_index=None, out_msec=None):
     return SimpleNamespace(
-        Kind=kind, InMsec=in_msec, Comment=comment, ColorTableIndex=color_table_index
+        Kind=kind, InMsec=in_msec, Comment=comment, ColorTableIndex=color_table_index,
+        OutMsec=out_msec,
     )
 
 
@@ -531,3 +532,90 @@ class TestCommentMirroring:
         assert read_comment(flac) is None
         write_comment(flac, "hello")
         assert read_comment(flac) == "hello"
+
+
+# ---------------------------------------------------------------------------
+# Loop export — Rekordbox saved loops -> Serato LOOP entries
+# ---------------------------------------------------------------------------
+
+from autocue.db_writer import read_loops  # noqa: E402
+from autocue.serato_writer import _LOOP_COLOR4  # noqa: E402
+
+_ST_VENV = (
+    "/private/tmp/claude-501/-Users-henrigeorge-Projects-ddj-sx-rekordbox-bridge/"
+    "a3dce9d4-839c-497b-aaf7-af41ef19bffe/scratchpad/st-venv/lib/python3.13/site-packages"
+)
+
+
+def _loop(start, end, name="", locked=False):
+    return {"start_ms": start, "end_ms": end, "name": name, "locked": locked}
+
+
+class TestReadLoops:
+    def test_loop_rows_selected_and_sorted(self):
+        db = _db_with_rows([
+            _row(0, in_msec=60_000, out_msec=68_000, comment="Late"),
+            _row(1, in_msec=10_000, out_msec=18_000, comment="Early"),
+            _row(2, in_msec=30_000, out_msec=-1),          # plain cue, not a loop
+            _row(3, in_msec=40_000, out_msec=None),        # no out point
+            _row(4, in_msec=50_000, out_msec=50_000),      # zero-length: skipped
+        ])
+        loops = read_loops(_content(), db)
+        assert [(l["start_ms"], l["end_ms"], l["name"]) for l in loops] == [
+            (10_000, 18_000, "Early"),
+            (60_000, 68_000, "Late"),
+        ]
+
+    def test_capped_at_eight(self):
+        rows = [_row(0, in_msec=i * 1000, out_msec=i * 1000 + 500) for i in range(12)]
+        assert len(read_loops(_content(), _db_with_rows(rows))) == 8
+
+
+class TestLoopSerialization:
+    def test_loop_entry_matches_reference_implementation(self):
+        import sys
+        if not Path(_ST_VENV).is_dir():
+            pytest.skip("serato-tools reference venv not present")
+        sys.path.insert(0, _ST_VENV)
+        try:
+            from serato_tools.track_cues_v2 import TrackCuesV2
+        finally:
+            sys.path.remove(_ST_VENV)
+        ref = TrackCuesV2.LoopEntry(
+            field1=b"\x00", index=0, startposition=5000, endposition=9000,
+            field5=b"\xff\xff\xff\xff", field6=_LOOP_COLOR4,
+            color=0, locked=False, name="Loop 1",
+        ).dump()
+        payload = build_markers2([], [_loop(5000, 9000, "Loop 1")])
+        # payload = 0101 + "LOOP\0" + len(4) + data + terminator 00
+        data = payload[2 + 5 + 4:-1]
+        assert data == ref
+
+    def test_cues_and_loops_roundtrip(self):
+        cues = [CuePoint(position_ms=1000, label=PhraseLabel.INTRO, slot=0,
+                         name="Intro", color_id=5)]
+        loops = [_loop(5000, 9000, "Main Loop"), _loop(20_000, 28_000, "Outro Loop")]
+        entries = parse_markers2(wrap_outer(build_markers2(cues, loops)))
+        loop_entries = [e for e in entries if e["type"] == "LOOP"]
+        assert [(e["index"], e["start_ms"], e["end_ms"], e["name"]) for e in loop_entries] == [
+            (0, 5000, 9000, "Main Loop"),
+            (1, 20_000, 28_000, "Outro Loop"),
+        ]
+
+    def test_loops_capped_at_eight_in_payload(self):
+        loops = [_loop(i * 1000, i * 1000 + 500) for i in range(10)]
+        entries = parse_markers2(wrap_outer(build_markers2([], loops)))
+        assert sum(1 for e in entries if e["type"] == "LOOP") == 8
+
+
+class TestLoopFileEmbed:
+    def test_mp3_write_and_readback_with_loops(self, tmp_path):
+        path = _minimal_mp3(tmp_path / "loops.mp3")
+        cues = [CuePoint(position_ms=1500, label=PhraseLabel.CHORUS, slot=0,
+                         name="Drop", color_id=2)]
+        write_serato_tags(path, cues, loops=[_loop(4000, 8000, "L1", locked=True)])
+        from mutagen.id3 import ID3
+        entries = parse_markers2(bytes(ID3(str(path))[GEOB_V2].data))
+        assert [e["type"] for e in entries] == ["CUE", "LOOP"]
+        loop = entries[1]
+        assert (loop["start_ms"], loop["end_ms"], loop["name"]) == (4000, 8000, "L1")
