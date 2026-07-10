@@ -186,18 +186,21 @@ def main() -> None:
             sys.exit(1)
         # Mirror-first: Serato receives the exact cues already in the
         # Rekordbox library; only uncued tracks get freshly generated cues.
-        from .db_writer import read_hot_cues
+        from .db_writer import read_hot_cues, read_loops
         export_pairs = []
         print()
         for content, generated, _ in tracks:
             title = content.Title or content.FileNameL or "Unknown"
             existing = read_hot_cues(content, db)
+            loops = read_loops(content, db)
             if existing:
                 print(f"  {title}: mirroring {len(existing)} cue(s) from Rekordbox")
-                export_pairs.append((content, existing))
+                export_pairs.append((content, existing, loops))
+                if loops:
+                    print(f"    + {len(loops)} saved loop(s)")
             elif generated:
                 print(f"  {title}: no Rekordbox cues — using {len(generated)} generated cue(s)")
-                export_pairs.append((content, generated))
+                export_pairs.append((content, generated, loops))
             else:
                 print(f"  {title}: no Rekordbox cues and none generated — skipped")
         try:

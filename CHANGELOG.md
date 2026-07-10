@@ -6,6 +6,11 @@ All notable changes to AutoCue are documented here. Format roughly follows [Keep
 
 ### Added
 
+- `--serato` now also exports **saved loops**: every Rekordbox cue with an
+  out-point (hot cue loops and memory loops) becomes a Serato loop slot
+  (up to 8 per track), byte-verified against the serato-tools reference
+  implementation.
+
 - **Serato export: comment mirroring** — `--serato` now also mirrors the
   Rekordbox track comment (energy/phase annotations like
   "8A - Energy 2 | Warm Up | 4 bar intro") into the file's standard comment

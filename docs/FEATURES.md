@@ -654,7 +654,8 @@ Names, colors and positions carry over exactly.
 
 **Mirror-first:** tracks that already have hot cues in Rekordbox export those
 exact cues (including manual edits); only tracks with no cues at all get freshly
-generated ones. The Rekordbox track comment is mirrored into the file's standard
+generated ones. **Saved loops** (any cue with an out-point) always mirror from
+the Rekordbox library into Serato's loop slots (up to 8 per track). The Rekordbox track comment is mirrored into the file's standard
 comment tag as well (COMM / COMMENT / ©cmt), so Serato's Comment column shows
 your energy/phase annotations. Works with `--track`, `--track-id`, `--library`, `--playlist`,
 `--dry-run` and `--overwrite`.
