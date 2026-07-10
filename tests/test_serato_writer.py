@@ -20,7 +20,9 @@ from autocue.serato_writer import (
     build_markers2,
     has_serato_cues,
     parse_markers2,
+    read_comment,
     wrap_outer,
+    write_comment,
     write_serato,
     write_serato_tags,
 )
@@ -442,3 +444,90 @@ class TestSeratoBase64Dialect:
         cue_entries = [e for e in entries if e["type"] == "CUE"]
         assert [e["name"] for e in cue_entries] == ["Intro", "Verse"]
         assert [e["position_ms"] for e in cue_entries] == [15000, 60500]
+# comment mirroring
+# ---------------------------------------------------------------------------
+
+def _content_with_comment(path, comment, title="Test Track"):
+    c = _make_content(path, title=title)
+    c.Commnt = comment
+    return c
+
+
+class TestCommentMirroring:
+    def test_mp3_comment_written_with_cues(self, tmp_path):
+        from mutagen.id3 import ID3
+
+        mp3 = _minimal_mp3(tmp_path / "t.mp3")
+        summary = write_serato(
+            [(_content_with_comment(mp3, "8A - Energy 2 | Warm Up"), [_make_cue()])],
+            backup_path=tmp_path / "backup.jsonl",
+        )
+        assert summary.written == 1
+        assert summary.comments_updated == 1
+        frames = ID3(str(mp3)).getall("COMM::eng")
+        assert str(frames[0].text[0]) == "8A - Energy 2 | Warm Up"
+
+    def test_flac_comment_written_with_cues(self, tmp_path):
+        from mutagen.flac import FLAC
+
+        flac = _minimal_flac(tmp_path / "t.flac")
+        summary = write_serato(
+            [(_content_with_comment(flac, "11B - Energy 3 | Peak"), [_make_cue()])],
+            backup_path=tmp_path / "backup.jsonl",
+        )
+        assert summary.written == 1
+        assert summary.comments_updated == 1
+        assert FLAC(str(flac))["COMMENT"] == ["11B - Energy 3 | Peak"]
+
+    def test_none_comment_leaves_existing_untouched(self, tmp_path):
+        from mutagen.id3 import ID3
+
+        mp3 = _minimal_mp3(tmp_path / "t.mp3")
+        write_comment(mp3, "hand-written note")
+        summary = write_serato(
+            [(_make_content(mp3), [_make_cue()])],  # no Commnt attribute
+            backup_path=tmp_path / "backup.jsonl",
+        )
+        assert summary.written == 1
+        assert summary.comments_updated == 0
+        frames = ID3(str(mp3)).getall("COMM::eng")
+        assert str(frames[0].text[0]) == "hand-written note"
+
+    def test_skip_existing_cues_still_updates_comment_and_backs_up(self, tmp_path):
+        from mutagen.id3 import ID3
+
+        mp3 = _minimal_mp3(tmp_path / "cued.mp3")
+        write_serato_tags(mp3, [_make_cue(name="Old")], comment="old comment")
+        backup = tmp_path / "backup.jsonl"
+        summary = write_serato(
+            [(_content_with_comment(mp3, "new comment"), [_make_cue(name="New")])],
+            backup_path=backup,
+        )
+        assert summary.skipped_existing == 1
+        assert summary.written == 0
+        assert summary.comments_updated == 1
+        # cues untouched, comment replaced
+        entries = parse_markers2(bytes(ID3(str(mp3))[GEOB_V2].data))
+        assert [e["name"] for e in entries if e["type"] == "CUE"] == ["Old"]
+        frames = ID3(str(mp3)).getall("COMM::eng")
+        assert str(frames[0].text[0]) == "new comment"
+        lines = [json.loads(l) for l in backup.read_text().splitlines()]
+        assert {"tag": "comment", "previous": "old comment"}.items() <= lines[0].items()
+
+    def test_identical_comment_not_rewritten_or_counted(self, tmp_path):
+        mp3 = _minimal_mp3(tmp_path / "cued.mp3")
+        write_serato_tags(mp3, [_make_cue(name="Old")], comment="same")
+        backup = tmp_path / "backup.jsonl"
+        summary = write_serato(
+            [(_content_with_comment(mp3, "same"), [_make_cue(name="New")])],
+            backup_path=backup,
+        )
+        assert summary.skipped_existing == 1
+        assert summary.comments_updated == 0
+        assert not backup.exists()
+
+    def test_read_comment_roundtrip_flac(self, tmp_path):
+        flac = _minimal_flac(tmp_path / "t.flac")
+        assert read_comment(flac) is None
+        write_comment(flac, "hello")
+        assert read_comment(flac) == "hello"

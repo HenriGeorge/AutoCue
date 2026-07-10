@@ -193,14 +193,72 @@ def has_serato_cues(path: Path) -> bool:
     return bool(_read_existing(path))
 
 
-def write_serato_tags(path: Path, cues: list[CuePoint]) -> None:
-    """Write the Markers2 tag for `cues` into `path`, deleting legacy tags."""
+def read_comment(path: Path) -> str | None:
+    """Return the file's standard comment tag, or None if absent."""
+    _require_mutagen()
+    suffix = path.suffix.lower()
+    if suffix in (".mp3", ".aiff", ".aif"):
+        from mutagen.id3 import ID3
+        from mutagen.id3._util import ID3NoHeaderError
+        try:
+            id3 = ID3(str(path))
+        except ID3NoHeaderError:
+            return None
+        frames = id3.getall("COMM::eng")
+        return str(frames[0].text[0]) if frames and frames[0].text else None
+    if suffix == ".flac":
+        from mutagen.flac import FLAC
+        vals = FLAC(str(path)).get("COMMENT")
+        return vals[0] if vals else None
+    if suffix in (".m4a", ".mp4"):
+        from mutagen.mp4 import MP4
+        f = MP4(str(path))
+        vals = f.tags.get("\xa9cmt") if f.tags else None
+        return vals[0] if vals else None
+    return None
+
+
+def write_comment(path: Path, comment: str) -> None:
+    """Write the standard comment tag (COMM::eng / COMMENT / ©cmt)."""
+    _require_mutagen()
+    suffix = path.suffix.lower()
+    if suffix in (".mp3", ".aiff", ".aif"):
+        from mutagen.id3 import COMM, ID3
+        from mutagen.id3._util import ID3NoHeaderError
+        try:
+            id3 = ID3(str(path))
+        except ID3NoHeaderError:
+            id3 = ID3()
+        id3.setall("COMM::eng", [COMM(encoding=3, lang="eng", desc="", text=[comment])])
+        id3.save(str(path), v2_version=4)
+    elif suffix == ".flac":
+        from mutagen.flac import FLAC
+        f = FLAC(str(path))
+        f["COMMENT"] = [comment]
+        f.save()
+    elif suffix in (".m4a", ".mp4"):
+        from mutagen.mp4 import MP4
+        f = MP4(str(path))
+        if f.tags is None:
+            f.add_tags()
+        f.tags["\xa9cmt"] = [comment]
+        f.save()
+    else:
+        raise ValueError(f"Unsupported container for Serato export: {suffix}")
+
+
+def write_serato_tags(path: Path, cues: list[CuePoint], comment: str | None = None) -> None:
+    """Write the Markers2 tag for `cues` into `path`, deleting legacy tags.
+
+    When `comment` is a non-empty string, the file's standard comment tag is
+    written in the same save; None/empty leaves the existing comment untouched.
+    """
     _require_mutagen()
     payload = build_markers2(cues)
     suffix = path.suffix.lower()
 
     if suffix in (".mp3", ".aiff", ".aif"):
-        from mutagen.id3 import GEOB, ID3
+        from mutagen.id3 import COMM, GEOB, ID3
         from mutagen.id3._util import ID3NoHeaderError
         try:
             id3 = ID3(str(path))
@@ -212,6 +270,8 @@ def write_serato_tags(path: Path, cues: list[CuePoint]) -> None:
             [GEOB(encoding=0, mime="application/octet-stream", filename="",
                   desc="Serato Markers2", data=wrap_outer(payload))],
         )
+        if comment:
+            id3.setall("COMM::eng", [COMM(encoding=3, lang="eng", desc="", text=[comment])])
         id3.save(str(path), v2_version=4)
 
     elif suffix == ".flac":
@@ -219,6 +279,8 @@ def write_serato_tags(path: Path, cues: list[CuePoint]) -> None:
         f = FLAC(str(path))
         f.pop("SERATO_MARKERS", None)
         f[FLAC_V2] = build_envelope(payload).decode("ascii")
+        if comment:
+            f["COMMENT"] = [comment]
         f.save()
 
     elif suffix in (".m4a", ".mp4"):
@@ -228,6 +290,8 @@ def write_serato_tags(path: Path, cues: list[CuePoint]) -> None:
             f.add_tags()
         f.tags.pop(MP4_V1, None)
         f.tags[MP4_V2] = [MP4FreeForm(build_envelope(payload))]
+        if comment:
+            f.tags["\xa9cmt"] = [comment]
         f.save()
 
     else:
@@ -242,7 +306,16 @@ class SeratoSummary:
     skipped_existing: int = 0
     unsupported: int = 0
     missing: int = 0
+    comments_updated: int = 0
     errors: list[tuple[str, str]] = field(default_factory=list)
+
+
+def _backup_comment(backup_path: Path, path: Path, previous: str) -> None:
+    with backup_path.open("a", encoding="utf-8") as fh:
+        fh.write(json.dumps({
+            "path": str(path), "tag": "comment",
+            "previous": previous, "ts": int(time.time()),
+        }) + "\n")
 
 
 def write_serato(
@@ -253,9 +326,12 @@ def write_serato(
 ) -> SeratoSummary:
     """Write Serato cue tags for (content, cues) pairs into the audio files.
 
-    Skips files that already carry Serato cues unless `overwrite` — and when
-    overwriting, appends the original tag payloads to `backup_path` (JSONL)
-    so any file can be hand-restored.
+    The Rekordbox track comment (DjmdContent.Commnt) is mirrored into the
+    file's standard comment tag whenever it is non-empty and differs from
+    the file's current comment — including on files whose cue tags are
+    skipped because they already carry Serato cues (`overwrite=False`).
+    Replaced payloads — cue tags and non-empty comments alike — are appended
+    to `backup_path` (JSONL) so any file can be hand-restored.
     """
     from .writer import _resolve_file_path
 
@@ -274,10 +350,21 @@ def write_serato(
             print(f"  {title}: {path.suffix} not supported for Serato export, skipped")
             continue
         try:
+            comment = (getattr(content, "Commnt", None) or "").strip() or None
+            current_comment = read_comment(path) if comment else None
+            comment_changed = comment is not None and comment != (current_comment or "")
+
             existing = _read_existing(path)
             if existing and not overwrite:
                 summary.skipped_existing += 1
-                print(f"  {title}: already has Serato cues, skipped (use --overwrite)")
+                if comment_changed:
+                    if current_comment:
+                        _backup_comment(backup_path, path, current_comment)
+                    write_comment(path, comment)
+                    summary.comments_updated += 1
+                    print(f"  {title}: cues kept (use --overwrite), comment updated")
+                else:
+                    print(f"  {title}: already has Serato cues, skipped (use --overwrite)")
                 continue
             if existing:
                 with backup_path.open("a", encoding="utf-8") as fh:
@@ -287,8 +374,12 @@ def write_serato(
                             "payload_b64": base64.b64encode(raw).decode("ascii"),
                             "ts": int(time.time()),
                         }) + "\n")
-            write_serato_tags(path, cues)
+            if comment_changed and current_comment:
+                _backup_comment(backup_path, path, current_comment)
+            write_serato_tags(path, cues, comment=comment if comment_changed else None)
             summary.written += 1
+            if comment_changed:
+                summary.comments_updated += 1
         except Exception as e:  # keep going; report at the end
             summary.errors.append((str(path), str(e)))
             print(f"  {title}: ERROR — {e}")

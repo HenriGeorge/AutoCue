@@ -209,6 +209,7 @@ def main() -> None:
         print(
             f"\nSerato export: {summary.written} written · "
             f"{summary.skipped_existing} skipped (already cued) · "
+            f"{summary.comments_updated} comment(s) updated · "
             f"{summary.unsupported} unsupported · {summary.missing} missing · "
             f"{len(summary.errors)} error(s)"
         )

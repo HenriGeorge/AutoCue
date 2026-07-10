@@ -450,10 +450,13 @@ autocue --library --serato --overwrite   # replace files' existing Serato cues
 **into the audio files** as Serato DJ Pro tags (MP3/AIFF/FLAC/M4A), with names
 and colors. Tracks that already have hot cues in your Rekordbox library are
 **mirrored exactly** (same positions, names, colors — including any manual
-tweaks); only uncued tracks get freshly generated cues. Files that already
-carry Serato cues are skipped unless `--overwrite` — and any replaced tags are
-backed up to `autocue_serato_backup.jsonl` first. Serato DJ must be closed
-while writing.
+tweaks); only uncued tracks get freshly generated cues. The Rekordbox track
+**comment** (e.g. AutoCue's "8A - Energy 2 | Warm Up | 4 bar intro" enrichment)
+is mirrored into the file's standard comment tag too, so Serato's Comment
+column shows it. Files that already carry Serato cues keep their cue tags
+unless `--overwrite` (a changed comment is still updated) — and any replaced
+tags or comments are backed up to `autocue_serato_backup.jsonl` first.
+Serato DJ must be closed while writing.
 
 > **Note:** Serato caches file tags in its library. Tracks already imported in
 > Serato need **Files panel → "Rescan ID3 Tags"** before the new cues appear;

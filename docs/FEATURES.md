@@ -654,14 +654,17 @@ Names, colors and positions carry over exactly.
 
 **Mirror-first:** tracks that already have hot cues in Rekordbox export those
 exact cues (including manual edits); only tracks with no cues at all get freshly
-generated ones. Works with `--track`, `--track-id`, `--library`, `--playlist`,
+generated ones. The Rekordbox track comment is mirrored into the file's standard
+comment tag as well (COMM / COMMENT / ©cmt), so Serato's Comment column shows
+your energy/phase annotations. Works with `--track`, `--track-id`, `--library`, `--playlist`,
 `--dry-run` and `--overwrite`.
 
 ### Safety
 
 - Serato DJ must be closed (the CLI refuses otherwise — Serato caches file tags).
-- Files that already carry Serato cues are skipped unless `--overwrite`; replaced
-  tag payloads are appended to `autocue_serato_backup.jsonl` for hand-restore.
+- Files that already carry Serato cues keep their cue tags unless `--overwrite`,
+  but a changed comment is still updated; replaced tag payloads and overwritten
+  comments are appended to `autocue_serato_backup.jsonl` for hand-restore.
 - Supported: MP3, AIFF, FLAC, M4A. WAV/OGG are skipped with a notice.
 
 ### Serato caveat
