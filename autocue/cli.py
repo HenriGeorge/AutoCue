@@ -148,7 +148,9 @@ def main() -> None:
             print("No tracks found in library.")
             sys.exit(0)
 
-        if not args.overwrite:
+        # For Serato export, tracks with existing Rekordbox cues are exactly
+        # the ones to mirror — the skip filter only applies to the XML path.
+        if not args.overwrite and not args.serato:
             filtered = []
             for content, cues, mode in tracks:
                 n = has_existing_hot_cues(content, db)
@@ -180,11 +182,23 @@ def main() -> None:
                 file=sys.stderr,
             )
             sys.exit(1)
+        # Mirror-first: Serato receives the exact cues already in the
+        # Rekordbox library; only uncued tracks get freshly generated cues.
+        from .db_writer import read_hot_cues
+        export_pairs = []
+        print()
+        for content, generated, _ in tracks:
+            title = content.Title or content.FileNameL or "Unknown"
+            existing = read_hot_cues(content, db)
+            if existing:
+                print(f"  {title}: mirroring {len(existing)} cue(s) from Rekordbox")
+                export_pairs.append((content, existing))
+            else:
+                print(f"  {title}: no Rekordbox cues — using {len(generated)} generated cue(s)")
+                export_pairs.append((content, generated))
         try:
             from .serato_writer import write_serato
-            summary = write_serato(
-                [(c, cues) for c, cues, _ in tracks], overwrite=args.overwrite
-            )
+            summary = write_serato(export_pairs, overwrite=args.overwrite)
         except RuntimeError as e:
             print(f"Error: {e}", file=sys.stderr)
             sys.exit(1)
