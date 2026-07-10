@@ -327,6 +327,12 @@ class TestResolveFilePath:
         c = self._content(folder="/Music", file_l="track.mp3")
         assert _resolve_file_path(c) == "/Music/track.mp3"
 
+    def test_rekordbox7_full_path_in_folder_not_doubled(self):
+        # Rekordbox 7 stores the FULL path (filename included) in FolderPath;
+        # joining the filename again produced /Music/track.mp3/track.mp3.
+        c = self._content(folder="/Music/track.mp3", file_l="track.mp3")
+        assert _resolve_file_path(c) == "/Music/track.mp3"
+
     def test_folder_path_none_uses_empty_string(self):
         c = self._content(folder=None, file_l="track.mp3")
         result = _resolve_file_path(c)
