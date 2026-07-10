@@ -8,7 +8,11 @@ autocue/
   analyzer.py    — reads ANLZ .EXT (PSSI phrases) + .DAT (PQTZ beat grid)
   generator.py   — per-track strategy: phrase → bar → heuristic; GenerationPrefs dataclass
   writer.py      — writes CuePoints to Rekordbox XML via pyrekordbox.rbxml
-  db_writer.py   — writes CuePoints directly to DjmdCue; backup + Rekordbox-running check
+  db_writer.py   — writes CuePoints directly to DjmdCue; backup + Rekordbox-running check;
+                   read_hot_cues() reads them back (Serato mirror source)
+  serato_writer.py — writes CuePoints into audio files as Serato Markers2 tags
+                   (MP3/AIFF GEOB, FLAC vorbis, M4A atom); Serato base64 dialect ('='→'A'),
+                   deletes legacy Markers_ (Serato prefers it), backup JSONL on overwrite
   cli.py         — argparse CLI; --track / --track-id / --library / --playlist; `autocue serve`
                    subcommand now also accepts --reset-cache (TASK-020).
   cache.py       — Sidecar SQLite at <rekordbox_dir>/autocue_cache.sqlite (TASK-010). CacheStore

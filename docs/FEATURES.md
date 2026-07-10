@@ -644,6 +644,32 @@ If a cue has `confidence == null && phraseMode == null` — indicating it was pl
 
 ---
 
+## Feature 13b: Serato Export (CLI)
+
+### What it does
+
+`autocue --library --serato` writes your hot cues **into the audio files themselves**
+as Serato DJ Pro tags, so the same cue prep serves both Rekordbox and Serato.
+Names, colors and positions carry over exactly.
+
+**Mirror-first:** tracks that already have hot cues in Rekordbox export those
+exact cues (including manual edits); only tracks with no cues at all get freshly
+generated ones. Works with `--track`, `--track-id`, `--library`, `--playlist`,
+`--dry-run` and `--overwrite`.
+
+### Safety
+
+- Serato DJ must be closed (the CLI refuses otherwise — Serato caches file tags).
+- Files that already carry Serato cues are skipped unless `--overwrite`; replaced
+  tag payloads are appended to `autocue_serato_backup.jsonl` for hand-restore.
+- Supported: MP3, AIFF, FLAC, M4A. WAV/OGG are skipped with a notice.
+
+### Serato caveat
+
+Serato only reads file tags on first import. Tracks **already in Serato's
+library** need Files panel → "Rescan ID3 Tags" (or remove + re-add) before the
+new cues appear. Fresh imports show cues immediately.
+
 ## Feature 14: New-Release Discovery (Discover v2)
 
 ### What it does
