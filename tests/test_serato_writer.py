@@ -128,7 +128,9 @@ class TestWrapOuter:
         out = wrap_outer(GOLDEN_PAYLOAD)
         b64 = out[2:].split(b"\x00", 1)[0].replace(b"\n", b"")
         decoded = base64.b64decode(b64 + b"=" * (-len(b64) % 4))
-        assert decoded == GOLDEN_PAYLOAD
+        # '=' padding is replaced with 'A' (Serato's dialect), which decodes
+        # to harmless trailing NUL-ish bytes past the payload terminator.
+        assert decoded.startswith(GOLDEN_PAYLOAD)
 
     def test_linefeed_every_72_chars(self):
         payload = build_markers2(_eight_cues())
@@ -338,3 +340,105 @@ class TestWriteSerato:
         s = SeratoSummary()
         assert (s.written, s.skipped_existing, s.unsupported, s.missing) == (0, 0, 0, 0)
         assert s.errors == []
+
+
+# ---------------------------------------------------------------------------
+# read_hot_cues (db_writer) — mirror-first source for Serato export
+# ---------------------------------------------------------------------------
+
+from unittest.mock import MagicMock  # noqa: E402
+
+from autocue.db_writer import read_hot_cues  # noqa: E402
+
+
+def _row(kind, in_msec=0, comment=None, color_table_index=None):
+    return SimpleNamespace(
+        Kind=kind, InMsec=in_msec, Comment=comment, ColorTableIndex=color_table_index
+    )
+
+
+def _db_with_rows(rows):
+    db = MagicMock()
+    q = MagicMock()
+    q.filter.return_value = q
+    q.all.return_value = rows
+    db.query.return_value = q
+    return db
+
+
+def _content(id=1, title="Track"):
+    return SimpleNamespace(ID=id, Title=title)
+
+
+class TestReadHotCues:
+    def test_kind_maps_to_slot_and_sorted(self):
+        db = _db_with_rows([
+            _row(3, 30_000, "Drop", 2),
+            _row(1, 10_000, "Intro", 5),
+            _row(2, 20_000, "Verse", 7),
+        ])
+        cues = read_hot_cues(_content(), db)
+        assert [(c.slot, c.position_ms, c.name, c.color_id) for c in cues] == [
+            (0, 10_000, "Intro", 5),
+            (1, 20_000, "Verse", 7),
+            (2, 30_000, "Drop", 2),
+        ]
+
+    def test_comment_falls_back_to_slot_letter(self):
+        cues = read_hot_cues(_content(), _db_with_rows([_row(1), _row(4)]))
+        assert [c.name for c in cues] == ["A", "D"]
+
+    def test_none_color_and_msec_default_to_zero(self):
+        cues = read_hot_cues(
+            _content(), _db_with_rows([_row(2, in_msec=None, color_table_index=None)])
+        )
+        assert cues[0].position_ms == 0
+        assert cues[0].color_id == 0
+
+    def test_invalid_kind_rows_skipped(self):
+        cues = read_hot_cues(
+            _content(), _db_with_rows([_row(None), _row(9), _row(1, 5000)])
+        )
+        assert len(cues) == 1
+        assert cues[0].slot == 0
+
+    def test_label_is_unknown(self):
+        cues = read_hot_cues(_content(), _db_with_rows([_row(1)]))
+        assert cues[0].label is PhraseLabel.UNKNOWN
+
+    def test_empty_library_row_set(self):
+        assert read_hot_cues(_content(), _db_with_rows([])) == []
+
+    def test_roundtrip_into_markers2(self):
+        """Mirrored Rekordbox cues serialize into a valid Serato payload."""
+        db = _db_with_rows([_row(1, 15_000, "Intro", 5), _row(2, 60_000, "Drop", 2)])
+        cues = read_hot_cues(_content(), db)
+        entries = parse_markers2(wrap_outer(build_markers2(cues)))
+        assert [(e["index"], e["position_ms"], e["name"]) for e in entries] == [
+            (0, 15_000, "Intro"),
+            (1, 60_000, "Drop"),
+        ]
+
+
+class TestSeratoBase64Dialect:
+    """Serato's parser silently rejects '=' padding — encoder must never emit it."""
+
+    def test_wrap_outer_never_contains_padding_char(self):
+        # try payload lengths across all three base64 padding cases
+        for extra in range(3):
+            cues = [
+                CuePoint(position_ms=1000, label=PhraseLabel.INTRO, slot=0,
+                         name="x" * (5 + extra), color_id=2),
+            ]
+            out = wrap_outer(build_markers2(cues))
+            assert b"=" not in out, f"padding char leaked for name length {5 + extra}"
+
+    def test_padding_replaced_with_A_still_roundtrips(self):
+        cues = [CuePoint(position_ms=15000, label=PhraseLabel.INTRO, slot=0,
+                         name="Intro", color_id=5),
+                CuePoint(position_ms=60500, label=PhraseLabel.VERSE, slot=1,
+                         name="Verse", color_id=7)]
+        entries = parse_markers2(wrap_outer(build_markers2(cues)))
+        cue_entries = [e for e in entries if e["type"] == "CUE"]
+        assert [e["name"] for e in cue_entries] == ["Intro", "Verse"]
+        assert [e["position_ms"] for e in cue_entries] == [15000, 60500]

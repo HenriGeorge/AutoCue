@@ -40,7 +40,7 @@ Honour `prefers-reduced-motion`. Reference `var(--token)`; never hardcode hexes.
 
 AutoCue places hot cues on Rekordbox 7 tracks automatically and analyses a DJ library, across three surfaces:
 
-1. **Python CLI** (`autocue/`) — reads Rekordbox's database and ANLZ files directly. Fallback strategy: phrase → bar → heuristic. Outputs a Rekordbox XML for import.
+1. **Python CLI** (`autocue/`) — reads Rekordbox's database and ANLZ files directly. Fallback strategy: phrase → bar → heuristic. Outputs a Rekordbox XML for import, or with `--serato` writes the cues into the audio files as Serato DJ Pro tags (mirror-first: existing Rekordbox cues win over generation; `autocue/serato_writer.py`).
 2. **Local server** (`autocue serve`) — FastAPI at `localhost:7432`. Serves the web UI and exposes a REST API that reads/writes the Rekordbox database directly. **All intelligence features** (energy, mixability, classification, similar tracks, transitions, set builder, library health, auto-tagging, comment enrichment, Discogs, discovery, download) are only available in this mode.
 3. **Web app** (`docs/index.html` + `docs/css/` + `docs/js/`) — browser-based, multi-file, **no build step**. Static / GitHub-Pages-ready (XML in/out); **Pages is live** at https://henrigeorge.github.io/AutoCue/ (serves `docs/` from `main`, enabled 2026-06-16; `docs/.nojekyll` makes assets serve as-is) — but the hosted app is XML-only, so the full local-mode feature set still requires `autocue serve`. In local mode the **2.0 "Crate Console" workbench is the default home** (`docs/js/v2/`, default-on; opt-out `ac_workbench='0'`): rail places (Library, Duplicates, Discover) + ⌘K palette + crates. **The Cues/Library tab bar is retired** — the buttons (`#tab-group`) are CSS-hidden; `#tab-nav` stays only as the `#app-status` status-sentence row. **Cues** is the default centre; **Library** (health/cue-tools/discogs/comments/playlist-suggest/set-builder) is the `#wb-library-place` rail place. `switchTab` is load-bearing for the rail-place centre-pane swaps. **P4 Nightboard** is the full-bleed set-canvas *mode* the workbench swaps into. The workbench inspector shows a "Transition in" advisory card (anchor=now-playing via ACBridge.nowPlayingId(), reuses POST /api/transitions/score, no new backend). XML/Pages mode is frozen. Program: `.claude/PRPs/prds/autocue-2-program.prd.md`; current state: `HANDOFF.md`.
 
@@ -63,6 +63,7 @@ flowchart LR
     DB --> CLI
     ANLZ --> CLI
     CLI -->|writes| XML["Rekordbox XML<br/>for import"]
+    CLI -->|"--serato: tags into audio files"| SER["Serato DJ Pro<br/>Markers2 tags"]
 
     DB <-->|read / write| SRV
     ANLZ --> SRV

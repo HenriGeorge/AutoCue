@@ -6,9 +6,11 @@ All notable changes to AutoCue are documented here. Format roughly follows [Keep
 
 ### Added
 
-- **Serato export (`--serato`)** — the CLI can now write generated cues directly
+- **Serato export (`--serato`)** — the CLI can now write cues directly
   into the audio files as Serato DJ Pro "Serato Markers2" tags (MP3/AIFF/FLAC/M4A),
-  with cue names and colors, instead of producing a Rekordbox XML
+  with cue names and colors, instead of producing a Rekordbox XML. Tracks with
+  existing Rekordbox hot cues are mirrored exactly (positions, names, colors);
+  only uncued tracks get freshly generated cues
   (`autocue/serato_writer.py`). Skips files that already carry Serato cues unless
   `--overwrite`; replaced tags are backed up to `autocue_serato_backup.jsonl`;
   refuses to run while a Serato DJ process is open. Legacy `Serato Markers_`

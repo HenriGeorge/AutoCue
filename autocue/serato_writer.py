@@ -99,8 +99,13 @@ def build_markers2(cues: list[CuePoint]) -> bytes:
 
 
 def wrap_outer(payload: bytes) -> bytes:
-    """Outer tag structure: raw 0101 + linefed base64 + NUL pad to 470 bytes."""
-    b64 = base64.b64encode(payload).decode("ascii")
+    """Outer tag structure: raw 0101 + linefed base64 + NUL pad to 470 bytes.
+
+    Serato's base64 dialect NEVER emits '=' padding — its parser silently
+    rejects tags that contain it. Standard '=' chars are replaced with 'A',
+    matching what Serato itself and the reference implementations write.
+    """
+    b64 = base64.b64encode(payload).decode("ascii").replace("=", "A")
     lined = "\n".join(b64[i:i + 72] for i in range(0, len(b64), 72))
     out = b"\x01\x01" + lined.encode("ascii")
     if len(out) < _MIN_TAG_LEN:

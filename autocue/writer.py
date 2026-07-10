@@ -55,7 +55,13 @@ def write_xml(
 
 
 def _resolve_file_path(content: DjmdContent) -> str:
-    """Build the absolute file path for a track from its DjmdContent record."""
+    """Build the absolute file path for a track from its DjmdContent record.
+
+    Rekordbox 7 stores the FULL path (filename included) in FolderPath;
+    older versions store the parent folder only. Handle both.
+    """
     folder = content.FolderPath or ""
     filename = content.FileNameL or content.FileNameS or ""
+    if filename and folder.endswith(filename):
+        return folder
     return os.path.join(folder, filename)

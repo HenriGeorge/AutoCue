@@ -45,6 +45,11 @@ autocue --library --serato --overwrite  # replace files' existing Serato cues
 
 ## Cue mapping
 
+- **Mirror-first (added after user feedback):** tracks with existing Rekordbox
+  hot cues export those exact cues (`db_writer.read_hot_cues`, the inverse of
+  `write_cues_to_db`: Kind→slot, Comment→name, ColorTableIndex→color_id);
+  generation is the fallback for uncued tracks only. The library-mode
+  skip-if-cued filter does not apply to `--serato`.
 - slots 0–7 → Serato cue indexes 0–7 (A–H); memory cues (slot -1) are dropped
   (Serato has no equivalent).
 - names pass through; colors: DjmdColor id → nearest Serato palette RGB
