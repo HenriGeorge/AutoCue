@@ -646,6 +646,8 @@ If a cue has `confidence == null && phraseMode == null` — indicating it was pl
 
 ## Feature 13b: Serato Export (CLI)
 
+> Step-by-step user guide: [docs/guides/serato.html](guides/serato.html) (also linked from the DJ Learning Guides page in the web app).
+
 ### What it does
 
 `autocue --library --serato` writes your hot cues **into the audio files themselves**

@@ -1,0 +1,328 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Rekordbox → Serato — DJ Learning Guides</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg: #ffffff; --surface: #f5f5f8; --surface2: #eaeaef;
+      --border: #e0e0e8; --border-hover: #c4c4d0;
+      --green: #159a05; --green-dim: #0f6e03;
+      --text: #111118; --muted: #888898; --warn: #c07800; --danger: #c02010;
+      --font: 'Inter', system-ui, sans-serif;
+      --mono: 'JetBrains Mono', 'Fira Code', monospace;
+    }
+    html.dark {
+      --bg: #0d0d0f; --surface: #16161a; --surface2: #1e1e24;
+      --border: #2a2a35; --border-hover: #3a3a48;
+      --green: #28e214; --green-dim: #1a9a0d;
+      --text: #e8e8f0; --muted: #6b6b80; --warn: #ffa000; --danger: #e0301e;
+    }
+    body { background: var(--bg); color: var(--text); font-family: var(--font);
+           font-size: 15px; line-height: 1.7; min-height: 100vh; }
+    header { border-bottom: 1px solid var(--border); padding: 16px 40px;
+             display: flex; align-items: center; gap: 16px; position: sticky; top: 0;
+             background: var(--bg); z-index: 100; }
+    .logo { display: flex; align-items: center; gap: 10px; text-decoration: none; }
+    .logo-icon { width: 30px; height: 30px; background: var(--green); border-radius: 7px;
+                 display: flex; align-items: center; justify-content: center; }
+    .logo-icon svg { width: 16px; height: 16px; }
+    .logo-text { font-size: 17px; font-weight: 700; color: var(--text); letter-spacing: -0.5px; }
+    header nav { margin-left: auto; display: flex; gap: 20px; align-items: center; }
+    header a { color: var(--muted); text-decoration: none; font-size: 14px; }
+    header a:hover { color: var(--text); }
+    .theme-btn { background: none; border: 1px solid var(--border); border-radius: 6px;
+                 padding: 3px 9px; cursor: pointer; color: var(--muted); font-size: 13px; }
+
+    .layout { display: flex; max-width: 1100px; margin: 0 auto; padding: 0 24px; }
+    .toc { width: 220px; flex-shrink: 0; padding: 40px 0; position: sticky; top: 62px;
+           height: calc(100vh - 62px); overflow-y: auto; }
+    .toc ul { list-style: none; }
+    .toc li { margin-bottom: 2px; }
+    .toc a { color: var(--muted); text-decoration: none; font-size: 13px;
+             display: block; padding: 3px 0; border-left: 2px solid transparent;
+             padding-left: 12px; transition: all .15s; }
+    .toc a:hover, .toc a.active { color: var(--text); border-left-color: var(--green); }
+    .toc .toc-h2 { font-weight: 600; margin-top: 12px; }
+    .toc .toc-h3 { padding-left: 24px; font-size: 12px; }
+    .toc-title { font-size: 11px; font-weight: 700; text-transform: uppercase;
+                 letter-spacing: 1px; color: var(--muted); padding-left: 12px; margin-bottom: 8px; }
+
+    article { flex: 1; min-width: 0; padding: 40px 0 40px 40px; }
+    .hero { margin-bottom: 48px; }
+    .hero-badge { display: inline-block; background: var(--green); color: #fff;
+                  border-radius: 20px; padding: 3px 12px; font-size: 12px;
+                  font-weight: 700; letter-spacing: 0.5px; margin-bottom: 16px; }
+    h1 { font-size: 40px; font-weight: 800; letter-spacing: -1.5px; line-height: 1.1; margin-bottom: 16px; }
+    .lead { font-size: 18px; color: var(--muted); max-width: 600px; }
+
+    h2 { font-size: 26px; font-weight: 700; letter-spacing: -0.5px;
+         margin: 52px 0 20px; padding-top: 8px;
+         border-top: 2px solid var(--border); }
+    h3 { font-size: 18px; font-weight: 600; margin: 32px 0 12px; }
+    h4 { font-size: 15px; font-weight: 600; margin: 20px 0 8px; color: var(--muted); }
+    p { margin-bottom: 16px; }
+    ul, ol { padding-left: 24px; margin-bottom: 16px; }
+    li { margin-bottom: 6px; }
+    strong { font-weight: 600; }
+    a { color: var(--green-dim); }
+    html.dark a { color: var(--green); }
+    a:hover { text-decoration: underline; }
+    code { font-family: var(--mono); font-size: 13px; background: var(--surface2);
+           border-radius: 4px; padding: 1px 5px; }
+
+    .callout { background: var(--surface); border-left: 3px solid var(--green);
+               border-radius: 0 8px 8px 0; padding: 14px 18px; margin: 20px 0; }
+    .callout.warn { border-left-color: var(--warn); }
+    .callout.danger { border-left-color: var(--danger); }
+    .callout strong { display: block; margin-bottom: 4px; }
+
+    .step-list { counter-reset: steps; list-style: none; padding: 0; }
+    .step-list li { counter-increment: steps; padding-left: 40px; position: relative;
+                    margin-bottom: 14px; }
+    .step-list li::before { content: counter(steps); position: absolute; left: 0; top: 2px;
+                             width: 26px; height: 26px; background: var(--green);
+                             border-radius: 50%; display: flex; align-items: center;
+                             justify-content: center; font-size: 12px; font-weight: 700;
+                             color: #fff; }
+
+    .shortcut-table { width: 100%; border-collapse: collapse; margin: 16px 0; }
+    .shortcut-table th, .shortcut-table td { padding: 10px 14px; text-align: left;
+                                              border-bottom: 1px solid var(--border); font-size: 14px; }
+    .shortcut-table th { color: var(--muted); font-size: 12px; font-weight: 600;
+                         text-transform: uppercase; letter-spacing: 0.5px; }
+    .shortcut-table tr:last-child td { border-bottom: none; }
+    kbd { font-family: var(--mono); font-size: 12px; background: var(--surface2);
+          border: 1px solid var(--border); border-radius: 4px; padding: 1px 6px; }
+
+    .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin: 16px 0; }
+    .card { background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
+            padding: 18px; }
+    .card h4 { margin-top: 0; }
+
+    .diagram { margin: 24px 0; border-radius: 10px; overflow: hidden; border: 1px solid var(--border); }
+    .diagram svg { display: block; width: 100%; }
+    .diagram-caption { font-size: 12px; color: var(--muted); text-align: center; padding: 8px; background: var(--surface); }
+    .spec-table { width: 100%; border-collapse: collapse; margin: 16px 0; font-size: 14px; }
+    .spec-table th { background: var(--surface2); padding: 10px 14px; text-align: left; font-size: 12px;
+                     font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; color: var(--muted); }
+    .spec-table td { padding: 10px 14px; border-bottom: 1px solid var(--border); }
+    .spec-table tr:last-child td { border-bottom: none; }
+    .spec-table td:first-child { font-weight: 600; color: var(--muted); font-size: 13px; }
+    .spec-table .yes { color: var(--green); font-weight: 700; }
+    .spec-table .no { color: var(--muted); }
+    .spec-table .new-badge { background: var(--green); color: #fff; border-radius: 3px; padding: 1px 5px; font-size: 10px; font-weight: 700; margin-left: 4px; }
+    .stat-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin: 16px 0; }
+    .stat-box { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 16px; text-align: center; }
+    .stat-num { font-size: 28px; font-weight: 800; color: var(--green); letter-spacing: -1px; }
+    .stat-label { font-size: 12px; color: var(--muted); margin-top: 4px; }
+    .mistake-list { list-style: none; padding: 0; }
+    .mistake-list li { padding: 12px 16px; background: var(--surface); border-radius: 8px;
+                       margin-bottom: 8px; border-left: 3px solid var(--danger); font-size: 14px; }
+    .mistake-list li strong { color: var(--danger); }
+
+    .resources { background: var(--surface); border-radius: 12px; padding: 24px; margin-top: 20px; }
+    .resources h3 { margin-top: 0; }
+    .resource-item { display: flex; align-items: flex-start; gap: 10px; margin-bottom: 12px; }
+    .resource-tag { background: var(--surface2); border-radius: 4px; padding: 2px 8px;
+                    font-size: 11px; font-weight: 600; color: var(--muted); flex-shrink: 0; margin-top: 2px; }
+
+    .print-btn { background: var(--surface); border: 1px solid var(--border); border-radius: 8px;
+                 padding: 8px 18px; cursor: pointer; color: var(--text); font-size: 14px;
+                 margin-bottom: 32px; display: inline-flex; align-items: center; gap: 8px; }
+    .print-btn:hover { border-color: var(--border-hover); }
+
+    @media (max-width: 768px) { .toc { display: none; } .layout { padding: 0 16px; }
+      article { padding: 32px 0; } h1 { font-size: 28px; } .two-col { grid-template-columns: 1fr; } }
+    @media print {
+      header, .toc, .print-btn { display: none; }
+      .layout { display: block; }
+      article { padding: 0; }
+      h2 { page-break-before: always; }
+      .callout, .card { page-break-inside: avoid; }
+      a { color: var(--text); }
+      a[href]::after { content: " (" attr(href) ")"; font-size: 11px; color: var(--muted); }
+    }
+  </style>
+</head>
+<body>
+<header>
+  <a class="logo" href="../index.html">
+    <div class="logo-icon">
+      <svg viewBox="0 0 20 20" fill="none" stroke="white" stroke-width="2">
+        <circle cx="10" cy="10" r="7"/><circle cx="10" cy="10" r="2"/>
+      </svg>
+    </div>
+    <span class="logo-text">AutoCue</span>
+  </a>
+  <nav>
+    <a href="index.html">← Guides</a>
+    <a href="../index.html">App</a>
+    <button class="theme-btn" onclick="toggleTheme()">&#9788;</button>
+  </nav>
+</header>
+
+<div class="layout">
+  <nav class="toc" id="toc">
+    <div class="toc-title">Contents</div>
+    <ul>
+      <li><a class="toc-h2" href="#why">Why Bridge to Serato</a></li>
+      <li><a class="toc-h2" href="#how">How It Works</a></li>
+      <li><a class="toc-h3" href="#what-transfers">What Transfers</a></li>
+      <li><a class="toc-h2" href="#setup">Setup</a></li>
+      <li><a class="toc-h2" href="#usage">Running the Export</a></li>
+      <li><a class="toc-h3" href="#flags">Command Reference</a></li>
+      <li><a class="toc-h2" href="#rescan">The Serato Cache Gotcha</a></li>
+      <li><a class="toc-h2" href="#rerun">Re-runs &amp; Safety</a></li>
+      <li><a class="toc-h2" href="#formats">Supported Formats</a></li>
+      <li><a class="toc-h2" href="#troubleshoot">Troubleshooting</a></li>
+      <li><a class="toc-h2" href="#resources">Resources</a></li>
+    </ul>
+  </nav>
+
+  <article>
+    <button class="print-btn" onclick="window.print()">🖨️ Save as PDF</button>
+
+    <div class="hero">
+      <div class="hero-badge">Guide 4 of 4</div>
+      <h1>Rekordbox → Serato</h1>
+      <p class="lead">Prep your cues once in Rekordbox with AutoCue, then carry them — names, colors and comments included — into Serato DJ Pro with a single command.</p>
+    </div>
+
+    <!-- ─── WHY ─── -->
+    <h2 id="why">Why Bridge to Serato</h2>
+    <p>Rekordbox is a great <em>preparation</em> environment — AutoCue's phrase analysis, energy scores and comment enrichment all live there. But many controllers are Serato-native: a Pioneer DDJ-SX, for example, gives you every fader, jog and pad in Serato while Rekordbox won't even talk to it without a paid plan.</p>
+    <p>The Serato export ends that either/or. Your hot cues and enriched comments travel <strong>inside the music files themselves</strong>, so the library you prepped in Rekordbox arrives in Serato ready to play:</p>
+    <ul>
+      <li><strong>Prep</strong> in Rekordbox — AutoCue places and names cues, enriches comments.</li>
+      <li><strong>Export</strong> once — <code>autocue --library --serato</code> mirrors everything into the files.</li>
+      <li><strong>Mix</strong> in Serato — cues on the pads, comments in the browser, full hardware support.</li>
+    </ul>
+
+    <!-- ─── HOW ─── -->
+    <h2 id="how">How It Works</h2>
+    <p>Serato stores hot cues in a tag <em>inside each audio file</em> (the reverse-engineered <code>Serato Markers2</code> format). AutoCue writes that tag directly — no Serato-side import tool, no intermediate files.</p>
+    <p>The export is <strong>mirror-first</strong>: tracks that already have hot cues in your Rekordbox library export <em>those exact cues</em> — positions to the millisecond, names and colors included, manual tweaks preserved. Only tracks with no cues at all fall back to freshly generated ones.</p>
+
+    <h3 id="what-transfers">What Transfers</h3>
+    <table class="spec-table">
+      <tr><th>Rekordbox</th><th>Serato</th><th>Notes</th></tr>
+      <tr><td>Hot cues A–H</td><td class="yes">✓ Cue pads 1–8</td><td>exact position, name and color</td></tr>
+      <tr><td>Track comment</td><td class="yes">✓ Comment column</td><td>e.g. AutoCue's <code>8A - Energy 2 | Warm Up | 4 bar intro</code></td></tr>
+      <tr><td>Memory cues</td><td class="no">✗</td><td>Serato has no equivalent</td></tr>
+      <tr><td>Beatgrid / loops</td><td class="no">✗</td><td>Serato analyses its own</td></tr>
+      <tr><td>Playlists</td><td class="no">✗</td><td>not exported (yet)</td></tr>
+    </table>
+
+    <!-- ─── SETUP ─── -->
+    <h2 id="setup">Setup</h2>
+    <ol class="step-list">
+      <li>Install AutoCue with the Serato extra: <code>pip install 'autocue[serato]'</code> (adds the <code>mutagen</code> tag library).</li>
+      <li>Quit <strong>both Rekordbox and Serato</strong>. Rekordbox locks its database while open; Serato caches file tags and the CLI refuses to run while it is open.</li>
+      <li>That's it — no Serato-side configuration.</li>
+    </ol>
+
+    <!-- ─── USAGE ─── -->
+    <h2 id="usage">Running the Export</h2>
+    <p>Preview first, then write:</p>
+    <ol class="step-list">
+      <li><code>autocue --library --serato --dry-run</code> — shows every track and cue that would be written; nothing is touched.</li>
+      <li><code>autocue --library --serato</code> — writes the tags. Expect a per-track line (<em>mirroring 8 cue(s) from Rekordbox</em>) and a final summary: written · skipped · comments updated · unsupported · missing.</li>
+      <li>Open Serato and import your music. Fresh imports show the cues and comments immediately.</li>
+    </ol>
+
+    <h3 id="flags">Command Reference</h3>
+    <table class="shortcut-table">
+      <tr><th>Command</th><th>What it does</th></tr>
+      <tr><td><code>--library --serato</code></td><td>export the whole Rekordbox library</td></tr>
+      <tr><td><code>--track "Title" --serato</code></td><td>one track by title</td></tr>
+      <tr><td><code>--library --playlist "NAME" --serato</code></td><td>only tracks in a Rekordbox playlist</td></tr>
+      <tr><td><code>… --dry-run</code></td><td>preview, write nothing</td></tr>
+      <tr><td><code>… --overwrite</code></td><td>replace existing Serato cues (originals backed up)</td></tr>
+    </table>
+
+    <!-- ─── RESCAN ─── -->
+    <h2 id="rescan">The Serato Cache Gotcha</h2>
+    <div class="callout danger">
+      <strong>Serato reads file tags on FIRST import only.</strong>
+      If a track was already in Serato's library <em>before</em> you exported, Serato keeps showing its cached (cue-less) state — even after restarting. Fix: in Serato's <strong>Files panel</strong>, select the affected tracks and click <strong>Rescan ID3 Tags</strong> (or remove the tracks from the library and re-add them). Tracks imported <em>after</em> the export need nothing.
+    </div>
+
+    <!-- ─── RERUN ─── -->
+    <h2 id="rerun">Re-runs &amp; Safety</h2>
+    <p>The export is designed to be run repeatedly — after every prep session:</p>
+    <ul>
+      <li><strong>Existing Serato cues are kept.</strong> Files that already carry Serato cues are skipped unless you pass <code>--overwrite</code> — cues set by other tools (or Serato itself) survive.</li>
+      <li><strong>Comments still update.</strong> A changed Rekordbox comment is written even when the cues are skipped, so enrichment stays in sync.</li>
+      <li><strong>Everything replaced is backed up.</strong> Overwritten cue payloads and previous comments are appended to <code>autocue_serato_backup.jsonl</code> in the working directory.</li>
+      <li><strong>Only metadata is touched.</strong> The audio stream is never rewritten.</li>
+    </ul>
+
+    <!-- ─── FORMATS ─── -->
+    <h2 id="formats">Supported Formats</h2>
+    <table class="spec-table">
+      <tr><th>Format</th><th>Supported</th><th>Where the tag lives</th></tr>
+      <tr><td>MP3</td><td class="yes">✓</td><td>ID3 GEOB frame</td></tr>
+      <tr><td>AIFF</td><td class="yes">✓</td><td>ID3 GEOB frame</td></tr>
+      <tr><td>FLAC</td><td class="yes">✓</td><td>Vorbis comment field</td></tr>
+      <tr><td>M4A / AAC / ALAC</td><td class="yes">✓</td><td>MP4 freeform atom</td></tr>
+      <tr><td>WAV / OGG</td><td class="no">✗ skipped</td><td>reported in the summary, files untouched</td></tr>
+    </table>
+
+    <!-- ─── TROUBLESHOOT ─── -->
+    <h2 id="troubleshoot">Troubleshooting</h2>
+    <ul class="mistake-list">
+      <li><strong>Cues don't appear in Serato</strong> — the track was already in Serato's library. Files panel → <em>Rescan ID3 Tags</em>, or remove + re-add it. See <a href="#rescan">the cache gotcha</a>.</li>
+      <li><strong>"Serato DJ appears to be running"</strong> — quit Serato fully (the CLI refuses on purpose; a running Serato can overwrite or ignore fresh tags).</li>
+      <li><strong>"file not found" lines in the summary</strong> — those Rekordbox entries point at files that were moved or deleted. Fix them in Rekordbox (Relocate) and re-run.</li>
+      <li><strong>WAV tracks show as unsupported</strong> — expected; Serato tag support for WAV isn't implemented. Convert to AIFF/FLAC if you need cues on those.</li>
+    </ul>
+
+    <!-- ─── RESOURCES ─── -->
+    <h2 id="resources">Resources</h2>
+    <div class="resources">
+      <h3>Related</h3>
+      <div class="resource-item">
+        <span class="resource-tag">Guide</span>
+        <div><a href="rekordbox.html">Rekordbox Mastery</a> — prepare your library before exporting</div>
+      </div>
+      <div class="resource-item">
+        <span class="resource-tag">Docs</span>
+        <div><a href="https://github.com/HenriGeorge/AutoCue/blob/main/docs/FEATURES.md" target="_blank" rel="noopener">FEATURES.md — Serato Export</a> — full feature reference</div>
+      </div>
+      <div class="resource-item">
+        <span class="resource-tag">Tool</span>
+        <div><a href="../index.html">AutoCue Web App</a> — place the cues you'll be exporting</div>
+      </div>
+    </div>
+
+  </article>
+</div>
+
+<script>
+  function toggleTheme() {
+    document.documentElement.classList.toggle('dark');
+    localStorage.setItem('theme', document.documentElement.classList.contains('dark') ? 'dark' : 'light');
+  }
+  if (localStorage.getItem('theme') === 'dark' || (!localStorage.getItem('theme') && matchMedia('(prefers-color-scheme: dark)').matches)) {
+    document.documentElement.classList.add('dark');
+  }
+
+  // Highlight active TOC link on scroll
+  const sections = document.querySelectorAll('h2[id], h3[id]');
+  const tocLinks = document.querySelectorAll('.toc a');
+  const observer = new IntersectionObserver(entries => {
+    entries.forEach(e => {
+      if (e.isIntersecting) {
+        tocLinks.forEach(l => l.classList.remove('active'));
+        const link = document.querySelector(`.toc a[href="#${e.target.id}"]`);
+        if (link) link.classList.add('active');
+      }
+    });
+  }, { rootMargin: '-20% 0px -70% 0px' });
+  sections.forEach(s => observer.observe(s));
+</script>
+</body>
+</html>
