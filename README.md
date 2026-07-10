@@ -437,6 +437,25 @@ autocue --library --db-path "C:\path\to\master.db"
 
 Output is a Rekordbox XML file. Import it in Rekordbox via **File → Import Library**.
 
+#### Serato export
+
+```bash
+pip install -e ".[serato]"          # one-time: adds mutagen
+
+autocue --library --serato          # write cues into the audio files as Serato tags
+autocue --library --serato --overwrite   # replace files' existing Serato cues
+```
+
+`--serato` switches the output: instead of a Rekordbox XML, cues are written
+**into the audio files** as Serato DJ Pro tags (MP3/AIFF/FLAC/M4A), with names
+and colors. Files that already carry Serato cues are skipped unless
+`--overwrite` — and any replaced tags are backed up to
+`autocue_serato_backup.jsonl` first. Serato DJ must be closed while writing.
+
+> **Note:** Serato caches file tags in its library. Tracks already imported in
+> Serato need **Files panel → "Rescan ID3 Tags"** before the new cues appear;
+> freshly imported tracks pick them up automatically.
+
 #### Cue placement strategy (auto mode)
 
 The CLI tries three strategies in order, using the best available data:

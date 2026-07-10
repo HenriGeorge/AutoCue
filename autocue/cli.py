@@ -75,6 +75,14 @@ def main() -> None:
         help="Filter --library mode to tracks in the named Rekordbox playlist",
     )
     parser.add_argument(
+        "--serato",
+        action="store_true",
+        help=(
+            "Write cues into the audio files as Serato DJ Pro tags "
+            "instead of producing a Rekordbox XML"
+        ),
+    )
+    parser.add_argument(
         "--db-path",
         metavar="PATH",
         help=(
@@ -164,9 +172,51 @@ def main() -> None:
         print("\nDry run — no files written.")
         return
 
+    if args.serato:
+        if _serato_running():
+            print(
+                "Error: Serato DJ appears to be running. Close Serato DJ first — "
+                "it caches file tags and may overwrite or ignore the new cues.",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+        try:
+            from .serato_writer import write_serato
+            summary = write_serato(
+                [(c, cues) for c, cues, _ in tracks], overwrite=args.overwrite
+            )
+        except RuntimeError as e:
+            print(f"Error: {e}", file=sys.stderr)
+            sys.exit(1)
+        print(
+            f"\nSerato export: {summary.written} written · "
+            f"{summary.skipped_existing} skipped (already cued) · "
+            f"{summary.unsupported} unsupported · {summary.missing} missing · "
+            f"{len(summary.errors)} error(s)"
+        )
+        print(
+            "Tracks already in Serato's library need Files panel > "
+            '"Rescan ID3 Tags" in Serato before the new cues appear.'
+        )
+        return
+
     output = write_xml([(c, cues) for c, cues, _ in tracks], args.output)
     print(f"\nWrote {output}")
     print("Import in Rekordbox: File > Import Library > select the XML file above.")
+
+
+def _serato_running() -> bool:
+    """True if a Serato DJ process is running (tags are cached while open)."""
+    import psutil
+
+    for proc in psutil.process_iter(["name"]):
+        try:
+            name = proc.info.get("name") or ""
+        except (psutil.NoSuchProcess, psutil.AccessDenied):
+            continue
+        if "serato" in name.lower():
+            return True
+    return False
 
 
 def _process_all(db: MasterDatabase, prefs: GenerationPrefs) -> list[tuple]:
