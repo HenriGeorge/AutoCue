@@ -672,6 +672,17 @@ your energy/phase annotations. Works with `--track`, `--track-id`, `--library`, 
   `autocue_serato_backup.jsonl` for hand-restore.
 - Supported: MP3, AIFF, FLAC, M4A. WAV/OGG are skipped with a notice.
 
+### Loop generation (`--loops`)
+
+`autocue --library --loops` generates up to two loops per phrase-analyzed
+track — *Mix In Loop* (last 4/8 bars of the intro) and *Mix Out Loop* (first
+4/8 bars of the outro) — and saves them as Rekordbox **memory loops**
+(database backed up first; manual memory cues/loops are preserved unless
+`--overwrite`). With `autocue[loops]` (librosa) each loop seam is validated
+on the real audio and suspect candidates are rejected; verdicts are cached in
+the sidecar keyed by `anlz_mtime`. Combined with `--serato`, the loops flow
+into Serato's loop slots in the same run.
+
 ### Serato caveat
 
 Serato only reads file tags on first import. Tracks **already in Serato's
