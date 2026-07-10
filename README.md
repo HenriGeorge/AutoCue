@@ -456,7 +456,9 @@ is mirrored into the file's standard comment tag too, so Serato's Comment
 column shows it. **Saved loops** (any Rekordbox cue with an out-point — hot
 cue loops and memory loops alike) are exported as Serato loop slots, up to 8
 per track. Files that already carry Serato cues keep their cue tags
-unless `--overwrite` (a changed comment is still updated) — and any replaced
+unless `--overwrite`. Re-runs are **incremental**: a per-track fingerprint in
+`autocue_serato_state.json` means only tracks whose cues, loops or comment
+actually changed get rewritten — unchanged files are not touched at all. Any replaced
 tags or comments are backed up to `autocue_serato_backup.jsonl` first.
 Serato DJ must be closed while writing.
 

@@ -211,7 +211,7 @@ def main() -> None:
             sys.exit(1)
         print(
             f"\nSerato export: {summary.written} written · "
-            f"{summary.skipped_existing} skipped (already cued) · "
+            f"{summary.unchanged} unchanged (incremental) · "
             f"{summary.comments_updated} comment(s) updated · "
             f"{summary.unsupported} unsupported · {summary.missing} missing · "
             f"{len(summary.errors)} error(s)"

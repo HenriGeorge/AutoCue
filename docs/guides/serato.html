@@ -255,7 +255,7 @@
     <h2 id="rerun">Re-runs &amp; Safety</h2>
     <p>The export is designed to be run repeatedly — after every prep session:</p>
     <ul>
-      <li><strong>Existing Serato cues are kept.</strong> Files that already carry Serato cues are skipped unless you pass <code>--overwrite</code> — cues set by other tools (or Serato itself) survive.</li>
+      <li><strong>Only changed tracks are rewritten.</strong> A per-track fingerprint (<code>autocue_serato_state.json</code>) makes re-runs incremental: files whose cues, loops and comment are unchanged since the last export are not touched at all. Anything replaced is backed up first.</li>
       <li><strong>Comments still update.</strong> A changed Rekordbox comment is written even when the cues are skipped, so enrichment stays in sync.</li>
       <li><strong>Everything replaced is backed up.</strong> Overwritten cue payloads and previous comments are appended to <code>autocue_serato_backup.jsonl</code> in the working directory.</li>
       <li><strong>Only metadata is touched.</strong> The audio stream is never rewritten.</li>
