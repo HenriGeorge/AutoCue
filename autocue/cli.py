@@ -116,7 +116,8 @@ def main() -> None:
             sys.exit(1)
         content, _ = result
         cues, mode = generate_cues_for_track(content, db, prefs)
-        if not cues:
+        if not cues and not args.serato:
+            # --serato can still mirror existing Rekordbox cues below
             print(f"No cue data generated for {args.track!r}.")
             sys.exit(0)
         tracks = [(content, cues, mode)]
@@ -128,7 +129,8 @@ def main() -> None:
             sys.exit(1)
         content, _ = result
         cues, mode = generate_cues_for_track(content, db, prefs)
-        if not cues:
+        if not cues and not args.serato:
+            # --serato can still mirror existing Rekordbox cues below
             print(f"No cue data generated for track ID={args.track_id}.")
             sys.exit(0)
         tracks = [(content, cues, mode)]
@@ -193,9 +195,11 @@ def main() -> None:
             if existing:
                 print(f"  {title}: mirroring {len(existing)} cue(s) from Rekordbox")
                 export_pairs.append((content, existing))
-            else:
+            elif generated:
                 print(f"  {title}: no Rekordbox cues — using {len(generated)} generated cue(s)")
                 export_pairs.append((content, generated))
+            else:
+                print(f"  {title}: no Rekordbox cues and none generated — skipped")
         try:
             from .serato_writer import write_serato
             summary = write_serato(export_pairs, overwrite=args.overwrite)
