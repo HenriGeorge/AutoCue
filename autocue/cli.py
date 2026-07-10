@@ -116,7 +116,8 @@ def main() -> None:
             sys.exit(1)
         content, _ = result
         cues, mode = generate_cues_for_track(content, db, prefs)
-        if not cues:
+        if not cues and not args.serato:
+            # --serato can still mirror existing Rekordbox cues below
             print(f"No cue data generated for {args.track!r}.")
             sys.exit(0)
         tracks = [(content, cues, mode)]
@@ -128,7 +129,8 @@ def main() -> None:
             sys.exit(1)
         content, _ = result
         cues, mode = generate_cues_for_track(content, db, prefs)
-        if not cues:
+        if not cues and not args.serato:
+            # --serato can still mirror existing Rekordbox cues below
             print(f"No cue data generated for track ID={args.track_id}.")
             sys.exit(0)
         tracks = [(content, cues, mode)]
@@ -148,7 +150,9 @@ def main() -> None:
             print("No tracks found in library.")
             sys.exit(0)
 
-        if not args.overwrite:
+        # For Serato export, tracks with existing Rekordbox cues are exactly
+        # the ones to mirror — the skip filter only applies to the XML path.
+        if not args.overwrite and not args.serato:
             filtered = []
             for content, cues, mode in tracks:
                 n = has_existing_hot_cues(content, db)
@@ -180,17 +184,32 @@ def main() -> None:
                 file=sys.stderr,
             )
             sys.exit(1)
+        # Mirror-first: Serato receives the exact cues already in the
+        # Rekordbox library; only uncued tracks get freshly generated cues.
+        from .db_writer import read_hot_cues
+        export_pairs = []
+        print()
+        for content, generated, _ in tracks:
+            title = content.Title or content.FileNameL or "Unknown"
+            existing = read_hot_cues(content, db)
+            if existing:
+                print(f"  {title}: mirroring {len(existing)} cue(s) from Rekordbox")
+                export_pairs.append((content, existing))
+            elif generated:
+                print(f"  {title}: no Rekordbox cues — using {len(generated)} generated cue(s)")
+                export_pairs.append((content, generated))
+            else:
+                print(f"  {title}: no Rekordbox cues and none generated — skipped")
         try:
             from .serato_writer import write_serato
-            summary = write_serato(
-                [(c, cues) for c, cues, _ in tracks], overwrite=args.overwrite
-            )
+            summary = write_serato(export_pairs, overwrite=args.overwrite)
         except RuntimeError as e:
             print(f"Error: {e}", file=sys.stderr)
             sys.exit(1)
         print(
             f"\nSerato export: {summary.written} written · "
             f"{summary.skipped_existing} skipped (already cued) · "
+            f"{summary.comments_updated} comment(s) updated · "
             f"{summary.unsupported} unsupported · {summary.missing} missing · "
             f"{len(summary.errors)} error(s)"
         )

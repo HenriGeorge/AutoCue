@@ -6,7 +6,7 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
-from .models import CuePoint
+from .models import CuePoint, PhraseLabel
 
 BACKUP_DIR = Path.home() / ".autocue" / "backups"
 logger = logging.getLogger(__name__)
@@ -142,6 +142,41 @@ def has_existing_memory_cues(content, db) -> int:
         .filter(DjmdCue.ContentID == content.ID, DjmdCue.Kind == 0)
         .count()
     )
+
+
+def read_hot_cues(content, db) -> list[CuePoint]:
+    """Read the track's existing hot cues (Kind 1-8) back as CuePoints.
+
+    Inverse of write_cues_to_db's mapping: Kind = slot + 1, Comment = name,
+    ColorTableIndex = color_id. Sorted by slot; rows with a missing or
+    out-of-range Kind are skipped.
+    """
+    from pyrekordbox.db6 import DjmdCue
+
+    rows = (
+        db.query(DjmdCue)
+        .filter(DjmdCue.ContentID == content.ID, DjmdCue.Kind >= 1, DjmdCue.Kind <= 8)
+        .all()
+    )
+    cues: list[CuePoint] = []
+    for row in rows:
+        try:
+            kind = int(row.Kind)
+        except (TypeError, ValueError):
+            continue
+        if not 1 <= kind <= 8:
+            continue
+        slot = kind - 1
+        cues.append(
+            CuePoint(
+                position_ms=int(row.InMsec or 0),
+                label=PhraseLabel.UNKNOWN,
+                slot=slot,
+                name=row.Comment or chr(ord("A") + slot),
+                color_id=int(row.ColorTableIndex or 0),
+            )
+        )
+    return sorted(cues, key=lambda c: c.slot)
 
 
 def delete_tracks(
