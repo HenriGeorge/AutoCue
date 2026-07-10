@@ -24,7 +24,9 @@ Requires mutagen: pip install 'autocue[serato]'
 from __future__ import annotations
 
 import base64
+import hashlib
 import json
+import os
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -331,10 +333,49 @@ def write_serato_tags(path: Path, cues: list[CuePoint], comment: str | None = No
 
 # -------------------------------------------------------------- orchestration
 
+def fingerprint(cues: list[CuePoint], loops: list[dict] | None, comment: str | None) -> str:
+    """Stable hash of everything the export writes for one track.
+
+    Canonicalizes to the EFFECTIVE exported values (name fallback, resolved
+    RGB) so any change that would alter the file changes the fingerprint,
+    and nothing else does.
+    """
+    canon = {
+        "cues": [
+            [c.slot, c.position_ms, (c.name or c.label.value), _cue_rgb(c).hex()]
+            for c in sorted(cues, key=lambda c: c.slot)
+            if 0 <= c.slot <= 7
+        ],
+        "loops": [
+            [int(l["start_ms"]), int(l["end_ms"]), str(l.get("name") or ""),
+             bool(l.get("locked"))]
+            for l in (loops or [])[:8]
+        ],
+        "comment": comment or "",
+    }
+    blob = json.dumps(canon, separators=(",", ":"), ensure_ascii=False)
+    return hashlib.sha1(blob.encode("utf-8")).hexdigest()
+
+
+def _load_state(path: Path) -> dict:
+    """Track-ID -> fingerprint map from the last run; {} when missing/corrupt."""
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        return data if isinstance(data, dict) else {}
+    except Exception:
+        return {}
+
+
+def _save_state(path: Path, state: dict) -> None:
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    tmp.write_text(json.dumps(state, indent=0), encoding="utf-8")
+    os.replace(tmp, path)
+
+
 @dataclass
 class SeratoSummary:
     written: int = 0
-    skipped_existing: int = 0
+    unchanged: int = 0
     unsupported: int = 0
     missing: int = 0
     comments_updated: int = 0
@@ -354,20 +395,24 @@ def write_serato(
     *,
     overwrite: bool = False,
     backup_path: str | Path = "autocue_serato_backup.jsonl",
+    state_path: str | Path = "autocue_serato_state.json",
 ) -> SeratoSummary:
-    """Write Serato cue tags for (content, cues) pairs into the audio files.
+    """Write Serato tags for (content, cues[, loops]) items into the audio files.
 
-    The Rekordbox track comment (DjmdContent.Commnt) is mirrored into the
-    file's standard comment tag whenever it is non-empty and differs from
-    the file's current comment — including on files whose cue tags are
-    skipped because they already carry Serato cues (`overwrite=False`).
-    Replaced payloads — cue tags and non-empty comments alike — are appended
-    to `backup_path` (JSONL) so any file can be hand-restored.
+    INCREMENTAL by default: a per-track fingerprint of everything exported
+    (cues, loops, comment) is kept in `state_path`; tracks whose fingerprint
+    matches the last run — and whose file already carries Serato tags — are
+    left completely untouched (no write, no mtime change). Anything new or
+    changed is (re)written, with existing tag payloads and replaced comments
+    appended to `backup_path` (JSONL) for hand-restore. `overwrite=True`
+    ignores the state and rewrites everything (state still updated).
     """
     from .writer import _resolve_file_path
 
     summary = SeratoSummary()
     backup_path = Path(backup_path)
+    state_path = Path(state_path)
+    state = _load_state(state_path)
 
     for item in tracks:
         content, cues = item[0], item[1]
@@ -384,21 +429,16 @@ def write_serato(
             continue
         try:
             comment = (getattr(content, "Commnt", None) or "").strip() or None
-            current_comment = read_comment(path) if comment else None
-            comment_changed = comment is not None and comment != (current_comment or "")
+            fp = fingerprint(cues, loops, comment)
+            track_id = str(getattr(content, "ID", None) or path)
 
             existing = _read_existing(path)
-            if existing and not overwrite:
-                summary.skipped_existing += 1
-                if comment_changed:
-                    if current_comment:
-                        _backup_comment(backup_path, path, current_comment)
-                    write_comment(path, comment)
-                    summary.comments_updated += 1
-                    print(f"  {title}: cues kept (use --overwrite), comment updated")
-                else:
-                    print(f"  {title}: already has Serato cues, skipped (use --overwrite)")
+            if not overwrite and existing and state.get(track_id) == fp:
+                summary.unchanged += 1
                 continue
+
+            current_comment = read_comment(path) if comment else None
+            comment_changed = comment is not None and comment != (current_comment or "")
             if existing:
                 with backup_path.open("a", encoding="utf-8") as fh:
                     for tag, raw in existing.items():
@@ -412,10 +452,12 @@ def write_serato(
             write_serato_tags(path, cues, comment=comment if comment_changed else None,
                               loops=loops)
             summary.written += 1
+            state[track_id] = fp
             if comment_changed:
                 summary.comments_updated += 1
         except Exception as e:  # keep going; report at the end
             summary.errors.append((str(path), str(e)))
             print(f"  {title}: ERROR — {e}")
 
+    _save_state(state_path, state)
     return summary

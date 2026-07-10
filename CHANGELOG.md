@@ -4,6 +4,11 @@ All notable changes to AutoCue are documented here. Format roughly follows [Keep
 
 ## [Unreleased]
 
+- Serato export is now **incremental**: a per-track fingerprint of the
+  exported cues/loops/comment (`autocue_serato_state.json`) means re-runs
+  only rewrite tracks that actually changed; unchanged files keep their
+  mtime. `--overwrite` still forces a full rewrite. Summary line now
+  reports `unchanged (incremental)`.
 ### Added
 
 - `--serato` now also exports **saved loops**: every Rekordbox cue with an

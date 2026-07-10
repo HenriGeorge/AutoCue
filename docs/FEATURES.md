@@ -665,9 +665,11 @@ your energy/phase annotations. Works with `--track`, `--track-id`, `--library`, 
 ### Safety
 
 - Serato DJ must be closed (the CLI refuses otherwise — Serato caches file tags).
-- Files that already carry Serato cues keep their cue tags unless `--overwrite`,
-  but a changed comment is still updated; replaced tag payloads and overwritten
-  comments are appended to `autocue_serato_backup.jsonl` for hand-restore.
+- Re-runs are incremental: a per-track fingerprint (`autocue_serato_state.json`)
+  means only tracks whose cues/loops/comment changed are rewritten — unchanged
+  files are untouched (mtime preserved). `--overwrite` forces a full rewrite.
+  Replaced tag payloads and overwritten comments are appended to
+  `autocue_serato_backup.jsonl` for hand-restore.
 - Supported: MP3, AIFF, FLAC, M4A. WAV/OGG are skipped with a notice.
 
 ### Serato caveat

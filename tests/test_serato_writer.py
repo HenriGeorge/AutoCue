@@ -281,21 +281,26 @@ class TestWriteSerato:
         summary = write_serato(
             [(_make_content(mp3), [_make_cue()])],
             backup_path=tmp_path / "backup.jsonl",
+            state_path=tmp_path / "state.json",
         )
         assert summary.written == 1
-        assert summary.skipped_existing == 0
+        assert summary.unchanged == 0
         assert not (tmp_path / "backup.jsonl").exists()  # nothing replaced
         assert has_serato_cues(mp3)
 
-    def test_skips_existing_without_overwrite(self, tmp_path):
+    def test_existing_tags_unknown_state_rewritten_with_backup(self, tmp_path):
+        # Incremental semantics: with no state entry, existing tags are
+        # REWRITTEN (backed up first) — skip now requires a fingerprint match.
         mp3 = _minimal_mp3(tmp_path / "cued.mp3")
         write_serato_tags(mp3, [_make_cue(name="Old")])
         summary = write_serato(
             [(_make_content(mp3), [_make_cue(name="New")])],
             backup_path=tmp_path / "backup.jsonl",
+            state_path=tmp_path / "state.json",
         )
-        assert summary.skipped_existing == 1
-        assert summary.written == 0
+        assert summary.written == 1
+        assert summary.unchanged == 0
+        assert (tmp_path / "backup.jsonl").exists()
 
     def test_overwrite_writes_and_backs_up(self, tmp_path):
         from mutagen.id3 import ID3
@@ -309,6 +314,7 @@ class TestWriteSerato:
             [(_make_content(mp3), [_make_cue(name="New")])],
             overwrite=True,
             backup_path=backup,
+            state_path=tmp_path / "state.json",
         )
         assert summary.written == 1
 
@@ -324,6 +330,7 @@ class TestWriteSerato:
         summary = write_serato(
             [(_make_content(gone), [_make_cue()])],
             backup_path=tmp_path / "backup.jsonl",
+            state_path=tmp_path / "state.json",
         )
         assert summary.missing == 1
         assert summary.written == 0
@@ -334,13 +341,14 @@ class TestWriteSerato:
         summary = write_serato(
             [(_make_content(wav), [_make_cue()])],
             backup_path=tmp_path / "backup.jsonl",
+            state_path=tmp_path / "state.json",
         )
         assert summary.unsupported == 1
         assert summary.written == 0
 
     def test_summary_dataclass_defaults(self):
         s = SeratoSummary()
-        assert (s.written, s.skipped_existing, s.unsupported, s.missing) == (0, 0, 0, 0)
+        assert (s.written, s.unchanged, s.unsupported, s.missing) == (0, 0, 0, 0)
         assert s.errors == []
 
 
@@ -462,6 +470,7 @@ class TestCommentMirroring:
         summary = write_serato(
             [(_content_with_comment(mp3, "8A - Energy 2 | Warm Up"), [_make_cue()])],
             backup_path=tmp_path / "backup.jsonl",
+            state_path=tmp_path / "state.json",
         )
         assert summary.written == 1
         assert summary.comments_updated == 1
@@ -475,6 +484,7 @@ class TestCommentMirroring:
         summary = write_serato(
             [(_content_with_comment(flac, "11B - Energy 3 | Peak"), [_make_cue()])],
             backup_path=tmp_path / "backup.jsonl",
+            state_path=tmp_path / "state.json",
         )
         assert summary.written == 1
         assert summary.comments_updated == 1
@@ -488,13 +498,14 @@ class TestCommentMirroring:
         summary = write_serato(
             [(_make_content(mp3), [_make_cue()])],  # no Commnt attribute
             backup_path=tmp_path / "backup.jsonl",
+            state_path=tmp_path / "state.json",
         )
         assert summary.written == 1
         assert summary.comments_updated == 0
         frames = ID3(str(mp3)).getall("COMM::eng")
         assert str(frames[0].text[0]) == "hand-written note"
 
-    def test_skip_existing_cues_still_updates_comment_and_backs_up(self, tmp_path):
+    def test_changed_comment_rewrites_and_backs_up_both(self, tmp_path):
         from mutagen.id3 import ID3
 
         mp3 = _minimal_mp3(tmp_path / "cued.mp3")
@@ -503,29 +514,32 @@ class TestCommentMirroring:
         summary = write_serato(
             [(_content_with_comment(mp3, "new comment"), [_make_cue(name="New")])],
             backup_path=backup,
+            state_path=tmp_path / "state.json",
         )
-        assert summary.skipped_existing == 1
-        assert summary.written == 0
+        assert summary.written == 1
         assert summary.comments_updated == 1
-        # cues untouched, comment replaced
+        # full rewrite: cues AND comment updated; both originals backed up
         entries = parse_markers2(bytes(ID3(str(mp3))[GEOB_V2].data))
-        assert [e["name"] for e in entries if e["type"] == "CUE"] == ["Old"]
+        assert [e["name"] for e in entries if e["type"] == "CUE"] == ["New"]
         frames = ID3(str(mp3)).getall("COMM::eng")
         assert str(frames[0].text[0]) == "new comment"
         lines = [json.loads(l) for l in backup.read_text().splitlines()]
-        assert {"tag": "comment", "previous": "old comment"}.items() <= lines[0].items()
+        tags = {rec["tag"] for rec in lines}
+        assert GEOB_V2 in tags
+        assert any(rec.get("previous") == "old comment" for rec in lines)
 
-    def test_identical_comment_not_rewritten_or_counted(self, tmp_path):
+    def test_identical_comment_not_counted_on_rewrite(self, tmp_path):
         mp3 = _minimal_mp3(tmp_path / "cued.mp3")
         write_serato_tags(mp3, [_make_cue(name="Old")], comment="same")
         backup = tmp_path / "backup.jsonl"
         summary = write_serato(
             [(_content_with_comment(mp3, "same"), [_make_cue(name="New")])],
             backup_path=backup,
+            state_path=tmp_path / "state.json",
         )
-        assert summary.skipped_existing == 1
+        # cue change forces a rewrite, but the unchanged comment is not counted
+        assert summary.written == 1
         assert summary.comments_updated == 0
-        assert not backup.exists()
 
     def test_read_comment_roundtrip_flac(self, tmp_path):
         flac = _minimal_flac(tmp_path / "t.flac")
@@ -619,3 +633,93 @@ class TestLoopFileEmbed:
         assert [e["type"] for e in entries] == ["CUE", "LOOP"]
         loop = entries[1]
         assert (loop["start_ms"], loop["end_ms"], loop["name"]) == (4000, 8000, "L1")
+
+
+# ---------------------------------------------------------------------------
+# incremental export — fingerprint + state store
+# ---------------------------------------------------------------------------
+
+from autocue.serato_writer import fingerprint  # noqa: E402
+
+
+class TestFingerprint:
+    def test_stable_for_same_data(self):
+        cues = [_make_cue(name="Intro"), _make_cue(slot=1, pos=2000, name="Drop")]
+        loops = [{"start_ms": 100, "end_ms": 900, "name": "L", "locked": False}]
+        assert fingerprint(cues, loops, "c") == fingerprint(list(cues), list(loops), "c")
+
+    def test_any_field_change_changes_hash(self):
+        base_cues = [_make_cue(name="Intro")]
+        base_loops = [{"start_ms": 100, "end_ms": 900, "name": "L", "locked": False}]
+        base = fingerprint(base_cues, base_loops, "c")
+        assert fingerprint([_make_cue(name="Other")], base_loops, "c") != base
+        assert fingerprint([_make_cue(pos=1001)], base_loops, "c") != base
+        assert fingerprint(base_cues, [{**base_loops[0], "end_ms": 901}], "c") != base
+        assert fingerprint(base_cues, base_loops, "different") != base
+        assert fingerprint(base_cues, [], "c") != base
+
+    def test_memory_cues_ignored(self):
+        mem = _make_cue(slot=-1)
+        assert fingerprint([_make_cue(), mem], [], None) == fingerprint([_make_cue()], [], None)
+
+
+class TestIncrementalState:
+    def _run(self, tmp_path, mp3, cues, comment=None, **kw):
+        content = (_content_with_comment(mp3, comment) if comment
+                   else _make_content(mp3))
+        return write_serato(
+            [(content, cues)],
+            backup_path=tmp_path / "backup.jsonl",
+            state_path=tmp_path / "state.json",
+            **kw,
+        )
+
+    def test_first_run_writes_and_creates_state(self, tmp_path):
+        mp3 = _minimal_mp3(tmp_path / "t.mp3")
+        summary = self._run(tmp_path, mp3, [_make_cue()])
+        assert summary.written == 1
+        state = json.loads((tmp_path / "state.json").read_text())
+        assert len(state) == 1
+
+    def test_second_run_unchanged_touches_nothing(self, tmp_path):
+        mp3 = _minimal_mp3(tmp_path / "t.mp3")
+        self._run(tmp_path, mp3, [_make_cue()])
+        mtime = mp3.stat().st_mtime_ns
+        summary = self._run(tmp_path, mp3, [_make_cue()])
+        assert summary.written == 0
+        assert summary.unchanged == 1
+        assert mp3.stat().st_mtime_ns == mtime  # file untouched
+
+    def test_cue_change_rewrites_only_that_file(self, tmp_path):
+        from mutagen.id3 import ID3
+        a = _minimal_mp3(tmp_path / "a.mp3")
+        b = _minimal_mp3(tmp_path / "b.mp3")
+        pairs = lambda name_a: [
+            (_make_content(a), [_make_cue(name=name_a)]),
+            (_make_content(b), [_make_cue(name="B")]),
+        ]
+        write_serato(pairs("A1"), backup_path=tmp_path / "backup.jsonl",
+                     state_path=tmp_path / "state.json")
+        b_mtime = b.stat().st_mtime_ns
+        summary = write_serato(pairs("A2"), backup_path=tmp_path / "backup.jsonl",
+                               state_path=tmp_path / "state.json")
+        assert (summary.written, summary.unchanged) == (1, 1)
+        assert b.stat().st_mtime_ns == b_mtime
+        entries = parse_markers2(bytes(ID3(str(a))[GEOB_V2].data))
+        assert entries[0]["name"] == "A2"
+        assert (tmp_path / "backup.jsonl").exists()  # replaced payload backed up
+
+    def test_corrupt_state_graceful_full_pass(self, tmp_path):
+        mp3 = _minimal_mp3(tmp_path / "t.mp3")
+        self._run(tmp_path, mp3, [_make_cue()])
+        (tmp_path / "state.json").write_text("{ not json !!")
+        summary = self._run(tmp_path, mp3, [_make_cue()])
+        assert summary.written == 1  # falls back to rewriting
+        json.loads((tmp_path / "state.json").read_text())  # state healed
+
+    def test_overwrite_ignores_state(self, tmp_path):
+        mp3 = _minimal_mp3(tmp_path / "t.mp3")
+        self._run(tmp_path, mp3, [_make_cue()])
+        summary = self._run(tmp_path, mp3, [_make_cue()], overwrite=True)
+        assert summary.written == 1
+        assert summary.unchanged == 0
