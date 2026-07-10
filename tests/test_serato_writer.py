@@ -128,7 +128,9 @@ class TestWrapOuter:
         out = wrap_outer(GOLDEN_PAYLOAD)
         b64 = out[2:].split(b"\x00", 1)[0].replace(b"\n", b"")
         decoded = base64.b64decode(b64 + b"=" * (-len(b64) % 4))
-        assert decoded == GOLDEN_PAYLOAD
+        # '=' padding is replaced with 'A' (Serato's dialect), which decodes
+        # to harmless trailing NUL-ish bytes past the payload terminator.
+        assert decoded.startswith(GOLDEN_PAYLOAD)
 
     def test_linefeed_every_72_chars(self):
         payload = build_markers2(_eight_cues())
@@ -416,3 +418,27 @@ class TestReadHotCues:
             (0, 15_000, "Intro"),
             (1, 60_000, "Drop"),
         ]
+
+
+class TestSeratoBase64Dialect:
+    """Serato's parser silently rejects '=' padding — encoder must never emit it."""
+
+    def test_wrap_outer_never_contains_padding_char(self):
+        # try payload lengths across all three base64 padding cases
+        for extra in range(3):
+            cues = [
+                CuePoint(position_ms=1000, label=PhraseLabel.INTRO, slot=0,
+                         name="x" * (5 + extra), color_id=2),
+            ]
+            out = wrap_outer(build_markers2(cues))
+            assert b"=" not in out, f"padding char leaked for name length {5 + extra}"
+
+    def test_padding_replaced_with_A_still_roundtrips(self):
+        cues = [CuePoint(position_ms=15000, label=PhraseLabel.INTRO, slot=0,
+                         name="Intro", color_id=5),
+                CuePoint(position_ms=60500, label=PhraseLabel.VERSE, slot=1,
+                         name="Verse", color_id=7)]
+        entries = parse_markers2(wrap_outer(build_markers2(cues)))
+        cue_entries = [e for e in entries if e["type"] == "CUE"]
+        assert [e["name"] for e in cue_entries] == ["Intro", "Verse"]
+        assert [e["position_ms"] for e in cue_entries] == [15000, 60500]
