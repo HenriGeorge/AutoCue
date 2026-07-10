@@ -1,0 +1,340 @@
+"""Tests for autocue/serato_writer.py"""
+from __future__ import annotations
+
+import base64
+import json
+from pathlib import Path
+from types import SimpleNamespace
+
+import pytest
+
+pytest.importorskip("mutagen")
+
+from autocue.models import CuePoint, PhraseLabel
+from autocue.serato_writer import (
+    FLAC_V2,
+    GEOB_V1,
+    GEOB_V2,
+    SeratoSummary,
+    build_envelope,
+    build_markers2,
+    has_serato_cues,
+    parse_markers2,
+    wrap_outer,
+    write_serato,
+    write_serato_tags,
+)
+
+# Researcher-verified worked example: CUE idx 0, 1000 ms, #CC0000, "Intro"
+GOLDEN_PAYLOAD = bytes.fromhex(
+    "010143554500000000120000000003e800cc00000000496e74726f0000"
+)
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+def _make_cue(pos=1000, slot=0, name="Intro", color_id=2, label=PhraseLabel.INTRO):
+    return CuePoint(position_ms=pos, label=label, slot=slot, name=name, color_id=color_id)
+
+
+def _eight_cues():
+    labels = [
+        PhraseLabel.INTRO, PhraseLabel.VERSE, PhraseLabel.UP, PhraseLabel.CHORUS,
+        PhraseLabel.DOWN, PhraseLabel.BRIDGE, PhraseLabel.CHORUS, PhraseLabel.OUTRO,
+    ]
+    return [
+        _make_cue(pos=(i + 1) * 15000, slot=i, name=f"Cue {i}", color_id=(i % 8) + 1,
+                  label=labels[i])
+        for i in range(8)
+    ]
+
+
+def _minimal_mp3(path: Path) -> Path:
+    """One MPEG-1 Layer III frame of silence — enough for mutagen ID3."""
+    path.write_bytes(b"\xff\xfb\x90\x00" + b"\x00" * 413)
+    return path
+
+
+def _minimal_flac(path: Path) -> Path:
+    """fLaC magic + a single (last) STREAMINFO block — parses in mutagen."""
+    streaminfo = (
+        (4096).to_bytes(2, "big")
+        + (4096).to_bytes(2, "big")
+        + (0).to_bytes(3, "big")
+        + (0).to_bytes(3, "big")
+        + ((44100 << 44) | (0 << 41) | (15 << 36)).to_bytes(8, "big")
+        + b"\x00" * 16
+    )
+    path.write_bytes(b"fLaC" + bytes([0x80]) + (34).to_bytes(3, "big") + streaminfo)
+    return path
+
+
+def _make_content(path: Path, title="Test Track"):
+    return SimpleNamespace(
+        FolderPath=str(path.parent) + "/", FileNameL=path.name, Title=title
+    )
+
+
+# ---------------------------------------------------------------------------
+# build_markers2 — serialization
+# ---------------------------------------------------------------------------
+
+class TestBuildMarkers2:
+    def test_golden_bytes_single_cue(self):
+        payload = build_markers2([_make_cue()])
+        assert payload == GOLDEN_PAYLOAD
+
+    def test_memory_cues_dropped(self):
+        payload = build_markers2([_make_cue(slot=-1)])
+        assert payload == b"\x01\x01\x00"  # header + terminator only
+
+    def test_slots_out_of_range_dropped(self):
+        payload = build_markers2([_make_cue(slot=8)])
+        assert payload == b"\x01\x01\x00"
+
+    def test_entries_sorted_by_slot(self):
+        cues = [_make_cue(slot=3, name="D"), _make_cue(slot=0, name="A")]
+        entries = parse_markers2(wrap_outer(build_markers2(cues)))
+        assert [e["index"] for e in entries] == [0, 3]
+
+    def test_name_falls_back_to_label(self):
+        payload = build_markers2([_make_cue(name="", label=PhraseLabel.CHORUS)])
+        assert b"Chorus\x00" in payload
+
+    def test_color_id_zero_uses_label_color(self):
+        # CHORUS -> LABEL_COLORS "Chorus" = 2 (Red) -> CC0000
+        entries = parse_markers2(
+            wrap_outer(build_markers2([_make_cue(color_id=0, label=PhraseLabel.CHORUS)]))
+        )
+        assert entries[0]["color"] == "cc0000"
+
+
+# ---------------------------------------------------------------------------
+# wrap_outer — outer tag structure
+# ---------------------------------------------------------------------------
+
+class TestWrapOuter:
+    def test_starts_with_raw_header(self):
+        assert wrap_outer(GOLDEN_PAYLOAD).startswith(b"\x01\x01")
+
+    def test_padded_to_min_470(self):
+        out = wrap_outer(GOLDEN_PAYLOAD)
+        assert len(out) >= 470
+        assert out.endswith(b"\x00")
+
+    def test_base64_roundtrip(self):
+        out = wrap_outer(GOLDEN_PAYLOAD)
+        b64 = out[2:].split(b"\x00", 1)[0].replace(b"\n", b"")
+        decoded = base64.b64decode(b64 + b"=" * (-len(b64) % 4))
+        assert decoded == GOLDEN_PAYLOAD
+
+    def test_linefeed_every_72_chars(self):
+        payload = build_markers2(_eight_cues())
+        out = wrap_outer(payload)
+        body = out[2:].split(b"\x00", 1)[0]
+        lines = body.split(b"\n")
+        assert len(lines) > 1
+        assert all(len(line) <= 72 for line in lines)
+        assert all(len(line) == 72 for line in lines[:-1])
+
+
+# ---------------------------------------------------------------------------
+# parse_markers2 — decode + quirk tolerance
+# ---------------------------------------------------------------------------
+
+class TestParseMarkers2:
+    def test_roundtrip_eight_cues(self):
+        cues = _eight_cues()
+        entries = parse_markers2(wrap_outer(build_markers2(cues)))
+        assert len(entries) == 8
+        for cue, entry in zip(cues, entries):
+            assert entry["type"] == "CUE"
+            assert entry["index"] == cue.slot
+            assert entry["position_ms"] == cue.position_ms
+            assert entry["name"] == cue.name
+
+    def test_rejects_bad_header(self):
+        assert parse_markers2(b"\x02\x02whatever") == []
+
+    def test_rejects_garbage_base64(self):
+        assert parse_markers2(b"\x01\x01!!!not-base64!!!\x00") == []
+
+    def test_tolerates_len_mod_4_of_1(self):
+        # Serato sometimes emits a base64 string 1 char longer than a multiple
+        # of 4; parser appends "A" + padding.
+        b64 = base64.b64encode(GOLDEN_PAYLOAD).decode().rstrip("=")  # 39 chars
+        quirky = b64[:37]  # 37 % 4 == 1
+        entries = parse_markers2(b"\x01\x01" + quirky.encode())
+        assert len(entries) == 1
+        assert entries[0]["index"] == 0
+        assert entries[0]["position_ms"] == 1000
+
+    def test_ignores_trailing_nul_padding(self):
+        out = wrap_outer(GOLDEN_PAYLOAD)
+        assert len(out) == 470  # short payload -> padded
+        entries = parse_markers2(out)
+        assert len(entries) == 1
+        assert entries[0]["name"] == "Intro"
+
+
+# ---------------------------------------------------------------------------
+# build_envelope — FLAC / MP4 wrapper
+# ---------------------------------------------------------------------------
+
+class TestBuildEnvelope:
+    def test_envelope_contents(self):
+        env = build_envelope(GOLDEN_PAYLOAD)
+        b64 = env.replace(b"\n", b"")
+        raw = base64.b64decode(b64 + b"=" * (-len(b64) % 4))
+        assert raw.startswith(b"application/octet-stream\x00\x00Serato Markers2\x00")
+        inner = raw[len(b"application/octet-stream\x00\x00Serato Markers2\x00"):]
+        entries = parse_markers2(inner)
+        assert len(entries) == 1
+
+    def test_no_padding_chars(self):
+        assert b"=" not in build_envelope(GOLDEN_PAYLOAD)
+
+
+# ---------------------------------------------------------------------------
+# File embedding — MP3
+# ---------------------------------------------------------------------------
+
+class TestMp3Embedding:
+    def test_write_and_read_back(self, tmp_path):
+        from mutagen.id3 import ID3
+
+        mp3 = _minimal_mp3(tmp_path / "track.mp3")
+        cues = _eight_cues()
+        write_serato_tags(mp3, cues)
+
+        id3 = ID3(str(mp3))
+        assert GEOB_V2 in id3
+        frame = id3[GEOB_V2]
+        assert frame.mime == "application/octet-stream"
+        entries = parse_markers2(bytes(frame.data))
+        assert [e["index"] for e in entries] == list(range(8))
+
+    def test_legacy_markers_deleted(self, tmp_path):
+        from mutagen.id3 import GEOB, ID3
+
+        mp3 = _minimal_mp3(tmp_path / "track.mp3")
+        id3 = ID3()
+        id3.add(GEOB(encoding=0, mime="application/octet-stream", filename="",
+                     desc="Serato Markers_", data=b"\x02\x05legacy"))
+        id3.save(str(mp3))
+        assert GEOB_V1 in ID3(str(mp3))
+
+        write_serato_tags(mp3, [_make_cue()])
+
+        id3 = ID3(str(mp3))
+        assert GEOB_V1 not in id3
+        assert GEOB_V2 in id3
+
+    def test_has_serato_cues(self, tmp_path):
+        mp3 = _minimal_mp3(tmp_path / "track.mp3")
+        assert not has_serato_cues(mp3)
+        write_serato_tags(mp3, [_make_cue()])
+        assert has_serato_cues(mp3)
+
+
+# ---------------------------------------------------------------------------
+# File embedding — FLAC
+# ---------------------------------------------------------------------------
+
+class TestFlacEmbedding:
+    def test_write_and_read_back(self, tmp_path):
+        from mutagen.flac import FLAC
+
+        flac = _minimal_flac(tmp_path / "track.flac")
+        write_serato_tags(flac, [_make_cue()])
+
+        f = FLAC(str(flac))
+        assert FLAC_V2 in f
+        b64 = f[FLAC_V2][0].replace("\n", "")
+        raw = base64.b64decode(b64 + "=" * (-len(b64) % 4))
+        prefix = b"application/octet-stream\x00\x00Serato Markers2\x00"
+        assert raw.startswith(prefix)
+        entries = parse_markers2(raw[len(prefix):])
+        assert len(entries) == 1
+        assert entries[0]["name"] == "Intro"
+
+    def test_has_serato_cues(self, tmp_path):
+        flac = _minimal_flac(tmp_path / "track.flac")
+        assert not has_serato_cues(flac)
+        write_serato_tags(flac, [_make_cue()])
+        assert has_serato_cues(flac)
+
+
+# ---------------------------------------------------------------------------
+# write_serato — orchestration
+# ---------------------------------------------------------------------------
+
+class TestWriteSerato:
+    def test_writes_fresh_file(self, tmp_path):
+        mp3 = _minimal_mp3(tmp_path / "fresh.mp3")
+        summary = write_serato(
+            [(_make_content(mp3), [_make_cue()])],
+            backup_path=tmp_path / "backup.jsonl",
+        )
+        assert summary.written == 1
+        assert summary.skipped_existing == 0
+        assert not (tmp_path / "backup.jsonl").exists()  # nothing replaced
+        assert has_serato_cues(mp3)
+
+    def test_skips_existing_without_overwrite(self, tmp_path):
+        mp3 = _minimal_mp3(tmp_path / "cued.mp3")
+        write_serato_tags(mp3, [_make_cue(name="Old")])
+        summary = write_serato(
+            [(_make_content(mp3), [_make_cue(name="New")])],
+            backup_path=tmp_path / "backup.jsonl",
+        )
+        assert summary.skipped_existing == 1
+        assert summary.written == 0
+
+    def test_overwrite_writes_and_backs_up(self, tmp_path):
+        from mutagen.id3 import ID3
+
+        mp3 = _minimal_mp3(tmp_path / "cued.mp3")
+        write_serato_tags(mp3, [_make_cue(name="Old")])
+        original = bytes(ID3(str(mp3))[GEOB_V2].data)
+
+        backup = tmp_path / "backup.jsonl"
+        summary = write_serato(
+            [(_make_content(mp3), [_make_cue(name="New")])],
+            overwrite=True,
+            backup_path=backup,
+        )
+        assert summary.written == 1
+
+        lines = [json.loads(l) for l in backup.read_text().splitlines()]
+        assert any(
+            base64.b64decode(rec["payload_b64"]) == original for rec in lines
+        )
+        entries = parse_markers2(bytes(ID3(str(mp3))[GEOB_V2].data))
+        assert entries[0]["name"] == "New"
+
+    def test_missing_file_counted(self, tmp_path):
+        gone = tmp_path / "gone.mp3"
+        summary = write_serato(
+            [(_make_content(gone), [_make_cue()])],
+            backup_path=tmp_path / "backup.jsonl",
+        )
+        assert summary.missing == 1
+        assert summary.written == 0
+
+    def test_unsupported_suffix_counted(self, tmp_path):
+        wav = tmp_path / "track.wav"
+        wav.write_bytes(b"RIFF\x00\x00\x00\x00WAVE")
+        summary = write_serato(
+            [(_make_content(wav), [_make_cue()])],
+            backup_path=tmp_path / "backup.jsonl",
+        )
+        assert summary.unsupported == 1
+        assert summary.written == 0
+
+    def test_summary_dataclass_defaults(self):
+        s = SeratoSummary()
+        assert (s.written, s.skipped_existing, s.unsupported, s.missing) == (0, 0, 0, 0)
+        assert s.errors == []

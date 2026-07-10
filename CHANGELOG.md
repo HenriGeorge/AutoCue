@@ -4,6 +4,17 @@ All notable changes to AutoCue are documented here. Format roughly follows [Keep
 
 ## [Unreleased]
 
+### Added
+
+- **Serato export (`--serato`)** — the CLI can now write generated cues directly
+  into the audio files as Serato DJ Pro "Serato Markers2" tags (MP3/AIFF/FLAC/M4A),
+  with cue names and colors, instead of producing a Rekordbox XML
+  (`autocue/serato_writer.py`). Skips files that already carry Serato cues unless
+  `--overwrite`; replaced tags are backed up to `autocue_serato_backup.jsonl`;
+  refuses to run while a Serato DJ process is open. Legacy `Serato Markers_`
+  tags are deleted on write (Serato prefers them over Markers2 when both exist).
+  Requires the `serato` extra: `pip install -e ".[serato]"`.
+
 ### [BREAKING — planned for 0.3.0]
 
 - **`POST /api/download`** legacy alias **removed**. Use `POST /api/download/enqueue` + `GET /api/download/stream/{job_id}` instead. The split is necessary so `POST /api/download/cancel/{job_id}` can target a job before the first SSE event arrives.
