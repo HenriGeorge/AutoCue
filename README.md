@@ -437,6 +437,24 @@ autocue --library --db-path "C:\path\to\master.db"
 
 Output is a Rekordbox XML file. Import it in Rekordbox via **File → Import Library**.
 
+#### Loop generation
+
+```bash
+pip install 'autocue[loops]'        # optional: audio seam validation (librosa)
+autocue --library --loops           # generate + save mix-in/mix-out memory loops
+autocue --library --loops --serato  # …and mirror them into Serato in the same run
+autocue --library --loops --dry-run # preview candidates without writing
+```
+
+At most **two loops per track**: a *Mix In Loop* (last 4/8 bars of the intro)
+and a *Mix Out Loop* (first 4/8 bars of the outro), for tracks with phrase
+analysis. With librosa installed each candidate's loop seam is checked on the
+real audio — the bars after the loop start must sound like the bars after the
+loop end — and suspect loops are dropped (a clicking loop is worse than none).
+Loops are written into Rekordbox as **memory loops** (the database is backed
+up first; tracks that already have manual memory cues/loops are skipped unless
+`--overwrite`). The Serato export mirrors saved loops automatically.
+
 #### Serato export
 
 ```bash

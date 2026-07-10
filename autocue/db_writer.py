@@ -478,6 +478,79 @@ def color_tracks_by_bpm(track_ids: list, db, *, dry_run: bool = False, skip_colo
     return colored, skipped
 
 
+def write_memory_loops(
+    content,
+    loops: list[dict],
+    db,
+    *,
+    overwrite: bool = False,
+    dry_run: bool = False,
+) -> int:
+    """Write generated loops into DjmdCue as MEMORY loops (Kind=0 with an
+    out-point). Returns number written (0 on dry_run or skip).
+
+    Preservation contract mirrors write_cues_to_db's memory semantics: when
+    the track already has ANY memory cues/loops and overwrite is False,
+    nothing is written — manually placed memory data is never destroyed
+    silently. With overwrite, existing Kind=0 rows are replaced.
+    """
+    from pyrekordbox.db6 import DjmdCue
+
+    if not loops:
+        return 0
+    if not overwrite and has_existing_memory_cues(content, db) > 0:
+        logger.debug("Skip %r — existing memory cues/loops", content.Title)
+        return 0
+    if dry_run:
+        logger.info("[dry-run] Would write %d memory loop(s) to %r", len(loops), content.Title)
+        return 0
+
+    from uuid import uuid4
+    content_uuid = getattr(content, "UUID", None) or ""
+    try:
+        sp = db.session.begin_nested()
+        if overwrite:
+            (
+                db.session.query(DjmdCue)
+                .filter(DjmdCue.ContentID == content.ID, DjmdCue.Kind == 0)
+                .delete(synchronize_session=False)
+            )
+        for loop in loops:
+            start = int(loop["start_ms"])
+            end = int(loop["end_ms"])
+            db.session.add(
+                DjmdCue(
+                    ID=str(db.generate_unused_id(DjmdCue)),
+                    ContentID=content.ID,
+                    ContentUUID=content_uuid,
+                    UUID=str(uuid4()),
+                    InMsec=start,
+                    InFrame=int(round(start * 150.0 / 1000.0)),
+                    InMpegFrame=0,
+                    InMpegAbs=0,
+                    OutMsec=end,
+                    OutFrame=int(round(end * 150.0 / 1000.0)),
+                    OutMpegFrame=0,
+                    OutMpegAbs=0,
+                    Kind=0,
+                    Color=0,
+                    ColorTableIndex=0,
+                    ActiveLoop=0,
+                    BeatLoopSize=0,
+                    CueMicrosec=0,
+                    Comment=loop.get("name") or "Loop",
+                )
+            )
+        sp.commit()
+        db.session.commit()
+        logger.info("Wrote %d memory loop(s) to %r", len(loops), content.Title)
+        return len(loops)
+    except Exception:
+        db.session.rollback()
+        logger.exception("Loop write failed for %r — rolled back", content.Title)
+        raise
+
+
 def write_cues_to_db(
     content,
     cues: list[CuePoint],

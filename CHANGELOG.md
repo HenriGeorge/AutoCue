@@ -4,6 +4,15 @@ All notable changes to AutoCue are documented here. Format roughly follows [Keep
 
 ## [Unreleased]
 
+- **Loop generation** (`--loops`): generates at most two seam-validated loops
+  per track — a Mix In Loop (last 4/8 bars of the intro) and a Mix Out Loop
+  (first 4/8 bars of the outro) — and saves them into Rekordbox as memory
+  loops (DB backed up first; manual memory cues/loops are never replaced
+  without `--overwrite`). With `pip install 'autocue[loops]'` (librosa) each
+  loop's seam is validated on the real audio and suspect candidates are
+  dropped; verdicts cache in the sidecar. The Serato export mirrors the
+  saved loops automatically.
+
 - Serato export is now **incremental**: a per-track fingerprint of the
   exported cues/loops/comment (`autocue_serato_state.json`) means re-runs
   only rewrite tracks that actually changed; unchanged files keep their

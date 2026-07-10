@@ -82,6 +82,15 @@ SCHEMA_DDL: tuple[str, ...] = (
       payload         BLOB NOT NULL
     )
     """,
+    # Added without a SCHEMA_VERSION bump: CREATE TABLE IF NOT EXISTS runs on
+    # every open, so existing caches gain the table with no drop/recompute.
+    """
+    CREATE TABLE IF NOT EXISTS loop_verdicts (
+      content_id INTEGER PRIMARY KEY,
+      anlz_mtime REAL NOT NULL,
+      loops_json TEXT NOT NULL
+    )
+    """,
     "CREATE INDEX IF NOT EXISTS idx_energy_mtime ON energy_curve(anlz_mtime)",
     "CREATE INDEX IF NOT EXISTS idx_class_mtime  ON classification(anlz_mtime)",
 )
@@ -92,6 +101,7 @@ _PER_TRACK_TABLES: tuple[str, ...] = (
     "classification",
     "similarity_vector",
     "mixability",
+    "loop_verdicts",
 )
 
 
@@ -391,6 +401,34 @@ class CacheStore:
                 self._conn.execute(
                     f"DELETE FROM {table} WHERE content_id=?", (content_id,)
                 )
+
+    # -- loop_verdicts -------------------------------------------------------
+
+    def put_loop_verdicts(self, content_id: int, loops: list, *, anlz_mtime: float) -> None:
+        import json
+        with self._lock:
+            assert self._conn is not None
+            self._conn.execute(
+                "INSERT OR REPLACE INTO loop_verdicts(content_id, anlz_mtime, loops_json) "
+                "VALUES (?, ?, ?)",
+                (content_id, anlz_mtime, json.dumps(loops)),
+            )
+
+    def get_loop_verdicts(self, content_id: int, *, expected_anlz_mtime: float):
+        """Cached loop list, or None on miss / stale anlz_mtime."""
+        import json
+        with self._lock:
+            assert self._conn is not None
+            row = self._conn.execute(
+                "SELECT anlz_mtime, loops_json FROM loop_verdicts WHERE content_id=?",
+                (content_id,),
+            ).fetchone()
+        if row is None or row[0] != expected_anlz_mtime:
+            return None
+        try:
+            return json.loads(row[1])
+        except ValueError:
+            return None
 
     def invalidate_mixability(self, content_id: int) -> None:
         """Used by /api/apply since cue edits change intro/outro detection."""
