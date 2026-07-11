@@ -114,6 +114,20 @@ def _loop_entry(index: int, loop: CuePoint) -> bytes:
     return b"LOOP\x00" + len(data).to_bytes(4, "big") + data
 
 
+def _next_loop_index(preserve: "list[bytes]") -> int:
+    """One past the highest loop index among the preserved raw LOOP entries.
+
+    Each raw entry is framed ``b"LOOP\\x00" + uint32be(len) + data`` where
+    ``data[1]`` (byte offset 10 in the framed entry) is the 0-based loop index.
+    Returns 0 when there are no preserved loops.
+    """
+    max_idx = -1
+    for raw in preserve:
+        if raw[:5] == b"LOOP\x00" and len(raw) >= 11:
+            max_idx = max(max_idx, raw[10])
+    return max_idx + 1
+
+
 def build_markers2(cues: list[CuePoint], *, preserve: "list[bytes]" = ()) -> bytes:
     """Inner decoded payload: header + CUE/LOOP entries + terminator.
 
@@ -143,9 +157,10 @@ def build_markers2(cues: list[CuePoint], *, preserve: "list[bytes]" = ()) -> byt
             + b"\x00"
         )
         out.append(b"CUE\x00" + len(data).to_bytes(4, "big") + data)
-    # Generated LOOP entries — indexed AFTER any preserved foreign loops so the
-    # two index spaces don't collide.
-    base = len(preserve)
+    # Generated LOOP entries — indexed past the HIGHEST preserved loop index
+    # (N1), not len(preserve), so a DJ loop in a non-contiguous high slot can
+    # never share an index with a generated loop.
+    base = _next_loop_index(preserve)
     for i, loop in enumerate(sorted(loops, key=lambda c: c.position_ms)):
         out.append(_loop_entry(base + i, loop))
     for raw in preserve:

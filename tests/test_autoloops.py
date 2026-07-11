@@ -727,3 +727,27 @@ class TestSeratoDecodeFailBreadcrumb:
         with caplog.at_level(logging.WARNING):
             out = sw._existing_loop_entries(Path("x.mp3"))
         assert out == [] and not caplog.records    # no tag at all → nothing to warn about
+
+
+class TestGeneratedLoopIndex:
+    """N1 (auditor, conf 60) — index generated loops past max(existing index)+1,
+    so a DJ loop in a non-contiguous high slot can't share an index."""
+
+    def test_generated_index_past_max_existing_no_collision(self):
+        from autocue.serato_writer import _loop_entry, build_markers2, parse_markers2, wrap_outer
+        # DJ loops preserved at NON-contiguous indices 0 and 2 (len(preserve)=2).
+        dj0 = _loop_entry(0, _loop_cue(pos=1000, end=9000, name="DJ0"))
+        dj2 = _loop_entry(2, _loop_cue(pos=20_000, end=28_000, name="DJ2"))
+        gen = _loop_cue(pos=50_000, end=58_000, name="Outro")
+        entries = parse_markers2(wrap_outer(build_markers2([gen], preserve=[dj0, dj2])))
+        idx = {e["name"]: e["index"] for e in entries if e["type"] == "LOOP"}
+        assert idx["DJ0"] == 0 and idx["DJ2"] == 2      # preserved indices untouched
+        assert idx["Outro"] == 3                        # past max(2)+1 (was len=2 → collided with DJ2)
+        all_idx = [e["index"] for e in entries if e["type"] == "LOOP"]
+        assert len(all_idx) == len(set(all_idx)), "loop indices must be unique"
+
+    def test_no_preserve_indexes_from_zero(self):
+        from autocue.serato_writer import build_markers2, parse_markers2, wrap_outer
+        two = [_loop_cue(pos=1000, end=9000, name="A"), _loop_cue(pos=50_000, end=58_000, name="B")]
+        entries = parse_markers2(wrap_outer(build_markers2(two)))
+        assert sorted(e["index"] for e in entries if e["type"] == "LOOP") == [0, 1]
