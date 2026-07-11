@@ -446,15 +446,35 @@ class TestMergeLoops:
         assert len(merged) == 2
         assert merged[-1].is_loop and merged[-1].name == "Outro"
 
-    def test_drops_loop_colliding_with_existing_start(self):
+    def test_loop_coexists_with_point_cue_at_same_position(self):
         from autocue.cli import _merge_loops
-        # A generated loop at the same start as an existing (mirrored) entry
-        # is dropped — the existing one wins (mirror-first).
-        cues = [CuePoint(position_ms=5000, label=PhraseLabel.OUTRO, slot=1, name="Kept")]
-        loops = [_loop_cue(pos=5000, end=13_000, name="Generated")]
+        # ROOT-CAUSE FIX: a memory loop (Num=-1) and a hot/point cue (Num 0-7)
+        # are DIFFERENT Rekordbox objects — they coexist even at the SAME
+        # downbeat. Generated phrase cues and generated loops share downbeats,
+        # so dropping on point-cue collision wiped every loop (XMLWIRE bug).
+        cues = [CuePoint(position_ms=5000, label=PhraseLabel.OUTRO, slot=1, name="Cue")]
+        loops = [_loop_cue(pos=5000, end=13_000, name="Outro")]
         merged = _merge_loops(cues, loops)
+        assert len(merged) == 2
+        assert {c.name for c in merged} == {"Cue", "Outro"}
+
+    def test_drops_loop_colliding_with_existing_loop(self):
+        from autocue.cli import _merge_loops
+        # Mirror-first still holds: a generated loop at the same start as an
+        # existing LOOP (a DJ's saved loop) is dropped — the DJ's loop wins.
+        existing_loop = _loop_cue(pos=5000, end=20_000, name="DJLoop")
+        loops = [_loop_cue(pos=5000, end=13_000, name="Generated")]
+        merged = _merge_loops([existing_loop], loops)
         assert len(merged) == 1
-        assert merged[0].name == "Kept"
+        assert merged[0].name == "DJLoop"
+
+    def test_two_generated_loops_same_start_deduped(self):
+        from autocue.cli import _merge_loops
+        merged = _merge_loops([], [
+            _loop_cue(pos=5000, end=13_000, name="A"),
+            _loop_cue(pos=5000, end=9000, name="B"),
+        ])
+        assert len(merged) == 1  # a newly-added loop start blocks a second at that spot
 
     def test_empty_loops_returns_cues_unchanged(self):
         from autocue.cli import _merge_loops

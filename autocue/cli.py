@@ -84,15 +84,20 @@ def _build_parser() -> argparse.ArgumentParser:
 
 
 def _merge_loops(cues: list, loops: list) -> list:
-    """Layer generated loop CuePoints onto a cue list, dropping any loop whose
-    start collides with an entry already present (mirror-first: existing wins)."""
-    starts = {c.position_ms for c in cues}
+    """Layer generated loop CuePoints onto a cue list.
+
+    Drops a generated loop only when its start collides with an existing LOOP's
+    start (mirror-first: a DJ's saved loop wins). A memory loop (Num=-1) and a
+    hot/point cue (Num 0-7) are DIFFERENT Rekordbox objects and COEXIST at the
+    same downbeat — generated phrase cues and generated loops share downbeats,
+    so colliding against point cues wiped every loop (the XMLWIRE root cause)."""
+    loop_starts = {c.position_ms for c in cues if getattr(c, "is_loop", False)}
     merged = list(cues)
     for loop in loops:
-        if loop.position_ms in starts:
+        if loop.position_ms in loop_starts:
             continue
         merged.append(loop)
-        starts.add(loop.position_ms)
+        loop_starts.add(loop.position_ms)
     return merged
 
 
