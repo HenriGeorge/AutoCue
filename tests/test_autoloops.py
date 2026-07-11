@@ -1093,23 +1093,53 @@ class TestMirrorNegativeWhyNotWriteCuesToDb:
 # ---------------------------------------------------------------------------
 
 def _writedb_stub(monkeypatch, tmp_path, *, loops=None, rb=False, serve=False,
-                  backup_raises=False):
-    """Stub the --write-db seams. Records write_loops_to_db + backup calls."""
-    import sys
+                  backup_raises=False, write_raises=False, db_file="master.db"):
+    """Stub the --write-db seams.
+
+    Records the ORDER of (rb_guard, serve_guard, open_db, backup, write) and the
+    PATHS handed to the guard/backup — the two things BL-1 and auditor#85 hinge on.
+    """
     from types import SimpleNamespace
     import autocue.cli as cli
     import autocue.analyzer as analyzer
     import autocue.db_writer as dbw
 
-    (tmp_path / "master.db").write_bytes(b"fake")     # backup source must exist
+    db_file_path = tmp_path / db_file
+    db_file_path.write_bytes(b"fake")     # backup source must exist
     content = SimpleNamespace(
         Title="Fixture", ArtistName="A", FolderPath="/Music", FileNameL="f.mp3",
         FileNameS="f.mp3", ID="1", Length=200,
     )
-    calls = {"written": [], "backups": []}
+    calls = {"written": [], "backups": [], "order": [], "rb_paths": [], "db_file": db_file_path}
 
-    monkeypatch.setattr(cli, "MasterDatabase",
-                        lambda *a, **k: SimpleNamespace(_db_dir=str(tmp_path)))
+    def _open_db(*a, **k):
+        calls["order"].append("open_db")
+        return SimpleNamespace(_db_dir=str(tmp_path))
+
+    def _rb(path=None, *a, **k):
+        calls["order"].append("rb_guard")
+        calls["rb_paths"].append(str(path))
+        return rb
+
+    def _serve(*a, **k):
+        calls["order"].append("serve_guard")
+        return serve
+
+    def _backup(path, **kw):
+        calls["order"].append("backup")
+        if backup_raises:
+            raise RuntimeError("disk full")
+        calls["backups"].append(str(path))
+        return tmp_path / "master_20260711T000000.db"
+
+    def _write(content_, cues, db_, **kw):
+        calls["order"].append("write")
+        if write_raises:
+            raise RuntimeError("db exploded")
+        calls["written"].append(list(cues))
+        return len([c for c in cues if c.is_loop and c.slot == -1])
+
+    monkeypatch.setattr(cli, "MasterDatabase", _open_db)
     monkeypatch.setattr(cli, "analyze_by_title", lambda *a, **k: (content, None))
     monkeypatch.setattr(cli, "generate_cues_for_track",
                         lambda *a, **k: ([CuePoint(position_ms=1000,
@@ -1118,22 +1148,18 @@ def _writedb_stub(monkeypatch, tmp_path, *, loops=None, rb=False, serve=False,
     monkeypatch.setattr(analyzer, "analyze_loops",
                         lambda *a, **k: list(loops if loops is not None else []),
                         raising=False)
-    monkeypatch.setattr(dbw, "rekordbox_is_running", lambda *a, **k: rb)
-    monkeypatch.setattr(dbw, "autocue_serve_is_running", lambda *a, **k: serve)
-
-    def _backup(path, **kw):
-        if backup_raises:
-            raise RuntimeError("disk full")
-        calls["backups"].append(str(path))
-        return tmp_path / "master_20260711T000000.db"
-
-    def _write(content_, cues, db_, **kw):
-        calls["written"].append(list(cues))
-        return len([c for c in cues if c.is_loop and c.slot == -1])
-
+    monkeypatch.setattr(dbw, "rekordbox_is_running", _rb)
+    monkeypatch.setattr(dbw, "autocue_serve_is_running", _serve)
     monkeypatch.setattr(dbw, "backup_database", _backup)
     monkeypatch.setattr(dbw, "write_loops_to_db", _write)
     return calls
+
+
+def _argv(monkeypatch, tmp_path, *extra, db_file="master.db"):
+    import sys
+    monkeypatch.setattr(sys, "argv", [
+        "autocue", "--track", "x", "--db-path", str(tmp_path / db_file), *extra,
+    ])
 
 
 class TestWriteDbCli:
@@ -1144,12 +1170,49 @@ class TestWriteDbCli:
         b = _build_parser().parse_args(["--track", "x", "--loops"])
         assert b.write_db is False
 
-    def test_write_db_requires_loops(self, monkeypatch, tmp_path, capsys):
-        # Gates on --loops: writing CUES to the DB is a much bigger scope.
-        import sys
+    # ---- FIX-1 (BL-1 BLOCKER) — the ordering pin -------------------------------
+    def test_rekordbox_guard_runs_BEFORE_the_db_is_opened(self, monkeypatch, tmp_path):
+        """★ THE ANTI-MOCK PIN.
+
+        BL-1: rekordbox_is_running() probes an EXCLUSIVE FILE LOCK. Once AutoCue
+        has opened master.db and run a query, SQLAlchemy's autobegin txn holds a
+        SQLite lock — so the guard detected OUR OWN handle and aborted 3/3 real
+        runs with a false "Rekordbox is running". Every unit test MOCKS the guard,
+        which is exactly why this shipped. This test pins the ORDERING, which a
+        mock cannot hide: the guard must fire before MasterDatabase is constructed.
+        """
         from autocue.cli import main
         calls = _writedb_stub(monkeypatch, tmp_path, loops=[_loop_cue()])
-        monkeypatch.setattr(sys, "argv", ["autocue", "--track", "x", "--write-db"])
+        _argv(monkeypatch, tmp_path, "--loops", "--write-db")
+        main()
+        order = calls["order"]
+        assert "rb_guard" in order and "open_db" in order
+        assert order.index("rb_guard") < order.index("open_db"), (
+            f"BL-1: the Rekordbox guard must run BEFORE MasterDatabase is opened, "
+            f"else it self-detects AutoCue's own DB lock. order={order}"
+        )
+        assert order.index("serve_guard") < order.index("open_db")
+        # And the backup still precedes the write.
+        assert order.index("backup") < order.index("write")
+
+    # ---- FIX-4 (auditor 85) — one path for guard + backup + write ---------------
+    def test_guard_and_backup_target_the_db_path_flag(self, monkeypatch, tmp_path):
+        """--db-path /x/copy.db must be the file guarded AND backed up — not a
+        reconstructed _db_dir/'master.db' (which would back up the WRONG file and
+        void the printed 'your ONLY undo' promise)."""
+        from autocue.cli import main
+        calls = _writedb_stub(monkeypatch, tmp_path, loops=[_loop_cue()], db_file="copy.db")
+        _argv(monkeypatch, tmp_path, "--loops", "--write-db", db_file="copy.db")
+        main()
+        target = str(tmp_path / "copy.db")
+        assert calls["rb_paths"] == [target], "the guard probed the wrong file"
+        assert calls["backups"] == [target], "the BACKUP targeted the wrong file"
+
+    def test_write_db_requires_loops(self, monkeypatch, tmp_path, capsys):
+        # Gates on --loops: writing CUES to the DB is a much bigger scope.
+        from autocue.cli import main
+        calls = _writedb_stub(monkeypatch, tmp_path, loops=[_loop_cue()])
+        _argv(monkeypatch, tmp_path, "--write-db")
         with pytest.raises(SystemExit) as e:
             main()
         assert e.value.code == 1
@@ -1157,22 +1220,21 @@ class TestWriteDbCli:
         assert calls["written"] == [] and calls["backups"] == []
 
     def test_aborts_when_rekordbox_running(self, monkeypatch, tmp_path, capsys):
-        import sys
         from autocue.cli import main
         calls = _writedb_stub(monkeypatch, tmp_path, loops=[_loop_cue()], rb=True)
-        monkeypatch.setattr(sys, "argv", ["autocue", "--track", "x", "--loops", "--write-db"])
+        _argv(monkeypatch, tmp_path, "--loops", "--write-db")
         with pytest.raises(SystemExit) as e:
             main()
         assert e.value.code == 1
         assert "rekordbox" in capsys.readouterr().err.lower()
         assert calls["written"] == [] and calls["backups"] == []   # nothing written, no backup
+        assert "open_db" not in calls["order"]                     # aborted before opening the DB
 
     def test_aborts_when_autocue_serve_running(self, monkeypatch, tmp_path, capsys):
         # Single-writer: rekordbox_is_running does NOT see a running `autocue serve`.
-        import sys
         from autocue.cli import main
         calls = _writedb_stub(monkeypatch, tmp_path, loops=[_loop_cue()], serve=True)
-        monkeypatch.setattr(sys, "argv", ["autocue", "--track", "x", "--loops", "--write-db"])
+        _argv(monkeypatch, tmp_path, "--loops", "--write-db")
         with pytest.raises(SystemExit) as e:
             main()
         assert e.value.code == 1
@@ -1181,24 +1243,21 @@ class TestWriteDbCli:
 
     def test_backup_failure_aborts_before_any_write(self, monkeypatch, tmp_path, capsys):
         # Never write without a successful backup (mirrors routes.py 995-997).
-        import sys
         from autocue.cli import main
         calls = _writedb_stub(monkeypatch, tmp_path, loops=[_loop_cue()],
                               backup_raises=True)
-        monkeypatch.setattr(sys, "argv", ["autocue", "--track", "x", "--loops", "--write-db"])
+        _argv(monkeypatch, tmp_path, "--loops", "--write-db")
         with pytest.raises(SystemExit) as e:
             main()
         assert e.value.code == 1
-        err = capsys.readouterr().err.lower()
-        assert "backup" in err
+        assert "backup" in capsys.readouterr().err.lower()
         assert calls["written"] == [], "NOTHING may be written when the backup fails"
 
     def test_happy_path_backs_up_prints_path_and_writes(self, monkeypatch, tmp_path, capsys):
-        import sys
         from autocue.cli import main
         loop = _loop_cue(pos=10_000, end=18_000, name="Outro")
         calls = _writedb_stub(monkeypatch, tmp_path, loops=[loop])
-        monkeypatch.setattr(sys, "argv", ["autocue", "--track", "x", "--loops", "--write-db"])
+        _argv(monkeypatch, tmp_path, "--loops", "--write-db")
         main()
         out = capsys.readouterr().out
         assert len(calls["backups"]) == 1                    # backup taken BEFORE the write
@@ -1207,12 +1266,22 @@ class TestWriteDbCli:
         assert calls["written"][0][0].name == "Outro"        # the loop reached the writer
 
     def test_dry_run_writes_nothing(self, monkeypatch, tmp_path, capsys):
-        import sys
         from autocue.cli import main
         calls = _writedb_stub(monkeypatch, tmp_path, loops=[_loop_cue(name="Outro")])
-        monkeypatch.setattr(
-            sys, "argv", ["autocue", "--track", "x", "--loops", "--write-db", "--dry-run"])
+        _argv(monkeypatch, tmp_path, "--loops", "--write-db", "--dry-run")
         main()
         out = capsys.readouterr().out
         assert "Dry run — no files written." in out
         assert calls["written"] == [] and calls["backups"] == []  # no backup, no write
+
+    # ---- FIX-5 (auditor N1) — per-track failure is reported, not a traceback ----
+    def test_per_track_write_failure_is_reported_not_a_traceback(
+            self, monkeypatch, tmp_path, capsys):
+        from autocue.cli import main
+        calls = _writedb_stub(monkeypatch, tmp_path, loops=[_loop_cue()], write_raises=True)
+        _argv(monkeypatch, tmp_path, "--loops", "--write-db")
+        main()   # must NOT propagate a raw traceback
+        combined = capsys.readouterr()
+        text = (combined.out + combined.err).lower()
+        assert "backup" in text          # the user is reminded where their undo is
+        assert "fixture" in text         # the failing track is named

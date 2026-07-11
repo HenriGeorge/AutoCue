@@ -93,6 +93,77 @@ def _build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _default_db_path():
+    """Resolve Rekordbox's master.db WITHOUT opening it (mirrors pyrekordbox's own
+    lookup: rekordbox7 config, else rekordbox6)."""
+    from pathlib import Path
+    try:
+        from pyrekordbox.config import get_config
+        cfg = get_config("rekordbox7") or get_config("rekordbox6")
+        path = (cfg or {}).get("db_path", "") if isinstance(cfg, dict) else ""
+        return Path(path) if path else None
+    except Exception:
+        return None
+
+
+def _preflight_write_db(args):
+    """Resolve master.db and run the single-writer guards BEFORE the DB is opened.
+
+    🔴 BL-1: ``rekordbox_is_running()`` probes an EXCLUSIVE FILE LOCK on master.db.
+    Once AutoCue has opened the DB and issued a query, SQLAlchemy's autobegin
+    transaction holds a SQLite lock — so the guard detected **AutoCue's own handle**
+    and aborted every real run with a false "Rekordbox is running". The guard is
+    therefore run here, before ``MasterDatabase(...)`` is ever constructed. That is
+    also the semantically correct place: Rekordbox must be closed before we even
+    open the database.
+
+    Returns the resolved ``Path`` to the file that the guard, the backup AND the
+    write all target (auditor #85: they must be the SAME file).
+    """
+    from pathlib import Path
+
+    from . import db_writer
+
+    if not args.loops:
+        print(
+            "Error: --write-db requires --loops. This increment writes LOOPS "
+            "only — it never writes cues to the database.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+    # The file actually opened — NOT a reconstructed _db_dir/"master.db".
+    db_path = Path(args.db_path) if args.db_path else _default_db_path()
+    if db_path is None:
+        print(
+            "Error: could not locate master.db — pass --db-path.", file=sys.stderr
+        )
+        sys.exit(1)
+    if not db_path.exists():
+        print(f"Error: master.db not found at {db_path}", file=sys.stderr)
+        sys.exit(1)
+
+    if db_writer.rekordbox_is_running(db_path):
+        print(
+            "Error: Rekordbox is running — close it before writing to the "
+            "database (the DB is locked while Rekordbox is open).",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+    # rekordbox_is_running does NOT detect a running `autocue serve`, which holds
+    # its own read-write handle — writing now would break the single-writer rule.
+    if db_writer.autocue_serve_is_running():
+        print(
+            "Error: a local `autocue serve` is running and holds the database "
+            "open. Stop the server before using --write-db (single-writer rule).",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+    return db_path
+
+
 def _merge_loops(cues: list, loops: list) -> list:
     """Layer generated loop CuePoints onto a cue list.
 
@@ -133,6 +204,12 @@ def main() -> None:
         return
 
     args = _build_parser().parse_args()
+
+    # BL-1: for --write-db the Rekordbox/serve guards MUST run BEFORE we open the
+    # DB ourselves — an open handle + an autobegin txn holds a SQLite lock that the
+    # lock probe would mistake for Rekordbox. Only --write-db is affected; every
+    # other CLI path is unchanged.
+    write_db_path = _preflight_write_db(args) if args.write_db else None
 
     print("Opening Rekordbox library…")
     try:
@@ -240,49 +317,13 @@ def main() -> None:
     # backup path (the user's only undo). Reached only when NOT --dry-run (the
     # dry-run block above already returned), so --write-db --dry-run writes nothing.
     if args.write_db:
-        if not args.loops:
-            print(
-                "Error: --write-db requires --loops. This increment writes LOOPS "
-                "only — it never writes cues to the database.",
-                file=sys.stderr,
-            )
-            sys.exit(1)
-
-        from pathlib import Path
-
         from .analyzer import analyze_loops
         from . import db_writer
 
-        db_dir = getattr(db, "_db_dir", None)
-        if db_dir is None:
-            print(
-                "Error: cannot locate master.db (database object has no _db_dir).",
-                file=sys.stderr,
-            )
-            sys.exit(1)
-        db_path = Path(db_dir) / "master.db"
-
-        if db_writer.rekordbox_is_running(db_path):
-            print(
-                "Error: Rekordbox is running — close it before writing to the "
-                "database (the DB is locked while Rekordbox is open).",
-                file=sys.stderr,
-            )
-            sys.exit(1)
-
-        # rekordbox_is_running does NOT detect a running `autocue serve`, which
-        # holds its own read-write handle — writing now would break single-writer.
-        if db_writer.autocue_serve_is_running():
-            print(
-                "Error: a local `autocue serve` is running and holds the database "
-                "open. Stop the server before using --write-db (single-writer rule).",
-                file=sys.stderr,
-            )
-            sys.exit(1)
-
-        if not db_path.exists():
-            print(f"Error: master.db not found at {db_path}", file=sys.stderr)
-            sys.exit(1)
+        # The --loops gate, the Rekordbox guard and the serve guard already ran in
+        # _preflight_write_db() — BEFORE the DB was opened (BL-1). write_db_path is
+        # the file actually opened, so guard/backup/write all target the SAME file.
+        db_path = write_db_path
 
         # Never write without a successful backup.
         try:
@@ -294,19 +335,33 @@ def main() -> None:
         print("  ^ your ONLY undo — keep it until you've checked the result in Rekordbox.\n")
 
         written = skipped = 0
+        failed: list[str] = []
         for content, _cues, _ in tracks:
             title = content.Title or content.FileNameL or "Unknown"
-            loops = analyze_loops(content, db)
-            if not loops:
-                print(f"  {title}: no eligible loops — skipped")
+            try:
+                loops = analyze_loops(content, db)
+                if not loops:
+                    print(f"  {title}: no eligible loops — skipped")
+                    continue
+                n = db_writer.write_loops_to_db(content, loops, db)
+            except Exception as e:
+                # N1: don't dump a raw traceback mid-library — report the failing
+                # track, keep going, and remind the user where their undo lives.
+                failed.append(title)
+                print(f"  {title}: ERROR — {e}", file=sys.stderr)
                 continue
-            n = db_writer.write_loops_to_db(content, loops, db)
             written += n
             skipped += len(loops) - n
             note = "" if n == len(loops) else f" ({len(loops) - n} already had an entry at that start)"
             print(f"  {title}: wrote {n} loop(s){note}")
 
         print(f"\nDatabase write: {written} named memory loop(s) added · {skipped} skipped.")
+        if failed:
+            print(
+                f"{len(failed)} track(s) FAILED: {', '.join(failed)} — "
+                f"earlier tracks are already committed. Backup: {backup}",
+                file=sys.stderr,
+            )
         print("Existing memory cues/loops were left untouched. Open Rekordbox to see them.")
         return
 
