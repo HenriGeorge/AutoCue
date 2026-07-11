@@ -199,6 +199,20 @@ def main() -> None:
     _print_summary(tracks)
 
     if args.dry_run:
+        # C-3: preview loop placements too (they are otherwise computed only
+        # inside the real --serato write branch, which sits after this return).
+        if args.loops:
+            from .analyzer import analyze_loops
+            for content, _generated, _ in tracks:
+                title = content.Title or content.FileNameL or "Unknown"
+                for loop in analyze_loops(content, db):
+                    smin, ssec = divmod(loop.position_ms // 1000, 60)
+                    emin, esec = divmod((loop.loop_end_ms or 0) // 1000, 60)
+                    bars = (loop.loop_beats // 4) if loop.loop_beats else "?"
+                    print(
+                        f"  {title}: loop [{loop.name}] "
+                        f"{smin:02d}:{ssec:02d}–{emin:02d}:{esec:02d} ({bars} bars)"
+                    )
         print("\nDry run — no files written.")
         return
 

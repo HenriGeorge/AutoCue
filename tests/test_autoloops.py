@@ -626,3 +626,64 @@ class TestAnalyzeLoopsBreadcrumb:
         assert out == []
         assert not any("grid" in r.getMessage().lower() for r in caplog.records), \
             "a valid grid with no eligible phrase must stay silent (no false alarm)"
+
+
+def _cli_stub(monkeypatch, *, generated, loops, spy):
+    """Run main() DB-free; spy records the cue lists handed to write_serato."""
+    import sys
+    from types import SimpleNamespace
+    import autocue.cli as cli
+    import autocue.db_writer as db_writer
+    import autocue.analyzer as analyzer
+    import autocue.serato_writer as serato_writer
+    from autocue.serato_writer import SeratoSummary
+
+    content = SimpleNamespace(Title="Fixture", FileNameL="fixture.mp3", ID=1, Length=200)
+    monkeypatch.setattr(cli, "MasterDatabase", lambda *a, **k: object())
+    monkeypatch.setattr(cli, "analyze_by_title", lambda *a, **k: (content, None))
+    monkeypatch.setattr(cli, "generate_cues_for_track", lambda *a, **k: (list(generated), "phrase"))
+    monkeypatch.setattr(cli, "_serato_running", lambda: False)
+    monkeypatch.setattr(db_writer, "read_hot_cues", lambda *a, **k: [])
+    monkeypatch.setattr(analyzer, "analyze_loops", lambda *a, **k: list(loops), raising=False)
+    monkeypatch.setattr(cli, "analyze_loops", lambda *a, **k: list(loops), raising=False)
+
+    def _spy(pairs, **kw):
+        spy.extend(list(cs) for _, cs in pairs)
+        return SeratoSummary(written=len(pairs))
+
+    monkeypatch.setattr(serato_writer, "write_serato", _spy)
+    return content
+
+
+class TestDryRunLoopPreview:
+    """C-3 (verifier) — --loops --serato --dry-run must PREVIEW the loop
+    placements (they were computed only inside the real write branch, after the
+    dry-run early return) AND still write nothing."""
+
+    def test_dry_run_lists_loops_and_writes_nothing(self, monkeypatch, capsys):
+        import sys
+        from autocue.cli import main
+        spy = []
+        loop = _loop_cue(pos=10_000, end=18_000, name="Outro")
+        _cli_stub(monkeypatch, generated=[
+            CuePoint(position_ms=1000, label=PhraseLabel.INTRO, slot=0, name="Intro")
+        ], loops=[loop], spy=spy)
+        monkeypatch.setattr(sys, "argv", ["autocue", "--track", "x", "--loops", "--serato", "--dry-run"])
+        main()
+        out = capsys.readouterr().out
+        assert "Dry run — no files written." in out
+        assert "Outro" in out and "loop" in out.lower()   # loop placement previewed
+        assert spy == [], "dry-run must not call write_serato"
+
+    def test_dry_run_without_loops_flag_no_loop_preview(self, monkeypatch, capsys):
+        import sys
+        from autocue.cli import main
+        spy = []
+        _cli_stub(monkeypatch, generated=[
+            CuePoint(position_ms=1000, label=PhraseLabel.INTRO, slot=0, name="Intro")
+        ], loops=[_loop_cue(name="Outro")], spy=spy)
+        monkeypatch.setattr(sys, "argv", ["autocue", "--track", "x", "--serato", "--dry-run"])
+        main()
+        out = capsys.readouterr().out
+        assert "Dry run — no files written." in out
+        assert "loop [" not in out.lower()   # no loop preview without --loops
