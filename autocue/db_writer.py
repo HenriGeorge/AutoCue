@@ -336,6 +336,25 @@ def _port_is_listening(port: int) -> bool:
         return False
 
 
+def _is_serve_cmdline(cmd: list[str]) -> bool:
+    """True only for a genuine ``autocue serve`` invocation.
+
+    The subcommand must be the argv token ``serve`` AND the token immediately
+    before it must END with ``autocue`` — i.e. ``autocue serve …``,
+    ``/usr/local/bin/autocue serve …`` or ``python -m autocue serve …``.
+
+    A looser "'serve' in cmd and 'autocue' somewhere" match false-positived on any
+    process that merely mentions both — ``grep serve autocue/cli.py``,
+    ``pytest -k serve autocue`` — which then REFUSED the user's --write-db (safe,
+    but wrong). Ambiguity still fails SAFE elsewhere; this only removes matches
+    that cannot be a server.
+    """
+    for i, tok in enumerate(cmd):
+        if tok == "serve" and i > 0 and cmd[i - 1].endswith("autocue"):
+            return True
+    return False
+
+
 def _serve_process_is_running() -> bool:
     """True if an ``autocue serve`` process is alive — on ANY port.
 
@@ -364,10 +383,7 @@ def _serve_process_is_running() -> bool:
                 continue
             if not cmd:
                 continue
-            # `autocue serve …` or `python -m autocue serve …` (any --port).
-            # "serve" must be its own argv token so `autocue --loops --write-db`
-            # (this very process's siblings) is not a false positive.
-            if "serve" in cmd and any("autocue" in part for part in cmd):
+            if _is_serve_cmdline(cmd):
                 return True
     except Exception:
         logger.warning(

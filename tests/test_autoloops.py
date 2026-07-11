@@ -1486,6 +1486,33 @@ class TestServeSingleWriterProbe:
         _fake_procs(monkeypatch, [["autocue", "--loops", "--write-db"]])
         assert dbw.autocue_serve_is_running() is False
 
+    @pytest.mark.parametrize("cmdline", [
+        ["grep", "serve", "autocue/cli.py"],         # a dev grepping the source
+        ["pytest", "-k", "serve", "autocue"],        # a test run
+        ["vim", "autocue/serve/app.py", "serve"],
+        ["serve", "--port", "8080"],                 # some unrelated `serve` binary
+    ])
+    def test_no_false_positive_on_unrelated_serve_tokens(self, monkeypatch, cmdline):
+        """P5-FIX #4 (auditor N2) — the scan tripped on ANY process with a
+        standalone `serve` token AND `autocue` as a substring anywhere. The token
+        BEFORE `serve` must end with `autocue` (`autocue serve` / `-m autocue serve`)."""
+        import autocue.db_writer as dbw
+        monkeypatch.setattr(dbw, "_port_is_listening", lambda p: False)
+        _fake_procs(monkeypatch, [cmdline])
+        assert dbw.autocue_serve_is_running() is False, f"false positive on {cmdline}"
+
+    @pytest.mark.parametrize("cmdline", [
+        ["autocue", "serve"],
+        ["autocue", "serve", "--port", "3004"],
+        ["python", "-m", "autocue", "serve"],
+        ["/usr/local/bin/autocue", "serve", "--no-browser"],   # absolute path
+    ])
+    def test_still_detects_real_serve_invocations(self, monkeypatch, cmdline):
+        import autocue.db_writer as dbw
+        monkeypatch.setattr(dbw, "_port_is_listening", lambda p: False)
+        _fake_procs(monkeypatch, [cmdline])
+        assert dbw.autocue_serve_is_running() is True, f"missed a real serve: {cmdline}"
+
     def test_fail_safe_when_the_process_probe_raises(self, monkeypatch, caplog):
         # N2: an ambiguous probe must FAIL SAFE (refuse the write), never fail-open.
         import logging
