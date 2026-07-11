@@ -329,3 +329,69 @@ class TestSeratoLoopPreserve:
         names = {e.get("name") for e in entries}
         assert "MyLoop" in names               # loop preserved
         assert "Intro" in names                # new cue also written
+
+
+# ---------------------------------------------------------------------------
+# Unit 4 — read_hot_cues carries OutMsec -> loop_end_ms (§4, F6 mirror-first)
+# ---------------------------------------------------------------------------
+
+def _cue_row(kind=1, in_ms=1000, out_ms=-1, beat_loop=0, comment="Intro", color=5):
+    from types import SimpleNamespace
+    return SimpleNamespace(
+        Kind=kind, InMsec=in_ms, OutMsec=out_ms, BeatLoopSize=beat_loop,
+        Comment=comment, ColorTableIndex=color,
+    )
+
+
+def _db_with_rows(rows):
+    from unittest.mock import MagicMock
+    db = MagicMock()
+    db.query.return_value.filter.return_value.all.return_value = rows
+    return db
+
+
+class TestReadHotCuesOutMsec:
+    def test_point_cue_out_msec_sentinel_stays_point(self):
+        # OutMsec=-1 sentinel (write_cues_to_db's non-loop value) -> point cue.
+        from autocue.db_writer import read_hot_cues
+        from types import SimpleNamespace
+        cues = read_hot_cues(SimpleNamespace(ID=1), _db_with_rows([_cue_row(out_ms=-1)]))
+        assert len(cues) == 1
+        assert cues[0].loop_end_ms is None
+        assert cues[0].is_loop is False
+
+    def test_existing_loop_carries_out_msec(self):
+        # A hot-slot loop (OutMsec > InMsec) mirrors back as a loop CuePoint.
+        from autocue.db_writer import read_hot_cues
+        from types import SimpleNamespace
+        row = _cue_row(kind=1, in_ms=5000, out_ms=13_000, beat_loop=16, comment="Outro")
+        cues = read_hot_cues(SimpleNamespace(ID=1), _db_with_rows([row]))
+        assert cues[0].is_loop is True
+        assert cues[0].position_ms == 5000
+        assert cues[0].loop_end_ms == 13_000
+        assert cues[0].loop_beats == 16          # BeatLoopSize carried through
+        assert cues[0].name == "Outro"
+
+    def test_out_msec_not_greater_than_in_is_point(self):
+        from autocue.db_writer import read_hot_cues
+        from types import SimpleNamespace
+        # OutMsec == InMsec or < InMsec -> not a valid loop region.
+        for out in (0, 1000, 500):
+            cues = read_hot_cues(
+                SimpleNamespace(ID=1), _db_with_rows([_cue_row(in_ms=1000, out_ms=out)])
+            )
+            assert cues[0].loop_end_ms is None, f"out={out}"
+
+    def test_out_msec_none_is_point(self):
+        from autocue.db_writer import read_hot_cues
+        from types import SimpleNamespace
+        cues = read_hot_cues(SimpleNamespace(ID=1), _db_with_rows([_cue_row(out_ms=None)]))
+        assert cues[0].loop_end_ms is None
+
+    def test_loop_with_zero_beat_loop_size_has_none_beats(self):
+        from autocue.db_writer import read_hot_cues
+        from types import SimpleNamespace
+        row = _cue_row(in_ms=1000, out_ms=9000, beat_loop=0)
+        cues = read_hot_cues(SimpleNamespace(ID=1), _db_with_rows([row]))
+        assert cues[0].is_loop is True
+        assert cues[0].loop_beats is None        # unknown length, but still a loop

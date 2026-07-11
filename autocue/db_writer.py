@@ -167,13 +167,33 @@ def read_hot_cues(content, db) -> list[CuePoint]:
         if not 1 <= kind <= 8:
             continue
         slot = kind - 1
+        in_ms = int(row.InMsec or 0)
+        # Mirror-first (F6): carry OutMsec/BeatLoopSize so an existing Rekordbox
+        # loop (a hot slot with a real OutMsec) reads back as a loop CuePoint
+        # instead of degrading to a point cue. write_cues_to_db pins non-loop
+        # rows to OutMsec=-1, so any OutMsec > InMsec is a genuine loop region.
+        try:
+            out_raw = getattr(row, "OutMsec", None)
+            out_ms = int(out_raw) if out_raw is not None else -1
+        except (TypeError, ValueError):
+            out_ms = -1
+        loop_end_ms: int | None = out_ms if out_ms > in_ms else None
+        loop_beats: int | None = None
+        if loop_end_ms is not None:
+            try:
+                bls = int(getattr(row, "BeatLoopSize", 0) or 0)
+            except (TypeError, ValueError):
+                bls = 0
+            loop_beats = bls if bls > 0 else None
         cues.append(
             CuePoint(
-                position_ms=int(row.InMsec or 0),
+                position_ms=in_ms,
                 label=PhraseLabel.UNKNOWN,
                 slot=slot,
                 name=row.Comment or chr(ord("A") + slot),
                 color_id=int(row.ColorTableIndex or 0),
+                loop_end_ms=loop_end_ms,
+                loop_beats=loop_beats,
             )
         )
     return sorted(cues, key=lambda c: c.slot)
