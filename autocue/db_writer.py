@@ -293,16 +293,13 @@ def write_loops_to_db(content, cues: list[CuePoint], db, *, dry_run: bool = Fals
 
 # Default port of a local `autocue serve` (mirrors serve/app.py DEFAULT_PORT).
 AUTOCUE_SERVE_PORT = 7432
+# serve() auto-switches to the next 9 free ports when the default is busy
+# (serve/app.py: `for alt in range(port + 1, port + 10)`), so the real surface is
+# 7432-7441 — probing only 7432 misses a perfectly normal server.
+AUTOCUE_SERVE_PORT_RANGE = range(AUTOCUE_SERVE_PORT, AUTOCUE_SERVE_PORT + 10)
 
 
-def autocue_serve_is_running(port: int = AUTOCUE_SERVE_PORT) -> bool:
-    """True if a local ``autocue serve`` is listening on ``port``.
-
-    Single-writer guard: ``rekordbox_is_running`` detects Rekordbox but NOT a
-    running AutoCue server, which holds its own read-write handle on master.db.
-    A CLI DB write concurrent with a server write would violate the single-writer
-    rule, so ``--write-db`` refuses when this returns True.
-    """
+def _port_is_listening(port: int) -> bool:
     import socket
 
     try:
@@ -310,6 +307,69 @@ def autocue_serve_is_running(port: int = AUTOCUE_SERVE_PORT) -> bool:
             return True
     except OSError:
         return False
+
+
+def _serve_process_is_running() -> bool:
+    """True if an ``autocue serve`` process is alive — on ANY port.
+
+    FAIL-SAFE (not fail-open): if the probe cannot complete we assume a server IS
+    running and refuse the write, rather than risk two writers on master.db.
+    """
+    import os
+
+    try:
+        import psutil
+    except ImportError:  # psutil is a hard dependency; be safe if it ever isn't
+        logger.warning(
+            "psutil unavailable — cannot rule out a running `autocue serve`; "
+            "refusing the database write (fail-safe)."
+        )
+        return True
+
+    me = os.getpid()
+    try:
+        for proc in psutil.process_iter(["cmdline"]):
+            if getattr(proc, "pid", None) == me:
+                continue  # never self-detect
+            try:
+                cmd = proc.info.get("cmdline") or []
+            except (psutil.NoSuchProcess, psutil.AccessDenied):
+                continue
+            if not cmd:
+                continue
+            # `autocue serve …` or `python -m autocue serve …` (any --port).
+            # "serve" must be its own argv token so `autocue --loops --write-db`
+            # (this very process's siblings) is not a false positive.
+            if "serve" in cmd and any("autocue" in part for part in cmd):
+                return True
+    except Exception:
+        logger.warning(
+            "could not probe for a running `autocue serve` — refusing the "
+            "database write (fail-safe)."
+        )
+        return True
+    return False
+
+
+def autocue_serve_is_running(port: int | None = None) -> bool:
+    """True if a local ``autocue serve`` appears to be running.
+
+    Single-writer guard: ``rekordbox_is_running`` detects Rekordbox but NOT a
+    running AutoCue server, which holds its own read-write handle on master.db.
+    A CLI DB write concurrent with a server write violates the single-writer rule,
+    so ``--write-db`` refuses when this returns True.
+
+    Two probes, because one port is not enough (a serve on ``--port 3004`` was
+    completely invisible to the old single-port check):
+      1. scan the whole ``7432-7441`` auto-fallback range serve() walks;
+      2. scan the PROCESS table — catches ANY port, including an explicit --port.
+    Pass ``port`` to probe exactly one port instead of the range.
+    """
+    ports = [port] if port is not None else list(AUTOCUE_SERVE_PORT_RANGE)
+    for p in ports:
+        if _port_is_listening(p):
+            return True
+    return _serve_process_is_running()
 
 
 def delete_tracks(

@@ -1285,3 +1285,83 @@ class TestWriteDbCli:
         text = (combined.out + combined.err).lower()
         assert "backup" in text          # the user is reminded where their undo is
         assert "fixture" in text         # the failing track is named
+
+
+# ---------------------------------------------------------------------------
+# FIX-2 (BL-2 / auditor CRITICAL 95) — the serve single-writer probe
+# ---------------------------------------------------------------------------
+
+def _fake_procs(monkeypatch, cmdlines):
+    """Patch psutil.process_iter with fake processes carrying these cmdlines."""
+    import psutil
+    from types import SimpleNamespace
+    procs = [SimpleNamespace(pid=10_000 + i, info={"cmdline": c})
+             for i, c in enumerate(cmdlines)]
+    monkeypatch.setattr(psutil, "process_iter", lambda *a, **k: procs)
+
+
+class TestServeSingleWriterProbe:
+    """The old probe hit ONLY port 7432 — but serve() auto-falls-back to 7433-7441
+    and honours --port, so a serve on :3004 was invisible and the single-writer
+    guard silently never fired."""
+
+    def test_detects_serve_on_a_fallback_port(self, monkeypatch):
+        import autocue.db_writer as dbw
+        # Nothing on 7432, but serve auto-switched to 7437 (in serve()'s range).
+        monkeypatch.setattr(dbw, "_port_is_listening", lambda p: p == 7437)
+        _fake_procs(monkeypatch, [])
+        assert dbw.autocue_serve_is_running() is True
+
+    def test_detects_serve_process_on_an_arbitrary_port(self, monkeypatch):
+        # ★ THE CRITICAL CASE: `autocue serve --port 3004` — no port in the scan
+        # range is listening, so ONLY the process probe can catch it.
+        import autocue.db_writer as dbw
+        monkeypatch.setattr(dbw, "_port_is_listening", lambda p: False)
+        _fake_procs(monkeypatch, [["autocue", "serve", "--port", "3004"]])
+        assert dbw.autocue_serve_is_running() is True
+
+    def test_detects_python_m_autocue_serve(self, monkeypatch):
+        import autocue.db_writer as dbw
+        monkeypatch.setattr(dbw, "_port_is_listening", lambda p: False)
+        _fake_procs(monkeypatch, [["python", "-m", "autocue", "serve"]])
+        assert dbw.autocue_serve_is_running() is True
+
+    def test_false_when_nothing_running(self, monkeypatch):
+        import autocue.db_writer as dbw
+        monkeypatch.setattr(dbw, "_port_is_listening", lambda p: False)
+        _fake_procs(monkeypatch, [["python", "-m", "pytest"], ["Google Chrome"]])
+        assert dbw.autocue_serve_is_running() is False
+
+    def test_no_false_positive_on_our_own_write_db_process(self, monkeypatch):
+        # `autocue --loops --write-db` contains "autocue" but NOT "serve".
+        import autocue.db_writer as dbw
+        monkeypatch.setattr(dbw, "_port_is_listening", lambda p: False)
+        _fake_procs(monkeypatch, [["autocue", "--loops", "--write-db"]])
+        assert dbw.autocue_serve_is_running() is False
+
+    def test_fail_safe_when_the_process_probe_raises(self, monkeypatch, caplog):
+        # N2: an ambiguous probe must FAIL SAFE (refuse the write), never fail-open.
+        import logging
+        import psutil
+        import autocue.db_writer as dbw
+
+        def _boom(*a, **k):
+            raise RuntimeError("procfs unavailable")
+
+        monkeypatch.setattr(dbw, "_port_is_listening", lambda p: False)
+        monkeypatch.setattr(psutil, "process_iter", _boom)
+        with caplog.at_level(logging.WARNING):
+            assert dbw.autocue_serve_is_running() is True, (
+                "an unresolvable serve probe must refuse the write, not allow it"
+            )
+        assert any("fail-safe" in r.getMessage().lower() or "refus" in r.getMessage().lower()
+                   for r in caplog.records)
+
+    def test_scans_the_whole_serve_fallback_range(self, monkeypatch):
+        # serve() walks port..port+9 → the probe must cover 7432-7441.
+        import autocue.db_writer as dbw
+        seen = []
+        monkeypatch.setattr(dbw, "_port_is_listening", lambda p: seen.append(p) or False)
+        _fake_procs(monkeypatch, [])
+        dbw.autocue_serve_is_running()
+        assert set(seen) == set(range(7432, 7442)), f"scanned {seen}"
