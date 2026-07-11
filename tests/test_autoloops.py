@@ -1086,3 +1086,133 @@ class TestMirrorNegativeWhyNotWriteCuesToDb:
         # THE CLOBBER: both DJ memory cues are gone, replaced by the one we passed.
         assert [r.Comment for r in rows] == ["New"]
         assert not any(r.Comment.startswith("DJ Memory") for r in rows)
+
+
+# ---------------------------------------------------------------------------
+# INC-3 — the --write-db CLI branch (safety wiring)
+# ---------------------------------------------------------------------------
+
+def _writedb_stub(monkeypatch, tmp_path, *, loops=None, rb=False, serve=False,
+                  backup_raises=False):
+    """Stub the --write-db seams. Records write_loops_to_db + backup calls."""
+    import sys
+    from types import SimpleNamespace
+    import autocue.cli as cli
+    import autocue.analyzer as analyzer
+    import autocue.db_writer as dbw
+
+    (tmp_path / "master.db").write_bytes(b"fake")     # backup source must exist
+    content = SimpleNamespace(
+        Title="Fixture", ArtistName="A", FolderPath="/Music", FileNameL="f.mp3",
+        FileNameS="f.mp3", ID="1", Length=200,
+    )
+    calls = {"written": [], "backups": []}
+
+    monkeypatch.setattr(cli, "MasterDatabase",
+                        lambda *a, **k: SimpleNamespace(_db_dir=str(tmp_path)))
+    monkeypatch.setattr(cli, "analyze_by_title", lambda *a, **k: (content, None))
+    monkeypatch.setattr(cli, "generate_cues_for_track",
+                        lambda *a, **k: ([CuePoint(position_ms=1000,
+                                                   label=PhraseLabel.INTRO, slot=0,
+                                                   name="Intro")], "phrase"))
+    monkeypatch.setattr(analyzer, "analyze_loops",
+                        lambda *a, **k: list(loops if loops is not None else []),
+                        raising=False)
+    monkeypatch.setattr(dbw, "rekordbox_is_running", lambda *a, **k: rb)
+    monkeypatch.setattr(dbw, "autocue_serve_is_running", lambda *a, **k: serve)
+
+    def _backup(path, **kw):
+        if backup_raises:
+            raise RuntimeError("disk full")
+        calls["backups"].append(str(path))
+        return tmp_path / "master_20260711T000000.db"
+
+    def _write(content_, cues, db_, **kw):
+        calls["written"].append(list(cues))
+        return len([c for c in cues if c.is_loop and c.slot == -1])
+
+    monkeypatch.setattr(dbw, "backup_database", _backup)
+    monkeypatch.setattr(dbw, "write_loops_to_db", _write)
+    return calls
+
+
+class TestWriteDbCli:
+    def test_flag_parses(self):
+        from autocue.cli import _build_parser
+        a = _build_parser().parse_args(["--track", "x", "--loops", "--write-db"])
+        assert a.write_db is True
+        b = _build_parser().parse_args(["--track", "x", "--loops"])
+        assert b.write_db is False
+
+    def test_write_db_requires_loops(self, monkeypatch, tmp_path, capsys):
+        # Gates on --loops: writing CUES to the DB is a much bigger scope.
+        import sys
+        from autocue.cli import main
+        calls = _writedb_stub(monkeypatch, tmp_path, loops=[_loop_cue()])
+        monkeypatch.setattr(sys, "argv", ["autocue", "--track", "x", "--write-db"])
+        with pytest.raises(SystemExit) as e:
+            main()
+        assert e.value.code == 1
+        assert "--loops" in capsys.readouterr().err
+        assert calls["written"] == [] and calls["backups"] == []
+
+    def test_aborts_when_rekordbox_running(self, monkeypatch, tmp_path, capsys):
+        import sys
+        from autocue.cli import main
+        calls = _writedb_stub(monkeypatch, tmp_path, loops=[_loop_cue()], rb=True)
+        monkeypatch.setattr(sys, "argv", ["autocue", "--track", "x", "--loops", "--write-db"])
+        with pytest.raises(SystemExit) as e:
+            main()
+        assert e.value.code == 1
+        assert "rekordbox" in capsys.readouterr().err.lower()
+        assert calls["written"] == [] and calls["backups"] == []   # nothing written, no backup
+
+    def test_aborts_when_autocue_serve_running(self, monkeypatch, tmp_path, capsys):
+        # Single-writer: rekordbox_is_running does NOT see a running `autocue serve`.
+        import sys
+        from autocue.cli import main
+        calls = _writedb_stub(monkeypatch, tmp_path, loops=[_loop_cue()], serve=True)
+        monkeypatch.setattr(sys, "argv", ["autocue", "--track", "x", "--loops", "--write-db"])
+        with pytest.raises(SystemExit) as e:
+            main()
+        assert e.value.code == 1
+        assert "serve" in capsys.readouterr().err.lower()
+        assert calls["written"] == [] and calls["backups"] == []
+
+    def test_backup_failure_aborts_before_any_write(self, monkeypatch, tmp_path, capsys):
+        # Never write without a successful backup (mirrors routes.py 995-997).
+        import sys
+        from autocue.cli import main
+        calls = _writedb_stub(monkeypatch, tmp_path, loops=[_loop_cue()],
+                              backup_raises=True)
+        monkeypatch.setattr(sys, "argv", ["autocue", "--track", "x", "--loops", "--write-db"])
+        with pytest.raises(SystemExit) as e:
+            main()
+        assert e.value.code == 1
+        err = capsys.readouterr().err.lower()
+        assert "backup" in err
+        assert calls["written"] == [], "NOTHING may be written when the backup fails"
+
+    def test_happy_path_backs_up_prints_path_and_writes(self, monkeypatch, tmp_path, capsys):
+        import sys
+        from autocue.cli import main
+        loop = _loop_cue(pos=10_000, end=18_000, name="Outro")
+        calls = _writedb_stub(monkeypatch, tmp_path, loops=[loop])
+        monkeypatch.setattr(sys, "argv", ["autocue", "--track", "x", "--loops", "--write-db"])
+        main()
+        out = capsys.readouterr().out
+        assert len(calls["backups"]) == 1                    # backup taken BEFORE the write
+        assert "master_20260711T000000.db" in out            # the user's only undo, printed
+        assert len(calls["written"]) == 1
+        assert calls["written"][0][0].name == "Outro"        # the loop reached the writer
+
+    def test_dry_run_writes_nothing(self, monkeypatch, tmp_path, capsys):
+        import sys
+        from autocue.cli import main
+        calls = _writedb_stub(monkeypatch, tmp_path, loops=[_loop_cue(name="Outro")])
+        monkeypatch.setattr(
+            sys, "argv", ["autocue", "--track", "x", "--loops", "--write-db", "--dry-run"])
+        main()
+        out = capsys.readouterr().out
+        assert "Dry run — no files written." in out
+        assert calls["written"] == [] and calls["backups"] == []  # no backup, no write

@@ -73,6 +73,16 @@ def _build_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--write-db",
+        action="store_true",
+        help=(
+            "Write the generated loops DIRECTLY into the Rekordbox database as "
+            "named memory loops (requires --loops). Rekordbox must be closed; a "
+            "backup is taken first and its path printed — that backup is your only "
+            "undo. Existing memory cues/loops are never touched."
+        ),
+    )
+    parser.add_argument(
         "--db-path",
         metavar="PATH",
         help=(
@@ -222,6 +232,82 @@ def main() -> None:
                         f"{smin:02d}:{ssec:02d}–{emin:02d}:{esec:02d} ({bars} bars)"
                     )
         print("\nDry run — no files written.")
+        return
+
+    # ---- DB-DIRECT loop write (INC-3) — the ONLY path that mutates master.db ----
+    # Safety contract mirrors the server apply route (routes.py:975-997):
+    # Rekordbox-closed guard → single-writer guard → backup-or-abort → print the
+    # backup path (the user's only undo). Reached only when NOT --dry-run (the
+    # dry-run block above already returned), so --write-db --dry-run writes nothing.
+    if args.write_db:
+        if not args.loops:
+            print(
+                "Error: --write-db requires --loops. This increment writes LOOPS "
+                "only — it never writes cues to the database.",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+
+        from pathlib import Path
+
+        from .analyzer import analyze_loops
+        from . import db_writer
+
+        db_dir = getattr(db, "_db_dir", None)
+        if db_dir is None:
+            print(
+                "Error: cannot locate master.db (database object has no _db_dir).",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+        db_path = Path(db_dir) / "master.db"
+
+        if db_writer.rekordbox_is_running(db_path):
+            print(
+                "Error: Rekordbox is running — close it before writing to the "
+                "database (the DB is locked while Rekordbox is open).",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+
+        # rekordbox_is_running does NOT detect a running `autocue serve`, which
+        # holds its own read-write handle — writing now would break single-writer.
+        if db_writer.autocue_serve_is_running():
+            print(
+                "Error: a local `autocue serve` is running and holds the database "
+                "open. Stop the server before using --write-db (single-writer rule).",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+
+        if not db_path.exists():
+            print(f"Error: master.db not found at {db_path}", file=sys.stderr)
+            sys.exit(1)
+
+        # Never write without a successful backup.
+        try:
+            backup = db_writer.backup_database(db_path)
+        except Exception as e:
+            print(f"Error: backup failed — aborting, nothing written: {e}", file=sys.stderr)
+            sys.exit(1)
+        print(f"\nBackup: {backup}")
+        print("  ^ your ONLY undo — keep it until you've checked the result in Rekordbox.\n")
+
+        written = skipped = 0
+        for content, _cues, _ in tracks:
+            title = content.Title or content.FileNameL or "Unknown"
+            loops = analyze_loops(content, db)
+            if not loops:
+                print(f"  {title}: no eligible loops — skipped")
+                continue
+            n = db_writer.write_loops_to_db(content, loops, db)
+            written += n
+            skipped += len(loops) - n
+            note = "" if n == len(loops) else f" ({len(loops) - n} already had an entry at that start)"
+            print(f"  {title}: wrote {n} loop(s){note}")
+
+        print(f"\nDatabase write: {written} named memory loop(s) added · {skipped} skipped.")
+        print("Existing memory cues/loops were left untouched. Open Rekordbox to see them.")
         return
 
     if args.serato:
