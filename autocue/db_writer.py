@@ -135,11 +135,66 @@ def has_existing_hot_cues(content, db) -> int:
     )
 
 
+# --- The Kind=0 discriminator -----------------------------------------------
+# Memory CUES and memory LOOPS share the DjmdCue Kind=0 space. The ONLY thing
+# that tells them apart is OutMsec:
+#     point cue :  OutMsec is NULL / -1 / <= InMsec
+#     loop      :  OutMsec > InMsec
+# A blanket `Kind == 0` COUNT or DELETE therefore conflates two different object
+# classes and destroys (or silently suppresses) the other one. Every Kind=0
+# operation goes through exactly ONE of these two complementary predicates, so
+# the counts and the deletes can never drift apart.
+
+def _point_cue_filter():
+    """SQL predicate: memory POINT cues only — never loops."""
+    from sqlalchemy import or_
+    from pyrekordbox.db6 import DjmdCue
+
+    return or_(DjmdCue.OutMsec.is_(None), DjmdCue.OutMsec <= DjmdCue.InMsec)
+
+
+def _loop_filter():
+    """SQL predicate: memory LOOP rows only — never point cues."""
+    from sqlalchemy import and_
+    from pyrekordbox.db6 import DjmdCue
+
+    return and_(DjmdCue.OutMsec.isnot(None), DjmdCue.OutMsec > DjmdCue.InMsec)
+
+
 def has_existing_memory_cues(content, db) -> int:
+    """Count the track's memory CUES (Kind=0 POINT cues).
+
+    Memory LOOPS are Kind=0 too but are NOT memory cues — counting them here
+    would gate the memory-cue write off, silently suppressing it on any track
+    that merely has a loop.
+    """
     from pyrekordbox.db6 import DjmdCue
     return (
         db.query(DjmdCue)
-        .filter(DjmdCue.ContentID == content.ID, DjmdCue.Kind == 0)
+        .filter(
+            DjmdCue.ContentID == content.ID,
+            DjmdCue.Kind == 0,
+            _point_cue_filter(),
+        )
+        .count()
+    )
+
+
+def has_existing_memory_loops(content, db) -> int:
+    """Count the track's saved memory LOOPS (Kind=0 rows with a real out-point).
+
+    The mirror of ``has_existing_memory_cues``. This — not the memory-cue count —
+    is what a loop write must gate on: a track whose only Kind=0 rows are the
+    DJ's point cues has no loops, so its loops can be written safely.
+    """
+    from pyrekordbox.db6 import DjmdCue
+    return (
+        db.query(DjmdCue)
+        .filter(
+            DjmdCue.ContentID == content.ID,
+            DjmdCue.Kind == 0,
+            _loop_filter(),
+        )
         .count()
     )
 
@@ -489,17 +544,25 @@ def write_memory_loops(
     """Write generated loops into DjmdCue as MEMORY loops (Kind=0 with an
     out-point). Returns number written (0 on dry_run or skip).
 
-    Preservation contract mirrors write_cues_to_db's memory semantics: when
-    the track already has ANY memory cues/loops and overwrite is False,
-    nothing is written — manually placed memory data is never destroyed
-    silently. With overwrite, existing Kind=0 rows are replaced.
+    Preservation contract — scoped to LOOPS, because loops are all this function
+    writes or replaces:
+
+    * The DJ's hand-placed memory CUES (Kind=0 POINT cues) are **never touched**,
+      with or without ``overwrite``. They are a different object class that merely
+      shares the Kind=0 space (discriminator: ``OutMsec``).
+    * When the track already has saved memory LOOPS and ``overwrite`` is False,
+      nothing is written — the DJ's own loops are never replaced silently.
+    * With ``overwrite``, existing memory LOOP rows are replaced; point cues still
+      survive untouched.
     """
     from pyrekordbox.db6 import DjmdCue
 
     if not loops:
         return 0
-    if not overwrite and has_existing_memory_cues(content, db) > 0:
-        logger.debug("Skip %r — existing memory cues/loops", content.Title)
+    # Gate on existing LOOPS, not on memory cues: a track that merely has the DJ's
+    # memory cues has no loops, and must still get its loops written.
+    if not overwrite and has_existing_memory_loops(content, db) > 0:
+        logger.debug("Skip %r — existing memory loops", content.Title)
         return 0
     if dry_run:
         logger.info("[dry-run] Would write %d memory loop(s) to %r", len(loops), content.Title)
@@ -510,9 +573,16 @@ def write_memory_loops(
     try:
         sp = db.session.begin_nested()
         if overwrite:
+            # Replace existing memory LOOPS only. A blanket Kind=0 delete here
+            # would also destroy the DJ's hand-placed memory CUES — library-wide
+            # on `autocue --library --loops --overwrite`.
             (
                 db.session.query(DjmdCue)
-                .filter(DjmdCue.ContentID == content.ID, DjmdCue.Kind == 0)
+                .filter(
+                    DjmdCue.ContentID == content.ID,
+                    DjmdCue.Kind == 0,
+                    _loop_filter(),
+                )
                 .delete(synchronize_session=False)
             )
         for loop in loops:
@@ -602,9 +672,16 @@ def write_cues_to_db(
                 .delete(synchronize_session=False)
             )
         if write_memory:
+            # Rewrite the memory POINT-cue set only. A blanket Kind=0 delete here
+            # would also destroy saved memory LOOPS — including the ones AutoCue
+            # itself just generated (any Apply / generate-apply with overwrite).
             (
                 db.session.query(DjmdCue)
-                .filter(DjmdCue.ContentID == content.ID, DjmdCue.Kind == 0)
+                .filter(
+                    DjmdCue.ContentID == content.ID,
+                    DjmdCue.Kind == 0,
+                    _point_cue_filter(),
+                )
                 .delete(synchronize_session=False)
             )
         for cue in cues_to_write:
