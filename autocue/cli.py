@@ -33,7 +33,7 @@ def _default_db_path() -> Path | None:
 
 
 def _preflight_loop_write(args) -> Path:
-    """Resolve master.db and run the Rekordbox-closed guard BEFORE the DB is opened.
+    """Resolve master.db and run BOTH single-writer guards BEFORE the DB is opened.
 
     🔴 THE SELF-LOCK. ``rekordbox_is_running()`` probes an EXCLUSIVE FILE LOCK on
     master.db. If it runs after AutoCue has opened the database — the analysis
@@ -43,11 +43,17 @@ def _preflight_loop_write(args) -> Path:
     before ``MasterDatabase(...)`` is ever constructed. That is also the
     semantically correct place: Rekordbox must be closed before we even open the DB.
 
-    Returns the path that the guard, the backup AND the write all target — it is
+    Two writers must be excluded, not one:
+      * **Rekordbox** — holds the DB while open (SQLCipher lock);
+      * **`autocue serve`** — holds its own READ-WRITE handle, which
+        ``rekordbox_is_running()`` cannot see at all.
+    Both are asked here, and NEITHER can be reached after a backup is taken.
+
+    Returns the path that the guards, the backup AND the write all target — it is
     the file actually opened (``--db-path`` when given), not a path reconstructed
     from ``db._db_dir``, which would back up a different file than the one written.
     """
-    from .db_writer import rekordbox_is_running
+    from . import db_writer
 
     db_path = Path(args.db_path) if args.db_path else _default_db_path()
     if db_path is None or not db_path.exists():
@@ -57,7 +63,17 @@ def _preflight_loop_write(args) -> Path:
         )
         sys.exit(1)
 
-    if rekordbox_is_running(db_path):
+    # SERVE FIRST. A running `autocue serve` also holds the DB file, so it trips
+    # the file-lock probe inside rekordbox_is_running() — ask the specific question
+    # before the general one, or the user is told to close Rekordbox when the real
+    # culprit is our own server. (Process/port based, so it cannot self-lock.)
+    if db_writer.autocue_serve_is_running():
+        print("Error: a local `autocue serve` is running and holds the database "
+              "open. Stop the server before writing loops (single-writer rule).",
+              file=sys.stderr)
+        sys.exit(1)
+
+    if db_writer.rekordbox_is_running(db_path):
         print("Error: Rekordbox is running — close it before writing loops.",
               file=sys.stderr)
         sys.exit(1)
