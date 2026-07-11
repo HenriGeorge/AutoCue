@@ -16,6 +16,12 @@
 
 - **Memory cue (slot = -1)**: `CuePoint.slot = -1` → `Kind = 0` in DjmdCue (CDJ Auto Cue position). Memory cues do not consume hot cue slots. The `add_memory_cue` pref in `GenerationPrefs` prepends one before the hot cues; in phrase mode it anchors to the first phrase, otherwise to `max(0, inizio_ms)`.
 
+- 🚨 **`Kind=0` is SHARED by memory CUES and memory LOOPS — the discriminator is `OutMsec`** (`-1` = point cue, `> InMsec` = loop region; same test `read_hot_cues`/`read_loops` use). Two consequences, both live footguns:
+  - **NEVER blanket-DELETE `Kind=0`.** A `.filter(DjmdCue.Kind == 0).delete()` issued to rewrite *cues* also destroys the DJ's hand-placed memory **LOOPS**, and one issued to rewrite *loops* destroys their hand-placed memory **CUES**. Both `write_cues_to_db(overwrite=True)` and `write_memory_loops(overwrite=True)` do exactly this. Delete **point cues only** — `Kind == 0 AND (OutMsec IS NULL OR OutMsec <= InMsec)` — or don't delete at all.
+  - **NEVER blanket-COUNT `Kind=0` to gate a write.** `has_existing_memory_cues()` counting loops as cues means a track that has loops can never get a memory cue written (and vice-versa) — the write is **silently skipped**. Count point cues with the same discriminator.
+  - **A loop write should be append-only**: insert non-colliding rows (skip a loop whose `InMsec` already exists), never delete. That is clobber-proof by construction and idempotent on re-run. `write_loops_to_db()` is the reference implementation; **do not reuse `write_cues_to_db`/`write_memory_loops` for loops.**
+  - Any DB-write test MUST run against a **scratch in-memory SQLite** with the real pyrekordbox schema (`tests/test_duplicates_integration.py` fixture pattern) — **never the live `master.db`**. Stub `db.generate_unused_id` and wire `db.query` to the real session, or a MagicMock silently writes `ID=<MagicMock>` and makes `.count() == 0` False, producing false greens.
+
 - **DjmdContent.ColorID**: VARCHAR(255) FK to `djmdColor.ID` — NOT an integer. Always query `DjmdColor` at runtime and resolve `{SortKey: ID}` mapping. SortKey 1–8 corresponds to Pink/Red/Orange/Yellow/Green/Aqua/Blue/Purple.
 
 - **DjmdContent.Commnt**: The track comment column is spelled `Commnt` (not `Comment`). Use `getattr(content, "Commnt", "")`. Genre is an association proxy: `content.GenreName` (not `content.Genre` which is the ORM relationship object). `DjmdCue.Comment` is correctly spelled — only `DjmdContent` uses the abbreviated name.
