@@ -1357,6 +1357,28 @@ class TestWriteDbCli:
         assert "serve" in capsys.readouterr().err.lower()
         assert calls["written"] == [] and calls["backups"] == []
 
+    def test_serve_is_blamed_not_rekordbox_when_the_server_holds_the_db(
+            self, monkeypatch, tmp_path, capsys):
+        """P5-FIX #3 — a running `autocue serve` ALSO holds the DB file, so the
+        lock probe inside rekordbox_is_running fires too. Probing Rekordbox first
+        made the CLI say "Rekordbox is running" when the real culprit was the
+        server — the refusal was correct, the message lied. Probe serve FIRST."""
+        from autocue.cli import main
+        calls = _writedb_stub(monkeypatch, tmp_path, loops=[_loop_cue()],
+                              rb=True, serve=True)   # both probes would fire
+        _argv(monkeypatch, tmp_path, "--loops", "--write-db")
+        with pytest.raises(SystemExit) as e:
+            main()
+        assert e.value.code == 1
+        err = capsys.readouterr().err.lower()
+        assert "serve" in err, "the user must be told to close the SERVER"
+        assert "rekordbox is running" not in err, "misattributed to Rekordbox"
+        # serve is asked FIRST and short-circuits — the generic lock probe (which
+        # the server would also trip) is never even reached.
+        assert calls["order"].index("serve_guard") == 0
+        assert "rb_guard" not in calls["order"]
+        assert calls["written"] == [] and calls["backups"] == []
+
     def test_backup_failure_aborts_before_any_write(self, monkeypatch, tmp_path, capsys):
         # Never write without a successful backup (mirrors routes.py 995-997).
         from autocue.cli import main

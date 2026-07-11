@@ -143,20 +143,24 @@ def _preflight_write_db(args):
         print(f"Error: master.db not found at {db_path}", file=sys.stderr)
         sys.exit(1)
 
-    if db_writer.rekordbox_is_running(db_path):
-        print(
-            "Error: Rekordbox is running — close it before writing to the "
-            "database (the DB is locked while Rekordbox is open).",
-            file=sys.stderr,
-        )
-        sys.exit(1)
-
-    # rekordbox_is_running does NOT detect a running `autocue serve`, which holds
-    # its own read-write handle — writing now would break the single-writer rule.
+    # SERVE FIRST — a running `autocue serve` holds the DB file too, so it also
+    # trips the file-lock probe inside rekordbox_is_running(). Probing Rekordbox
+    # first therefore blamed "Rekordbox is running" when the real culprit was our
+    # own server: the refusal was correct, the message lied. Ask the specific
+    # question before the general one.
     if db_writer.autocue_serve_is_running():
         print(
             "Error: a local `autocue serve` is running and holds the database "
             "open. Stop the server before using --write-db (single-writer rule).",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+    if db_writer.rekordbox_is_running(db_path):
+        print(
+            "Error: the database is locked by another process (Rekordbox is "
+            "running, or another app holds master.db open) — close it before "
+            "writing to the database.",
             file=sys.stderr,
         )
         sys.exit(1)
