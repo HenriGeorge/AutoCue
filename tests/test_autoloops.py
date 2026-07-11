@@ -597,3 +597,32 @@ class TestAnalyzeLoopsTerminalPhrase:
         _fake_anlz(monkeypatch, [(1, 1), (65, 6)])
         loops = analyze_loops(SimpleNamespace(), object())  # no Length attr
         assert isinstance(loops, list)  # Intro may qualify off the gap to Outro; never raises
+
+
+class TestAnalyzeLoopsBreadcrumb:
+    """P-10 (verifier RED, DESIGN silent-failure lens) — a genuine ANLZ/grid
+    failure must be DISTINGUISHABLE from the legit 'no eligible phrase' (silent)."""
+
+    def test_missing_anlz_logs_breadcrumb(self, monkeypatch, caplog):
+        import logging
+        import autocue.analyzer as az
+        monkeypatch.setattr(az, "_get_pssi_and_pqtz", lambda *a, **k: (None, None))
+        with caplog.at_level(logging.WARNING):
+            out = az.analyze_loops(object(), object())
+        assert out == []
+        assert any("grid" in r.getMessage().lower() for r in caplog.records), \
+            "absent PSSI/PQTZ (a real parse/data failure) must log a breadcrumb"
+
+    def test_no_eligible_phrase_is_silent(self, monkeypatch, caplog):
+        # Valid grid + only VERSE phrases -> [] WITHOUT a warning (not a failure).
+        import logging
+        from types import SimpleNamespace
+        _fake_anlz(monkeypatch, [(1, 2)], mood=1)  # kind 2 @ mood 1 -> UP... use VERSE
+        import autocue.analyzer as az
+        # mood 3 kind 2 -> VERSE (never looped); usable grid.
+        _fake_anlz(monkeypatch, [(1, 2)], mood=3)
+        with caplog.at_level(logging.WARNING):
+            out = az.analyze_loops(SimpleNamespace(Length=200), object())
+        assert out == []
+        assert not any("grid" in r.getMessage().lower() for r in caplog.records), \
+            "a valid grid with no eligible phrase must stay silent (no false alarm)"

@@ -4,6 +4,7 @@ returning a list of CuePoints ready to be written back to the library.
 """
 from __future__ import annotations
 
+import logging
 import struct
 from collections import Counter
 from pathlib import Path
@@ -15,6 +16,8 @@ except ImportError:
 from pyrekordbox.db6 import DjmdContent
 
 from .models import CuePoint, DJ_NAMES, PhraseLabel, phrase_label
+
+logger = logging.getLogger(__name__)
 
 # Maximum hot cue slots Rekordbox supports (A–H)
 MAX_HOT_CUES = 8
@@ -356,8 +359,15 @@ def analyze_loops(
     Returns ``[]`` when phrase/beat data is missing (no bar alignment ⇒ no
     loop — the F5/G-grid guard) rather than guessing.
     """
+    # Breadcrumb (DESIGN §VERIFY silent-failure lens, P-10): a genuine ANLZ/beat
+    # -grid failure must be distinguishable from the legit "no eligible phrase"
+    # (which stays silent — plan_loops returns [] with no log). Only these
+    # grid-missing paths warn.
+    ident = getattr(content, "Title", None) or getattr(content, "ID", None) or "?"
+
     pssi_content, pqtz_content = _get_pssi_and_pqtz(content, db)
     if pssi_content is None or pqtz_content is None:
+        logger.warning("track %s: no usable beat grid — skipping loops", ident)
         return []
 
     beat_entries = pqtz_content.entries
@@ -370,6 +380,7 @@ def analyze_loops(
         if span > 0:
             avg_ms_per_beat = span / (len(beat_entries) - 1)
     if not avg_ms_per_beat or avg_ms_per_beat <= 0:
+        logger.warning("track %s: no usable beat grid — skipping loops", ident)
         return []  # no usable beat grid ⇒ no bar-aligned loop
     bar_ms = avg_ms_per_beat * 4
 
