@@ -690,9 +690,20 @@ def write_cues_to_db(
                 .delete(synchronize_session=False)
             )
         if write_memory:
+            # Memory CUES and memory LOOPS share the Kind=0 space — the ONLY
+            # discriminator is OutMsec (a point cue keeps the -1 sentinel; a loop
+            # has OutMsec > InMsec). A blanket Kind=0 delete therefore also
+            # destroyed the DJ's hand-placed memory LOOPS and any loops written by
+            # `--write-db`, silently, on every overwrite apply. Delete POINT CUES
+            # ONLY and spare the loops. (NULL OutMsec is unclassifiable → spared,
+            # the safe direction.)
             (
                 db.session.query(DjmdCue)
-                .filter(DjmdCue.ContentID == content.ID, DjmdCue.Kind == 0)
+                .filter(
+                    DjmdCue.ContentID == content.ID,
+                    DjmdCue.Kind == 0,
+                    DjmdCue.OutMsec <= DjmdCue.InMsec,   # point memory cues only
+                )
                 .delete(synchronize_session=False)
             )
         for cue in cues_to_write:

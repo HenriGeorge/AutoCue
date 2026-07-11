@@ -1067,11 +1067,70 @@ class TestWriteLoopsIdempotentAndCollision:
         assert len(_memory_rows(session, t)) == before
 
 
-class TestMirrorNegativeWhyNotWriteCuesToDb:
-    """Pins WHY write_loops_to_db exists: write_cues_to_db(overwrite=True) DELETES
-    every Kind=0 row — it would WIPE the DJ's hand-placed memory cues."""
+class TestWriteCuesToDbSparesMemoryLoops:
+    """FIX-3 (auditor IMPORTANT 88) — the Kind=0 bulk delete in write_cues_to_db
+    silently destroyed BOTH our INC-3 loops AND the DJ's hand-placed memory LOOPS
+    on any overwrite=True apply (/api/apply, SSE, CLI --overwrite). Memory cues and
+    memory loops share Kind=0; the discriminator is OutMsec (a point cue keeps the
+    -1 sentinel, a loop has OutMsec > InMsec). The rewrite must delete POINT CUES
+    ONLY and spare loops."""
 
-    def test_write_cues_to_db_overwrite_deletes_memory_cues(self, real_db):
+    def _seed_loop(self, session, t):
+        session.add(_construct(
+            t.DjmdCue, ID="903", ContentID="1", UUID="loop-uuid-1", Kind=0,
+            InMsec=10_000, InFrame=1500, OutMsec=18_000, OutFrame=2700,
+            BeatLoopSize=16, ActiveLoop=0, Comment="Intro",
+        ))
+        session.commit()
+
+    def test_memory_loop_survives_overwrite_while_point_cues_are_rewritten(self, real_db):
+        from autocue.db_writer import write_cues_to_db
+        db, session, t = real_db
+        content = _seed(session, t)      # 2 memory POINT cues + 1 hot cue
+        self._seed_loop(session, t)      # + a memory LOOP (OutMsec > InMsec)
+
+        write_cues_to_db(
+            content,
+            [CuePoint(position_ms=7000, label=PhraseLabel.UNKNOWN, slot=-1, name="New Mem")],
+            db, overwrite=True,
+        )
+        rows = _memory_rows(session, t)
+        comments = {r.Comment for r in rows}
+
+        # ★ the memory LOOP SURVIVES, byte-identical
+        assert "Intro" in comments, "write_cues_to_db(overwrite=True) DESTROYED a memory LOOP"
+        loop = next(r for r in rows if r.Comment == "Intro")
+        assert (loop.ID, loop.UUID, loop.InMsec, loop.OutMsec, loop.BeatLoopSize) == \
+               ("903", "loop-uuid-1", 10_000, 18_000, 16)
+
+        # ...while memory POINT cues are still rewritten (memory_cue_mode intact)
+        assert "New Mem" in comments
+        assert not any(c.startswith("DJ Memory") for c in comments)
+
+    def test_hot_cues_still_rewritten_slot_wise(self, real_db):
+        # Regression: the hot-cue path is untouched by the loop-sparing filter.
+        from autocue.db_writer import write_cues_to_db
+        db, session, t = real_db
+        content = _seed(session, t)
+        self._seed_loop(session, t)
+        write_cues_to_db(
+            content,
+            [CuePoint(position_ms=2000, label=PhraseLabel.INTRO, slot=0, name="NewHot")],
+            db, overwrite=True,
+        )
+        hot = session.query(t.DjmdCue).filter(
+            t.DjmdCue.ContentID == "1", t.DjmdCue.Kind == 1).all()
+        assert [r.Comment for r in hot] == ["NewHot"]
+        # and the loop is still there
+        assert any(r.Comment == "Intro" for r in _memory_rows(session, t))
+
+
+class TestMirrorNegativeWhyNotWriteCuesToDb:
+    """Pins WHY write_loops_to_db exists: even after FIX-3 (which spares memory
+    LOOPS), write_cues_to_db(overwrite=True) still DELETES memory POINT cues — so
+    it can never be the loop writer. The no-reuse rationale stands."""
+
+    def test_write_cues_to_db_overwrite_deletes_memory_point_cues(self, real_db):
         from autocue.db_writer import write_cues_to_db
         db, session, t = real_db
         content = _seed(session, t)
