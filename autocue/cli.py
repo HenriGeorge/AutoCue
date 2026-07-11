@@ -252,7 +252,7 @@ def main() -> None:
             else:
                 skipped += 1
                 title = content.Title or content.FileNameL or "Unknown"
-                print(f"  {title}: has memory cues/loops — skipped (use --overwrite)")
+                print(f"  {title}: already has saved loops — skipped (use --overwrite)")
         print(f"Loops: {written} written · {skipped} track(s) skipped")
 
     if args.serato:

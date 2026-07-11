@@ -86,7 +86,20 @@ def check_track_health(content, db) -> TrackHealthReport:
     # --- Cue data ---
     all_cues = db.query(DjmdCue).filter(DjmdCue.ContentID == track_id).all()
     hot_cues = [c for c in all_cues if 1 <= int(c.Kind or 0) <= 8]
-    memory_cues = [c for c in all_cues if int(c.Kind or 0) == 0]
+
+    def _is_memory_loop(c) -> bool:
+        # Kind=0 is shared by memory CUES and memory LOOPS; the discriminator is
+        # OutMsec (point cue: NULL/-1/<=InMsec — loop: > InMsec). Counting loops
+        # as memory cues would inflate memory_cue_count and wrongly suppress the
+        # "No memory cue" advisory on a track that only has loops.
+        try:
+            return c.OutMsec is not None and int(c.OutMsec) > int(c.InMsec)
+        except (TypeError, ValueError):
+            return False
+
+    memory_cues = [
+        c for c in all_cues if int(c.Kind or 0) == 0 and not _is_memory_loop(c)
+    ]
 
     # --- Score calculation ---
     score = 100
