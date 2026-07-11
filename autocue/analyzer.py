@@ -19,6 +19,103 @@ from .models import CuePoint, DJ_NAMES, PhraseLabel, phrase_label
 # Maximum hot cue slots Rekordbox supports (A–H)
 MAX_HOT_CUES = 8
 
+# --- AUTOLOOPS policy (crew/DESIGN.md §2, GRILLED) --------------------------
+# Which phrase labels get a loop, in priority order, with the candidate loop
+# lengths in bars (largest power-of-2 that fits the phrase; caps the length).
+# INTRO/OUTRO are the bread-and-butter mix-in/out loops (up to 16 bars);
+# DOWN(Break)/UP(Build) are the creative tension/extend loops (up to 8 bars).
+# UP(Build) is opt-in (include_build) per the design's optional flag.
+_LOOP_CATEGORIES: list[tuple[PhraseLabel, str, tuple[int, ...], bool]] = [
+    # (label,            name,     candidate bar lengths (desc), build-only?)
+    (PhraseLabel.INTRO,  "Intro",  (16, 8, 4), False),
+    (PhraseLabel.OUTRO,  "Outro",  (16, 8, 4), False),
+    (PhraseLabel.DOWN,   "Break",  (8, 4),     False),
+    (PhraseLabel.UP,     "Build",  (8, 4),     True),
+]
+# Phrases shorter than this (bars) are never looped — too short to be useful.
+_MIN_LOOP_PHRASE_BARS = 4
+
+
+def plan_loops(
+    phrases: list[tuple[int, "PhraseLabel", int]],
+    bar_ms: float,
+    *,
+    total_ms: int | None = None,
+    include_build: bool = False,
+) -> list[CuePoint]:
+    """Pure loop-generation policy (crew/DESIGN.md §2).
+
+    Given the track's phrases as ``(position_ms, PhraseLabel, phrase_bars)``
+    tuples and the beat-grid bar length ``bar_ms``, return memory-loop
+    ``CuePoint``s (``slot=-1``, ``loop_end_ms`` set) for the phrases that
+    qualify. No analysis here — this is the grilled selection policy only,
+    kept pure so it is fully unit-testable without a Rekordbox DB.
+
+    Rules:
+      * restrict to INTRO/OUTRO/DOWN(Break) — plus UP(Build) when
+        ``include_build`` — never VERSE/CHORUS(Drop)/BRIDGE (full arrangement
+        + vocals loop badly).
+      * length = largest power-of-2 bars that fits ``phrase_bars`` (capped
+        16 for Intro/Outro, 8 for Break/Build); require ``phrase_bars >= 4``.
+      * start = the phrase downbeat (already beat-grid aligned).
+      * one loop per section (first qualifying phrase per label), priority
+        Intro → Outro → Break → Build; cap ~3 (default) / 4 (with Build).
+      * ``bar_ms <= 0`` (no beat grid / BPM=0) ⇒ no loops.
+      * clamp the loop end before the track end when ``total_ms`` is known —
+        shrink to a shorter power-of-2, or skip the loop if even 4 bars
+        overruns.
+    """
+    if bar_ms <= 0 or not phrases:
+        return []
+
+    loops: list[CuePoint] = []
+    for label, name, candidates, build_only in _LOOP_CATEGORIES:
+        if build_only and not include_build:
+            continue
+        # First (earliest) qualifying phrase for this label — one per section.
+        chosen: tuple[int, int] | None = None  # (position_ms, loop_bars)
+        for pos_ms, ph_label, ph_bars in phrases:
+            if ph_label is not label or ph_bars < _MIN_LOOP_PHRASE_BARS:
+                continue
+            loop_bars = _fit_loop_bars(pos_ms, ph_bars, candidates, bar_ms, total_ms)
+            if loop_bars is None:
+                continue  # even the smallest length overruns the track end
+            chosen = (pos_ms, loop_bars)
+            break
+        if chosen is None:
+            continue
+        pos_ms, loop_bars = chosen
+        loops.append(CuePoint(
+            position_ms=pos_ms,
+            label=label,
+            slot=-1,  # memory loop (Kind=0) — no hot-cue slot contention
+            name=name,
+            loop_end_ms=int(round(pos_ms + loop_bars * bar_ms)),
+            loop_beats=loop_bars * 4,
+            phrase_bars=ph_bars,
+        ))
+
+    loops.sort(key=lambda c: c.position_ms)
+    return loops
+
+
+def _fit_loop_bars(
+    pos_ms: int,
+    phrase_bars: int,
+    candidates: tuple[int, ...],
+    bar_ms: float,
+    total_ms: int | None,
+) -> int | None:
+    """Largest candidate bar length that fits the phrase AND (if known) ends
+    before the track end. Returns None when even the smallest overruns."""
+    for bars in candidates:  # descending
+        if bars > phrase_bars:
+            continue
+        if total_ms is not None and pos_ms + bars * bar_ms > total_ms:
+            continue
+        return bars
+    return None
+
 # XOR mask used by Rekordbox 6 to garble PSSI tags in exported files
 _PSSI_XOR_MASK = bytearray.fromhex("CB E1 EE FA E5 EE AD EE E9 D2 E9 EB E1 E9 F3 E8 E9 F4 E1")
 
@@ -242,6 +339,70 @@ def analyze_track(content: DjmdContent, db: MasterDatabase) -> list[CuePoint]:
             phrase_bars=_phrase_bars(phrase_idx),
         ))
     return cues
+
+
+def analyze_loops(
+    content: DjmdContent,
+    db: MasterDatabase,
+    *,
+    include_build: bool = False,
+) -> list[CuePoint]:
+    """Return memory-loop CuePoints for a track (crew/DESIGN.md §2).
+
+    Thin wrapper that reads the same PSSI phrase + PQTZ beat-grid data as
+    ``analyze_track``, derives the beat-grid ``bar_ms`` and each phrase's bar
+    length, then defers ALL selection to the pure ``plan_loops`` policy.
+    Returns ``[]`` when phrase/beat data is missing (no bar alignment ⇒ no
+    loop — the F5/G-grid guard) rather than guessing.
+    """
+    pssi_content, pqtz_content = _get_pssi_and_pqtz(content, db)
+    if pssi_content is None or pqtz_content is None:
+        return []
+
+    beat_entries = pqtz_content.entries
+    phrases = pssi_content.entries
+    mood = pssi_content.mood
+
+    avg_ms_per_beat: float | None = None
+    if len(beat_entries) >= 2:
+        span = beat_entries[-1].time - beat_entries[0].time
+        if span > 0:
+            avg_ms_per_beat = span / (len(beat_entries) - 1)
+    if not avg_ms_per_beat or avg_ms_per_beat <= 0:
+        return []  # no usable beat grid ⇒ no bar-aligned loop
+    bar_ms = avg_ms_per_beat * 4
+
+    phrase_ms_list: list[int | None] = [
+        _beat_to_ms(beat_entries, entry.beat) for entry in phrases
+    ]
+
+    def _bars(idx: int) -> int:
+        this_ms = phrase_ms_list[idx]
+        next_ms = next(
+            (phrase_ms_list[j] for j in range(idx + 1, len(phrase_ms_list))
+             if phrase_ms_list[j] is not None),
+            None,
+        )
+        if this_ms is None or next_ms is None:
+            return 0
+        return max(0, round((next_ms - this_ms) / bar_ms))
+
+    plan_input: list[tuple[int, PhraseLabel, int]] = []
+    for idx, entry in enumerate(phrases):
+        ms = phrase_ms_list[idx]
+        if ms is None:
+            continue
+        plan_input.append((ms, phrase_label(mood, entry.kind), _bars(idx)))
+
+    total_ms: int | None = None
+    length = getattr(content, "Length", None)  # DjmdContent duration, seconds
+    try:
+        if length is not None and float(length) > 0:
+            total_ms = int(float(length) * 1000)
+    except (TypeError, ValueError):
+        total_ms = None
+
+    return plan_loops(plan_input, bar_ms, total_ms=total_ms, include_build=include_build)
 
 
 def analyze_fills(content: DjmdContent, db: MasterDatabase) -> list[CuePoint]:
