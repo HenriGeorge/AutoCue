@@ -18,3 +18,41 @@
 05:33 | AUDITOR | Fixing a shared-space conflation on ONE side leaves the other side lying: write_cues_to_db learned "a Kind=0 loop is not a memory cue" for its DELETE, but has_existing_memory_cues still COUNTED loops as cues -> silently suppressed writes on the default path -> when you introduce a discriminator into a shared row-space, grep EVERY query on that space (count/exists/delete/select) and apply it to all of them in the same commit | applies to any shared-table/soft-type discriminator (Kind=0 cue-vs-loop, status flags, tombstones)
 05:49 | AUDITOR | Tightening a guard against FALSE POSITIVES silently opened a FALSE NEGATIVE: constraining the serve match to prev-token.endswith("autocue") fixed grep/pytest noise but stopped matching the Windows autocue.exe console script -> when you narrow a safety predicate, re-enumerate the POSITIVE cases it must still catch (incl. platform variants: .exe, abs path, python -m) and pin each in a parametrized test -> applies to every allow/deny matcher (process scans, path matchers, auth checks)
 05:51:51 | IMPLEMENTER | Docs: verifying a GATE-0 rebase claim meant reading origin/main source — and main-only symbols (write_memory_loops, read_loops) leaked into docs describing OUR tree, where grep finds nothing. Fix -> EVERY symbol named in a doc must be grepped in the tree that doc ships with; reading another ref is exactly how a plausible non-existent function name gets written down. Corollary: after fixing a bug, re-read the docs describing it — I documented a footgun I had already fixed. Applies: any docs pass done alongside cross-branch research. | crew build
+<<<<<<< Updated upstream
+=======
+
+## Re-run GATE-0 BEFORE you finish, not just before you start (autoloops, 2026-07-11)
+
+**What happened.** P0 GATE-0 was run correctly: `git fetch` → `feat/autoloops` was 0 ahead / 0
+behind `origin/main`. Clean base, verified. We then built for several hours. A *parallel* effort
+merged its own auto-loops feature to main **40–75 minutes after our base check** (PR #257 at 21:44,
+PR #261 `--loops` at 22:20, PR #262 at 03:15). We discovered it only at P6 DOCS — when the
+implementer refused to write docs that contradicted main. By then: 25 commits ahead, 12 behind, a
+colliding `--loops` flag, and ~65–70% of the work duplicated or superseded (main's generator is
+*better* — it does real librosa audio seam-validation; ours had none).
+
+**The lesson.** A stale base is not a start-of-session risk — in a repo where other sessions merge
+to main, it is a **continuous** one. GATE-0 as a one-shot check is insufficient for any build
+longer than ~an hour.
+
+**The rule.**
+- Re-run `git fetch origin` + the behind-count **at every phase boundary** on a long build — at
+  minimum before P5 REVIEW and again before P7 FINISH. One command; it would have saved this build.
+- The check is cheap and the failure is total: you cannot "mostly" recover from having rebuilt a
+  shipped feature. **Fetch before you commit to a direction, and fetch again before you ship.**
+- Corollary (#97): the *brief* can go stale mid-build too, not just the git base. If a teammate
+  reports "this doc/claim collides with reality," treat it as a possible base-drift signal and
+  re-run GATE-0 immediately — do not just fix the doc.
+
+**What saved it.** The implementer STOPPED rather than documenting a surface that contradicted
+main. Blocking on a contradiction — instead of writing the plausible-looking lie — is what turned a
+silent disaster into a recoverable one. That instinct is worth more than the code it refused to write.
+
+**The salvage.** Not all was lost: the branch found a **live data-loss bug on main** — `Kind=0` is
+shared by memory cues and memory loops (discriminator `OutMsec`), and main blanket-DELETEs/COUNTs it
+in three places, so its own new loop feature destroys the DJ's memory cues *and* gets destroyed by
+Apply. Duplicated work still produced a real fix, because we went looking for the invariant instead
+of assuming it.
+06:50 | AUDITOR | A safety-fix test suite is only worth what it proves: I ran the PR tests against a temp worktree at unfixed origin/main (7 failed = bug reproduces) instead of trusting that they would -> ALWAYS run a bugfix PR test file against the pre-fix commit; a green suite on the fix branch proves nothing about whether the test can fail. Also check the mock landmines (db.generate_unused_id -> MagicMock IDs; db.query vs db.session.query -> .count()==0 silently False) | applies to every bugfix/regression PR review
+07:40 | AUDITOR | Two PRs fixing the same file can DELETE each other's safety guard: PR#2 replaces the exact cli.py block PR#4 inserts its single-writer guard into, and PR#2's replacement has no guard -> resolving the conflict by taking the bigger rewrite silently drops it -> when auditing a stack of parallel PRs, diff their HUNK RANGES against each other, not just each PR vs main; a guard that survives review can still die in the merge | applies to any multi-PR salvage/stacked-branch workflow
+>>>>>>> Stashed changes

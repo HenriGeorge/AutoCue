@@ -892,3 +892,500 @@ Undo: `cp ~/.autocue/backups/master_<TS>.db ~/Library/Pioneer/rekordbox/master.d
 
 STATUS: DONE — FINAL GATE-2 GREEN across INC-1/INC-2/INC-3. Full suite 1681p/7s/0f; independent DB-safety suite 21/21; server 234p. All 4 cleanup fixes regression-confirmed (memory-cue silent-stop FIXED, --write-db exit 0/1 correct, serve correctly blamed + refuses, serve scan no false-positive yet fail-safe). End-to-end smoke green on a real-DB COPY (2 loops written, 11→13 rows, 0 clobbered, idempotent) + XML 4 loop marks + Serato 3 LOOP entries. Live master.db never touched. One pre-existing flaky test (TestDownloadAlbumEndpoint) flagged, unrelated. Human gates remain: F7 Serato screenshot + Rekordbox import.
 <!-- FINAL-AUTOLOOPS -->
+<<<<<<< Updated upstream
+=======
+
+---
+
+# PR1 — SALVAGE `fix/loop-kind0-clobber` @`11a7b13` (from origin/main `6e8b024`)
+
+Fixes a **live data-loss bug on main** and touches the **shared server write path**
+(`write_cues_to_db` ← /api/apply, generate-apply, SSE, memory_cue_mode) + health
+(`quality.py`). 🚫 Live `master.db` never opened for write (mtime `Jul 11 02:41:45`,
+pre-session) — all DB work on `/tmp/pr1-copy`, `/tmp/main-repro`, and in-memory SQLite.
+
+## 1 · Full suite
+```
+$ python -m pytest -q        → 1559 passed, 8 skipped, 0 failed   (exit 0)
+```
+
+## 2 · ★ SERVER BLAST RADIUS — any red is a blocker
+```
+tests/test_serve*.py                                     → 234 passed   ✅
+tests/test_db_writer.py + duplicates + duplicates_integration → 85 passed   ✅
+health / quality (the quality.py memory_cue_count change) → 70 passed, 1 skipped ✅
+tests/test_loop_kind0_clobber.py (the PR's own file)     →  9 passed   ✅
+memory_cue_mode coverage (none/load_only/all)            → 34 passed, 1 skipped ✅
+```
+**No reds anywhere in the blast radius.**
+
+## 3 · ★ THE PR EVIDENCE — bug REPRODUCED on main, FIXED on the branch
+
+Method: `git archive origin/main | tar -x -C /tmp/main-repro` (the user's repo untouched),
+dropped the new safety file in, and **proved I was importing main's code**:
+```
+autocue.db_writer resolved from: /private/tmp/main-repro/autocue/db_writer.py
+has _loop_filter (the FIX)?     : False
+has has_existing_memory_loops?  : False
+```
+
+| | result |
+|---|---|
+| **origin/main `6e8b024`** | **7 failed, 2 passed** ← the bug reproduces |
+| **branch `11a7b13`** | **9 passed** ✅ |
+
+The concrete failures on main:
+```
+AssertionError: DJ memory cue 900 was DELETED — clobber!
+   ← write_memory_loops(overwrite=True) destroys the DJ's hand-placed memory CUES
+     (library-wide on `autocue --library --loops --overwrite`)
+
+AssertionError: generated loop 910 was DELETED — clobber!
+   ← write_cues_to_db(overwrite=True) destroys saved memory LOOPS
+     (ANY Apply / generate-apply with overwrite — the shared server path)
+
+AssertionError: the memory cue was silently suppressed by the loop
+AssertionError: the loop was silently suppressed by the DJ's memory cue
+
+AssertionError: BLANKET Kind=0 DELETE — conflates memory cues and loops:
+   DELETE FROM "djmdCue" WHERE "ContentID" = ? AND "Kind" = ?        ← no OutMsec discriminator
+```
+The 2 that **pass on main** are the *intended* protections (`TestIntendedProtectionPreserved`) —
+correctly unchanged by the fix.
+
+## 4 · SEMANTICS REGRESSION — we spared LOOPS only; point-cue behaviour is identical
+```
+A) write_cues_to_db(overwrite=True)   OLD point cue REPLACED (as on main) ✅
+                                      NEW point cue written               ✅
+                                      saved LOOP SPARED (the fix)         ✅
+B) write_memory_loops(overwrite=True) OLD loop REPLACED · NEW loop written ✅
+                                      DJ POINT cue SPARED (the fix)        ✅
+C) loop write, NO --overwrite, saved loop present → wrote 0, DJ loop intact ✅  (protection preserved)
+C2) loop write, NO --overwrite, only POINT cues   → wrote 1                ✅  (no silent suppression)
+D) has_existing_memory_cues()=1 · has_existing_memory_loops()=1            ✅  (complementary counters)
+```
+
+## 5 · main's OWN loop feature still works — e2e on a real-DB COPY
+`generate_loops → write_memory_loops`, track 119875137 (3 DJ point cues, 0 loops):
+```
+has_existing_memory_cues=3 · has_existing_memory_loops=0
+generate_loops -> 1 loop:  'Mix Out Loop'  205540 - 219620 ms
+write_memory_loops(overwrite=False) -> wrote 1     ← on MAIN this returns 0 (silently suppressed)
+
+AFTER: 3 POINT cues + 1 LOOP
+   POINT InMsec=   110 'Load Point'   POINT InMsec=  6270 'Mix In'
+   POINT InMsec=205540 'Mix Out'      LOOP  InMsec=205540 OutMsec=219620 'Mix Out Loop'
+   → DJ's 3 point cues INTACT ✅
+
+--overwrite re-run: wrote 1 · POINT cues=3 (still intact) · LOOPS=1 (replaced, not duplicated) ✅
+                    ← on MAIN, --overwrite DELETES the 3 DJ point cues
+```
+Note the loop starts at **the same `InMsec` (205540) as the 'Mix Out' point cue** — a live
+illustration of why `OutMsec` must be the discriminator: they are two different rows in the
+same Kind=0 space at the same position.
+
+## 6 · VERDICT — ✅ **GATE-2 GREEN. Ship it.**
+The fix is correct, the data-loss bug is independently reproduced on main and closed on the
+branch, and the shared server write path is fully green (234 + 85 + 70 + 34, no reds). The
+intended protections and point-cue semantics are byte-for-byte behaviourally unchanged.
+
+### ⚠ OUT-OF-SCOPE finding — PRE-EXISTING ON MAIN, **not** introduced by this PR
+`autocue --track … --loops` (main's DB loop write) **aborts with a false
+"Error: Rekordbox is running"** — Rekordbox was NOT running (no processes; both probes False).
+Root cause is the same **self-lock** I characterized as BL-1 on `feat/autoloops`:
+`cli.py:108` opens `MasterDatabase(...)`, the analysis queries leave SQLAlchemy's autobegin
+transaction holding a SQLite lock, and **then** `cli.py:237` calls `rekordbox_is_running(db_file)`
+→ the exclusive-lock probe fails → self-detection → `sys.exit(1)`.
+**This PR does not touch that guard** (its only `cli.py` change is the skip-message wording), so
+it is squarely pre-existing. But it means **main's `--loops` DB write cannot actually write** — it
+needs its own fix: run the guard **before** `MasterDatabase(...)` is opened (resolve `db_path`
+from `args`/the default first). Recommend a follow-up PR; **not a blocker for PR#1**.
+
+STATUS: DONE — PR#1 GATE-2 GREEN. Bug independently REPRODUCED on origin/main (7 failed: "DJ memory cue 900 was DELETED — clobber!", "generated loop 910 was DELETED — clobber!", silent suppression both ways, blanket Kind=0 DELETE) and FIXED on the branch (9 passed). Server blast radius clean: full 1559p/8s/0f, serve 234p, db_writer+duplicates 85p, health 70p, memory_cue_mode 34p. Point-cue semantics unchanged (overwrite still rewrites them); only LOOPS spared; intended protections intact. main's loop feature e2e on a real-DB COPY: writes 1 loop with the DJ's 3 point cues intact (on main it would be suppressed, and --overwrite would delete them). Live master.db never touched. FLAGGED (out of scope, pre-existing on main): --loops CLI DB write aborts with a false "Rekordbox is running" (BL-1 self-lock; guard runs after MasterDatabase() opens) — needs a follow-up PR.
+<!-- PR1-VERIFY -->
+
+---
+
+# PR2 — SALVAGE `fix/loops-db-write-guard` @`ed44ac1` (from origin/main `6e8b024`)
+
+Fixes the **self-lock**: `--loops` could never write to the DB. ⚠️ A mock can never reveal
+this — the bug shipped precisely *because* every unit test mocks `rekordbox_is_running`. The
+real-DB drive below is the only proof. 🚫 Live `master.db` never opened for write (mtime
+`Jul 11 02:41:45`, pre-session); all work on `/tmp/pr2-copy`, `/tmp/pr2-fail`, `/tmp/main2`.
+
+**Preconditions verified at run time:** no `autocue serve` running · **Rekordbox NOT running**
+(no matching processes; `_process_name_check() = False`).
+
+## 1 · ★ THE MONEY TEST — bug on MAIN, fix on the branch (same track, same COPY)
+
+Track **136122394** chosen deliberately: it has **0 pre-existing `Kind=0` rows**, so the
+*separate* PR#1 suppression bug cannot mask PR#2's write path.
+
+| | command | result |
+|---|---|---|
+| **origin/main `6e8b024`** | `autocue --track-id 136122394 --loops --db-path <COPY>` | **`exit=1`** · `Error: Rekordbox is running — close it before writing loops.` · **DB byte-identical — wrote NOTHING** |
+| **branch `ed44ac1`** | *same command* | **`exit=0`** · backup printed · **`Loops: 1 written · 0 skipped`** |
+
+Rekordbox was **not** running. Main's message is a **false positive against AutoCue's own
+handle** — `cli.py:108` opens `MasterDatabase(...)`, the analysis queries leave SQLAlchemy's
+autobegin transaction holding a SQLite lock, and *then* the exclusive-lock probe runs.
+
+**The row the branch actually wrote (re-opened from the COPY):**
+```
+BEFORE: track 136122394 — 0 Kind=0 rows
+AFTER : LOOP id=48194376 InMsec=209440 OutMsec=223840 OutFrame=33576 ActiveLoop=0 'Mix Out Loop'
+        → a real Kind=0 LOOP row (OutMsec > InMsec) ✅
+```
+And on a track **with** the DJ's cues (119875137), the branch cleared the guard (backup taken)
+and left all **3 point cues intact** — it reported `0 written · 1 skipped`, because
+`write_memory_loops` still gates on `has_existing_memory_cues`. **That is the PR#1 bug, not a
+PR#2 defect** — the two salvages are complementary and main needs BOTH.
+
+## 2 · BACKUP — targeting + abort-on-failure
+```
+printed backup       : ~/.autocue/backups/master_20260711T070411.db
+md5(backup)          = 85e9ad1585db87afe27093a657b8c6a3
+md5(COPY pre-write)  = 85e9ad1585db87afe27093a657b8c6a3
+→ ✅ a byte-exact snapshot OF THE --db-path COPY: guard, backup and write all target the
+     same file (main reconstructed it from db._db_dir, which can differ from --db-path).
+```
+**Backup failure (simulated disk-full) → the write is ABORTED:**
+```
+Error: backup failed — aborting, no loops written: simulated backup failure (disk full)
+exit=1  ✅   ·   DB byte-identical → NOTHING written ✅
+```
+
+## 3 · EXIT CODES
+```
+clean run          → exit 0   ("Loops: 1 written · 0 skipped")             ✅
+--dry-run          → exit 0 · previews "Mix Out Loop 04:42–04:54 (8 bars)" ·
+                     DB byte-identical · NO backup taken                    ✅
+failed write (RO)  → exit 1 · "Loop write failed … — rolled back" ·
+                     OperationalError surfaced, not swallowed               ✅
+```
+A partial/failed DB write can never look like success to a script.
+
+## 4 · NO REGRESSION — XML / `--serato` / loop generation
+```
+diff touches ONLY autocue/cli.py (89+/13-)  ·  writer.py + analysis/ : 0 files changed
+XML output        : BYTE-IDENTICAL main vs branch (8 POSITION_MARKs)   ✅
+--serato output   : IDENTICAL main vs branch                            ✅
+loop generation   : identical — 'Mix Out Loop 04:42–04:54 (8 bars, confidence 0.5)' on both ✅
+```
+The guard only fires on `args.loops and not args.dry_run`, so the XML/Serato paths never reach it.
+
+## 5 · Suites
+```
+$ python -m pytest -q                          → 1560 passed, 8 skipped, 0 failed  (exit 0)
+$ python -m pytest -q tests/test_loops_db_write_guard.py → 10 passed
+$ python -m pytest -q tests/test_serve*.py     → 234 passed
+```
+
+## 6 · VERDICT — ✅ **GATE-2 GREEN. Ship it.**
+The self-lock is independently reproduced on main (aborts, writes nothing) and closed on the
+branch (writes a real loop row, exit 0). Backup-before-write, backup-abort, exit codes, and
+dry-run all behave per contract; the backup is provably a snapshot of the file actually written.
+XML, Serato and loop generation are byte-for-byte unchanged. No reds.
+
+> **Note for the coordinator — PR#1 and PR#2 are complementary, and main needs BOTH.**
+> PR#2 makes `--loops` *able* to write. PR#1 stops it from *clobbering / being suppressed*.
+> With only PR#2 merged, a track that already has the DJ's memory cues still gets
+> `0 written · 1 skipped` (PR#1's suppression bug). With only PR#1 merged, `--loops` still
+> can't write at all (PR#2's self-lock). Merging both gives: writes loops, keeps the DJ's cues.
+
+STATUS: DONE — PR#2 GATE-2 GREEN. Self-lock independently REPRODUCED on origin/main (exit 1, false "Rekordbox is running" with Rekordbox NOT running, DB byte-identical — main can never write loops) and FIXED on the branch (exit 0, backup printed, "Loops: 1 written", a real Kind=0 LOOP row InMsec=209440/OutMsec=223840 written to the COPY). Backup = byte-exact snapshot of the --db-path file actually written; backup failure ABORTS (exit 1, nothing written); exit codes correct (0 clean / 1 partial-failed); --dry-run previews + writes nothing + takes no backup. NO REGRESSION: XML byte-identical, --serato identical, loop generation identical, only cli.py touched. Full suite 1560p/8s/0f, guard tests 10p, serve 234p. Live master.db never touched. NOTE: PR#1 + PR#2 are complementary — main needs BOTH (PR#2 lets it write; PR#1 stops the clobber/suppression).
+<!-- PR2-VERIFY -->
+
+---
+
+# PR3 — SALVAGE `fix/serato-preserve-dj-loops` @`7310610` (from origin/main `6e8b024`)
+
+Preserves the DJ's **Serato-native** loops across a `--serato` rewrite. `write_serato_tags`
+is a FULL tag replacement, so any LOOP the DJ made in Serato — unknown to the Rekordbox DB —
+was silently destroyed on every write.
+
+🚫 **No real library audio file was modified.** Every write went to `/tmp/pr3/*.mp3` copies.
+*Provenance check:* the source stem already carried a Serato tag with mtime `02:46:01` — I
+verified this is **pre-existing** (all **6 sibling stems** share that identical timestamp = a
+bulk `--serato` run by someone else, **17 min before** my first copy-write at `03:03:17`; a
+write by me would have stamped only that one file). I only ever passed `/tmp/**` paths to the
+writer, and every CLI `--serato` I ran was `--dry-run`.
+
+## 1 · ★ REPRODUCE ON MAIN, PROVE ON OURS
+Seeded a throwaway copy with a **Serato-native DJ loop the DB knows nothing about**:
+`name='DJ Secret Loop'`, `start=7123`, `end=19457` (off-policy, non-power-of-2), **`locked=0x01`**,
+colour `0027aae1`. Then both writers rewrote the tag with the *same* DB loops
+(`Mix Out Loop` @60000) — which do **not** include the DJ's loop.
+
+| writer | result |
+|---|---|
+| **origin/main** (`preserve=` absent) | **1 LOOP** → `['Mix Out Loop']` · **`DJ Secret Loop` WIPED** ❌ |
+| **branch `7310610`** | **2 LOOPs** → `['Mix Out Loop', 'DJ Secret Loop']` · **BYTE-IDENTICAL** ✅ |
+
+Byte-identity was asserted on the **raw framed entry** (`raw == dj_raw`), which proves name,
+start, end, **locked flag** and **colour** all survived verbatim. The DJ's loop also kept its
+original slot (`index=0`) while the generated loop took the next free slot (`index=1`).
+
+## 2 · ★ NO DOUBLE-COUNT (the trap a naive preserve falls into)
+Rewrote the same file — which now contains AutoCue's OWN DB-sourced loop — **4 times**:
+```
+rewrite #1: 2 loop(s) starts=[7123, 60000] duplicate_start=False ✅
+rewrite #2: 2 loop(s) starts=[7123, 60000] duplicate_start=False ✅
+rewrite #3: 2 loop(s) starts=[7123, 60000] duplicate_start=False ✅
+rewrite #4: 2 loop(s) starts=[7123, 60000] duplicate_start=False ✅
+→ count stayed N=2 (not 2N, not 4N) · no duplicate start_ms · DJ loop still verbatim
+```
+The dedup rule (`preserve` = file loops whose `start_ms` ∉ the DB's loop starts) is what makes
+this work: a file loop matching a DB start is *ours*, so it is regenerated, not preserved.
+
+## 3 · DB AUTHORITATIVE — a stale file-loop must not shadow the DB
+```
+before: DB loop end=68000   → re-tuned in the DB to 72000 → rewrite
+after : DB loop end=72000   ✅ UPDATED (the stale preserved file-loop did NOT shadow it)
+        loop count still 2 · DJ loop still verbatim ✅
+```
+Same rule, second consequence: because our own loops are regenerated rather than preserved,
+the DB stays the source of truth.
+
+## 4 · 8-SLOT CAP → THE DJ WINS
+6 foreign loops seeded (slots 0-5), then 5 generated loops written (6 + 5 = 11 > 8):
+```
+total loops now   : 8 (cap 8)
+FOREIGN preserved : 6/6  — and 6/6 BYTE-IDENTICAL ✅
+GENERATED kept    : 2  ['Gen 0', 'Gen 1']   (filled the 2 free slots)
+GENERATED dropped : 3  (surplus)
+WARN> Serato has only 8 loop slots and 6 are held by your own Serato loops
+      — dropping 3 generated loop(s): Gen 2, Gen 3, Gen 4
+```
+✅ The surplus dropped is always **GENERATED, never a DJ loop** — and the drop is warned, not silent.
+
+## 5 · REGRESSION
+```
+tests/ changed by this PR : ONLY the new tests/test_serato_preserve_dj_loops.py
+                            (tests/test_serato_writer.py is UNMODIFIED)
+CUE bytes                 : 8-cue payload  main == branch  BYTE-IDENTICAL ✅
+                            cues+loops payload main == branch  BYTE-IDENTICAL ✅
+preserve=                  : KEYWORD_ONLY — a 3rd positional arg is rejected with TypeError,
+                             so every existing positional caller build_markers2(cues, loops) works ✅
+
+tests/test_serato_writer.py         (unmodified) → 57 passed
+tests/test_serato_preserve_dj_loops.py           → 11 passed
+FULL SUITE                                        → 1561 passed, 8 skipped, 0 failed (exit 0)
+```
+
+## 6 · SILENT-FAILURE
+A v2 tag **present but undecodable** (garbage payload → 0 entries) fires the WARN and
+degrades safely (returns `[]`, the write is never blocked):
+```
+WARN> undecodable.mp3: the existing Serato GEOB:Serato Markers2 tag could not be decoded
+      — any loops you saved in Serato cannot be preserved and will be dropped by this write
+```
+The DJ's loops can still be lost here (the tag is unreadable), but **never silently**.
+
+## 7 · VERDICT — ✅ **GATE-2 GREEN. Ship it.**
+The data-loss is independently reproduced on main (DJ loop wiped) and closed on the branch
+(byte-identical survival, incl. the locked flag and colour). The three subtle traps a naive
+preserve would hit — **double-count**, **stale file-loop shadowing the DB**, and **a DJ loop
+lost to the 8-slot cap** — are each explicitly disproven on real files. CUE bytes are
+byte-identical to main, the existing serato suite passes **unmodified**, and `preserve=` is
+keyword-only so no existing caller changes. No reds.
+
+STATUS: DONE — PR#3 GATE-2 GREEN. DJ-loop wipe REPRODUCED on origin/main (a Serato-native 'DJ Secret Loop' start=7123 end=19457 locked=0x01, unknown to the DB, is GONE after main's --serato rewrite) and FIXED on the branch (survives BYTE-IDENTICAL — raw framed entry matches, so name/start/end/locked/colour all intact; keeps its slot). NO DOUBLE-COUNT: 4 consecutive rewrites keep N=2, no duplicate start_ms. DB AUTHORITATIVE: a re-tuned DB loop end (68000->72000) updates in the file (no stale shadow). 8-SLOT CAP: 6 foreign + 5 generated -> all 6 DJ loops preserved byte-identical, 2 generated fill the free slots, 3 SURPLUS GENERATED dropped with a WARN (never a DJ loop). REGRESSION: CUE bytes byte-identical to main, tests/test_serato_writer.py UNMODIFIED (57p), preserve= is KEYWORD_ONLY (3rd positional rejected) so all existing callers work; PR tests 11p; full suite 1561p/8s/0f. SILENT-FAILURE: WARN fires when a v2 tag is present but decodes to zero entries. NO real library audio file modified (all writes to /tmp/pr3 copies; the source stem's pre-existing Serato tag verified as someone else's earlier bulk run — all 6 sibling stems share mtime 02:46:01, 17min before my first copy-write).
+<!-- PR3-VERIFY -->
+
+---
+
+# PR4 — SALVAGE `fix/loops-single-writer-beatloopsize` @`c6668aa` (from origin/main)
+
+Scope = the **`autocue serve` single-writer guard** only. (BeatLoopSize was correctly BLOCKED
+on evidence — out of scope, not verified here.) 🚫 Live `master.db` never opened for write
+(mtime `Jul 11 02:41:45`, pre-session); every serve ran with `--db-path /tmp/pr4-copy/master.db`.
+
+## 1 · ★ THE LIVE PROOF — a real serve, three port cases
+
+| serve | detected by | `--loops` result |
+|---|---|---|
+| **`--port 3004`** (non-default — the exact case a single-port probe misses) | **process scan** (`port 7432 listening? False`) | **REFUSED**, exit 1 |
+| **`--port 7432`** (default) | port scan | **REFUSED**, exit 1 |
+| **`--port 7435`** (7433-7441 fallback range) | port scan | **REFUSED**, exit 1 |
+
+```
+Error: a local `autocue serve` is running and holds the database open.
+       Stop the server before writing loops (single-writer rule).
+   DB byte-identical — NOTHING written ✅
+   backups 20 → 20 — NO backup taken (refused BEFORE the backup) ✅
+```
+**Serve stopped → the guard RELEASES:** `autocue_serve_is_running() = False`, the serve error no
+longer fires, and the DB write path itself proceeds (`write_memory_loops → wrote 1`). The guard
+is not the blocker. *(The CLI is then blocked by the pre-existing self-lock that PR#2 fixes —
+see the merge note.)* The COPY stayed **byte-identical across all three refusals**.
+
+## 2 · NO FALSE POSITIVES
+With all of these running simultaneously, the guard did **not** trip:
+```
+baseline (nothing)                                  → False
+grep serve autocue/cli.py  +  pytest -k serve  +  an unrelated `myapp serve --port 9`
+                                                    → False  ✅ NO false positive
+the CLI's own process (self-detection, pid excluded) → False  ✅
+```
+`_is_serve_cmdline` unit-check — the token `serve` must be preceded by a token ending in `autocue`:
+```
+grep serve autocue/cli.py                 → False ✅     autocue serve                        → True ✅
+python -m pytest -k serve autocue         → False ✅     /usr/local/bin/autocue serve --port… → True ✅
+myapp serve --port 9                      → False ✅     python -m autocue serve --no-browser → True ✅
+```
+This matters: a looser "`serve` in cmdline and `autocue` somewhere" match would **refuse a
+perfectly legal write** whenever a grep or a test run happened to be open.
+
+## 3 · FAIL-SAFE — an ambiguous probe REFUSES, never allows
+```
+psutil ImportError   → True  ✅ refuses   WARN> psutil unavailable — … refusing the database write (fail-safe)
+process_iter raises  → True  ✅ refuses   WARN> could not probe for a running `autocue serve` — … (fail-safe)
+```
+Never fail-open: a write it cannot rule out is always refused, and the reason is logged.
+
+## 4 · GUARD ORDER — the message is HONEST
+```
+cli.py:245   if db_writer.autocue_serve_is_running():     ← asked FIRST
+cli.py:250   if rekordbox_is_running(db_file):
+```
+A running server **also holds the file lock**, so if the Rekordbox probe ran first it would be
+misreported as *"Rekordbox is running"*. Proven live: with a serve up the user gets the **serve**
+message, not the Rekordbox one. ✅
+
+## 5 · REGRESSION
+```
+files changed : autocue/cli.py · autocue/db_writer.py · tests/test_serve_single_writer.py
+writer.py / analysis/ / serato_writer.py : 0 files changed
+XML output        : BYTE-IDENTICAL to main ✅
+--serato output   : IDENTICAL to main ✅
+loop generation   : unchanged — 'Mix Out Loop 04:42–04:54 (8 bars, confidence 0.5)' ✅
+--dry-run         : previews, unchanged ✅
+
+FULL SUITE                          → 1566 passed, 8 skipped, 0 failed (exit 0)
+tests/test_serve_single_writer.py   → 16 passed
+```
+
+## 6 · VERDICT — ✅ **GATE-2 GREEN. Ship it.**
+The single-writer guard refuses on **any** port (default, fallback range, and an arbitrary
+`--port 3004` via the process scan), refuses **before** taking a backup or writing a byte, has
+**zero false positives** against the realistic look-alikes, **fails safe** on an unresolvable
+probe, and reports the cause **honestly** by being asked before the Rekordbox probe. No
+regressions. No reds.
+
+> ### ⚠ MERGE NOTE for the coordinator — PR#2 × PR#4 ordering (actionable)
+> **PR#2** hoists the Rekordbox probe into `_preflight_loop_write()`, **before**
+> `MasterDatabase(...)` opens. **PR#4** inserts the serve check into the *old, post-open* block,
+> just before `rekordbox_is_running()`.
+> A running serve **also holds the file lock**, so if both land naively, PR#2's preflight
+> (Rekordbox) would run **first** and a serve would once again be misreported as *"Rekordbox is
+> running"* — re-introducing exactly the dishonesty PR#4 fixes.
+> **On merge, hoist `autocue_serve_is_running()` into `_preflight_loop_write()` and ask it
+> BEFORE the Rekordbox probe** (the order PR#4 establishes today). The two also touch adjacent
+> lines, so expect a textual conflict there — resolve it that way.
+
+STATUS: DONE — PR#4 GATE-2 GREEN. LIVE PROOF: a real `autocue serve` on :3004 (NON-default — caught by the PROCESS scan, port 7432 not listening), on :7432 (default), and on :7435 (7433-7441 fallback) each REFUSED the --loops DB write with the honest single-writer message, exit 1, DB byte-identical, NO backup taken (refused before backup); serve stopped → guard releases (False) and the write path proceeds (write_memory_loops wrote 1). NO FALSE POSITIVES: `grep serve autocue/cli.py`, `pytest -k serve`, an unrelated `myapp serve`, and the CLI's own process all fail to trip it (_is_serve_cmdline requires the token `serve` preceded by a token ending in `autocue`; 6/6 cases correct). FAIL-SAFE: psutil ImportError → True, process_iter raises → True (both WARN; never fail-open). GUARD ORDER: serve asked at cli.py:245 BEFORE rekordbox at :250, so a serve (which also holds the file lock) is reported honestly as a serve. REGRESSION: XML byte-identical, --serato identical, loop generation unchanged, writer/analysis/serato untouched; full suite 1566p/8s/0f; PR tests 16p. Live master.db never touched. ⚠ MERGE NOTE: PR#2 hoists the Rekordbox probe into a pre-open preflight while PR#4's serve check sits in the old post-open block — on merge the serve check MUST be hoisted into _preflight_loop_write() and asked BEFORE the Rekordbox probe, or a running serve is misreported as "Rekordbox is running" again (expect a textual conflict on those adjacent lines).
+<!-- PR4-VERIFY -->
+
+---
+
+# PR264-FINAL — `fix/loops-db-write-guard` @`eb96f98` (the FOLD)
+
+`ed44ac1` (self-lock + backup + exit codes) + `eb96f98` (serve single-writer guard), now **ONE
+preflight**. The fold is exactly where a guard can be silently dropped — so **every guard was
+proven LIVE, not read off the source**. 🚫 Live `master.db` never opened for write (mtime
+`Jul 11 02:41:45`, pre-session); every serve and every write targeted `/tmp/pr264*` copies.
+
+## 1 · ★ THE GUARD STILL BITES (real serve, non-default port)
+```
+serve: python -m autocue serve --port 3004 --no-browser   (a NON-default port)
+$ autocue --track-id 136122394 --loops --db-path <COPY>
+  exit=1
+  Error: a local `autocue serve` is running and holds the database open.
+         Stop the server before writing loops (single-writer rule).
+  ✅ DB byte-identical — NOTHING written
+  ✅ backups 20 → 20 — NO backup taken (refused BEFORE the backup)
+  ✅ the message names the SERVER, not "Rekordbox is running"
+```
+
+## 2 · ★ THE SELF-LOCK IS STILL FIXED (the regression that matters most)
+Serve stopped, Rekordbox closed — the fold did **not** re-break `ed44ac1`:
+```
+$ autocue --track-id 136122394 --loops --db-path <COPY>
+  exit=0
+  Database backed up to ~/.autocue/backups/master_20260711T074851.db
+    ^ your only undo …
+  Loops: 1 written · 0 track(s) skipped
+
+  row actually in the DB:
+  LOOP id=12285340 InMsec=209440 OutMsec=223840 OutFrame=33576 ActiveLoop=0 'Mix Out Loop'
+```
+
+## 3 · ORDERING — proven empirically, not asserted
+With the serve up and **Rekordbox NOT running**:
+```
+Rekordbox actually running?   NO
+_db_file_is_locked(COPY)      True   ← the SERVE holds the lock
+rekordbox_is_running(COPY)    True   ← would say "Rekordbox is running" (WRONG)
+autocue_serve_is_running()    True   ← the TRUE cause
+```
+Asked **second**, the user would be told to close an app that isn't even open. The fold asks
+**SERVE FIRST**, so the message is honest — confirmed by the live run in §1. ✅
+
+## 4 · `.exe` FALSE-NEGATIVE · NO FALSE POSITIVES · FAIL-SAFE
+The matcher now compares the **path stem** (with `\`→`/` normalisation, so a Windows cmdline read
+on a POSIX host still matches). A plain `endswith("autocue")` would **MISS `autocue.exe`** — a
+false NEGATIVE, the dangerous direction: a real server slips through → two writers on the library.
+```
+DETECT  autocue serve · /usr/local/bin/autocue serve · python -m autocue serve
+        ★ C:\Python\Scripts\autocue.exe serve   ★ autocue.exe serve --port 7432   → True ✅
+IGNORE  grep serve autocue/cli.py · pytest -k serve autocue · myapp serve · bare "serve"
+        · the CLI itself                                                          → False ✅
+                                                                        10/10 correct ✅
+live: grep + pytest -k serve + 'myapp serve' + the CLI's own pid all running  → False ✅
+FAIL-SAFE: psutil ImportError → True (refuses) · process_iter raises → True (refuses); both WARN.
+           Never fail-open. ✅
+```
+
+## 5 · BACKUP-ABORT · EXIT CODES · DRY-RUN
+```
+--dry-run           → exit 0 · previews "Mix Out Loop 04:42–04:54 (8 bars)" ·
+                      DB byte-identical · NO backup taken                       ✅
+backup failure      → exit 1 · "backup failed — aborting, no loops written" ·
+                      DB byte-identical → NOTHING written                        ✅
+failed write (RO)   → exit 1 · "Loop write failed … — rolled back" ·
+                      OperationalError surfaced, not swallowed                    ✅
+clean run           → exit 0                                                      ✅
+```
+
+## 6 · REGRESSION
+```
+files changed : autocue/cli.py · autocue/db_writer.py · 2 test files
+writer.py / analysis/ / serato_writer.py : 0 files changed
+XML output      : BYTE-IDENTICAL to main ✅
+--serato output : IDENTICAL to main      ✅
+loop generation : unchanged              ✅
+
+FULL SUITE                                       → 1580 passed, 8 skipped, 0 failed (exit 0)
+test_loops_db_write_guard + test_serve_single_writer → 30 passed
+```
+
+## 7 · FINAL VERDICT — ✅ **PR #264 GATE-2 GREEN. Ship it.**
+
+| guard | proven live |
+|---|---|
+| `autocue serve` single-writer (any port, incl. `--port 3004`) | ✅ refuses · exit 1 · 0 bytes · **no backup taken** |
+| Rekordbox self-lock (`ed44ac1`) — must still WRITE | ✅ exit 0 · backup · **real loop row in the DB** |
+| serve asked BEFORE Rekordbox (honest message) | ✅ empirically justified — the lock probe would misattribute |
+| `.exe` detection (false-negative = a missed writer) | ✅ 10/10 matcher cases |
+| no false positives (grep / pytest / unrelated / own pid) | ✅ |
+| fail-safe (unresolvable probe → refuse) | ✅ never fail-open |
+| backup-abort · exit codes · dry-run | ✅ all per contract |
+| XML / `--serato` / loop generation | ✅ unchanged |
+
+**Nothing was dropped in the fold.** Both guards live in one pre-open preflight, in the correct
+order, and neither can be reached after a backup is taken. No reds.
+
+STATUS: DONE — PR #264 FINAL GATE-2 GREEN. The fold dropped NOTHING: both guards PROVEN LIVE. (1) serve on :3004 (non-default) → --loops REFUSED, exit 1, DB byte-identical, NO backup taken, message names the SERVER. (2) serve stopped + Rekordbox closed → --loops WRITES (exit 0, backup printed, "Loops: 1 written", real row LOOP InMsec=209440 OutMsec=223840 ActiveLoop=0) — the ed44ac1 self-lock fix survived the fold. (3) ORDERING proven empirically: with the serve up, rekordbox_is_running(COPY)=True (the serve holds the lock) though Rekordbox is NOT running — asked second it would misattribute; the fold asks SERVE FIRST. (4) .exe false-negative FIXED via path-stem matching (10/10 matcher cases; autocue.exe serve now DETECTED — a miss would let a real server through); no false positives live (grep/pytest/unrelated/own pid); FAIL-SAFE refuses on ImportError + probe exception (never fail-open). (5) --dry-run writes nothing + no backup; backup failure → exit 1, nothing written; failed write → exit 1, rolled back. (6) REGRESSION: XML byte-identical, --serato identical, loop gen unchanged, writer/analysis/serato untouched; full suite 1580p/8s/0f; guard tests 30p. Live master.db never touched.
+<!-- PR264-FINAL -->
+>>>>>>> Stashed changes

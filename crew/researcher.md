@@ -803,4 +803,84 @@ off `origin/main`,** starting with the `Kind=0` data-loss fix (which should go o
 fast — it is live on main today). Do **not** rebase; do **not** try to land the generator.
 
 <!-- P0-COLLISION-AUTOLOOPS -->
+<<<<<<< Updated upstream
+=======
+STATUS: DONE
+
+---
+
+# P0-GROUND PR#3 — SERATO LOOP PRESERVE, ported onto MAIN (base 6e8b024). READ-ONLY.
+
+## (1) MAIN's `serato_writer.py` — the flow, end-to-end
+
+| Element | main file:line | Behaviour |
+|---|---|---|
+| `build_markers2(cues, loops=None)` | **:83-122** | Positional 2nd arg. Emits CUE entries from `cues` (slot 0-7), then LOOP entries from `loops` dicts: `for index, loop in enumerate((loops or [])[:8])` — **index = enumerate position, hard cap 8** (`:107`). |
+| LOOP byte layout | **:108-120** | `b"LOOP\x00"` + u32be len + data; data = `\x00`(0x00) · index(0x01) · **start u32be ms**(0x02) · **end u32be ms**(0x06) · `\xff\xff\xff\xff`(0x0a) · `_LOOP_COLOR4 = 0027AAE1`(0x0e) · pad `\x00`(0x12) · **locked**(0x13) · name+NUL(0x14). Fixed = 20 B. *(Matches the P1-GROUND spec exactly — main resolved the bytes I'd flagged probe-verify.)* |
+| `parse_markers2` | **:148-190** | **YES — already DECODES LOOP at `:178`** (`elif etype == "LOOP" and length >= 21`), extracting `index/start_ms/end_ms/name`. ⚠️ **It does NOT return the raw framed bytes**, and drops `locked`/color. |
+| `_read_existing(path)` | **:192-220** | `{tag_name: raw_bytes}` for GEOB_V2/GEOB_V1/FLAC_V2/MP4_V2/… — the raw outer tag. |
+| `write_serato_tags(path, cues, comment=None, loops=None)` | **:281-332** | `payload = build_markers2(cues, loops)` (**:291**) → `wrap_outer` → **full tag REPLACEMENT** (`id3.setall("GEOB:Serato Markers2", …)` `:301-306`; FLAC `:315`; MP4 `:325`). Legacy `Markers_` deleted every write (`:300`). |
+| `fingerprint(cues, loops, comment)` | **:337-359** | sha1 of DB-sourced cues + loops + comment. **Foreign/file loops are NOT part of it.** |
+| incremental state | **:361-370, :436-438, :463** | `autocue_serato_state.json`; skip when `not overwrite and existing and state[track_id] == fp` → `unchanged`, **no write at all**. |
+| CLI feed | main `cli.py:268-277` | `read_hot_cues(content, db)` + **`read_loops(content, db)`** (DB loops, hot+memory, `OutMsec > InMsec`, **cap 8**) → 3-tuples `(content, cues, loops)`; `write_serato` unpacks `item[2]` (`:419`). |
+
+## (2) ★ THE BUG — exactly where the DJ's Serato-native loop dies
+
+`write_serato` reads the old tag at **`:435`** (`existing = _read_existing(path)`) and uses it for **only two things**: the fingerprint skip (**:436-438**) and the JSONL backup (**:442-449**). It is **never parsed for LOOP entries and never fed back into the payload**.
+
+**Drop point: main `serato_writer.py:453-454` → `:291`.**
+`write_serato_tags(path, cues, comment=…, loops=loops)` → `payload = build_markers2(cues, loops)` — the payload is rebuilt **exclusively** from `cues` (`read_hot_cues`) + `loops` (`read_loops` = **the Rekordbox DB**). The new payload then **replaces** the whole GEOB (`:301-306`). Any LOOP entry that exists in the file but **not** in the DB is simply never re-emitted → **gone**.
+
+**Is it recoverable?** ⚠️ **Correction to my P0-COLLISION wording ("destroyed / silently lost") — be precise:** the prior raw tag payload **IS** appended (base64) to `autocue_serato_backup.jsonl` at **`:442-449`** before every rewrite. So it is recoverable *in principle*, but only by **hand-restoring the entire previous Markers2 tag** — which also reverts AutoCue's cues. There is **no per-loop recovery and no automated restore path**. Practically: the DJ's Serato-native loop is silently dropped from the file, with a hand-only, all-or-nothing escape hatch. **Still a real data-loss bug — just not an unrecoverable one.**
+
+## (3) DESIGN — the minimal port onto main
+
+### 🔑 The load-bearing insight: **dedup is MANDATORY, not politeness**
+A naive "preserve every file LOOP entry" **double-counts AutoCue's own loops**: run 1 writes DB loop *X* into the file; run 2 (any rewrite) would preserve the file's *X* **and** re-emit *X* from `read_loops()` → *X* twice, growing every rewrite until the 8-cap. So the preserve set must be **FOREIGN loops only**.
+
+**Discriminator: `start_ms`.** `read_loops` sources `start_ms` from `DjmdCue.InMsec` (int) and `build_markers2` writes/parses it as an exact u32be round-trip — so **exact equality is safe, no tolerance needed**.
+- file loop whose `start_ms` **matches a DB loop** → *ours / RB knows it* → **do NOT preserve**; regenerate from `loops` (**DB stays authoritative**, so a re-tuned loop end actually updates).
+- file loop with **no matching DB loop** → **foreign (DJ made it in Serato)** → **preserve raw bytes verbatim** (keeps its name, locked flag, colour).
+
+*(This is strictly better than our archived approach, which dropped the **generated** loop on a start collision — that let a stale file loop shadow an updated DB loop forever.)*
+
+### 🐛 Bug found in OUR archived code — do NOT port it as-is
+`_next_loop_index()` (`667f244:117-128`) returns `max(preserved_index)+1`, and `_loop_entry` writes `bytes([index & 0xFF])`. **If a preserved DJ loop sits at index 7, a generated loop gets index 8 — outside Serato's 0-7 slot range.** Replace with **lowest-free-slot** assignment:
+```python
+used = {raw[10] for raw in preserve if raw[:5] == b"LOOP\x00" and len(raw) >= 11}
+free = [i for i in range(8) if i not in used]          # handles non-contiguous DJ indices
+for slot, loop in zip(free, generated):  emit(slot, loop)
+dropped = generated[len(free):]                        # log — never silently truncate
+```
+This makes the **8-slot cap** fall out naturally and enforces **DJ's loops win** (preserved keep their original slots; generated fill what's left; surplus generated are dropped **with a breadcrumb**).
+
+### Exact diff (4 touch points, ~15 lines; no signature break)
+1. **`parse_markers2`** (main **:170-171**) — capture the framed bytes:
+   `raw = payload[i:end + 5 + length]` → `entry: dict = {"type": etype, "raw": raw}`. *(+2 lines; port of `667f244:217-220`.)*
+2. **NEW `_existing_loop_entries(path) -> list[tuple[int, bytes]]`** — port `667f244:267-296` verbatim: `_read_existing` → decode GEOB_V2/FLAC_V2/MP4_V2 → return `(start_ms, raw)` for `type == "LOOP"`. Best-effort `[]` on any failure; **warn** when a v2 tag is present but decodes to nothing (a rewrite would then silently drop loops).
+3. **`build_markers2(cues, loops=None, *, preserve=())`** (main **:83**, loop block **:107-120**) — add the **keyword-only** `preserve` (backward-compatible: every existing caller/test keeps working). Replace `enumerate((loops or [])[:8])` with the lowest-free-slot loop above; append `preserve` raw entries **verbatim** before the `b"\x00"` terminator.
+4. **`write_serato_tags`** (main **:281-291**) — resolve preserve from the file, foreign-only:
+```python
+existing_loops = _existing_loop_entries(path)              # [(start_ms, raw)]
+db_starts = {int(l["start_ms"]) for l in (loops or [])}
+preserve = [raw for start, raw in existing_loops if start not in db_starts]   # FOREIGN only
+payload = build_markers2(cues, loops, preserve=preserve)
+```
+5. **`fingerprint` — UNCHANGED.** 6. **`write_serato` — UNCHANGED** (preserve is resolved inside `write_serato_tags`, so the orchestrator needs no edit at all).
+
+## (4) RISKS
+
+- **[RISK — CRITICAL, solved by the dedup] Double-count.** `read_loops()` returns DB loops that AutoCue **already wrote into the file** on a previous run. Preserve-everything ⇒ every AutoCue loop duplicated per rewrite. **The foreign-only filter (§3) is mandatory**; without it the port is worse than the bug.
+- **[RISK — 8-slot cap] preserved + generated > 8.** Serato has 8 loop slots. **Recommend the DJ's loops win**: preserved keep their slots, generated take the free ones, surplus generated are **dropped with a log line** (never silent).
+- **[RISK — our archived code] index overflow past 7** (`_next_loop_index`) — see §3; use lowest-free-slot instead.
+- **[RISK — fingerprint, benign] preserved loops aren't in the fingerprint.** Safe, and **deliberately leave it that way**: the skip path performs **no write**, so foreign loops can't be harmed while skipped; and *including* them would flip the fingerprint every time the DJ edits a loop in Serato, forcing a pointless rewrite (mtime churn) that just re-emits what's already there. Only a *rewrite* (RB-side change) needs preserve — which it now has.
+- **[RISK — accepted, minor] coincidental start collision.** A DJ loop at the exact same `start_ms` as a RB loop is treated as "ours" → its name/locked flag are overwritten. Rare; the loop stays at the same position. Acceptable.
+- **[RISK — legacy tag] `Markers_` is deleted on every write** (main `:300`) **by design** — only Markers2 (v2) loops are preserved. Unchanged behaviour; call it out in the docstring.
+- **[EXISTS, reuse]** LOOP decode (`parse_markers2:178`), `_read_existing`, the JSONL backup, the LOOP byte layout + `_LOOP_COLOR4`, the incremental state machinery.
+- **[MISSING, build]** raw-byte capture in `parse_markers2` · `_existing_loop_entries` · the `preserve=` param + free-slot indexing · the foreign-only dedup in `write_serato_tags`.
+
+**Tests to add:** foreign loop survives a rewrite (round-trip, byte-identical) · **no double-count** (export twice → still one loop) · DB loop end re-tuned → file updates (not shadowed) · preserved+generated > 8 → DJ's kept, generated dropped **and logged** · preserved loop at index 7 → generated never emits index 8 · non-contiguous preserved indices · undecodable v2 tag → warns, returns `[]`, write still succeeds.
+
+<!-- P0-PR3-SERATO -->
+>>>>>>> Stashed changes
 STATUS: DONE
