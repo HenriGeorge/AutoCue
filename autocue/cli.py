@@ -160,6 +160,11 @@ def main() -> None:
             print("No tracks found in library.")
             sys.exit(0)
 
+        # Loop generation is orthogonal to existing hot cues — snapshot the
+        # full list before the skip filter (which filtered out the entire
+        # prepped library on the first --loops calibration run).
+        loop_targets = list(tracks)
+
         # For Serato export, tracks with existing Rekordbox cues are exactly
         # the ones to mirror — the skip filter only applies to the XML path.
         if not args.overwrite and not args.serato:
@@ -176,11 +181,15 @@ def main() -> None:
                     filtered.append((content, cues, mode))
             tracks = filtered
 
-        if not tracks:
+        if not tracks and not (args.loops and loop_targets):
             print("No eligible tracks to process (all already have hot cues). Use --overwrite to re-generate.")
             sys.exit(0)
 
-    _print_summary(tracks)
+    if not args.library:
+        loop_targets = list(tracks)  # single-track modes: no skip filter ran
+
+    if tracks:
+        _print_summary(tracks)
 
     loops_by_track = []
     if args.loops:
@@ -197,8 +206,9 @@ def main() -> None:
             print("\nNote: librosa not installed — loops are grid/phrase-derived "
                   "without audio seam validation (pip install 'autocue[loops]').")
         print("\nGenerating loops…")
-        for content, _, _ in tracks:
-            found = generate_loops(content, db, cache=cache)
+        loop_stats: dict = {}
+        for content, _, _ in loop_targets:
+            found = generate_loops(content, db, cache=cache, stats=loop_stats)
             if found:
                 loops_by_track.append((content, found))
                 title = content.Title or content.FileNameL or "Unknown"
@@ -209,6 +219,9 @@ def main() -> None:
                           f" ({lp['bars']} bars, confidence {lp['confidence']})")
         if cache is not None:
             cache.close()
+        if loop_stats:
+            print("  outcome: " + " · ".join(
+                f"{k} {v}" for k, v in sorted(loop_stats.items())))
         if not loops_by_track:
             print("  no loop candidates passed validation")
 
@@ -287,6 +300,9 @@ def main() -> None:
             '"Rescan ID3 Tags" in Serato before the new cues appear.'
         )
         return
+
+    if not tracks:
+        return  # loops-only run: nothing for the XML path
 
     output = write_xml([(c, cues) for c, cues, _ in tracks], args.output)
     print(f"\nWrote {output}")

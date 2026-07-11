@@ -226,3 +226,65 @@ class TestSeratoComposition:
             (30000, 45000, "Mix In Loop"),
             (200000, 215000, "Mix Out Loop"),
         ]
+
+
+class TestCalibrationRegressions:
+    """Regressions from the first real-library calibration run (2026-07-10):
+    only 1/2900 tracks produced loops (CLI skip filter swallowed the prepped
+    library) and unverifiable seams were kept at confidence 0.5 (streaming
+    'spotify:track:…' rows have no local file)."""
+
+    def _content(self, folder="spotify:track:abc123"):
+        c = MagicMock()
+        c.ID = 42
+        c.BPM = 12000
+        c.Length = 300.0
+        c.FolderPath = folder
+        c.FileNameL = ""
+        c.FileNameS = ""
+        return c
+
+    def _patch_candidates(self):
+        return patch(
+            "autocue.analysis.loops._phrase_candidates",
+            return_value=[{"start_ms": 8000, "end_ms": 16000,
+                           "name": "Mix In Loop", "kind": "mix_in", "bars": 4}],
+        )
+
+    def test_streaming_track_without_file_is_rejected(self):
+        stats = {}
+        with self._patch_candidates(), \
+             patch("autocue.analysis.loops._have_librosa", return_value=True):
+            out = generate_loops(self._content(), MagicMock(), stats=stats)
+        assert out == []
+        assert stats.get("no_audio_file") == 1
+
+    def test_unreadable_seam_is_rejected_not_kept(self, tmp_path):
+        f = tmp_path / "t.wav"
+        f.write_bytes(b"not audio")
+        c = self._content(folder=str(tmp_path) + "/")
+        c.FileNameL = "t.wav"
+        stats = {}
+        with self._patch_candidates(), \
+             patch("autocue.analysis.loops._have_librosa", return_value=True):
+            out = generate_loops(c, MagicMock(), stats=stats)
+        assert out == []
+        assert stats.get("seam_unreadable") == 1
+
+    def test_grid_only_mode_still_keeps_half_confidence(self):
+        stats = {}
+        with self._patch_candidates(), \
+             patch("autocue.analysis.loops._have_librosa", return_value=False):
+            out = generate_loops(self._content(), MagicMock(), stats=stats)
+        assert len(out) == 1 and out[0]["confidence"] == 0.5
+        assert stats.get("grid_only") == 1
+
+    def test_cli_skip_filter_exempts_loops_runs(self):
+        # the library-mode skip-if-cued filter must not gate loop generation
+        import inspect
+        from autocue import cli
+        src = inspect.getsource(cli.main)
+        assert "loop_targets = list(tracks)" in src
+        filter_idx = src.index("has_existing_hot_cues(content, db)")
+        snapshot_idx = src.index("loop_targets = list(tracks)")
+        assert snapshot_idx < filter_idx, "snapshot must happen before the filter"
