@@ -199,3 +199,133 @@ class TestPlanLoopsCuePointShape:
         assert cue.position_ms == 4000
         assert cue.loop_end_ms == int(round(4000 + 16 * BAR_MS))
         assert cue.loop_beats == 16 * 4
+
+
+# ---------------------------------------------------------------------------
+# Unit 3 — Serato LOOP entry (write / decode / preserve), crew/researcher.md §1
+# ---------------------------------------------------------------------------
+
+def _loop_cue(pos=10_000, end=18_000, name="Outro", label=PhraseLabel.OUTRO, slot=-1):
+    return CuePoint(
+        position_ms=pos, label=label, slot=slot, name=name,
+        loop_end_ms=end, loop_beats=(end - pos) // 500,
+    )
+
+
+class TestSeratoLoopWrite:
+    def test_loop_entry_is_emitted(self):
+        from autocue.serato_writer import build_markers2, parse_markers2, wrap_outer
+        payload = build_markers2([_loop_cue()])
+        assert b"LOOP\x00" in payload
+        entries = parse_markers2(wrap_outer(payload))
+        loops = [e for e in entries if e["type"] == "LOOP"]
+        assert len(loops) == 1
+
+    def test_memory_loop_slot_minus1_still_emitted(self):
+        # Unlike a memory CUE (slot<0 dropped), a memory LOOP IS written —
+        # loops carry their own Serato loop-slot index, not the cue slot.
+        from autocue.serato_writer import build_markers2
+        payload = build_markers2([_loop_cue(slot=-1)])
+        assert b"LOOP\x00" in payload
+
+    def test_loop_byte_layout(self):
+        # Fixed portion = 20 bytes; name at offset 0x14 (researcher §1).
+        from autocue.serato_writer import build_markers2
+        payload = build_markers2([_loop_cue(pos=10_000, end=18_000, name="Outro")])
+        idx = payload.index(b"LOOP\x00")
+        length = int.from_bytes(payload[idx + 5:idx + 9], "big")
+        data = payload[idx + 9:idx + 9 + length]
+        assert data[0] == 0x00                                  # reserved
+        assert data[1] == 0x00                                  # index (first loop)
+        assert int.from_bytes(data[2:6], "big") == 10_000       # start ms, u32 BE
+        assert int.from_bytes(data[6:10], "big") == 18_000      # end ms, u32 BE
+        assert data[10:14] == b"\xff\xff\xff\xff"               # field5 reserved (opt-b)
+        assert data[19] == 0x00                                 # locked = unlocked
+        assert data[20:].split(b"\x00", 1)[0] == b"Outro"       # name at 0x14
+
+    def test_roundtrip_fields(self):
+        from autocue.serato_writer import build_markers2, parse_markers2, wrap_outer
+        loop = _loop_cue(pos=12_345, end=54_321, name="Break", label=PhraseLabel.DOWN)
+        entries = parse_markers2(wrap_outer(build_markers2([loop])))
+        e = next(x for x in entries if x["type"] == "LOOP")
+        assert e["start_ms"] == 12_345
+        assert e["end_ms"] == 54_321
+        assert e["name"] == "Break"
+        assert e["index"] == 0
+        assert e["locked"] is False
+
+    def test_loop_index_independent_of_cue_slots(self):
+        from autocue.serato_writer import build_markers2, parse_markers2, wrap_outer
+        cues = [
+            CuePoint(position_ms=1000, label=PhraseLabel.INTRO, slot=0, name="A"),
+            CuePoint(position_ms=2000, label=PhraseLabel.OUTRO, slot=3, name="D"),
+            _loop_cue(pos=5000, end=13_000, name="Intro", label=PhraseLabel.INTRO),
+            _loop_cue(pos=90_000, end=98_000, name="Outro", label=PhraseLabel.OUTRO),
+        ]
+        entries = parse_markers2(wrap_outer(build_markers2(cues)))
+        cue_idx = [e["index"] for e in entries if e["type"] == "CUE"]
+        loop_idx = [e["index"] for e in entries if e["type"] == "LOOP"]
+        assert cue_idx == [0, 3]        # cue slots preserved
+        assert loop_idx == [0, 1]       # loops get their own 0-based sequence
+
+    def test_non_loop_cue_still_serialized_as_cue(self):
+        # Regression: a plain cue with no loop end is still a CUE entry.
+        from autocue.serato_writer import build_markers2, parse_markers2, wrap_outer
+        cue = CuePoint(position_ms=1000, label=PhraseLabel.INTRO, slot=0, name="Intro")
+        entries = parse_markers2(wrap_outer(build_markers2([cue])))
+        assert [e["type"] for e in entries] == ["CUE"]
+
+
+class TestSeratoLoopDecode:
+    def test_parse_decodes_loop_previously_dropped(self):
+        # Before this unit parse_markers2 left LOOP opaque ({"type":"LOOP"}).
+        from autocue.serato_writer import build_markers2, parse_markers2, wrap_outer
+        entries = parse_markers2(wrap_outer(build_markers2([_loop_cue()])))
+        e = next(x for x in entries if x["type"] == "LOOP")
+        assert "start_ms" in e and "end_ms" in e and "name" in e
+
+    def test_entries_carry_raw_framed_bytes(self):
+        from autocue.serato_writer import build_markers2, parse_markers2, wrap_outer
+        payload = build_markers2([_loop_cue()])
+        entries = parse_markers2(wrap_outer(payload))
+        e = next(x for x in entries if x["type"] == "LOOP")
+        assert e["raw"].startswith(b"LOOP\x00")
+        assert e["raw"] in payload         # raw is the exact framed slice
+
+
+class TestSeratoLoopPreserve:
+    def test_byte_for_byte_preserve_via_build(self):
+        # F1: a foreign LOOP entry re-emitted verbatim survives a rebuild.
+        from autocue.serato_writer import build_markers2, parse_markers2, wrap_outer
+        original = build_markers2([_loop_cue(pos=7000, end=15_000, name="DJLoop")])
+        raw = next(
+            e["raw"] for e in parse_markers2(wrap_outer(original)) if e["type"] == "LOOP"
+        )
+        # Rebuild with NO loop cues but preserving the foreign raw entry.
+        rebuilt = build_markers2([], preserve=[raw])
+        assert raw in rebuilt                    # byte-for-byte identical
+        entries = parse_markers2(wrap_outer(rebuilt))
+        e = next(x for x in entries if x["type"] == "LOOP")
+        assert e["name"] == "DJLoop" and e["start_ms"] == 7000 and e["end_ms"] == 15_000
+
+    def test_existing_serato_loop_survives_file_rewrite(self, tmp_path):
+        # F1 end-to-end: a DJ's saved Serato loop must NOT be wiped when we
+        # rewrite the Markers2 tag with only cues.
+        import pytest
+        pytest.importorskip("mutagen")
+        from autocue.serato_writer import parse_markers2, write_serato_tags, _read_existing, wrap_outer
+
+        mp3 = tmp_path / "t.mp3"
+        mp3.write_bytes(b"\xff\xfb\x90\x00" + b"\x00" * 413)
+        # 1) DJ made a loop in Serato (write it as the file's existing tag).
+        write_serato_tags(mp3, [_loop_cue(pos=3000, end=11_000, name="MyLoop")])
+        # 2) AutoCue rewrites with only a hot cue (no loop cues passed).
+        cue = CuePoint(position_ms=1000, label=PhraseLabel.INTRO, slot=0, name="Intro")
+        write_serato_tags(mp3, [cue])
+        # 3) The DJ's loop must still be present.
+        from autocue.serato_writer import GEOB_V2
+        raw = _read_existing(mp3)[GEOB_V2]
+        entries = parse_markers2(raw)
+        names = {e.get("name") for e in entries}
+        assert "MyLoop" in names               # loop preserved
+        assert "Intro" in names                # new cue also written

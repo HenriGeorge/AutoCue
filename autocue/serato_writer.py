@@ -59,6 +59,17 @@ _SERATO_RGB: dict[int, bytes] = {
 }
 _DEFAULT_RGB = bytes.fromhex("CC0000")
 
+# Serato saved-loop (LOOP entry) constants — crew/researcher.md §1.
+# start/end (ms, uint32 BE), name (@0x14) and the locked flag are HIGH
+# confidence; the 8 "middle" bytes (field5 @0x0a, field6/color @0x0e) are the
+# reverse-engineered LOW-confidence region. Per GATE-1 Decision 3(b) we build
+# to safe reference defaults (option b) and prove a byte-for-byte round-trip in
+# tests here — the USER confirms the render in Serato DJ Pro at GATE-2 (a
+# one-pass byte fix if any are off). Fixed portion is 20 bytes; name at 0x14.
+_LOOP_RESERVED = b"\xff\xff\xff\xff"            # field5 @0x0a — commonly 0xFFFFFFFF
+_SERATO_LOOP_COLOR = bytes.fromhex("0027AAE1")  # field6 @0x0e — fixed loop color (probe-verify)
+_LOOP_FIXED_LEN = 20                            # bytes before the UTF-8 name
+
 SUPPORTED_SUFFIXES = {".mp3", ".aiff", ".aif", ".flac", ".m4a", ".mp4"}
 
 
@@ -76,10 +87,45 @@ def _cue_rgb(cue: CuePoint) -> bytes:
 
 # ---------------------------------------------------------------- serialization
 
-def build_markers2(cues: list[CuePoint]) -> bytes:
-    """Inner decoded payload: header + one CUE entry per hot cue + terminator."""
+def _loop_entry(index: int, loop: CuePoint) -> bytes:
+    """One Serato Markers2 LOOP entry (crew/researcher.md §1, option-b bytes).
+
+    Layout (fixed 20 bytes + UTF-8 name + NUL): reserved(1) index(1)
+    start-ms(u32 BE) end-ms(u32 BE) field5(4) field6/color(4) color(1)
+    locked(1) name. Positions are ms/uint32 BE — same units & endianness as CUE.
+    """
+    end = loop.loop_end_ms if loop.loop_end_ms is not None else 0xFFFFFFFF
+    name = (loop.name or loop.label.value).encode("utf-8")
+    data = (
+        b"\x00"                                          # 0x00 reserved
+        + bytes([index & 0xFF])                          # 0x01 loop index (0-based)
+        + max(0, loop.position_ms).to_bytes(4, "big")    # 0x02 start ms
+        + int(end).to_bytes(4, "big")                    # 0x06 end ms
+        + _LOOP_RESERVED                                 # 0x0a field5
+        + _SERATO_LOOP_COLOR                             # 0x0e field6 (loop color block)
+        + b"\x00"                                        # 0x12 color byte
+        + b"\x00"                                        # 0x13 locked (0 = unlocked)
+        + name                                           # 0x14 name
+        + b"\x00"                                         # name NUL terminator
+    )
+    return b"LOOP\x00" + len(data).to_bytes(4, "big") + data
+
+
+def build_markers2(cues: list[CuePoint], *, preserve: "list[bytes]" = ()) -> bytes:
+    """Inner decoded payload: header + CUE/LOOP entries + terminator.
+
+    A ``CuePoint`` with ``is_loop`` is serialized as a Serato LOOP entry (its
+    own 0-based loop-slot index, ordered by start) rather than a CUE — memory
+    loops (``slot=-1``) are still written here because loops carry their own
+    index, NOT the cue slot. ``preserve`` is a list of already-framed foreign
+    LOOP entry bytes re-emitted verbatim so a rewrite never wipes the DJ's
+    existing Serato loops (F1). Non-loop cues are unchanged (regression-safe).
+    """
+    preserve = list(preserve)
     out = [b"\x01\x01"]
-    for cue in sorted(cues, key=lambda c: c.slot):
+    points = [c for c in cues if not c.is_loop]
+    loops = [c for c in cues if c.is_loop]
+    for cue in sorted(points, key=lambda c: c.slot):
         if cue.slot < 0 or cue.slot > 7:
             continue  # memory cues have no Serato equivalent
         name = (cue.name or cue.label.value).encode("utf-8")
@@ -94,6 +140,13 @@ def build_markers2(cues: list[CuePoint]) -> bytes:
             + b"\x00"
         )
         out.append(b"CUE\x00" + len(data).to_bytes(4, "big") + data)
+    # Generated LOOP entries — indexed AFTER any preserved foreign loops so the
+    # two index spaces don't collide.
+    base = len(preserve)
+    for i, loop in enumerate(sorted(loops, key=lambda c: c.position_ms)):
+        out.append(_loop_entry(base + i, loop))
+    for raw in preserve:
+        out.append(raw)  # foreign LOOP entries re-emitted byte-for-byte (F1)
     out.append(b"\x00")
     return b"".join(out)
 
@@ -143,7 +196,10 @@ def parse_markers2(outer: bytes) -> list[dict]:
         etype = payload[i:end].decode("ascii", "ignore")
         length = int.from_bytes(payload[end + 1:end + 5], "big")
         data = payload[end + 5:end + 5 + length]
-        entry: dict = {"type": etype}
+        # Full framed entry bytes (TYPE\0 + len + data) — lets callers re-emit
+        # an entry verbatim (loop preservation, F1).
+        raw = payload[i:end + 5 + length]
+        entry: dict = {"type": etype, "raw": raw}
         if etype == "CUE" and length >= 13:
             entry.update(
                 index=data[1],
@@ -151,9 +207,65 @@ def parse_markers2(outer: bytes) -> list[dict]:
                 color=data[7:10].hex(),
                 name=data[12:].split(b"\x00", 1)[0].decode("utf-8", "replace"),
             )
+        elif etype == "LOOP" and length >= _LOOP_FIXED_LEN:
+            # Decode LOOP (previously dropped) so existing loops can be
+            # preserved on rewrite. Layout per crew/researcher.md §1.
+            entry.update(
+                index=data[1],
+                start_ms=int.from_bytes(data[2:6], "big"),
+                end_ms=int.from_bytes(data[6:10], "big"),
+                field5=data[10:14].hex(),
+                field6=data[14:18].hex(),
+                color=data[18],
+                locked=bool(data[19]),
+                name=data[20:].split(b"\x00", 1)[0].decode("utf-8", "replace"),
+            )
         entries.append(entry)
         i = end + 5 + length
     return entries
+
+
+def _decode_marker_tag(tag_name: str, raw: bytes) -> list[dict]:
+    """Decode a stored Serato Markers2 tag value into entry dicts.
+
+    ID3 GEOB stores ``wrap_outer()`` directly; FLAC/MP4 store the base64 of
+    ``_ENVELOPE + wrap_outer(payload)`` (``build_envelope``), so those are
+    unwrapped to the outer structure first.
+    """
+    if tag_name == GEOB_V2:
+        return parse_markers2(raw)
+    b64 = raw.replace(b"\n", b"").decode("ascii", "ignore")
+    b64 += "=" * (-len(b64) % 4)
+    try:
+        decoded = base64.b64decode(b64)
+    except Exception:
+        return []
+    marker = decoded.find(b"Serato Markers2\x00")
+    if marker < 0:
+        return []
+    return parse_markers2(decoded[marker + len(b"Serato Markers2\x00"):])
+
+
+def _existing_loop_entries(path: Path) -> list[tuple[int, bytes]]:
+    """Existing Serato Markers2 LOOP entries in ``path`` as ``(start_ms, raw)``.
+
+    Only Markers2 (v2) loops are preserved on rewrite — the legacy ``Markers_``
+    tag is deleted on every write by design (it would otherwise shadow our v2
+    loop). Best-effort: any read/decode failure yields ``[]`` (never blocks a
+    write) — the loud path is the write itself.
+    """
+    try:
+        found = _read_existing(path)
+    except Exception:
+        return []
+    for tag in (GEOB_V2, FLAC_V2, MP4_V2):
+        if tag in found:
+            return [
+                (e.get("start_ms", 0), e["raw"])
+                for e in _decode_marker_tag(tag, found[tag])
+                if e.get("type") == "LOOP"
+            ]
+    return []
 
 
 # ------------------------------------------------------------- file embedding
@@ -254,7 +366,15 @@ def write_serato_tags(path: Path, cues: list[CuePoint], comment: str | None = No
     written in the same save; None/empty leaves the existing comment untouched.
     """
     _require_mutagen()
-    payload = build_markers2(cues)
+    # F1 (mirror-first, data-loss guard): preserve the DJ's existing Serato
+    # loops so a Markers2 rewrite never wipes them. A generated loop that lands
+    # on the same start as an existing loop is dropped — the DJ's loop wins.
+    existing_loops = _existing_loop_entries(path)
+    preserve = [raw for _, raw in existing_loops]
+    if existing_loops:
+        existing_starts = {start for start, _ in existing_loops}
+        cues = [c for c in cues if not (c.is_loop and c.position_ms in existing_starts)]
+    payload = build_markers2(cues, preserve=preserve)
     suffix = path.suffix.lower()
 
     if suffix in (".mp3", ".aiff", ".aif"):
