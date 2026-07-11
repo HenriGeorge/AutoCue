@@ -43,12 +43,25 @@ def write_xml(
 
         for cue in cues:
             # Num: -1 = memory cue, 0–7 = Hot Cues A–H (slot already matches wire format)
-            track.add_mark(
-                Name=cue.name or cue.label.value,
-                Type="cue",
-                Start=cue.position_sec,
-                Num=cue.slot,
-            )
+            if cue.is_loop:
+                # Loop region → POSITION_MARK Type="loop" (serializes to "4").
+                # Start/End are SECONDS in the XML (add_mark expects seconds),
+                # so convert loop_end_ms the same way position_sec converts
+                # position_ms — never pass ms where seconds are expected.
+                track.add_mark(
+                    Name=cue.name or cue.label.value,
+                    Type="loop",
+                    Start=cue.position_sec,
+                    End=cue.loop_end_ms / 1000.0,
+                    Num=cue.slot,
+                )
+            else:
+                track.add_mark(
+                    Name=cue.name or cue.label.value,
+                    Type="cue",
+                    Start=cue.position_sec,
+                    Num=cue.slot,
+                )
 
     xml.save(str(output_path))
     return output_path

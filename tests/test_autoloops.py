@@ -436,3 +436,91 @@ class TestMergeLoops:
         from autocue.cli import _merge_loops
         cues = [CuePoint(position_ms=1000, label=PhraseLabel.INTRO, slot=0)]
         assert _merge_loops(cues, []) == cues
+
+
+# ---------------------------------------------------------------------------
+# Increment 2 — Rekordbox XML loop marks (writer.py §5, researcher §2)
+# ---------------------------------------------------------------------------
+# Rekordbox XML POSITION_MARK Type is NUMERIC: 0=cue, 4=loop. Start/End are in
+# SECONDS. add_mark(Type="loop", End=<sec>) serializes to Type="4" + End attr.
+
+def _xml_content(title="Test Track", artist="Test Artist", folder="/Music", filename="t.mp3"):
+    from unittest.mock import MagicMock
+    c = MagicMock()
+    c.Title, c.ArtistName = title, artist
+    c.FolderPath, c.FileNameL, c.FileNameS = folder, filename, filename
+    return c
+
+
+def _marks(xml_path):
+    import xml.etree.ElementTree as ET
+    root = ET.parse(str(xml_path)).getroot()
+    return [e.attrib for e in root.iter("POSITION_MARK")]
+
+
+class TestXmlLoopMark:
+    def test_loop_cue_yields_loop_position_mark(self, tmp_path):
+        from autocue.writer import write_xml
+        loop = CuePoint(
+            position_ms=10_000, label=PhraseLabel.OUTRO, slot=-1, name="Outro",
+            loop_end_ms=18_000, loop_beats=32,
+        )
+        out = write_xml([(_xml_content(), [loop])], tmp_path / "loop.xml")
+        marks = _marks(out)
+        assert len(marks) == 1
+        m = marks[0]
+        assert m["Type"] == "4"                 # 4 = loop (not "0" = cue)
+        assert m["Name"] == "Outro"
+        assert float(m["Start"]) == 10.0        # position_ms -> seconds
+        assert float(m["End"]) == 18.0          # loop_end_ms  -> seconds
+        assert m["Num"] == "-1"                 # memory loop
+
+    def test_end_is_seconds_not_milliseconds(self, tmp_path):
+        # Guard the unit bug: End must be 18.0 s, never 18000 (ms).
+        from autocue.writer import write_xml
+        loop = CuePoint(
+            position_ms=12_500, label=PhraseLabel.DOWN, slot=-1, name="Break",
+            loop_end_ms=20_500,
+        )
+        out = write_xml([(_xml_content(), [loop])], tmp_path / "break.xml")
+        m = _marks(out)[0]
+        assert float(m["End"]) == 20.5
+        assert float(m["Start"]) == 12.5
+        assert float(m["End"]) < 1000           # sanity: seconds, not ms
+
+    def test_non_loop_cue_unchanged_no_end(self, tmp_path):
+        # Regression: a plain cue is still Type="0" (cue) with NO End attribute.
+        from autocue.writer import write_xml
+        cue = CuePoint(position_ms=1000, label=PhraseLabel.INTRO, slot=0, name="Intro")
+        out = write_xml([(_xml_content(), [cue])], tmp_path / "cue.xml")
+        m = _marks(out)[0]
+        assert m["Type"] == "0"                 # cue, not loop
+        assert "End" not in m                   # no End on a point cue
+        assert float(m["Start"]) == 1.0
+        assert m["Num"] == "0"
+
+    def test_mixed_cue_and_loop_in_one_track(self, tmp_path):
+        from autocue.writer import write_xml
+        cue = CuePoint(position_ms=2000, label=PhraseLabel.INTRO, slot=0, name="Intro")
+        loop = CuePoint(
+            position_ms=90_000, label=PhraseLabel.OUTRO, slot=-1, name="Outro",
+            loop_end_ms=98_000,
+        )
+        out = write_xml([(_xml_content(), [cue, loop])], tmp_path / "mix.xml")
+        marks = _marks(out)
+        by_type = {m["Type"]: m for m in marks}
+        assert set(by_type) == {"0", "4"}
+        assert "End" not in by_type["0"]        # cue: no End
+        assert float(by_type["4"]["End"]) == 98.0
+        assert by_type["4"]["Name"] == "Outro"
+
+    def test_loop_name_falls_back_to_label(self, tmp_path):
+        # Name empty -> falls back to label.value (same rule as cues).
+        from autocue.writer import write_xml
+        loop = CuePoint(
+            position_ms=0, label=PhraseLabel.OUTRO, slot=-1, name="",
+            loop_end_ms=8000,
+        )
+        out = write_xml([(_xml_content(), [loop])], tmp_path / "fallback.xml")
+        m = _marks(out)[0]
+        assert m["Name"] == PhraseLabel.OUTRO.value
