@@ -31,3 +31,7 @@ node_modules/
 
 # Figma exports — derived artifacts, cloud-versioned; repo source of truth is docs/index.html tokens
 *.fig
+
+# Serato export runtime artifacts (machine-local, regenerable)
+autocue_serato_state.json
+autocue_serato_backup.jsonl
