@@ -356,13 +356,16 @@ def main() -> None:
             print(f"  {title}: wrote {n} loop(s){note}")
 
         print(f"\nDatabase write: {written} named memory loop(s) added · {skipped} skipped.")
+        print("Existing memory cues/loops were left untouched. Open Rekordbox to see them.")
         if failed:
+            # A PARTIAL DB write must never look like success to a script — earlier
+            # tracks are already committed, so exit non-zero.
             print(
-                f"{len(failed)} track(s) FAILED: {', '.join(failed)} — "
-                f"earlier tracks are already committed. Backup: {backup}",
+                f"\n{len(failed)} track(s) FAILED: {', '.join(failed)} — this was a "
+                f"PARTIAL write; earlier tracks are already committed. Backup: {backup}",
                 file=sys.stderr,
             )
-        print("Existing memory cues/loops were left untouched. Open Rekordbox to see them.")
+            sys.exit(1)
         return
 
     if args.serato:

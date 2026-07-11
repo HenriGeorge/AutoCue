@@ -1396,11 +1396,20 @@ class TestWriteDbCli:
         from autocue.cli import main
         calls = _writedb_stub(monkeypatch, tmp_path, loops=[_loop_cue()], write_raises=True)
         _argv(monkeypatch, tmp_path, "--loops", "--write-db")
-        main()   # must NOT propagate a raw traceback
+        # P5-FIX #2: a PARTIAL DB write must not look like success to a script.
+        with pytest.raises(SystemExit) as e:
+            main()   # must NOT propagate a raw traceback…
+        assert e.value.code == 1   # …but must NOT exit 0 either
         combined = capsys.readouterr()
         text = (combined.out + combined.err).lower()
         assert "backup" in text          # the user is reminded where their undo is
         assert "fixture" in text         # the failing track is named
+
+    def test_exit_code_zero_when_all_tracks_succeed(self, monkeypatch, tmp_path):
+        from autocue.cli import main
+        _writedb_stub(monkeypatch, tmp_path, loops=[_loop_cue()])
+        _argv(monkeypatch, tmp_path, "--loops", "--write-db")
+        main()   # no SystemExit — a fully successful write exits 0
 
 
 # ---------------------------------------------------------------------------
