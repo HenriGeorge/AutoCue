@@ -658,7 +658,10 @@ def _cli_stub(monkeypatch, *, generated, loops, spy):
     import autocue.serato_writer as serato_writer
     from autocue.serato_writer import SeratoSummary
 
-    content = SimpleNamespace(Title="Fixture", FileNameL="fixture.mp3", ID=1, Length=200)
+    content = SimpleNamespace(
+        Title="Fixture", ArtistName="Artist", FolderPath="/Music",
+        FileNameL="fixture.mp3", FileNameS="fixture.mp3", ID=1, Length=200,
+    )
     monkeypatch.setattr(cli, "MasterDatabase", lambda *a, **k: object())
     monkeypatch.setattr(cli, "analyze_by_title", lambda *a, **k: (content, None))
     monkeypatch.setattr(cli, "generate_cues_for_track", lambda *a, **k: (list(generated), "phrase"))
@@ -707,6 +710,59 @@ class TestDryRunLoopPreview:
         out = capsys.readouterr().out
         assert "Dry run — no files written." in out
         assert "loop [" not in out.lower()   # no loop preview without --loops
+
+
+class TestCliXmlLoopWiring:
+    """XMLWIRE — the end-to-end CLI → XML loop path had ZERO coverage (that is
+    why `autocue --loops` shipped writing 0 loop marks). Drives real write_xml."""
+
+    def _marks(self, path):
+        import xml.etree.ElementTree as ET
+        return [e.attrib for e in ET.parse(str(path)).getroot().iter("POSITION_MARK")]
+
+    def test_xml_path_writes_loop_marks_with_loops(self, monkeypatch, tmp_path):
+        import sys
+        from autocue.cli import main
+        out = tmp_path / "out.xml"
+        loop = _loop_cue(pos=10_000, end=18_000, name="Outro")
+        _cli_stub(monkeypatch, generated=[
+            CuePoint(position_ms=1000, label=PhraseLabel.INTRO, slot=0, name="Intro"),
+        ], loops=[loop], spy=[])
+        monkeypatch.setattr(sys, "argv", ["autocue", "--track", "x", "--loops", "--output", str(out)])
+        main()
+        marks = self._marks(out)
+        loop_marks = [m for m in marks if m.get("Type") == "4"]      # 4 = loop
+        assert len(loop_marks) == 1, f"expected 1 loop POSITION_MARK, got {marks}"
+        assert loop_marks[0]["Num"] == "-1"                          # memory loop
+        assert float(loop_marks[0]["End"]) == 18.0                   # seconds
+        assert loop_marks[0]["Name"] == "Outro"
+
+    def test_xml_path_no_loop_marks_without_flag(self, monkeypatch, tmp_path):
+        import sys
+        from autocue.cli import main
+        out = tmp_path / "out.xml"
+        _cli_stub(monkeypatch, generated=[
+            CuePoint(position_ms=1000, label=PhraseLabel.INTRO, slot=0, name="Intro"),
+        ], loops=[_loop_cue(name="Outro")], spy=[])
+        monkeypatch.setattr(sys, "argv", ["autocue", "--track", "x", "--output", str(out)])
+        main()
+        marks = self._marks(out)
+        assert not any(m.get("Type") == "4" for m in marks)          # regression: no loops w/o --loops
+        assert any(m.get("Type") == "0" for m in marks)              # the cue is still written
+
+    def test_xml_loop_coexists_with_cue_at_same_downbeat(self, monkeypatch, tmp_path):
+        # The real-world case: cue and loop share the phrase downbeat -> BOTH
+        # must land in the XML (the bug dropped the loop).
+        import sys
+        from autocue.cli import main
+        out = tmp_path / "out.xml"
+        _cli_stub(monkeypatch, generated=[
+            CuePoint(position_ms=10_000, label=PhraseLabel.OUTRO, slot=0, name="Outro"),
+        ], loops=[_loop_cue(pos=10_000, end=18_000, name="Outro")], spy=[])
+        monkeypatch.setattr(sys, "argv", ["autocue", "--track", "x", "--loops", "--output", str(out)])
+        main()
+        types = sorted(m.get("Type") for m in self._marks(out))
+        assert "0" in types and "4" in types    # hot cue AND memory loop both present
 
 
 class TestSeratoDecodeFailBreadcrumb:

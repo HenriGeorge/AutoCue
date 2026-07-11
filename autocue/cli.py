@@ -208,9 +208,12 @@ def main() -> None:
         # inside the real --serato write branch, which sits after this return).
         if args.loops:
             from .analyzer import analyze_loops
-            for content, _generated, _ in tracks:
+            for content, generated, _ in tracks:
                 title = content.Title or content.FileNameL or "Unknown"
-                for loop in analyze_loops(content, db):
+                # Preview the MERGED/collision-filtered set (== what is written),
+                # not the raw policy output.
+                merged = _merge_loops(list(generated), analyze_loops(content, db))
+                for loop in (c for c in merged if c.is_loop):
                     smin, ssec = divmod(loop.position_ms // 1000, 60)
                     emin, esec = divmod((loop.loop_end_ms or 0) // 1000, 60)
                     bars = (loop.loop_beats // 4) if loop.loop_beats else "?"
@@ -273,14 +276,24 @@ def main() -> None:
         )
         return
 
+    # XML import path. INC-2 taught writer.py to emit <POSITION_MARK Type="loop"
+    # End=…> for loop cues; layer the generated loops onto each track's cues
+    # here (mirrors the --serato block) so `autocue --loops` actually writes
+    # memory loops to the XML — otherwise write_xml receives loop-free cues.
     if args.loops:
-        print(
-            "\nNote: --loops currently writes loops only with --serato "
-            "(Rekordbox XML loop export arrives in a later increment)."
-        )
-
-    output = write_xml([(c, cues) for c, cues, _ in tracks], args.output)
-    print(f"\nWrote {output}")
+        from .analyzer import analyze_loops
+        xml_pairs = []
+        added = 0
+        for content, cues, _ in tracks:
+            loops = analyze_loops(content, db)
+            merged = _merge_loops(cues, loops) if loops else cues
+            added += len(merged) - len(cues)
+            xml_pairs.append((content, merged))
+        output = write_xml(xml_pairs, args.output)
+        print(f"\nWrote {output} — {added} named loop(s) added")
+    else:
+        output = write_xml([(c, cues) for c, cues, _ in tracks], args.output)
+        print(f"\nWrote {output}")
     print("Import in Rekordbox: File > Import Library > select the XML file above.")
 
 
