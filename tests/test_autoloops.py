@@ -524,3 +524,52 @@ class TestXmlLoopMark:
         out = write_xml([(_xml_content(), [loop])], tmp_path / "fallback.xml")
         m = _marks(out)[0]
         assert m["Name"] == PhraseLabel.OUTRO.value
+
+
+# ===========================================================================
+# P4-FIX — consolidated VERIFY-loop fixes (auditor #1/#2/N1/N2 · verifier P-10/C-3)
+# ===========================================================================
+
+def _fake_anlz(monkeypatch, phrases, *, mood=1, n_beats=400, beat_ms=500):
+    """Patch analyze_loops' ANLZ source with a synthetic PSSI+PQTZ.
+
+    ``phrases`` = list of ``(beat, kind)`` (1-indexed downbeat + PSSI kind).
+    mood=1 (High) maps kind 1→INTRO, 2→UP(Build), 3→DOWN(Break), 5→CHORUS, 6→OUTRO.
+    beat_ms=500 ⇒ bar_ms=2000 (120 BPM). Returns nothing; sets up the patch.
+    """
+    from types import SimpleNamespace
+    import autocue.analyzer as az
+    beats = [SimpleNamespace(time=i * beat_ms, beat=i + 1) for i in range(n_beats)]
+    pqtz = SimpleNamespace(entries=beats)
+    pssi = SimpleNamespace(
+        entries=[SimpleNamespace(beat=b, kind=k) for b, k in phrases], mood=mood,
+    )
+    monkeypatch.setattr(az, "_get_pssi_and_pqtz", lambda *a, **k: (pssi, pqtz))
+
+
+class TestAnalyzeLoopsTerminalPhrase:
+    """Auditor #1 — the Outro is (almost always) the LAST phrase, so its bar
+    length must come from the track end, else it computes to 0 bars and is
+    silently dropped. This path had ZERO coverage — that is why the bug shipped."""
+
+    def test_terminal_outro_produces_outro_loop(self, monkeypatch):
+        from types import SimpleNamespace
+        from autocue.analyzer import analyze_loops
+        # Intro@0, Chorus@16s, Outro@32s (LAST). 50s track.
+        _fake_anlz(monkeypatch, [(1, 1), (33, 5), (65, 6)])
+        content = SimpleNamespace(Length=50)  # seconds -> total_ms 50_000
+        loops = analyze_loops(content, object())
+        names = [c.name for c in loops]
+        assert "Outro" in names, "terminal Outro must produce a loop (bar length from track end)"
+        outro = next(c for c in loops if c.name == "Outro")
+        assert outro.is_loop and outro.slot == -1
+        assert 32_000 < outro.loop_end_ms <= 50_000   # bounded by track end, no run into silence
+
+    def test_terminal_phrase_without_duration_still_safe(self, monkeypatch):
+        # No Length -> total_ms None -> terminal phrase can't be measured -> no
+        # Outro, but MUST NOT crash (graceful).
+        from types import SimpleNamespace
+        from autocue.analyzer import analyze_loops
+        _fake_anlz(monkeypatch, [(1, 1), (65, 6)])
+        loops = analyze_loops(SimpleNamespace(), object())  # no Length attr
+        assert isinstance(loops, list)  # Intro may qualify off the gap to Outro; never raises

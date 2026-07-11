@@ -372,6 +372,17 @@ def analyze_loops(
         return []  # no usable beat grid ⇒ no bar-aligned loop
     bar_ms = avg_ms_per_beat * 4
 
+    # Track duration (seconds → ms) is needed BEFORE building the phrase list:
+    # the terminal phrase (usually the OUTRO — the top mix-out loop) has no next
+    # phrase, so its bar length is measured against the track end, not 0 bars.
+    total_ms: int | None = None
+    length = getattr(content, "Length", None)  # DjmdContent duration, seconds
+    try:
+        if length is not None and float(length) > 0:
+            total_ms = int(float(length) * 1000)
+    except (TypeError, ValueError):
+        total_ms = None
+
     phrase_ms_list: list[int | None] = [
         _beat_to_ms(beat_entries, entry.beat) for entry in phrases
     ]
@@ -383,6 +394,9 @@ def analyze_loops(
              if phrase_ms_list[j] is not None),
             None,
         )
+        if next_ms is None:
+            # Terminal phrase → bound its length by the track end (auditor #1).
+            next_ms = total_ms
         if this_ms is None or next_ms is None:
             return 0
         return max(0, round((next_ms - this_ms) / bar_ms))
@@ -393,14 +407,6 @@ def analyze_loops(
         if ms is None:
             continue
         plan_input.append((ms, phrase_label(mood, entry.kind), _bars(idx)))
-
-    total_ms: int | None = None
-    length = getattr(content, "Length", None)  # DjmdContent duration, seconds
-    try:
-        if length is not None and float(length) > 0:
-            total_ms = int(float(length) * 1000)
-    except (TypeError, ValueError):
-        total_ms = None
 
     return plan_loops(plan_input, bar_ms, total_ms=total_ms, include_build=include_build)
 
