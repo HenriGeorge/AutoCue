@@ -187,7 +187,12 @@ class TestWriteMemoryLoops:
         from autocue.db_writer import write_memory_loops
         db = self._db()
         loops = [{"start_ms": 30000, "end_ms": 45000, "name": "Mix In Loop"}]
-        with patch("pyrekordbox.db6.DjmdCue") as cue_cls:
+        with patch("pyrekordbox.db6.DjmdCue") as cue_cls, \
+                patch("autocue.db_writer._loop_filter", return_value=True), \
+                patch("autocue.db_writer._point_cue_filter", return_value=True, create=True):
+            # write_memory_loops now builds real SQL predicates from DjmdCue
+            # columns; stub the predicate builders so the mocked ORM class
+            # only has to serve row construction (what this test asserts).
             n = write_memory_loops(_content(), loops, db)
         assert n == 1
         kwargs = cue_cls.call_args.kwargs
