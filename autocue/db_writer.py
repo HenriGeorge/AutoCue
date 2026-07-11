@@ -199,6 +199,119 @@ def read_hot_cues(content, db) -> list[CuePoint]:
     return sorted(cues, key=lambda c: c.slot)
 
 
+def write_loops_to_db(content, cues: list[CuePoint], db, *, dry_run: bool = False) -> int:
+    """APPEND-ONLY writer for memory LOOPS (Kind=0) — INCREMENT 3.
+
+    🚨 Deliberately NOT ``write_cues_to_db``. That function is UNSAFE for loops on
+    BOTH branches: ``overwrite=True`` DELETES every ``Kind=0`` row (wiping the DJ's
+    hand-placed memory CUES — memory cues and memory loops share the Kind=0 space,
+    discriminated only by ``OutMsec``), and ``overwrite=False`` silently drops the
+    loop. It is also the shared server write path (/api/apply, SSE, memory_cue_mode)
+    and is left untouched.
+
+    **This function issues NO DELETE anywhere — clobber is impossible by
+    construction.** It only INSERTs, and only for loops whose start does not
+    already collide with an existing Kind=0 row (mirror-first: the DJ's entry
+    wins), which also makes a re-run idempotent.
+
+    Returns the number of loop rows written.
+    """
+    from uuid import uuid4
+
+    from pyrekordbox.db6 import DjmdCue
+
+    # Memory loops only. Hot-slot loops and plain point cues are not our job.
+    loops = [c for c in cues if c.is_loop and c.slot == -1]
+    if not loops:
+        return 0
+
+    if dry_run:
+        logger.info("[dry-run] Would write %d loop(s) to %r", len(loops), content.Title)
+        return 0
+
+    # Every existing Kind=0 start for this track — memory CUES *and* memory LOOPS.
+    existing_starts = {
+        int(row.InMsec or 0)
+        for row in db.session.query(DjmdCue)
+        .filter(DjmdCue.ContentID == content.ID, DjmdCue.Kind == 0)
+        .all()
+    }
+
+    to_write: list[CuePoint] = []
+    for loop in loops:
+        if loop.position_ms in existing_starts:
+            # Silent-failure lens: never drop a loop without a breadcrumb.
+            logger.info(
+                "Skipping loop %r at %d ms on %r — a memory cue/loop already starts "
+                "there (mirror-first: the existing entry wins)",
+                loop.name, loop.position_ms, content.Title,
+            )
+            continue
+        to_write.append(loop)
+        existing_starts.add(loop.position_ms)  # also dedupes within this batch
+
+    if not to_write:
+        return 0
+
+    content_uuid = getattr(content, "UUID", None) or ""
+    try:
+        sp = db.session.begin_nested()
+        for loop in to_write:
+            # 150 sub-frames per second — same conversion as InFrame in write_cues_to_db.
+            db.session.add(
+                DjmdCue(
+                    ID=str(db.generate_unused_id(DjmdCue)),
+                    ContentID=content.ID,
+                    ContentUUID=content_uuid,
+                    UUID=str(uuid4()),
+                    InMsec=loop.position_ms,
+                    InFrame=int(round(loop.position_ms * 150.0 / 1000.0)),
+                    InMpegFrame=0,
+                    InMpegAbs=0,
+                    OutMsec=loop.loop_end_ms,                                    # ms
+                    OutFrame=int(round(loop.loop_end_ms * 150.0 / 1000.0)),
+                    OutMpegFrame=0,
+                    OutMpegAbs=0,
+                    Kind=0,                       # memory (slot=-1) — never a hot slot
+                    Color=0,
+                    ColorTableIndex=loop.color_id,
+                    ActiveLoop=0,                 # saved but UNARMED
+                    BeatLoopSize=loop.loop_beats or 0,   # BEATS (bars × 4)
+                    CueMicrosec=0,
+                    Comment=loop.name or loop.label.value,   # the loop name
+                )
+            )
+        sp.commit()
+        db.session.commit()
+        logger.info("Wrote %d loop(s) to %r", len(to_write), content.Title)
+        return len(to_write)
+    except Exception:
+        db.session.rollback()
+        logger.exception("Loop write failed for %r — rolled back", content.Title)
+        raise
+
+
+# Default port of a local `autocue serve` (mirrors serve/app.py DEFAULT_PORT).
+AUTOCUE_SERVE_PORT = 7432
+
+
+def autocue_serve_is_running(port: int = AUTOCUE_SERVE_PORT) -> bool:
+    """True if a local ``autocue serve`` is listening on ``port``.
+
+    Single-writer guard: ``rekordbox_is_running`` detects Rekordbox but NOT a
+    running AutoCue server, which holds its own read-write handle on master.db.
+    A CLI DB write concurrent with a server write would violate the single-writer
+    rule, so ``--write-db`` refuses when this returns True.
+    """
+    import socket
+
+    try:
+        with socket.create_connection(("127.0.0.1", port), timeout=0.25):
+            return True
+    except OSError:
+        return False
+
+
 def delete_tracks(
     db,
     track_ids: list[int],

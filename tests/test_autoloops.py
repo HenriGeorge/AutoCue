@@ -827,3 +827,262 @@ class TestGeneratedLoopIndex:
         two = [_loop_cue(pos=1000, end=9000, name="A"), _loop_cue(pos=50_000, end=58_000, name="B")]
         entries = parse_markers2(wrap_outer(build_markers2(two)))
         assert sorted(e["index"] for e in entries if e["type"] == "LOOP") == [0, 1]
+
+
+# ===========================================================================
+# INCREMENT 3 — DB-DIRECT loop write (--write-db)
+#
+# 🚨 SAFETY IS THE FEATURE. These run against a SCRATCH in-memory SQLite with
+# the real pyrekordbox schema — NEVER the live master.db.
+# The load-bearing case is TestWriteLoopsNoClobber: write_loops_to_db must
+# NEVER delete a Kind=0 row (memory CUES and memory LOOPS share Kind=0; the
+# discriminator is OutMsec). write_cues_to_db is UNSAFE for loops on both
+# branches and is deliberately NOT reused — pinned by the mirror-negative below.
+# ===========================================================================
+
+import pytest
+
+
+@pytest.fixture
+def real_db():
+    """In-memory SQLite + the full pyrekordbox schema + a db shim.
+
+    ⚠️ MUST stub ``generate_unused_id`` — a MagicMock db would otherwise
+    silently insert ``ID=<MagicMock>`` and the row assertions would lie.
+    """
+    from unittest.mock import MagicMock
+    from sqlalchemy import create_engine
+    from sqlalchemy.orm import sessionmaker
+    from pyrekordbox.db6 import tables as t
+
+    engine = create_engine("sqlite:///:memory:")
+
+    # pyrekordbox's model marks these four NOT NULL with no default, but the REAL
+    # master.db tolerates the SHIPPED write_cues_to_db insert, which omits them.
+    # Relax ONLY those for the scratch DDL (then restore — no global side effect)
+    # so the in-memory schema matches real-DB behaviour. Every column the writer
+    # MUST set (Kind/InMsec/OutMsec/BeatLoopSize/…) stays NOT NULL, so omitting
+    # one still fails loudly.
+    _relaxed = [
+        t.DjmdCue.__table__.columns[n]
+        for n in ("InPointSeekInfo", "OutPointSeekInfo", "usn", "rb_local_usn")
+    ]
+    for c in _relaxed:
+        c.nullable = True
+    try:
+        t.Base.metadata.create_all(engine)
+    finally:
+        for c in _relaxed:
+            c.nullable = False
+
+    session = sessionmaker(bind=engine)()
+
+    db = MagicMock()
+    db.session = session
+    counter = {"n": 5000}
+
+    def _gen(_model):
+        counter["n"] += 1
+        return counter["n"]
+
+    db.generate_unused_id.side_effect = _gen
+
+    yield db, session, t
+    session.close()
+    engine.dispose()
+
+
+def _default_value(col):
+    """A sensible value for a NOT NULL column (pyrekordbox has ~78 on DjmdContent).
+    Mirrors tests/test_duplicates_integration.py's fill-by-SQL-type helper."""
+    import datetime as _dt
+    type_name = str(col.type).upper()
+    if "DATETIME" in type_name or col.name in ("created_at", "updated_at"):
+        return _dt.datetime.now(_dt.timezone.utc)
+    if any(s in type_name for s in ("VARCHAR", "TEXT", "STRING")):
+        return ""
+    if any(s in type_name for s in ("FLOAT", "REAL", "DOUBLE")):
+        return 0.0
+    return 0
+
+
+def _construct(model_cls, **overrides):
+    row = model_cls()
+    for c in model_cls.__table__.columns:
+        if not c.nullable and c.name not in overrides:
+            setattr(row, c.name, _default_value(c))
+    for k, v in overrides.items():
+        setattr(row, k, v)
+    return row
+
+
+def _seed(session, t, cid="1"):
+    """A track + 2 pre-existing DJ memory CUES (Kind=0, OutMsec=-1) + 1 hot cue."""
+    session.add(_construct(t.DjmdContent, ID=cid, Title="Track", UUID="content-uuid"))
+    session.add(_construct(
+        t.DjmdCue, ID="900", ContentID=cid, UUID="mem-uuid-1", Kind=0,
+        InMsec=5000, InFrame=750, OutMsec=-1, OutFrame=0, Comment="DJ Memory 1",
+    ))
+    session.add(_construct(
+        t.DjmdCue, ID="901", ContentID=cid, UUID="mem-uuid-2", Kind=0,
+        InMsec=60_000, InFrame=9000, OutMsec=-1, OutFrame=0, Comment="DJ Memory 2",
+    ))
+    session.add(_construct(
+        t.DjmdCue, ID="902", ContentID=cid, UUID="hot-uuid-1", Kind=1,
+        InMsec=1000, InFrame=150, OutMsec=-1, OutFrame=0, Comment="Intro",
+    ))
+    session.commit()
+    return session.query(t.DjmdContent).filter(t.DjmdContent.ID == cid).first()
+
+
+def _memory_rows(session, t, cid="1"):
+    return (
+        session.query(t.DjmdCue)
+        .filter(t.DjmdCue.ContentID == cid, t.DjmdCue.Kind == 0)
+        .order_by(t.DjmdCue.InMsec)
+        .all()
+    )
+
+
+def _snapshot(row):
+    return (row.ID, row.UUID, row.Kind, row.InMsec, row.OutMsec, row.Comment)
+
+
+class TestWriteLoopsNoClobber:
+    """★ THE LOAD-BEARING SAFETY CASE — a loop write must never delete Kind=0."""
+
+    def test_existing_memory_cues_survive_byte_identical(self, real_db):
+        from autocue.db_writer import write_loops_to_db
+        db, session, t = real_db
+        content = _seed(session, t)
+        before = {r.ID: _snapshot(r) for r in _memory_rows(session, t)}
+        assert len(before) == 2  # the DJ's 2 hand-placed memory cues
+
+        loops = [
+            _loop_cue(pos=10_000, end=18_000, name="Intro"),
+            _loop_cue(pos=90_000, end=98_000, name="Outro"),
+        ]
+        n = write_loops_to_db(content, loops, db)
+        assert n == 2
+
+        after = {r.ID: _snapshot(r) for r in _memory_rows(session, t)}
+        # (a) THE NO-CLOBBER ASSERTION — both originals still there, unchanged.
+        for rid, snap in before.items():
+            assert rid in after, f"memory cue {rid} was DELETED — clobber!"
+            assert after[rid] == snap, f"memory cue {rid} was MUTATED"
+        assert len(after) == 4  # 2 original cues + 2 new loops coexist
+
+    def test_hot_cue_untouched(self, real_db):
+        from autocue.db_writer import write_loops_to_db
+        db, session, t = real_db
+        content = _seed(session, t)
+        write_loops_to_db(content, [_loop_cue(pos=10_000, end=18_000, name="Intro")], db)
+        hot = session.query(t.DjmdCue).filter(
+            t.DjmdCue.ContentID == "1", t.DjmdCue.Kind == 1).all()
+        assert len(hot) == 1 and hot[0].Comment == "Intro"
+
+
+class TestWriteLoopsColumns:
+    """(b) The new loop rows carry the confirmed columns + UNITS."""
+
+    def test_loop_row_columns_and_units(self, real_db):
+        from autocue.db_writer import write_loops_to_db
+        db, session, t = real_db
+        content = _seed(session, t)
+        loop = CuePoint(
+            position_ms=10_000, label=PhraseLabel.OUTRO, slot=-1, name="Outro",
+            loop_end_ms=18_000, loop_beats=32,   # 8 bars * 4 = 32 BEATS
+        )
+        write_loops_to_db(content, [loop], db)
+        row = next(r for r in _memory_rows(session, t) if r.InMsec == 10_000)
+        assert row.Kind == 0                       # memory (slot=-1)
+        assert row.InMsec == 10_000                # ms
+        assert row.InFrame == round(10_000 * 150 / 1000)     # 1500 — 150 sub-frames/s
+        assert row.OutMsec == 18_000               # ms (loop end)
+        assert row.OutFrame == round(18_000 * 150 / 1000)    # 2700
+        assert row.OutMpegFrame == 0 and row.OutMpegAbs == 0
+        assert row.ActiveLoop == 0                 # saved but UNARMED
+        assert row.BeatLoopSize == 32              # BEATS = bars*4
+        assert row.Comment == "Outro"              # the loop name
+        assert row.ContentID == "1"
+        assert str(row.ID).isdigit()               # generate_unused_id stubbed, not a MagicMock
+        assert row.UUID and row.UUID != "mem-uuid-1"
+
+    def test_only_memory_loops_written(self, real_db):
+        # Hot-slot loops (slot>=0) and plain point cues are NOT this writer's job.
+        from autocue.db_writer import write_loops_to_db
+        db, session, t = real_db
+        content = _seed(session, t)
+        cues = [
+            CuePoint(position_ms=2000, label=PhraseLabel.INTRO, slot=0, name="HotCue"),
+            CuePoint(position_ms=3000, label=PhraseLabel.DOWN, slot=2, name="HotLoop",
+                     loop_end_ms=9000, loop_beats=16),          # loop but slot>=0
+            _loop_cue(pos=10_000, end=18_000, name="MemLoop"),  # slot=-1 → the only one
+        ]
+        assert write_loops_to_db(content, cues, db) == 1
+        added = [r for r in _memory_rows(session, t) if r.InMsec == 10_000]
+        assert len(added) == 1 and added[0].Comment == "MemLoop"
+
+
+class TestWriteLoopsIdempotentAndCollision:
+    def test_rerun_adds_zero_rows(self, real_db):
+        # (c) idempotent — the collision-skip makes a re-run a no-op.
+        from autocue.db_writer import write_loops_to_db
+        db, session, t = real_db
+        content = _seed(session, t)
+        loops = [_loop_cue(pos=10_000, end=18_000, name="Intro")]
+        assert write_loops_to_db(content, loops, db) == 1
+        n_after_first = len(_memory_rows(session, t))
+        assert write_loops_to_db(content, loops, db) == 0   # re-run: nothing new
+        assert len(_memory_rows(session, t)) == n_after_first
+
+    def test_loop_colliding_with_existing_memory_cue_skipped_and_logged(self, real_db, caplog):
+        # (d) mirror-first: a DJ memory cue already starts at 5000 → skip + breadcrumb.
+        import logging
+        from autocue.db_writer import write_loops_to_db
+        db, session, t = real_db
+        content = _seed(session, t)
+        with caplog.at_level(logging.INFO):
+            n = write_loops_to_db(content, [_loop_cue(pos=5000, end=13_000, name="Clash")], db)
+        assert n == 0
+        assert not any(r.Comment == "Clash" for r in _memory_rows(session, t))
+        assert any("5000" in r.getMessage() or "Clash" in r.getMessage()
+                   for r in caplog.records), "a skipped-for-collision loop must log a breadcrumb"
+
+    def test_dry_run_writes_nothing(self, real_db):
+        from autocue.db_writer import write_loops_to_db
+        db, session, t = real_db
+        content = _seed(session, t)
+        before = len(_memory_rows(session, t))
+        assert write_loops_to_db(
+            content, [_loop_cue(pos=10_000, end=18_000)], db, dry_run=True) == 0
+        assert len(_memory_rows(session, t)) == before
+
+    def test_no_loops_is_a_noop(self, real_db):
+        from autocue.db_writer import write_loops_to_db
+        db, session, t = real_db
+        content = _seed(session, t)
+        before = len(_memory_rows(session, t))
+        assert write_loops_to_db(content, [], db) == 0
+        assert len(_memory_rows(session, t)) == before
+
+
+class TestMirrorNegativeWhyNotWriteCuesToDb:
+    """Pins WHY write_loops_to_db exists: write_cues_to_db(overwrite=True) DELETES
+    every Kind=0 row — it would WIPE the DJ's hand-placed memory cues."""
+
+    def test_write_cues_to_db_overwrite_deletes_memory_cues(self, real_db):
+        from autocue.db_writer import write_cues_to_db
+        db, session, t = real_db
+        content = _seed(session, t)
+        assert len(_memory_rows(session, t)) == 2   # the DJ's memory cues
+
+        write_cues_to_db(
+            content,
+            [CuePoint(position_ms=10_000, label=PhraseLabel.OUTRO, slot=-1, name="New")],
+            db, overwrite=True,
+        )
+        rows = _memory_rows(session, t)
+        # THE CLOBBER: both DJ memory cues are gone, replaced by the one we passed.
+        assert [r.Comment for r in rows] == ["New"]
+        assert not any(r.Comment.startswith("DJ Memory") for r in rows)
