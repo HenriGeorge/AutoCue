@@ -61,7 +61,9 @@ BAR_MS = 2000.0
 
 
 class TestPlanLoopsLabelRestriction:
-    def test_only_intro_outro_break_by_default(self):
+    def test_all_four_labels_eligible_by_default(self):
+        # R-NC8: Intro/Outro/Break AND Build are all eligible by default
+        # (Build lowest priority, opt-flag dropped). Never Verse/Drop/Bridge.
         from autocue.analyzer import plan_loops
         phrases = [
             _ph(0, PhraseLabel.INTRO, 16),
@@ -74,7 +76,7 @@ class TestPlanLoopsLabelRestriction:
         ]
         loops = plan_loops(phrases, BAR_MS)
         names = {c.name for c in loops}
-        assert names == {"Intro", "Outro", "Break"}  # no Verse/Drop/Bridge/Build
+        assert names == {"Intro", "Outro", "Break", "Build"}  # never Verse/Drop/Bridge
 
     def test_never_loops_verse_chorus_bridge(self):
         from autocue.analyzer import plan_loops
@@ -83,13 +85,12 @@ class TestPlanLoopsLabelRestriction:
             _ph(60_000, PhraseLabel.CHORUS, 16),
             _ph(120_000, PhraseLabel.BRIDGE, 16),
         ]
-        assert plan_loops(phrases, BAR_MS, include_build=True) == []
+        assert plan_loops(phrases, BAR_MS) == []
 
-    def test_build_only_with_flag(self):
+    def test_build_eligible_by_default_rnc8(self):
+        # R-NC8: a lone Build(UP) phrase yields a "Build" loop with NO flag.
         from autocue.analyzer import plan_loops
-        phrases = [_ph(0, PhraseLabel.UP, 8)]
-        assert plan_loops(phrases, BAR_MS) == []  # off by default
-        loops = plan_loops(phrases, BAR_MS, include_build=True)
+        loops = plan_loops([_ph(0, PhraseLabel.UP, 8)], BAR_MS)
         assert [c.name for c in loops] == ["Build"]
 
 
@@ -164,7 +165,8 @@ class TestPlanLoopsPriorityAndCap:
         assert [c.name for c in loops] == ["Break"]
         assert loops[0].position_ms == 100_000  # earliest
 
-    def test_cap_three_by_default_four_with_build(self):
+    def test_cap_four_with_build_default(self):
+        # R-NC8: cap = 4, Build default-on → all four categories fill by default.
         from autocue.analyzer import plan_loops
         phrases = [
             _ph(0, PhraseLabel.INTRO, 16),
@@ -172,8 +174,30 @@ class TestPlanLoopsPriorityAndCap:
             _ph(120_000, PhraseLabel.DOWN, 8),
             _ph(360_000, PhraseLabel.OUTRO, 16),
         ]
-        assert len(plan_loops(phrases, BAR_MS)) == 3          # Intro/Outro/Break
-        assert len(plan_loops(phrases, BAR_MS, include_build=True)) == 4
+        loops = plan_loops(phrases, BAR_MS)
+        assert len(loops) == 4
+        assert {c.name for c in loops} == {"Intro", "Outro", "Break", "Build"}
+
+    def test_never_exceeds_cap_of_four(self):
+        # Even with extra eligible phrases, one-per-section keeps it at ≤4.
+        from autocue.analyzer import plan_loops
+        phrases = [
+            _ph(0, PhraseLabel.INTRO, 16),
+            _ph(40_000, PhraseLabel.DOWN, 8),
+            _ph(80_000, PhraseLabel.DOWN, 8),
+            _ph(120_000, PhraseLabel.UP, 8),
+            _ph(160_000, PhraseLabel.UP, 8),
+            _ph(360_000, PhraseLabel.OUTRO, 16),
+        ]
+        assert len(plan_loops(phrases, BAR_MS)) <= 4
+
+    def test_build_surfaces_when_few_higher_priority_qualify(self):
+        # Build (lowest priority) still appears when < higher-priority qualify.
+        from autocue.analyzer import plan_loops
+        loops = plan_loops(
+            [_ph(0, PhraseLabel.INTRO, 16), _ph(60_000, PhraseLabel.UP, 8)], BAR_MS,
+        )
+        assert {c.name for c in loops} == {"Intro", "Build"}
 
     def test_returned_sorted_by_position(self):
         from autocue.analyzer import plan_loops

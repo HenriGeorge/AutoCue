@@ -19,21 +19,24 @@ from .models import CuePoint, DJ_NAMES, PhraseLabel, phrase_label
 # Maximum hot cue slots Rekordbox supports (A–H)
 MAX_HOT_CUES = 8
 
-# --- AUTOLOOPS policy (crew/DESIGN.md §2, GRILLED) --------------------------
-# Which phrase labels get a loop, in priority order, with the candidate loop
+# --- AUTOLOOPS policy (crew/DESIGN.md §2, GRILLED + R-NC8) -------------------
+# Which phrase labels get a loop, in PRIORITY order, with the candidate loop
 # lengths in bars (largest power-of-2 that fits the phrase; caps the length).
 # INTRO/OUTRO are the bread-and-butter mix-in/out loops (up to 16 bars);
 # DOWN(Break)/UP(Build) are the creative tension/extend loops (up to 8 bars).
-# UP(Build) is opt-in (include_build) per the design's optional flag.
-_LOOP_CATEGORIES: list[tuple[PhraseLabel, str, tuple[int, ...], bool]] = [
-    # (label,            name,     candidate bar lengths (desc), build-only?)
-    (PhraseLabel.INTRO,  "Intro",  (16, 8, 4), False),
-    (PhraseLabel.OUTRO,  "Outro",  (16, 8, 4), False),
-    (PhraseLabel.DOWN,   "Break",  (8, 4),     False),
-    (PhraseLabel.UP,     "Build",  (8, 4),     True),
+# R-NC8 (signed off 2026-07-11): Build(UP) is eligible BY DEFAULT at lowest
+# priority — the separate opt-flag is dropped; --loops is the single opt-in.
+_LOOP_CATEGORIES: list[tuple[PhraseLabel, str, tuple[int, ...]]] = [
+    # (label,            name,     candidate bar lengths (desc))
+    (PhraseLabel.INTRO,  "Intro",  (16, 8, 4)),
+    (PhraseLabel.OUTRO,  "Outro",  (16, 8, 4)),
+    (PhraseLabel.DOWN,   "Break",  (8, 4)),
+    (PhraseLabel.UP,     "Build",  (8, 4)),   # R-NC8: default-on, lowest priority
 ]
 # Phrases shorter than this (bars) are never looped — too short to be useful.
 _MIN_LOOP_PHRASE_BARS = 4
+# R-NC8: cap 4 loops/track (one per section; priority order limits it naturally).
+_MAX_LOOPS_PER_TRACK = 4
 
 
 def plan_loops(
@@ -41,9 +44,8 @@ def plan_loops(
     bar_ms: float,
     *,
     total_ms: int | None = None,
-    include_build: bool = False,
 ) -> list[CuePoint]:
-    """Pure loop-generation policy (crew/DESIGN.md §2).
+    """Pure loop-generation policy (crew/DESIGN.md §2 + R-NC8).
 
     Given the track's phrases as ``(position_ms, PhraseLabel, phrase_bars)``
     tuples and the beat-grid bar length ``bar_ms``, return memory-loop
@@ -52,14 +54,14 @@ def plan_loops(
     kept pure so it is fully unit-testable without a Rekordbox DB.
 
     Rules:
-      * restrict to INTRO/OUTRO/DOWN(Break) — plus UP(Build) when
-        ``include_build`` — never VERSE/CHORUS(Drop)/BRIDGE (full arrangement
-        + vocals loop badly).
+      * restrict to INTRO/OUTRO/DOWN(Break)/UP(Build) — never
+        VERSE/CHORUS(Drop)/BRIDGE (full arrangement + vocals loop badly).
+        Build is default-eligible at lowest priority (R-NC8, no opt-flag).
       * length = largest power-of-2 bars that fits ``phrase_bars`` (capped
         16 for Intro/Outro, 8 for Break/Build); require ``phrase_bars >= 4``.
       * start = the phrase downbeat (already beat-grid aligned).
       * one loop per section (first qualifying phrase per label), priority
-        Intro → Outro → Break → Build; cap ~3 (default) / 4 (with Build).
+        Intro → Outro → Break → Build; cap 4/track (R-NC8).
       * ``bar_ms <= 0`` (no beat grid / BPM=0) ⇒ no loops.
       * clamp the loop end before the track end when ``total_ms`` is known —
         shrink to a shorter power-of-2, or skip the loop if even 4 bars
@@ -69,9 +71,7 @@ def plan_loops(
         return []
 
     loops: list[CuePoint] = []
-    for label, name, candidates, build_only in _LOOP_CATEGORIES:
-        if build_only and not include_build:
-            continue
+    for label, name, candidates in _LOOP_CATEGORIES:  # priority order
         # First (earliest) qualifying phrase for this label — one per section.
         chosen: tuple[int, int] | None = None  # (position_ms, loop_bars)
         for pos_ms, ph_label, ph_bars in phrases:
@@ -95,6 +95,9 @@ def plan_loops(
             phrase_bars=ph_bars,
         ))
 
+    # Cap by priority (loops were collected Intro→Outro→Break→Build), then
+    # order by position for a stable, timeline-sorted output.
+    loops = loops[:_MAX_LOOPS_PER_TRACK]
     loops.sort(key=lambda c: c.position_ms)
     return loops
 
@@ -344,8 +347,6 @@ def analyze_track(content: DjmdContent, db: MasterDatabase) -> list[CuePoint]:
 def analyze_loops(
     content: DjmdContent,
     db: MasterDatabase,
-    *,
-    include_build: bool = False,
 ) -> list[CuePoint]:
     """Return memory-loop CuePoints for a track (crew/DESIGN.md §2).
 
@@ -408,7 +409,7 @@ def analyze_loops(
             continue
         plan_input.append((ms, phrase_label(mood, entry.kind), _bars(idx)))
 
-    return plan_loops(plan_input, bar_ms, total_ms=total_ms, include_build=include_build)
+    return plan_loops(plan_input, bar_ms, total_ms=total_ms)
 
 
 def analyze_fills(content: DjmdContent, db: MasterDatabase) -> list[CuePoint]:
