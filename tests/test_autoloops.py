@@ -687,3 +687,43 @@ class TestDryRunLoopPreview:
         out = capsys.readouterr().out
         assert "Dry run — no files written." in out
         assert "loop [" not in out.lower()   # no loop preview without --loops
+
+
+class TestSeratoDecodeFailBreadcrumb:
+    """N2 (auditor, conf 70) — if an existing v2 Markers2 tag can't be decoded,
+    an --overwrite would silently drop the DJ's loops (preserve=[]). Warn."""
+
+    def test_undecodable_v2_tag_warns(self, monkeypatch, caplog):
+        import logging
+        from pathlib import Path
+        import autocue.serato_writer as sw
+        # A v2 tag is present but decodes to zero entries (corrupt payload).
+        monkeypatch.setattr(sw, "_read_existing", lambda p: {sw.GEOB_V2: b"\x01\x01!!!not-base64!!!"})
+        with caplog.at_level(logging.WARNING):
+            out = sw._existing_loop_entries(Path("x.mp3"))
+        assert out == []
+        assert any(
+            "preserv" in r.getMessage().lower() or "decode" in r.getMessage().lower()
+            for r in caplog.records
+        ), "an undecodable existing v2 tag must warn (silent overwrite would lose DJ loops)"
+
+    def test_valid_loop_tag_does_not_warn(self, monkeypatch, caplog):
+        import logging
+        from pathlib import Path
+        import autocue.serato_writer as sw
+        from autocue.serato_writer import build_markers2, wrap_outer
+        payload = build_markers2([_loop_cue(pos=1000, end=9000, name="DJ")])
+        monkeypatch.setattr(sw, "_read_existing", lambda p: {sw.GEOB_V2: wrap_outer(payload)})
+        with caplog.at_level(logging.WARNING):
+            out = sw._existing_loop_entries(Path("x.mp3"))
+        assert len(out) == 1                       # the loop decoded fine
+        assert not caplog.records, "a decodable tag must not warn"
+
+    def test_no_existing_tag_is_silent(self, monkeypatch, caplog):
+        import logging
+        from pathlib import Path
+        import autocue.serato_writer as sw
+        monkeypatch.setattr(sw, "_read_existing", lambda p: {})
+        with caplog.at_level(logging.WARNING):
+            out = sw._existing_loop_entries(Path("x.mp3"))
+        assert out == [] and not caplog.records    # no tag at all → nothing to warn about

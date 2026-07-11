@@ -25,11 +25,14 @@ from __future__ import annotations
 
 import base64
 import json
+import logging
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
 from .models import LABEL_COLORS, CuePoint
+
+logger = logging.getLogger(__name__)
 
 try:
     import mutagen  # noqa: F401
@@ -260,9 +263,19 @@ def _existing_loop_entries(path: Path) -> list[tuple[int, bytes]]:
         return []
     for tag in (GEOB_V2, FLAC_V2, MP4_V2):
         if tag in found:
+            entries = _decode_marker_tag(tag, found[tag])
+            # N2 breadcrumb (silent-failure lens): a v2 tag is present but
+            # decoded to nothing → we cannot preserve it, so an --overwrite
+            # write would silently drop the DJ's loops. Warn (no behaviour
+            # change — best-effort preservation still returns []).
+            if not entries:
+                logger.warning(
+                    "%s: existing Serato %s tag could not be decoded — its "
+                    "loops will NOT be preserved on an overwrite", path.name, tag,
+                )
             return [
                 (e.get("start_ms", 0), e["raw"])
-                for e in _decode_marker_tag(tag, found[tag])
+                for e in entries
                 if e.get("type") == "LOOP"
             ]
     return []
