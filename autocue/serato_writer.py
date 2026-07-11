@@ -26,12 +26,15 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
+import logging
 import os
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
 from .models import LABEL_COLORS, CuePoint
+
+logger = logging.getLogger(__name__)
 
 try:
     import mutagen  # noqa: F401
@@ -80,14 +83,27 @@ def _cue_rgb(cue: CuePoint) -> bytes:
 
 # ---------------------------------------------------------------- serialization
 
-def build_markers2(cues: list[CuePoint], loops: list[dict] | None = None) -> bytes:
+SERATO_LOOP_SLOTS = 8  # Serato has exactly 8 loop slots (indices 0-7)
+
+
+def build_markers2(cues: list[CuePoint], loops: list[dict] | None = None, *,
+                   preserve: "list[bytes]" = ()) -> bytes:
     """Inner decoded payload: header + CUE entries + LOOP entries + terminator.
 
     `loops` items: {"start_ms", "end_ms", "name", "locked"} (see
     db_writer.read_loops). LOOP layout per the serato-tools reference
     (struct >cBII4s4sB? + NUL-terminated name): reserved, index, start,
     end, 0xFFFFFFFF, 4-byte color, pad, locked.
+
+    `preserve` is a list of already-framed LOOP entries (raw bytes) that are
+    re-emitted VERBATIM — the loops the DJ made in Serato, which the Rekordbox DB
+    knows nothing about and which a full-tag rewrite would otherwise drop. They
+    keep their original slot index; generated loops fill the LOWEST FREE slots.
+    Serato only has 8 slots, so when preserved + generated exceed the cap the
+    **DJ's loops win** and the surplus GENERATED loops are dropped with a warning
+    — never the other way round.
     """
+    preserve = list(preserve)
     out = [b"\x01\x01"]
     for cue in sorted(cues, key=lambda c: c.slot):
         if cue.slot < 0 or cue.slot > 7:
@@ -104,7 +120,17 @@ def build_markers2(cues: list[CuePoint], loops: list[dict] | None = None) -> byt
             + b"\x00"
         )
         out.append(b"CUE\x00" + len(data).to_bytes(4, "big") + data)
-    for index, loop in enumerate((loops or [])[:8]):
+
+    # Slots already taken by preserved (foreign) loops. The index byte sits at
+    # offset 10 of the framed entry (5-byte "LOOP\0" + 4-byte length + data[1]).
+    used = {
+        raw[10] for raw in preserve
+        if raw[:5] == b"LOOP\x00" and len(raw) >= 11 and raw[10] < SERATO_LOOP_SLOTS
+    }
+    free = [i for i in range(SERATO_LOOP_SLOTS) if i not in used]
+
+    generated = list(loops or [])
+    for index, loop in zip(free, generated):
         data = (
             b"\x00"
             + bytes([index])
@@ -118,6 +144,18 @@ def build_markers2(cues: list[CuePoint], loops: list[dict] | None = None) -> byt
             + b"\x00"
         )
         out.append(b"LOOP\x00" + len(data).to_bytes(4, "big") + data)
+
+    dropped = generated[len(free):]
+    if dropped:
+        logger.warning(
+            "Serato has only %d loop slots and %d are held by your own Serato loops "
+            "— dropping %d generated loop(s): %s",
+            SERATO_LOOP_SLOTS, len(used), len(dropped),
+            ", ".join(str(d.get("name") or "?") for d in dropped),
+        )
+
+    for raw in preserve:
+        out.append(raw)   # the DJ's Serato-native loops, byte-for-byte
     out.append(b"\x00")
     return b"".join(out)
 
@@ -167,7 +205,10 @@ def parse_markers2(outer: bytes) -> list[dict]:
         etype = payload[i:end].decode("ascii", "ignore")
         length = int.from_bytes(payload[end + 1:end + 5], "big")
         data = payload[end + 5:end + 5 + length]
-        entry: dict = {"type": etype}
+        # The full framed entry (TYPE\0 + u32be len + data). Keeping it lets a
+        # caller re-emit an entry VERBATIM — which is how a loop the DJ made in
+        # Serato survives a rewrite with its name, locked flag and colour intact.
+        entry: dict = {"type": etype, "raw": payload[i:end + 5 + length]}
         if etype == "CUE" and length >= 13:
             entry.update(
                 index=data[1],
@@ -217,6 +258,55 @@ def _read_existing(path: Path) -> dict[str, bytes]:
             if f.tags and key in f.tags:
                 found[key] = bytes(f.tags[key][0])
     return found
+
+
+def _envelope_payload(raw: bytes) -> bytes:
+    """Unwrap a FLAC/MP4 tag value (base64 of _ENVELOPE + wrap_outer(payload))
+    back to the outer structure that ``parse_markers2`` understands."""
+    b64 = raw.replace(b"\n", b"").decode("ascii", "ignore")
+    b64 += "=" * (-len(b64) % 4)
+    decoded = base64.b64decode(b64)
+    marker = decoded.find(b"Serato Markers2\x00")
+    if marker < 0:
+        return b""
+    return decoded[marker + len(b"Serato Markers2\x00"):]
+
+
+def _existing_loop_entries(path: Path) -> list[tuple[int, bytes]]:
+    """The file's existing Markers2 LOOP entries as ``(start_ms, raw_framed_bytes)``.
+
+    Only Markers2 (v2) loops are considered — the legacy ``Markers_`` tag is
+    deleted on every write by design (it would otherwise shadow the v2 tag).
+
+    Best-effort: any read/decode failure yields ``[]`` so a write is never blocked.
+    But when a v2 tag IS present and decodes to nothing we WARN — otherwise the
+    rewrite would silently drop the DJ's loops with no trace.
+    """
+    try:
+        found = _read_existing(path)
+    except Exception:
+        return []
+
+    for tag in (GEOB_V2, FLAC_V2, MP4_V2):
+        if tag not in found:
+            continue
+        try:
+            outer = found[tag] if tag == GEOB_V2 else _envelope_payload(found[tag])
+            entries = parse_markers2(outer)
+        except Exception:
+            entries = []
+        if not entries:
+            logger.warning(
+                "%s: the existing Serato %s tag could not be decoded — any loops you "
+                "saved in Serato cannot be preserved and will be dropped by this write",
+                path.name, tag,
+            )
+            return []
+        return [
+            (int(e.get("start_ms", 0)), e["raw"])
+            for e in entries if e.get("type") == "LOOP"
+        ]
+    return []
 
 
 def has_serato_cues(path: Path) -> bool:
@@ -285,9 +375,27 @@ def write_serato_tags(path: Path, cues: list[CuePoint], comment: str | None = No
 
     When `comment` is a non-empty string, the file's standard comment tag is
     written in the same save; None/empty leaves the existing comment untouched.
+
+    This is a FULL tag replacement, so any LOOP entry already in the file that is
+    not regenerated here would be lost. Loops the DJ made **in Serato** are unknown
+    to the Rekordbox DB, so they are read back from the file and re-emitted
+    verbatim (`preserve=`).
+
+    **Only FOREIGN loops are preserved — dedup is mandatory, not politeness.**
+    Preserving every file loop would double-count our own: a DB loop we wrote on a
+    previous run would be preserved from the file AND re-emitted from `loops`,
+    duplicating on every rewrite up to the 8-slot cap. A file loop whose `start_ms`
+    matches a DB loop is therefore *ours* and is regenerated from `loops` — which
+    also keeps the **DB authoritative**, so a re-tuned loop end actually updates.
+    `start_ms` is an exact discriminator: it round-trips as a u32be, so no
+    tolerance is needed.
     """
     _require_mutagen()
-    payload = build_markers2(cues, loops)
+    db_starts = {int(lp["start_ms"]) for lp in (loops or [])}
+    preserve = [
+        raw for start, raw in _existing_loop_entries(path) if start not in db_starts
+    ]
+    payload = build_markers2(cues, loops, preserve=preserve)
     suffix = path.suffix.lower()
 
     if suffix in (".mp3", ".aiff", ".aif"):
