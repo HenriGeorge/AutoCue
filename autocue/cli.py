@@ -17,27 +17,8 @@ from .generator import GenerationPrefs, generate_cues_for_track
 from .writer import write_xml
 
 
-def main() -> None:
-    if len(sys.argv) > 1 and sys.argv[1] == "serve":
-        from .serve.app import serve as _serve
-        import argparse as _ap
-        p = _ap.ArgumentParser(prog="autocue serve")
-        p.add_argument("--port", type=int, default=7432)
-        p.add_argument("--no-browser", action="store_true")
-        p.add_argument("--db-path", metavar="PATH")
-        p.add_argument(
-            "--reset-cache",
-            action="store_true",
-            help="Delete the sidecar analysis cache (autocue_cache.sqlite "
-                 "+ WAL/SHM sidecars) before starting. No effect if absent.",
-        )
-        a = p.parse_args(sys.argv[2:])
-        if a.reset_cache:
-            from .cache_reset import reset_sidecar_cache
-            reset_sidecar_cache(a.db_path)
-        _serve(port=a.port, open_browser=not a.no_browser, db_path=a.db_path)
-        return
-
+def _build_parser() -> argparse.ArgumentParser:
+    """Build the (non-serve) CLI argument parser. Extracted for testability."""
     parser = argparse.ArgumentParser(
         prog="autocue",
         description="Automatically place hot cues on tracks in your Rekordbox 7 library.",
@@ -83,6 +64,15 @@ def main() -> None:
         ),
     )
     parser.add_argument(
+        "--loops",
+        action="store_true",
+        help=(
+            "Also emit named, bar-length loop regions at phrase edges "
+            "(Intro/Outro/Break). Currently written with --serato as Serato "
+            "LOOP tags; existing Serato loops are preserved."
+        ),
+    )
+    parser.add_argument(
         "--db-path",
         metavar="PATH",
         help=(
@@ -90,8 +80,44 @@ def main() -> None:
             "On Windows, use --db-path to point to your master.db."
         ),
     )
+    return parser
 
-    args = parser.parse_args()
+
+def _merge_loops(cues: list, loops: list) -> list:
+    """Layer generated loop CuePoints onto a cue list, dropping any loop whose
+    start collides with an entry already present (mirror-first: existing wins)."""
+    starts = {c.position_ms for c in cues}
+    merged = list(cues)
+    for loop in loops:
+        if loop.position_ms in starts:
+            continue
+        merged.append(loop)
+        starts.add(loop.position_ms)
+    return merged
+
+
+def main() -> None:
+    if len(sys.argv) > 1 and sys.argv[1] == "serve":
+        from .serve.app import serve as _serve
+        import argparse as _ap
+        p = _ap.ArgumentParser(prog="autocue serve")
+        p.add_argument("--port", type=int, default=7432)
+        p.add_argument("--no-browser", action="store_true")
+        p.add_argument("--db-path", metavar="PATH")
+        p.add_argument(
+            "--reset-cache",
+            action="store_true",
+            help="Delete the sidecar analysis cache (autocue_cache.sqlite "
+                 "+ WAL/SHM sidecars) before starting. No effect if absent.",
+        )
+        a = p.parse_args(sys.argv[2:])
+        if a.reset_cache:
+            from .cache_reset import reset_sidecar_cache
+            reset_sidecar_cache(a.db_path)
+        _serve(port=a.port, open_browser=not a.no_browser, db_path=a.db_path)
+        return
+
+    args = _build_parser().parse_args()
 
     print("Opening Rekordbox library…")
     try:
@@ -187,6 +213,8 @@ def main() -> None:
         # Mirror-first: Serato receives the exact cues already in the
         # Rekordbox library; only uncued tracks get freshly generated cues.
         from .db_writer import read_hot_cues
+        if args.loops:
+            from .analyzer import analyze_loops
         export_pairs = []
         print()
         for content, generated, _ in tracks:
@@ -194,12 +222,19 @@ def main() -> None:
             existing = read_hot_cues(content, db)
             if existing:
                 print(f"  {title}: mirroring {len(existing)} cue(s) from Rekordbox")
-                export_pairs.append((content, existing))
+                cues = existing
             elif generated:
                 print(f"  {title}: no Rekordbox cues — using {len(generated)} generated cue(s)")
-                export_pairs.append((content, generated))
+                cues = generated
             else:
                 print(f"  {title}: no Rekordbox cues and none generated — skipped")
+                continue
+            if args.loops:
+                loops = analyze_loops(content, db)
+                if loops:
+                    cues = _merge_loops(cues, loops)
+                    print(f"    + {len(loops)} loop(s): {', '.join(loop.name for loop in loops)}")
+            export_pairs.append((content, cues))
         try:
             from .serato_writer import write_serato
             summary = write_serato(export_pairs, overwrite=args.overwrite)
@@ -218,6 +253,12 @@ def main() -> None:
             '"Rescan ID3 Tags" in Serato before the new cues appear.'
         )
         return
+
+    if args.loops:
+        print(
+            "\nNote: --loops currently writes loops only with --serato "
+            "(Rekordbox XML loop export arrives in a later increment)."
+        )
 
     output = write_xml([(c, cues) for c, cues, _ in tracks], args.output)
     print(f"\nWrote {output}")

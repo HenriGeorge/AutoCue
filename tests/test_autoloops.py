@@ -395,3 +395,44 @@ class TestReadHotCuesOutMsec:
         cues = read_hot_cues(SimpleNamespace(ID=1), _db_with_rows([row]))
         assert cues[0].is_loop is True
         assert cues[0].loop_beats is None        # unknown length, but still a loop
+
+
+# ---------------------------------------------------------------------------
+# Unit 5 — CLI wiring: the --loops flag + loop-merge helper
+# ---------------------------------------------------------------------------
+
+class TestLoopsFlag:
+    def test_loops_flag_parses_true(self):
+        from autocue.cli import _build_parser
+        args = _build_parser().parse_args(["--track", "Song", "--serato", "--loops"])
+        assert args.loops is True
+
+    def test_loops_flag_defaults_false(self):
+        from autocue.cli import _build_parser
+        args = _build_parser().parse_args(["--track", "Song", "--serato"])
+        assert args.loops is False
+
+
+class TestMergeLoops:
+    def test_appends_non_colliding_loops(self):
+        from autocue.cli import _merge_loops
+        cues = [CuePoint(position_ms=1000, label=PhraseLabel.INTRO, slot=0, name="Intro")]
+        loops = [_loop_cue(pos=30_000, end=38_000, name="Outro")]
+        merged = _merge_loops(cues, loops)
+        assert len(merged) == 2
+        assert merged[-1].is_loop and merged[-1].name == "Outro"
+
+    def test_drops_loop_colliding_with_existing_start(self):
+        from autocue.cli import _merge_loops
+        # A generated loop at the same start as an existing (mirrored) entry
+        # is dropped — the existing one wins (mirror-first).
+        cues = [CuePoint(position_ms=5000, label=PhraseLabel.OUTRO, slot=1, name="Kept")]
+        loops = [_loop_cue(pos=5000, end=13_000, name="Generated")]
+        merged = _merge_loops(cues, loops)
+        assert len(merged) == 1
+        assert merged[0].name == "Kept"
+
+    def test_empty_loops_returns_cues_unchanged(self):
+        from autocue.cli import _merge_loops
+        cues = [CuePoint(position_ms=1000, label=PhraseLabel.INTRO, slot=0)]
+        assert _merge_loops(cues, []) == cues
