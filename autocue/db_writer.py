@@ -126,6 +126,111 @@ def rekordbox_is_running(db_path: Path | str | None = None) -> bool:
     return False
 
 
+# --- Single-writer guard: a running `autocue serve` -------------------------
+# `autocue serve` holds its own READ-WRITE handle on master.db, and
+# rekordbox_is_running() cannot see it. A CLI write concurrent with a server write
+# violates the single-writer rule (.claude/project/db-constraints.md), so the CLI
+# DB-write paths must refuse while a server is up.
+AUTOCUE_SERVE_PORT = 7432
+# serve() auto-switches to the next free port when the default is busy
+# (serve/app.py: `for alt in range(port + 1, port + 10)`) — the real surface is
+# 7432-7441, so probing only 7432 misses a perfectly normal server.
+AUTOCUE_SERVE_PORT_RANGE = range(AUTOCUE_SERVE_PORT, AUTOCUE_SERVE_PORT + 10)
+
+
+def _port_is_listening(port: int) -> bool:
+    import socket
+
+    try:
+        with socket.create_connection(("127.0.0.1", port), timeout=0.25):
+            return True
+    except OSError:
+        return False
+
+
+def _is_serve_cmdline(cmd: list[str]) -> bool:
+    """True only for a genuine ``autocue serve`` invocation.
+
+    The subcommand must be the argv token ``serve`` AND the token immediately
+    before it must be the ``autocue`` executable. Matching on the path STEM covers
+    every launcher form — ``autocue serve``, ``/usr/local/bin/autocue serve``,
+    ``python -m autocue serve`` and Windows' ``autocue.exe serve`` (a plain
+    ``endswith("autocue")`` MISSES the .exe, and a false NEGATIVE here is the
+    dangerous direction: this guard's whole job is preventing two writers on the
+    library).
+
+    A looser "'serve' in cmd and 'autocue' somewhere" match would instead
+    false-POSITIVE on any process that merely mentions both — ``grep serve
+    autocue/cli.py``, ``pytest -k serve autocue`` — refusing a perfectly legal write.
+    """
+    for i, tok in enumerate(cmd):
+        if tok != "serve" or i == 0:
+            continue
+        # Normalise separators before taking the stem: a Windows cmdline
+        # ("C:\\...\\autocue.exe") read on a POSIX host would otherwise be treated
+        # as one long filename and never match.
+        if Path(cmd[i - 1].replace("\\", "/")).stem.lower() == "autocue":
+            return True
+    return False
+
+
+def _serve_process_is_running() -> bool:
+    """True if an ``autocue serve`` process is alive — on ANY port.
+
+    FAIL-SAFE (never fail-open): if the probe cannot complete we assume a server IS
+    running and refuse the write, rather than risk two writers on master.db.
+    """
+    import os
+
+    try:
+        import psutil
+    except ImportError:  # psutil is a hard dependency; be safe if it ever isn't
+        logger.warning(
+            "psutil unavailable — cannot rule out a running `autocue serve`; "
+            "refusing the database write (fail-safe)."
+        )
+        return True
+
+    me = os.getpid()
+    try:
+        for proc in psutil.process_iter(["cmdline"]):
+            if getattr(proc, "pid", None) == me:
+                continue  # never self-detect
+            try:
+                cmd = proc.info.get("cmdline") or []
+            except (psutil.NoSuchProcess, psutil.AccessDenied):
+                continue
+            if cmd and _is_serve_cmdline(cmd):
+                return True
+    except Exception:
+        logger.warning(
+            "could not probe for a running `autocue serve` — refusing the "
+            "database write (fail-safe)."
+        )
+        return True
+    return False
+
+
+def autocue_serve_is_running(port: int | None = None) -> bool:
+    """True if a local ``autocue serve`` appears to be running.
+
+    Two probes, because one port is not enough (serve auto-falls-back through
+    7433-7441 and honours ``--port``, so a server on :3004 is invisible to a
+    single-port check):
+      1. scan the whole ``7432-7441`` auto-fallback range;
+      2. scan the PROCESS table — catches ANY port, including an explicit --port.
+    Pass ``port`` to probe exactly one port instead of the range.
+
+    Process/port based, so — unlike the Rekordbox file-lock probe — it CANNOT
+    self-detect AutoCue's own DB handle and is safe to call before the DB is opened.
+    """
+    ports = [port] if port is not None else list(AUTOCUE_SERVE_PORT_RANGE)
+    for p in ports:
+        if _port_is_listening(p):
+            return True
+    return _serve_process_is_running()
+
+
 def has_existing_hot_cues(content, db) -> int:
     from pyrekordbox.db6 import DjmdCue
     return (

@@ -17,6 +17,70 @@ from .generator import GenerationPrefs, generate_cues_for_track
 from .writer import write_xml
 
 
+def _default_db_path() -> Path | None:
+    """Resolve Rekordbox's master.db WITHOUT opening it.
+
+    Mirrors pyrekordbox's own lookup (rekordbox7 config, falling back to
+    rekordbox6) so the guard can run before ``MasterDatabase(...)`` exists.
+    """
+    try:
+        from pyrekordbox.config import get_config
+        cfg = get_config("rekordbox7") or get_config("rekordbox6")
+        path = (cfg or {}).get("db_path", "") if isinstance(cfg, dict) else ""
+        return Path(path) if path else None
+    except Exception:
+        return None
+
+
+def _preflight_loop_write(args) -> Path:
+    """Resolve master.db and run BOTH single-writer guards BEFORE the DB is opened.
+
+    🔴 THE SELF-LOCK. ``rekordbox_is_running()`` probes an EXCLUSIVE FILE LOCK on
+    master.db. If it runs after AutoCue has opened the database — the analysis
+    queries leave SQLAlchemy's autobegin transaction holding a SQLite lock — the
+    probe fails against **AutoCue's own handle** and reports a false "Rekordbox is
+    running", aborting every single ``--loops`` run. So the guard must fire here,
+    before ``MasterDatabase(...)`` is ever constructed. That is also the
+    semantically correct place: Rekordbox must be closed before we even open the DB.
+
+    Two writers must be excluded, not one:
+      * **Rekordbox** — holds the DB while open (SQLCipher lock);
+      * **`autocue serve`** — holds its own READ-WRITE handle, which
+        ``rekordbox_is_running()`` cannot see at all.
+    Both are asked here, and NEITHER can be reached after a backup is taken.
+
+    Returns the path that the guards, the backup AND the write all target — it is
+    the file actually opened (``--db-path`` when given), not a path reconstructed
+    from ``db._db_dir``, which would back up a different file than the one written.
+    """
+    from . import db_writer
+
+    db_path = Path(args.db_path) if args.db_path else _default_db_path()
+    if db_path is None or not db_path.exists():
+        print(
+            "Error: cannot locate master.db for the loop write — pass --db-path.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+    # SERVE FIRST. A running `autocue serve` also holds the DB file, so it trips
+    # the file-lock probe inside rekordbox_is_running() — ask the specific question
+    # before the general one, or the user is told to close Rekordbox when the real
+    # culprit is our own server. (Process/port based, so it cannot self-lock.)
+    if db_writer.autocue_serve_is_running():
+        print("Error: a local `autocue serve` is running and holds the database "
+              "open. Stop the server before writing loops (single-writer rule).",
+              file=sys.stderr)
+        sys.exit(1)
+
+    if db_writer.rekordbox_is_running(db_path):
+        print("Error: Rekordbox is running — close it before writing loops.",
+              file=sys.stderr)
+        sys.exit(1)
+
+    return db_path
+
+
 def main() -> None:
     if len(sys.argv) > 1 and sys.argv[1] == "serve":
         from .serve.app import serve as _serve
@@ -102,6 +166,15 @@ def main() -> None:
     )
 
     args = parser.parse_args()
+
+    # 🔴 SELF-LOCK GUARD (see _preflight_loop_write): the Rekordbox-closed check
+    # probes an exclusive file lock, so it MUST run before we open the DB ourselves
+    # — otherwise it detects AutoCue's own handle and falsely aborts every run.
+    # Only the --loops DB-write path needs it; --dry-run writes nothing, and the
+    # XML/Serato paths are untouched.
+    loop_db_path = (
+        _preflight_loop_write(args) if (args.loops and not args.dry_run) else None
+    )
 
     print("Opening Rekordbox library…")
     try:
@@ -230,30 +303,49 @@ def main() -> None:
         return
 
     if args.loops and loops_by_track:
-        from pathlib import Path as _Path
-        from .db_writer import backup_database, rekordbox_is_running, write_memory_loops
-        db_dir = getattr(db, "_db_dir", None)
-        db_file = _Path(db_dir) / "master.db" if db_dir else None
-        if rekordbox_is_running(db_file):
-            print("Error: Rekordbox is running — close it before writing loops.",
+        from . import db_writer
+
+        # Resolved AND guarded in _preflight_loop_write(), before the DB was opened.
+        # Guard, backup and write all target this same file.
+        db_file = loop_db_path
+
+        # Never write without a successful backup — it is the user's only undo.
+        try:
+            backup = db_writer.backup_database(db_file)
+        except Exception as e:
+            print(f"Error: backup failed — aborting, no loops written: {e}",
                   file=sys.stderr)
             sys.exit(1)
-        if db_file is None or not db_file.exists():
-            print("Error: cannot locate master.db for backup — aborting loop write.",
-                  file=sys.stderr)
-            sys.exit(1)
-        backup = backup_database(db_file)
         print(f"\nDatabase backed up to {backup}")
+        print("  ^ your only undo — keep it until you've checked the result in Rekordbox.")
+
         written = skipped = 0
+        failed: list[str] = []
         for content, found in loops_by_track:
-            n = write_memory_loops(content, found, db, overwrite=args.overwrite)
+            title = content.Title or content.FileNameL or "Unknown"
+            try:
+                n = db_writer.write_memory_loops(
+                    content, found, db, overwrite=args.overwrite)
+            except Exception as e:
+                # Don't dump a raw traceback over already-committed tracks.
+                failed.append(title)
+                print(f"  {title}: ERROR — {e}", file=sys.stderr)
+                continue
             if n:
                 written += n
             else:
                 skipped += 1
-                title = content.Title or content.FileNameL or "Unknown"
-                print(f"  {title}: already has saved loops — skipped (use --overwrite)")
+                print(f"  {title}: has memory cues/loops — skipped (use --overwrite)")
         print(f"Loops: {written} written · {skipped} track(s) skipped")
+
+        if failed:
+            # A PARTIAL DB write must never look like success to a script.
+            print(
+                f"\n{len(failed)} track(s) FAILED: {', '.join(failed)} — PARTIAL "
+                f"write; {written} loop(s) already committed. Backup: {backup}",
+                file=sys.stderr,
+            )
+            sys.exit(1)
 
     if args.serato:
         if _serato_running():
