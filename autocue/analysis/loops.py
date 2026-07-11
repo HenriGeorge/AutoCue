@@ -133,14 +133,27 @@ def seam_similarity(path: str, start_ms: int, end_ms: int) -> float | None:
         return None
 
 
-def generate_loops(content, db, *, cache=None, audio_check=True) -> list[dict]:
+def generate_loops(content, db, *, cache=None, audio_check=True, stats=None) -> list[dict]:
     """Return 0-2 validated loops for a track:
     ``{start_ms, end_ms, name, kind, bars, confidence}``.
 
-    ``confidence``: seam similarity when audio-validated, else 0.5
-    (grid/phrase-only — librosa missing or the seam was unanalyzable).
+    ``confidence``: seam similarity when audio-validated; 0.5 ONLY in
+    grid/phrase-only mode (librosa not installed). When librosa is available
+    but a seam cannot be analyzed (missing/streaming/unreadable file, loop at
+    EOF), the candidate is REJECTED — "a clicking loop is worse than none"
+    also applies to loops nobody could check.
+
+    ``stats``: optional Counter-like; increments per-track outcome buckets
+    (accepted / no_candidates / no_audio_file / seam_rejected /
+    seam_unreadable / grid_only) for calibration visibility.
     Verdicts are cached in ``cache`` (a CacheStore) keyed by anlz_mtime.
     """
+    import os
+
+    def _count(key):
+        if stats is not None:
+            stats[key] = stats.get(key, 0) + 1
+
     mtime = None
     if cache is not None:
         from .anlz_path import get_anlz_mtime
@@ -148,26 +161,37 @@ def generate_loops(content, db, *, cache=None, audio_check=True) -> list[dict]:
         if mtime is not None:
             cached = cache.get_loop_verdicts(content.ID, expected_anlz_mtime=mtime)
             if cached is not None:
+                _count("accepted" if cached else "no_candidates_cached")
                 return cached
 
     candidates = _phrase_candidates(content, db)
     accepted: list[dict] = []
-    if candidates and audio_check and _have_librosa():
+    if not candidates:
+        _count("no_candidates")
+    elif audio_check and _have_librosa():
         from ..writer import _resolve_file_path
         path = _resolve_file_path(content)
-        for cand in candidates:
-            sim = seam_similarity(path, cand["start_ms"], cand["end_ms"])
-            if sim is None:
-                cand["confidence"] = 0.5  # couldn't judge — keep, marked
-                accepted.append(cand)
-            elif sim >= SEAM_THRESHOLD:
-                cand["confidence"] = round(sim, 3)
-                accepted.append(cand)
-            # else: dropped — a suspect seam is worse than no loop
+        if not path or not os.path.exists(path):
+            # streaming rows (e.g. FolderPath "spotify:track:…") or moved
+            # files: no audio to validate against -> reject everything.
+            _count("no_audio_file")
+        else:
+            for cand in candidates:
+                sim = seam_similarity(path, cand["start_ms"], cand["end_ms"])
+                if sim is None:
+                    _count("seam_unreadable")  # dropped: unverifiable seam
+                elif sim >= SEAM_THRESHOLD:
+                    cand["confidence"] = round(sim, 3)
+                    accepted.append(cand)
+                else:
+                    _count("seam_rejected")
+            if accepted:
+                _count("accepted")
     else:
         for cand in candidates:
             cand["confidence"] = 0.5
             accepted.append(cand)
+        _count("grid_only")
 
     if cache is not None and mtime is not None:
         cache.put_loop_verdicts(content.ID, accepted, anlz_mtime=mtime)

@@ -404,6 +404,10 @@ class CacheStore:
 
     # -- loop_verdicts -------------------------------------------------------
 
+    # Bump when loop-generation semantics change: entries written by older
+    # code must recompute (v2 = reject unverifiable seams, 2026-07-11).
+    LOOP_VERDICTS_VERSION = 2
+
     def put_loop_verdicts(self, content_id: int, loops: list, *, anlz_mtime: float) -> None:
         import json
         with self._lock:
@@ -411,7 +415,8 @@ class CacheStore:
             self._conn.execute(
                 "INSERT OR REPLACE INTO loop_verdicts(content_id, anlz_mtime, loops_json) "
                 "VALUES (?, ?, ?)",
-                (content_id, anlz_mtime, json.dumps(loops)),
+                (content_id, anlz_mtime,
+                 json.dumps({"v": self.LOOP_VERDICTS_VERSION, "loops": loops})),
             )
 
     def get_loop_verdicts(self, content_id: int, *, expected_anlz_mtime: float):
@@ -426,9 +431,14 @@ class CacheStore:
         if row is None or row[0] != expected_anlz_mtime:
             return None
         try:
-            return json.loads(row[1])
+            data = json.loads(row[1])
         except ValueError:
             return None
+        # v1 entries were bare lists (and could contain unverified 0.5-confidence
+        # loops); anything but the current envelope forces a recompute.
+        if not isinstance(data, dict) or data.get("v") != self.LOOP_VERDICTS_VERSION:
+            return None
+        return data.get("loops")
 
     def invalidate_mixability(self, content_id: int) -> None:
         """Used by /api/apply since cue edits change intro/outro detection."""
