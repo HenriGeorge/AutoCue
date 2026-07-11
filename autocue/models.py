@@ -99,6 +99,16 @@ class CuePoint:
     confidence: float = 1.0
     # Number of bars in the phrase (PSSI-derived); 0 = unknown (bar/heuristic modes)
     phrase_bars: int = 0
+    # Loop end position in ms; None = a point cue (not a loop). When set, this
+    # CuePoint describes a saved loop region [position_ms, loop_end_ms].
+    loop_end_ms: int | None = None
+    # Loop length in beats (bars × 4); None when not a loop / unknown.
+    loop_beats: int | None = None
+
+    @property
+    def is_loop(self) -> bool:
+        """True when this cue carries a loop end (a loop region, not a point)."""
+        return self.loop_end_ms is not None
 
     @property
     def position_sec(self) -> float:
