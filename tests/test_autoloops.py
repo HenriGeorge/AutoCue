@@ -879,6 +879,10 @@ def real_db():
 
     db = MagicMock()
     db.session = session
+    # has_existing_hot_cues / has_existing_memory_cues call db.query (NOT
+    # db.session.query) — leaving it a MagicMock makes `.count() == 0` silently
+    # False and the write_memory gate untestable. Wire it to the real session.
+    db.query.side_effect = session.query
     counter = {"n": 5000}
 
     def _gen(_model):
@@ -1123,6 +1127,59 @@ class TestWriteCuesToDbSparesMemoryLoops:
         assert [r.Comment for r in hot] == ["NewHot"]
         # and the loop is still there
         assert any(r.Comment == "Intro" for r in _memory_rows(session, t))
+
+
+class TestMemoryCueCountIgnoresLoops:
+    """P5-FIX #1 (IMPORTANT 88) — the COUNT half of the Kind=0 conflation.
+
+    has_existing_memory_cues() counted LOOPS as memory cues. It gates write_memory
+    (`overwrite or has_existing_memory_cues(...) == 0`), so once --write-db had
+    added our Kind=0 loops the count was non-zero and a later DEFAULT
+    (overwrite=False) apply SILENTLY STOPPED writing the user's memory CUES — a
+    regression introduced by INC-3. Count POINT CUES ONLY, the same discriminator
+    F3 uses on the DELETE side."""
+
+    def _seed_loop_only(self, session, t, cid="2"):
+        """A track whose ONLY Kind=0 row is an INC-3 memory LOOP. No hot cues."""
+        session.add(_construct(t.DjmdContent, ID=cid, Title="LoopOnly", UUID="cu-2"))
+        session.add(_construct(
+            t.DjmdCue, ID="950", ContentID=cid, UUID="loop-only-1", Kind=0,
+            InMsec=10_000, InFrame=1500, OutMsec=18_000, OutFrame=2700,
+            BeatLoopSize=16, ActiveLoop=0, Comment="Intro",
+        ))
+        session.commit()
+        return session.query(t.DjmdContent).filter(t.DjmdContent.ID == cid).first()
+
+    def test_loops_are_not_counted_as_memory_cues(self, real_db):
+        from autocue.db_writer import has_existing_memory_cues
+        db, session, t = real_db
+        content = self._seed_loop_only(session, t)
+        assert has_existing_memory_cues(content, db) == 0, \
+            "a memory LOOP is not a memory CUE — it must not gate the memory-cue write"
+
+    def test_point_cues_are_still_counted(self, real_db):
+        from autocue.db_writer import has_existing_memory_cues
+        db, session, t = real_db
+        content = _seed(session, t)          # 2 memory POINT cues
+        assert has_existing_memory_cues(content, db) == 2
+
+    def test_memory_cues_still_written_on_default_apply_when_only_loops_exist(self, real_db):
+        # ★ the user-visible regression: --write-db loops must not suppress the
+        # memory-cue write on a normal (overwrite=False) apply.
+        from autocue.db_writer import write_cues_to_db
+        db, session, t = real_db
+        content = self._seed_loop_only(session, t)
+
+        n = write_cues_to_db(
+            content,
+            [CuePoint(position_ms=3000, label=PhraseLabel.UNKNOWN, slot=-1, name="Load Point")],
+            db, overwrite=False,
+        )
+        assert n == 1, "the memory cue was silently dropped because our loop was counted"
+        rows = _memory_rows(session, t, cid="2")
+        comments = {r.Comment for r in rows}
+        assert "Load Point" in comments      # the memory cue got written
+        assert "Intro" in comments           # ...and the loop still survives
 
 
 class TestMirrorNegativeWhyNotWriteCuesToDb:

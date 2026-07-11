@@ -135,11 +135,38 @@ def has_existing_hot_cues(content, db) -> int:
     )
 
 
+def _point_cue_filter():
+    """SQLAlchemy predicate selecting memory POINT cues — never memory LOOPS.
+
+    Memory cues and memory loops share the ``Kind=0`` space; the ONLY
+    discriminator is ``OutMsec`` (a point cue keeps the ``-1`` sentinel, a loop
+    has ``OutMsec > InMsec``). A NULL ``OutMsec`` is treated as a point cue,
+    matching ``read_hot_cues`` (which maps NULL → -1). One predicate, shared by
+    the memory-cue COUNT and the memory-cue DELETE, so the two halves can never
+    drift apart again.
+    """
+    from sqlalchemy import or_
+    from pyrekordbox.db6 import DjmdCue
+
+    return or_(DjmdCue.OutMsec.is_(None), DjmdCue.OutMsec <= DjmdCue.InMsec)
+
+
 def has_existing_memory_cues(content, db) -> int:
+    """Count the track's existing memory CUES (Kind=0 point cues).
+
+    Memory LOOPS are Kind=0 too but are NOT memory cues — counting them here
+    would gate ``write_memory`` off, silently suppressing the user's memory-cue
+    write on any default (``overwrite=False``) apply once ``--write-db`` had
+    added loops.
+    """
     from pyrekordbox.db6 import DjmdCue
     return (
         db.query(DjmdCue)
-        .filter(DjmdCue.ContentID == content.ID, DjmdCue.Kind == 0)
+        .filter(
+            DjmdCue.ContentID == content.ID,
+            DjmdCue.Kind == 0,
+            _point_cue_filter(),        # point cues only — loops are not memory cues
+        )
         .count()
     )
 
@@ -695,14 +722,14 @@ def write_cues_to_db(
             # has OutMsec > InMsec). A blanket Kind=0 delete therefore also
             # destroyed the DJ's hand-placed memory LOOPS and any loops written by
             # `--write-db`, silently, on every overwrite apply. Delete POINT CUES
-            # ONLY and spare the loops. (NULL OutMsec is unclassifiable → spared,
-            # the safe direction.)
+            # ONLY (the same shared predicate the memory-cue COUNT uses) and spare
+            # the loops.
             (
                 db.session.query(DjmdCue)
                 .filter(
                     DjmdCue.ContentID == content.ID,
                     DjmdCue.Kind == 0,
-                    DjmdCue.OutMsec <= DjmdCue.InMsec,   # point memory cues only
+                    _point_cue_filter(),   # point memory cues only — never loops
                 )
                 .delete(synchronize_session=False)
             )
