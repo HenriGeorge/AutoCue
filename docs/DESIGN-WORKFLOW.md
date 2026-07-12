@@ -94,8 +94,8 @@ Direction: `get_design_context` reads **Figma → code**; `use_figma` / `figma-g
 > **The _how_ of this leg → `FIGMA-UI.md`.** When VISUAL/TOKENS means driving Figma — the two-bridge
 > split (free arinspunk bridge vs. the metered official MCP), **Code Connect** (the highest-value lever
 > to try first), the parallel-crew constraints, and the reverse **code → Figma mirror** (token sync and
-> the A/B/C scripts) — `FIGMA-UI.md` is the playbook; `.claude/rules/figma-ui.md` the per-change checklist.
+> the A/B/C scripts) — `FIGMA-UI.md` is the playbook; `figma-ui.md` the per-change checklist.
 
 ## See also
 
-`FIGMA-UI.md` (Figma-MCP mechanics of VISUAL/TOKENS → BUILD) · `.claude/rules/figma-ui.md` (per-change checklist) · `agent-delegation.md` (delegate the parallel design exploration to subagents) · `local-browser-testing.md` (`127.0.0.1`, never the blocked Claude-in-Chrome extension).
+`FIGMA-UI.md` (Figma-MCP mechanics of VISUAL/TOKENS → BUILD) · `figma-ui.md` (per-change checklist) · `agent-delegation.md` (delegate the parallel design exploration to subagents) · `local-browser-testing.md` (`127.0.0.1`, never the blocked Claude-in-Chrome extension).
