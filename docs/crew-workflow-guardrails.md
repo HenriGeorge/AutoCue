@@ -11,14 +11,14 @@ Inline Mermaid is canonical here (the repo's docs convention — no committed im
 
 | Guardrail | Encodes |
 |---|---|
-| D1 · Coordinator dispatch loop | #107 NO-IDLE-WAIT hard gate · #108 autonomy contract · #96 idle-pane triage · #26 one live driver · #105 pull-based reporting |
+| D1 · Coordinator dispatch loop | #107 NO-IDLE-WAIT hard gate · #108 autonomy contract · #96 idle-pane triage · #103 one live driver · #105 pull-based reporting |
 | D2 · Dev-port ownership across worktrees | #103 |
 | Dispatch & fresh-keyed wait | #98 |
 | Test-ownership partition at P3 | #99 |
 
 ---
 
-## D1 — Coordinator dispatch loop
+## D1 — Coordinator dispatch loop  _(pane-transport specific — send-keys artifacts; N/A for team-v2's SendMessage-coordinated teammates (separate OS processes, not in-process — see CC-WORKTREES.md § Team-v2 for the lifecycle))_
 
 **★ HARD GATE — NO IDLE WAIT (#107).** Blocking on one pane while another idle pane has ready work is a
 **GATE VIOLATION** on par with GATE-1/GATE-2 — the #1 coordinator failure. *Before you run any `crew_wait`*
@@ -53,7 +53,7 @@ flowchart TD
 
 Encodes **#107** (NO-IDLE-WAIT hard gate — fill or park every idle pane *before* you wait; blocking-while-idle
 is a GATE VIOLATION), **#96** (idle-pane triage — only input-ready, non-colliding, non-live-driving phases),
-**#26** (one live driver at a time), and **#105** ("idle" ≠ "silent" — render the pull-based report trail).
+**#103** (one live driver at a time), and **#105** ("idle" ≠ "silent" — render the pull-based report trail).
 
 **AUTONOMY CONTRACT (#108).** The coordinator runs autonomously; the ONLY three sanctioned human pauses are
 (a) **GATE-1 design sign-off**, (b) **cannot-converge** — GATE-2 still red after a bounded retry budget, and
@@ -87,7 +87,7 @@ port, flag never clobber).
 
 ---
 
-## Dispatch & fresh-keyed wait
+## Dispatch & fresh-keyed wait  _(pane-transport specific — send-keys artifacts; N/A for team-v2's SendMessage-coordinated teammates (separate OS processes, not in-process — see CC-WORKTREES.md § Team-v2 for the lifecycle))_
 
 The crew-ops failure: a pane reused one result file across P3→P4, and the wait matched the **stale P3
 sentinel** and returned instantly — nearly reporting P4 "done" off an old line. The guard: wait until the
@@ -103,7 +103,7 @@ flowchart TD
     STALE --> W
     W -->|"yes — genuinely fresh"| R["read + verify it matches the PHASE you dispatched"]
     R --> P{"implementer DONE?"}
-    P -->|"yes"| ROLL["ROLLING PIPELINE (#41)<br/>auditor on git diff + verifier on suite/live IN PARALLEL<br/>while implementer takes the next unit"]
+    P -->|"yes"| ROLL["ROLLING PIPELINE (#96)<br/>auditor on git diff + verifier on suite/live IN PARALLEL<br/>while implementer takes the next unit"]
     P -->|"no"| NEXT["route the next phase"]
 ```
 
