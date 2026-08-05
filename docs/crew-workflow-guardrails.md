@@ -3,66 +3,70 @@
 Decision diagrams that turn a `cc-worktrees` crew session's recurring frictions into **branch logic**.
 A retrospective lesson in [`lessons.md`](lessons.md) records *what* went wrong; the diagram below makes
 the failure mode structurally hard to repeat. These are **crew-mechanism** guardrails — they apply when
-a multi-pane crew is running, and live alongside the coordinator methodology in
-[`../bin/cc-worktrees`](../bin/cc-worktrees) (`_crew_methodology`). The universal spine stays in
+a crew is running (one coordinator pane driving Agent-tool teammates over SendMessage). They
+complement the coordinator's own methodology (`write_coordinator_prompt` in
+[`../bin/cc-worktrees`](../bin/cc-worktrees), generated into `crew/prompts/coordinator.md`) and the
+shared per-worker methodology (`_crew_methodology`, same file). The universal spine stays in
 [`WORKFLOW.md`](WORKFLOW.md) / [`VERIFY-WORKFLOW.md`](VERIFY-WORKFLOW.md).
 
 Inline Mermaid is canonical here (the repo's docs convention — no committed images).
 
 | Guardrail | Encodes |
 |---|---|
-| D1 · Coordinator dispatch loop | #107 NO-IDLE-WAIT hard gate · #108 autonomy contract · #96 idle-pane triage · #103 one live driver · #105 pull-based reporting |
-| D2 · Dev-port ownership across worktrees | #103 |
-| Dispatch & fresh-keyed wait | #98 |
+| No idle teammate — fill or park before you wait | no-idle-wait / idle-triage / one-live-driver / autonomy-contract |
+| Dev-port ownership across worktrees | #103 |
 | Test-ownership partition at P3 | #99 |
+| Shutdown handshake by agent-type | #156 |
 
 ---
 
-## D1 — Coordinator dispatch loop  _(pane-transport specific — send-keys artifacts; N/A for team-v2's SendMessage-coordinated teammates (separate OS processes, not in-process — see CC-WORKTREES.md § Team-v2 for the lifecycle))_
+## No idle teammate — fill or park before you wait
 
-**★ HARD GATE — NO IDLE WAIT (#107).** Blocking on one pane while another idle pane has ready work is a
-**GATE VIOLATION** on par with GATE-1/GATE-2 — the #1 coordinator failure. *Before you run any `crew_wait`*
-(foreground OR background) you MUST first scan `crew_status.sh` and, for EVERY idle pane, dispatch its next
-input-ready / non-colliding / non-live-driving task — or explicitly `park` it with a one-line reason on the
-BOARD. The coordinator must neither leave every other pane idle (wasted parallelism) nor "keep them busy"
-by dispatching every phase at once — a reviewer with **no diff** or a verifier pointed at the **builder's
-live server** is worse than idle.
+This is the decision-diagram restatement of the **no-idle-wait / idle-triage** discipline; the
+authoritative version is ENCODED IN the coordinator methodology (`write_coordinator_prompt` →
+`crew/prompts/coordinator.md`) — this doc is the human-facing diagram, NOT a competing authority.
 
-**IDLE-FILL LOOP — the per-tick priority ladder** the hard gate enforces (after every dispatch AND before
-every wait), for each idle pane assign the FIRST applicable: **`rolling`** (audit/verify the last diff) →
-**`pre-spec N+1/N+2`** (research / test-design the next units) → **`on-call research`** (answer an open
-data/surface question) → **`park`** (none apply: park with a one-line reason — idle ≠ silent, #105).
+**★ HARD GATE.** Letting a teammate sit idle with ready work while you wait on another is a GATE
+VIOLATION on par with GATE-1/GATE-2 — the #1 coordinator failure. In crew replies return
+automatically (SendMessage — never poll), so "waiting" means *proceeding while a teammate works*:
+before you settle into that, check the BOARD and, for EVERY idle teammate, SendMessage its next
+input-ready / non-colliding / non-live-driving task — or explicitly **park** it with a one-line reason
+on the BOARD.
+
+**IDLE-FILL LADDER** — per idle teammate, assign the FIRST applicable: **rolling** (audit/verify the
+last diff) → **pre-spec N+1/N+2** (research / test-design the next units) → **on-call research** (an
+open data/surface question) → **park** (none apply — park with a reason; idle is not silent — surface
+the pull-based report trail).
 
 ```mermaid
 flowchart TD
-  W[About to crew_wait?] --> SCAN[scan crew_status.sh — enumerate every pane]
-  SCAN --> S{An idle pane?}
-  S -->|no| WAIT[Run crew_wait in the BACKGROUND]
-  S -->|yes| T1{Input-ready?<br/>diff / built page / open question exists?}
+  W[A teammate is working — before you proceed to wait on it] --> SCAN[check the BOARD — enumerate every teammate's state]
+  SCAN --> S{An idle teammate?}
+  S -->|no| GO[proceed — SendMessage replies return automatically, never poll]
+  S -->|yes| T1{Input-ready?<br/>a diff / built page / open question exists?}
   T1 -->|no| HOLD[park it with a one-line reason on the BOARD]
   T1 -->|yes| T2{Non-colliding AND<br/>non-live-driving?}
   T2 -->|no| HOLD
-  T2 -->|yes| LAD[Dispatch by ladder:<br/>rolling → pre-spec N+1/N+2 → on-call research]
+  T2 -->|yes| LAD[SendMessage a task by ladder:<br/>rolling → pre-spec N+1/N+2 → on-call research]
   HOLD --> S
   LAD --> S
-  WAIT --> RPT[Report = show BOARD finish-lines + STATUS sentinels<br/>idle = done + reported, pull-based]
-  RPT --> DN{Builder DONE?}
+  GO --> DN{Builder reports DONE?}
   DN -->|no| W
-  DN -->|yes| ROLL[Rolling quality: auditor on diff +<br/>verifier as the ONE live driver]
+  DN -->|yes| ROLL[Rolling quality: auditor on the diff +<br/>verifier as the ONE live driver, in parallel]
 ```
 
-Encodes **#107** (NO-IDLE-WAIT hard gate — fill or park every idle pane *before* you wait; blocking-while-idle
-is a GATE VIOLATION), **#96** (idle-pane triage — only input-ready, non-colliding, non-live-driving phases),
-**#103** (one live driver at a time), and **#105** ("idle" ≠ "silent" — render the pull-based report trail).
+Encodes the **no-idle-wait** hard gate, **idle-triage** (only input-ready, non-colliding,
+non-live-driving work), **one-live-driver** (only one teammate drives the live app at a time), and
+**idle ≠ silent** (surface the pull-based report trail so a finished teammate never looks stuck).
 
-**AUTONOMY CONTRACT (#108).** The coordinator runs autonomously; the ONLY three sanctioned human pauses are
-(a) **GATE-1 design sign-off**, (b) **cannot-converge** — GATE-2 still red after a bounded retry budget, and
-(c) a genuine **scope fork** / destructive op / missing credential. Everything else proceeds and reports —
-no "is this ok?" / "should I proceed?" round-trips.
+**AUTONOMY CONTRACT.** The coordinator runs autonomously; the ONLY three sanctioned human pauses are
+(a) **GATE-1 design sign-off**, (b) **cannot-converge** — GATE-2 still red after a bounded retry
+budget, and (c) a genuine **scope fork** / destructive op / missing credential. Everything else
+proceeds and reports — no "is this ok?" round-trips.
 
 ---
 
-## D2 — Dev-port ownership across worktrees
+## Dev-port ownership across worktrees
 
 Run multiple worktrees/crews in parallel and two dev servers default to the same port; the second to
 start can **seize** it, so `:PORT` silently serves the *other* worktree's app — verification then asserts
@@ -87,30 +91,6 @@ port, flag never clobber).
 
 ---
 
-## Dispatch & fresh-keyed wait  _(pane-transport specific — send-keys artifacts; N/A for team-v2's SendMessage-coordinated teammates (separate OS processes, not in-process — see CC-WORKTREES.md § Team-v2 for the lifecycle))_
-
-The crew-ops failure: a pane reused one result file across P3→P4, and the wait matched the **stale P3
-sentinel** and returned instantly — nearly reporting P4 "done" off an old line. The guard: wait until the
-file's **mtime is newer than the dispatch** AND a **phase-marker** is present; only then read + verify it
-matches the dispatched phase. A sentinel is fresh only if the file changed AFTER you asked. The
-`crew_wait.sh` helper enforces this via `CREW_WAIT_SINCE` (mtime) + `CREW_WAIT_GREP` (phase marker).
-
-```mermaid
-flowchart TD
-    A["coordinator dispatches to an IDLE pane<br/>crew/dispatch.sh — RECORD dispatch time"] --> B["pane works, writes crew/role.md + STATUS sentinel"]
-    B --> W{"FRESH-KEYED WAIT (#98)<br/>file mtime NEWER than dispatch AND phase-marker present?"}
-    W -->|"no — only an OLD sentinel exists"| STALE["DO NOT ACT<br/>a stale prior-phase STATUS:DONE is a landmine — keep waiting"]
-    STALE --> W
-    W -->|"yes — genuinely fresh"| R["read + verify it matches the PHASE you dispatched"]
-    R --> P{"implementer DONE?"}
-    P -->|"yes"| ROLL["ROLLING PIPELINE (#96)<br/>auditor on git diff + verifier on suite/live IN PARALLEL<br/>while implementer takes the next unit"]
-    P -->|"no"| NEXT["route the next phase"]
-```
-
-Encodes **#98** (fresh-keyed wait — never act on a stale prior-phase `STATUS: DONE`).
-
----
-
 ## Test-ownership partition at P3
 
 When the implementer (TDD) and the verifier both produce tests, split by file so they never collide:
@@ -124,3 +104,52 @@ flowchart LR
 
 Encodes **#99** (partition test ownership by file — `git diff --name-only` confirms zero overlap;
 extends the single-code-owner rule to the test layer).
+
+**N instances of a role (#162/#163) are the same invariant one level up** — multiple writers,
+disjoint FILES becomes multiple implementers, disjoint WORKTREES. Count writers, not agents: N
+read-only auditors can share a worktree (two lenses on one diff is diversity, not duplication);
+every extra implementer gets its own worktree, provisioned by the coordinator with
+`cc-worktrees add` (never by the teammate — the create default spawns a whole crew). The
+coordinator names each instance's result file (`crew/<role>-<slug>.md`) and diff range in every
+assignment, and serializes merges (fresh PR for post-merge follow-ups; `merge-base --is-ancestor`
+on every "pushed" claim).
+
+---
+
+## Shutdown handshake — crew-native ack vs general idle-out
+
+Only ONE of the 5 worker roles is a **crew-native** agent type built specifically for this
+methodology; the other 4 map to **general** subagent types that were never built to speak the
+`shutdown_request` → ack protocol at all. A coordinator that waits for an ack from a general type
+would wait forever — this is the failure mode lesson #156 records.
+
+| Crew role | `subagent_type` | Sends a shutdown ack? |
+|---|---|---|
+| `implementer` | `crew-implementer` (crew-native) | **Yes** — `STATUS: DONE — standing down` |
+| `researcher` | `codebase-explorer` (general) | No — emits `idle_notification` instead |
+| `auditor` | `code-reviewer` (general) | No — emits `idle_notification` instead |
+| `test-designer` | `test-designer` (general) | No — also has no Bash tool, can't even BOARD-append |
+| `test-verifier` | `playwright-tester` (general) | No — emits `idle_notification` instead |
+
+```mermaid
+flowchart TD
+  SR[Coordinator sends shutdown_request to a teammate] --> WHO{Which agent type?}
+  WHO -->|crew-native — implementer| ACK[Expect STATUS: DONE — standing down<br/>on its NEXT reply]
+  WHO -->|general — researcher/auditor/<br/>test-designer/test-verifier| NOACK[No ack is coming — structurally never sent<br/>these types emit idle_notification, not a shutdown ack]
+  ACK --> GOT{Ack received?}
+  GOT -->|yes| DONE1[Stop tracking — teammate is down]
+  GOT -->|no| RESEND[Re-send shutdown_request ONCE]
+  NOACK --> RESEND
+  RESEND --> GOT2{Ack received this time?}
+  GOT2 -->|yes| DONE1
+  GOT2 -->|no| BLOCKED["Mark BLOCKED-shutdown on crew/BOARD.md and STOP<br/>(never re-send indefinitely)"]
+  BLOCKED --> REAP["cc-worktrees rm reaps the idle pane at session teardown —<br/>this is the EXPECTED outcome for general types, not a hang"]
+```
+
+**Decision note:** don't treat a second no-ack as an anomaly to debug — for 4 of the 5 roles it's
+the *only possible* outcome, by construction. The re-send-once-then-BLOCKED-then-STOP rule already
+in the coordinator's own methodology (`_crew_coordinator_methodology`, `bin/cc-worktrees`) is
+sufficient; the fix here is purely in the REASONING each side carries, not new mechanics — the
+worker-side tail (`_crew_methodology`) is now role-conditional (only `implementer` gets the ack
+instruction; the other 4 are told plainly they don't need to send one), and the coordinator-side
+text now states explicitly *why* a second no-ack is expected rather than alarming for those roles.

@@ -20,7 +20,10 @@ flowchart LR
 ```
 
 - **SHAPE** — `design-an-interface` ("Design It Twice": 3+ radically different designs, compared on simplicity/depth/misuse-resistance) → the chosen interface shape. This is the strongest fit for CLI/library/API work, where the "interface" _is_ the deliverable.
-- **PRESSURE-TEST** — `grill-me` → severity-tiered flaws fixed _before_ you commit to a direction.
+- **PRESSURE-TEST** — `grill-me` → severity-tiered flaws surfaced. **Fold every finding back into
+  the plan/design doc before moving on** — a flaw noted in the grill-me transcript but never
+  incorporated into the actual design didn't happen; the doc, not the conversation, is what SHAPE
+  hands to BUILD. Fixed _before_ you commit to a direction.
 - **MAKE CONCRETE** — turn the chosen shape into something concrete enough to build without guessing:
 
   | Profile | "Concrete enough to build" means | Skills / artifacts |
