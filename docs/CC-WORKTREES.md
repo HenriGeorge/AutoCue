@@ -8,9 +8,10 @@ note-reader:
 _Prefer to listen? A prose-only, code-block-free read-aloud edition lives in [`CC-WORKTREES-spoken.md`](CC-WORKTREES-spoken.md) (Obsidian Note Reader / TTS). Keep it in sync when you edit this reference._
 
 > **BUILD-phase isolation & parallelism.** One git worktree per feature (a sibling of the repo),
-> each on its own free port and its own tmux pane — optionally a full 6-pane Claude **crew** that
-> runs the Design → Code → Prove spine for that worktree. A per-repo **test lock** serializes
-> automated runs against the shared local stack. Works in _any_ git repo (`~/.local/bin/cc-worktrees`).
+> each on its own free port and its own tmux pane — optionally a Claude **crew** (one
+> coordinator pane + Agent-tool teammates over SendMessage) that runs the Design → Code → Prove spine
+> for that worktree. A per-repo **test lock** serializes automated runs against the shared local
+> stack. Works in _any_ git repo (`~/.local/bin/cc-worktrees`).
 
 This is the isolation layer referenced throughout `WORKFLOW.md` (phase 3 BUILD / phase 7 FINISH).
 It is a single **bash** script with no install step beyond putting it on `PATH` — but the crew/solo
@@ -22,7 +23,7 @@ modes require `tmux` (plus `git`/`lsof`/`awk`), and the Figma path additionally 
 ## Quick start
 
 ```bash
-cc-worktrees feat/login fix/crash     # 2 worktrees; each offers a 6-pane crew (after a y/N confirm)
+cc-worktrees feat/login fix/crash     # 2 worktrees; each opens a crew (1 coordinator + Agent-tool teammates)
 cc-worktrees -c feat/login            # solo: one interactive claude in the worktree (no crew)
 cc-worktrees -x feat/api              # shell only: cd + export PORT, no claude (lightweight)
 cc-worktrees login                    # bare slug → branch "login", flat worktree dir
@@ -48,27 +49,28 @@ local (often-stale) `main` — so you never start work behind origin. Override w
 
 | Command                                                                      | What it does                                                                                                                                     |
 | ---------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `cc-worktrees [-c\|-x\|-C\|--classic\|-T] [-b PORT] [-t CAT] [--review-dock] [--figma] <name>…` | Create worktree(s) + a tmux pane each. Default mode = **team-v2** (1 coordinator + Agent-tool teammates). `--classic`/`-C` opts out to the classic 6-pane crew.                                                                    |
+| `cc-worktrees [-c\|-x\|-T] [-b PORT] [-t CAT] [--review-dock] [--figma] <name>…` | Create worktree(s) + a tmux pane each. Mode = **crew** (1 coordinator + Agent-tool teammates) — the only crew mode; `-T` is accepted as an explicit no-op alias.                                                                    |
+| `cc-worktrees add <name>…`                                                   | **Teammate-worktree primitive** (#162): worktree + branch (GATE-0 base) + free PORT + `COPY_FILES` env carry-in + install — **no session, no pane, no claude, no crew**. Prints eval-able `WORKTREE=`/`PORT=`/`FIGMA_CHANNEL=` lines. The crew coordinator runs this to provision an EXTRA implementer's worktree and hands the teammate the path — teammates never run cc-worktrees themselves. |
 | `cc-worktrees ls`                                                            | `git worktree list` + live port reservations + the per-repo test-lock holder.                                                                    |
-| `cc-worktrees rm [-f] <name>…`                                               | Guarded remove: refuses a dirty worktree unless `-f`; on `-f` **backs up untracked/ignored files** (e.g. `.env`) first, archives `crew/*.md`, frees the port, prunes the empty category dir, **keeps the branch**. |
+| `cc-worktrees rm [-f] <name>…`                                               | Guarded remove: refuses a dirty worktree unless `-f`; on `-f` **backs up untracked/ignored files** (e.g. `.env`) AND **uncommitted tracked modifications as an applyable patch** (`uncommitted-tracked.patch` — recover with `git apply`) first, archives `crew/*.md`, frees the port, prunes the empty category dir, **keeps the branch**. Warns loudly when the BOARD claims DONE but the branch has **zero commits** (work-loss guard). |
 | `cc-worktrees test [--] <cmd>…`                                              | Run `<cmd>` while holding the per-repo test lock (a second `test` blocks until the first releases).                                              |
 | `cc-worktrees figma <doctor\|up [--run-last]\|probe\|confirm> [ch…]`         | talk-to-figma bridge: the **nine guards**, relay + Figma launch, and **live-channel proof** (see [Figma bridge](#figma-bridge-talk-to-figma)).       |
 | `cc-worktrees figma import-plugin [manifest]`                                | UI-scripts the dev-plugin manifest import into the FOCUSED Figma window, verifies it landed by reading the menu back, then runs it by name (default `figma-plugin/manifest.json`). |
 | `cc-worktrees revive <worktree> [role]`                                      | Relaunch an accidentally-closed crew claude **in its original pane**, resuming its original session (`<ROLE>_SESSION` from `crew/panes.env`; pre-session-id crews fall back to the coordinator marker or claude's `--resume` picker). Refuses a pane that is still running something. |
 | `cc-worktrees init`                                                          | Write `.claude/worktrees.conf` with autodetected `SETUP`/`PROFILE`/`BASE_PORT`.                                                                  |
 | `cc-worktrees help`                                                          | Usage.                                                                                                                                           |
+| `cc-worktrees selfupdate`                                                    | Refresh the installed `~/.local/bin/cc-worktrees` from the source sentinel `setup.sh` wrote. **Refuses** a sentinel pointing into a transient `*-worktrees/` checkout (which would deploy stale, branch-drifted code).                                            |
 
 ### Create modes
 
-**team-v2 is now the default** (human decision, explicit — see [Team-v2](#team-v2-default) for the
-honest recovery caveat that comes with it). Classic is fully intact, unchanged, and one flag away.
+**crew is the only crew mode** (human decision, explicit — classic was removed entirely; see
+[Crew](#crew-default) for the honest recovery caveat that comes with it).
 
 | Mode                     | Flag                | Result                                                                                                                                |
 | ------------------------ | -------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
-| **team-v2** (default)    | — (or explicit `-T`) | ONE coordinator pane (`crew-coordinator-v2`); teammates are **Agent-tool spawns** (`teammateMode: tmux` → each gets its own pane), transport = **SendMessage**. No dispatch.sh/crew_wait.sh/crew_status.sh; durable `crew/*.md` + BOARD kept. `-T` is accepted as a no-op explicit alias for the default — it never errors, for existing muscle memory/scripts. See [Team-v2](#team-v2-default). |
+| **crew**               | — (or explicit `-T`) | ONE coordinator pane (`crew-coordinator`); teammates are **Agent-tool spawns** (`teammateMode: tmux` → each gets its own pane), transport = **SendMessage**. No dispatch.sh/crew_wait.sh/crew_status.sh; durable `crew/*.md` + BOARD kept. `-T` is accepted as a no-op explicit alias — it never errors, for existing muscle memory/scripts. See [Crew](#crew-default). |
 | **solo**                 | `-c`                 | One interactive `claude` in the worktree, single pane, no crew.                                                                       |
 | **shell**                | `-x`                 | Just a shell (`cd` + `export PORT`), no claude — the lightweight option.                                                              |
-| **classic** (opt-out)    | `-C` / `--classic`   | After a `[y/N]` confirm, the **6-pane crew** opens in a window named after the slug — each pane its own independently-surviving `claude` process. Non-interactive (no TTY) → falls back to **solo**. Completely unchanged by the default flip; use this if you need the process-isolation guarantee of separate panes. |
 
 ```mermaid
 flowchart TD
@@ -76,11 +78,7 @@ flowchart TD
     F1 -->|yes| SOLO["solo — 1 claude, single pane"]
     F1 -->|no| F2{"-x ?"}
     F2 -->|yes| SHELL["shell — cd + export PORT, no claude"]
-    F2 -->|no| F3{"-C / --classic ?"}
-    F3 -->|yes| T{"interactive TTY?"}
-    T -->|"y at the [y/N]"| CREW["classic — 6-pane crew"]
-    T -->|"no TTY"| SOLO
-    F3 -->|no| T2["team-v2 (DEFAULT, or explicit -T) — 1 coordinator pane,\nAgent-tool teammate spawns, SendMessage transport"]
+    F2 -->|no| T2["crew (the only crew mode, or explicit -T) — 1 coordinator pane,\nAgent-tool teammate spawns, SendMessage transport"]
 ```
 
 ### Names
@@ -95,86 +93,20 @@ flowchart TD
 | --------------- | ------ | ---------------------------------------------------------------------------------------------- |
 | `-b PORT`       | create | Base port for the free-port search (default `3000`; in-use/reserved ports auto-skipped).       |
 | `-t CAT`        | create | Default category applied to bare slugs.                                                        |
-| `-C`, `--classic` | create | Opt OUT of the team-v2 default back to the classic 6-pane crew. Unchanged by the default flip. |
-| `-T`            | create | Explicit alias for team-v2 (the default) — accepted, never an error, for existing scripts/muscle memory. |
+| `-T`            | create | Explicit alias for crew (the only crew mode) — accepted, never an error, for existing scripts/muscle memory. |
 | `--review-dock` | create | Scaffold the dev-only in-page review dock (see below).                                         |
 | `--figma`       | create | Scaffold the SVG→Figma bridge (see below). `FIGMA_SCAFFOLD=1` makes this the per-repo default. |
 | `--no-figma`    | create | Skip the Figma scaffold even when `FIGMA_SCAFFOLD=1` makes it the per-repo default.            |
-| `-f`            | rm     | Force-remove even with uncommitted/untracked changes (untracked + ignored files are backed up first — see safety). |
-
----
-
-## The 6-pane crew
-
-In team mode each worktree opens a window of six tiled panes. **Every pane is its own interactive
-`claude` process** launched _as_ a canonical workflow agent (`claude --agent <name>`), **not** an
-Agent-tool subagent. The **coordinator** drives the others by `tmux send-keys` to their panes and
-reads their `crew/<role>.md` result files — there is no inter-pane messaging.
-
-> **Crew-ops guardrails.** The recurring coordination frictions — no-idle-wait / coordinator autonomy
-> (#107/#108), idle-pane triage, dev-port ownership across worktrees, fresh-keyed wait, and
-> test-ownership partition — are drawn as decision diagrams in
-> [`crew-workflow-guardrails.md`](crew-workflow-guardrails.md).
-
-| Pane          | Launches as agent   | Border color | Role                                                                |
-| ------------- | ------------------- | ------------ | ------------------------------------------------------------------- |
-| coordinator   | `crew-coordinator`  | cyan         | Orchestrates the spine; enforces GATE-1/GATE-2; keeps every idle pane filled (no-idle-wait); never edits source. |
-| implementer   | `crew-implementer`  | green        | Owns **all** source edits; runs the dev server on `PORT`.           |
-| researcher    | `codebase-explorer` | blue         | Read-only discovery, `file:line` citations.                         |
-| auditor       | `code-reviewer`     | red          | Adversarial `git diff` review + `/security-review`.                 |
-| test-designer | `test-designer`     | magenta      | Coverage map (advisory; Read/Grep/Glob/Write only).                 |
-| test-verifier | `playwright-tester` | yellow       | e2e specs + drives the live app @`127.0.0.1:PORT`.                  |
-
-```mermaid
-flowchart TD
-    CO["coordinator (cyan)<br/>enforces GATE-1/2 · never edits source"]
-    CO -->|tmux send-keys| IM["implementer (green)<br/>ALL source edits + dev server"]
-    CO -->|tmux send-keys| RE["researcher (blue)<br/>read-only discovery"]
-    CO -->|tmux send-keys| AU["auditor (red)<br/>diff review + security"]
-    CO -->|tmux send-keys| TD["test-designer (magenta)<br/>coverage map"]
-    CO -->|tmux send-keys| TV["test-verifier (yellow)<br/>e2e + live app"]
-    IM & RE & AU & TD & TV -. write results .-> FILES["crew/&lt;role&gt;.md + BOARD.md<br/>(no inter-pane messaging)"]
-    FILES -. coordinator reads .-> CO
-```
-
-Each pane is launched with:
-
-```bash
-claude --name '<role>-<repo>-<slug>' --agent '<agent>' \
-       [--model <CREW_MODEL>] [--permission-mode <CREW_PERMISSION_MODE>] [--effort <CREW_EFFORT>] \
-       [--remote-control '<role>-<repo>-<slug>'] \
-       --session-id <recorded-uuid> \
-       --append-system-prompt-file crew/prompts/<role>.md '<intro>'
-```
-
-The `--agent` gives the methodology/tools/model; the appended `crew/prompts/<role>.md` (generated
-per worktree) gives the standing-pane coordination contract and the per-worktree wiring (`PORT`,
-pane ids, paths). `--remote-control` is added per pane, each with its own distinct session name
-(matching `--name`) — see [Remote Control](#remote-control) below for the prerequisite and the
-degrade behavior.
-
-### Crew helper scripts (scaffolded into `crew/`)
-
-| File                            | Purpose                                                                                                                                                                                                                                                     |
-| ------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `crew/dispatch.sh <pane> <msg>` | **Fire-and-verify** dispatch: sends the text and `Enter` as _separate_ events (a combined send gets absorbed into tmux bracketed-paste and silently sits unsubmitted), then verifies submission, re-pressing `Enter` up to 3×. Prints `dispatch OK`/`WARN`. |
-| `crew/crew_wait.sh <files…>`    | Blocks until each result file carries a **fresh** `STATUS: DONE\|BLOCKED` sentinel. Fresh-keyed wait (#98): `CREW_WAIT_SINCE=<epoch>` requires mtime-after-dispatch and `CREW_WAIT_GREP=<regex>` requires a phase-marker line, so a result file reused across phases can't match a stale prior sentinel. **Run backgrounded** so the coordinator stays responsive. |
-| `crew/crew_status.sh`           | Classifies each pane as `working` / `idle` / `STUCK` (unsubmitted) / `BLOCKED(perm)` (numbered MCP prompt) and prints the BOARD tail.                                                                                                                       |
-| `crew/BOARD.md`                 | **Append-only** status heartbeat — every teammate appends on pickup and finish; the coordinator appends its "Current assignments". Never overwritten (concurrent writers + cross-session appends).                                                          |
-| `crew/panes.env`                | Pane ids + `PORT` + per-role colors (sourced by the helpers). Ephemeral.                                                                                                                                                                                    |
-| `crew/prompts/<role>.md`        | The generated per-role system prompt. Ephemeral.                                                                                                                                                                                                            |
-
-`crew/` is **tracked in git** so the durable `*.md` records (BOARD, DESIGN, role results) survive
-`cc-worktrees rm`; its own `crew/.gitignore` drops the ephemeral churn (`panes.env`, `*.ready`,
-`*.done`, the helper scripts, `prompts/`).
+| `-f`            | rm     | Force-remove even with uncommitted/untracked changes (untracked + ignored files backed up, tracked modifications saved as an applyable patch — see safety). |
+| `--no-attach`   | create | Skip the final tmux attach; print `tmux attach -t <session>` and exit 0 (for headless/scripted launchers). |
+| `--brief FILE`  | create | Point the crew coordinator's kickoff prompt at an absolute FILE (must exist at parse time — fails loud, no fallback), instead of the default `Form your crew now (crew).` |
 
 ---
 
 ## Remote Control
 
-Every crew launch (classic panes, team-v2's coordinator, `solo`, and `revive`) gets
-`--remote-control` by default, letting you drive that session from the Remote Control app on your
-phone.
+Every crew launch (crew's coordinator, `solo`, and `revive`) gets `--remote-control` by default,
+letting you drive that session from the Remote Control app on your phone.
 
 **Prerequisite: `claude.ai` login.** Remote Control requires signing in via `claude /login` (run
 once per machine/directory) — **API-key auth is NOT supported**, and Team/Enterprise plans may need
@@ -193,30 +125,29 @@ isn't available on that pane) but isn't caught in advance.
 Disable it outright with `CREW_REMOTE_CONTROL=0` in `.claude/worktrees.conf` (per-repo) or the global
 conf (machine-wide).
 
-**Team-v2 caveat:** team-v2's coordinator is the only process this tool LAUNCHES with a
+**Crew caveat:** crew's coordinator is the only process this tool LAUNCHES with a
 `--remote-control` flag. Teammates ARE separate OS processes — **not in-process spawns** (a claim
-this doc used to make and has retracted; see [Team-v2](#team-v2-default) below for the
+this doc used to make and has retracted; see [Crew](#crew-default) below for the
 corrected lifecycle) — but the Agent tool spawns them without their own remote session, so the
 coordinator's one remote session covers the **whole crew as a unit**, not each teammate individually.
 Reaching a specific teammate over Remote Control means driving it *through* the coordinator, the same
-way SendMessage does. Classic gives you 6 independently-steerable sessions (one per pane); team-v2
-gives you 1.
+way SendMessage does — one whole-crew session, not one per teammate.
 
 ---
 
-## Team-v2 (default)
+## Crew (default)
 
-The pilot-validated successor transport (`docs/lessons.md` #121–#123), **now the default crew mode**
-(human decision, explicit — see the caveat two paragraphs down; `--classic`/`-C` opts back out to the
-6-pane crew, `-T` still works as an explicit no-op alias for this default): ONE coordinator pane runs
-`--agent crew-coordinator-v2` (deliberately **no** `tools:` allowlist — it must inherit the Agent +
+The crew transport (`docs/lessons.md` #121–#123), **the only crew mode**
+(human decision, explicit — classic was removed entirely; see the caveat two paragraphs down; `-T`
+still works as an explicit no-op alias): ONE coordinator pane runs
+`--agent crew-coordinator` (deliberately **no** `tools:` allowlist — it must inherit the Agent +
 SendMessage tools; the v1 allowlist predates agent teams and blocks them). Teammates are spawned
 via the **Agent tool** under `teammateMode: tmux`, so each still gets a real pane (the cockpit
 survives), but coordination is **SendMessage** — replies return fresh and complete, so the
 send-keys plumbing (`dispatch.sh`, `crew_wait.sh`, `crew_status.sh`) is not scaffolded and the
 `[pane-transport]` lessons (#98/#105/#107) don't arise.
 
-**⚠ Lifecycle — RETRACTED CLAIM, corrected here.** This doc previously claimed team-v2 teammates
+**⚠ Lifecycle — RETRACTED CLAIM, corrected here.** This doc previously claimed crew teammates
 shared the coordinator's own process lifecycle (spawned inline, dying together). **That was FALSE**,
 verified live via `ps` against a real running crew (not assumed): teammates are **SEPARATE OS processes**,
 parented by the **tmux server** — **siblings of the coordinator, not its children**. If the
@@ -232,7 +163,7 @@ the coordinator (teammates are not individually `cc-worktrees`-managed — no `@
 tool cannot own or kill them); an orphan check there is detect-and-report, not an automatic kill (a
 pattern-matched process kill on the wrong session id could reap a live, unrelated crew).
 
-Contract highlights (full text: `write_crew2_prompt` in `bin/cc-worktrees`):
+Contract highlights (full text: `write_coordinator_prompt` in `bin/cc-worktrees`):
 - **★ RECONCILE-ON-RESUME** — before spawning anything after a crash/revive/compaction: re-read
   BOARD.md + DESIGN.md, reconcile against live teammate processes, never spawn a role that already
   has one. See the lifecycle note above.
@@ -242,14 +173,24 @@ Contract highlights (full text: `write_crew2_prompt` in `bin/cc-worktrees`):
   (coordinator included) goes through `cc-worktrees test -- <cmd>` or concurrent teammates produce
   false reds on the shared worktree.
 - **Model policy is stated, not accidental** — `CREW_TEAMMATE_MODEL` (below), recorded in DESIGN.md.
-- Durable records unchanged: `crew/<role>.md` + append-only BOARD; "idle" is a point-in-time
-  signal — consult the BOARD before re-assigning.
+- Durable records unchanged: the coordinator-named result file (`crew/<role>.md` for a lone
+  instance, `crew/<role>-<slug>.md` when several instances share a role) + append-only BOARD;
+  "idle" is a point-in-time signal — consult the BOARD before re-assigning.
+- **N instances per role (#162/#163)** — roles are a catalogue, instances are runtime; the role
+  set never grows. Scale by WRITE ACCESS: N read-only auditors/researchers can share a worktree
+  (two auditors on one diff through different lenses is diversity); every extra **implementer**
+  gets its OWN worktree, provisioned by the coordinator via `cc-worktrees add` — never by the
+  teammate itself (the create default spawns a whole crew). The single-writer invariant is
+  per-WORKTREE, not per-role; the coordinator names each instance's result file + diff range in
+  every assignment, titles each pane (`select-pane -T <role>-<slug>`), and acts as the serial
+  merge queue (fresh PR for post-merge follow-ups; `git merge-base --is-ancestor` on every
+  "pushed" claim). Ceiling: one shared DB, one test lock, one PR queue — scale only file-disjoint,
+  non-DB-heavy stories.
 - Remote Control covers the coordinator only (the crew's one `claude` process) — see
-  [Remote Control](#remote-control) for the whole-crew-as-one-unit caveat vs. classic's 6.
-**team-v2 is now default; the leader-death/compaction recovery path exists (reconcile-on-resume) but
-remains unverified under a real crash.** Use `--classic` / `-C` if you need the independent
-process-isolation guarantees of separate panes (panes + `revive` still win on recovery today) instead
-of the coordinator's reconcile-on-resume contract.
+  [Remote Control](#remote-control) for the whole-crew-as-one-unit caveat.
+**crew is the only crew mode; the leader-death/compaction recovery path exists (reconcile-on-resume)
+but remains unverified under a real crash.** There is no process-isolation fallback (classic was
+removed) — the coordinator's reconcile-on-resume contract is the only recovery path today.
 
 ## Configuration — `.claude/worktrees.conf`
 
@@ -282,8 +223,8 @@ line in the conf file.
 | `CREW_MODEL`           | `claude-opus-4-8[1m]`                                                                | Model each crew agent launches with (`''` = inherit).                                                                                        |
 | `CREW_PERMISSION_MODE` | `auto`                                                                               | `acceptEdits\|auto\|bypassPermissions\|default\|dontAsk\|plan`. Set `bypassPermissions` for MCP-heavy crews to avoid numbered-prompt stalls. |
 | `CREW_EFFORT`          | —                                                                                    | `low\|medium\|high\|xhigh\|max` for each crew agent (`''` = inherit).                                                                        |
-| `CREW_TEAMMATE_MODEL` | —                                                                                    | **team-v2 (`-T`) only**: model for Agent-tool teammates. `''` = each agent def's own model (sonnet for the standard roles — pilot-proven); set e.g. `claude-opus-4-8` to upgrade a hard story. The v2 coordinator must STATE the policy in `crew/DESIGN.md`.        |
-| `CREW_REMOTE_CONTROL`  | `1`                                                                                  | `1` = add `--remote-control` to every crew launch (classic panes, team2 coordinator, solo, revive) when a fast pre-flight confirms `claude.ai` login (never hard-fails an ineligible launch — see [Remote Control](#remote-control)). `0` = never add it.  |
+| `CREW_TEAMMATE_MODEL` | —                                                                                    | **crew (`-T`) only**: model for Agent-tool teammates. `''` = each agent def's own model (sonnet for the standard roles — proven); set e.g. `claude-opus-4-8` to upgrade a hard story. The v2 coordinator must STATE the policy in `crew/DESIGN.md`.        |
+| `CREW_REMOTE_CONTROL`  | `1`                                                                                  | `1` = add `--remote-control` to every crew launch (crew coordinator, solo, revive) when a fast pre-flight confirms `claude.ai` login (never hard-fails an ineligible launch — see [Remote Control](#remote-control)). `0` = never add it.  |
 | `FIGMA_SCAFFOLD`       | `0`                                                                                  | `1` = scaffold the SVG→Figma bridge into **every** new worktree (per-repo default); override per worktree with `--no-figma`.                 |
 | `FIGMA_SOCKET`         | `0`                                                                                  | `1` = on create, bring up the talk-to-figma relay (`:3055`) — headless only. Set it in the **global** conf for always-on.                    |
 | `FIGMA_LAUNCH`         | `0`                                                                                  | `1` = on create, **also** open Figma Desktop (+ `FIGMA_FILE_KEY`) — deliberately separate from the headless relay.                           |
@@ -292,6 +233,11 @@ line in the conf file.
 | `FIGMA_CHANNEL_SECRET` | —                                                                                    | Opt-in (set in the **global** conf): channels gain an unguessable `-<fnv1a>` suffix (relay is unauthenticated; names are guessable). Seed the plugin ONCE per machine: type `secret:<value>` into its Channel field.                          |
 | `FIGMA_SOCKET_CMD`     | autodetect                                                                           | Relay start command (`''` = autodetect the `claude-talk-to-figma-mcp` clone's `bun run socket`).                                             |
 | `FIGMA_RUN_LAST`       | `0`                                                                                  | `1` = best-effort ⌥⌘P "Run last plugin" on `figma up`/create (needs macOS Accessibility permission).                                         |
+
+**Cockpit / terminal env vars:** `CCWT_COORD_COLOR` (default `colour45`) — the coordinator pane's
+tmux border colour (any tmux colour, e.g. `colour99`); `CCWT_TERMINAL_CMD` (autodetect) — override the
+pane's terminal launch command; `CCWT_NO_TERMINAL=1` — skip launching a terminal side-effect entirely;
+`CCWT_TERMINAL_DRYRUN=1` — PRINT the exact terminal command instead of running it (the dry-run idiom).
 
 Environment: `CCWT_TESTLOCK_WAIT` (default `1800`) — max seconds a `test` run queues behind another
 before giving up. Cache/lock state lives under `${XDG_CACHE_HOME:-~/.cache}/cc-worktrees`.
@@ -402,9 +348,9 @@ the stable-channel patch a re-run **rejoins the persisted channel** (verify with
 
 ## Concurrency & safety guarantees
 
-- **Re-enter is friction-free** — running create for a worktree that already has a pane skips the
-  6-pane-crew `[y/N]` confirm entirely and just focuses that pane; create always selects the
-  (last) requested worktree's window+pane before attaching, never the session's last-active window.
+- **Re-enter is friction-free** — running create for a worktree that already has a pane skips
+  spawning a duplicate and just focuses that pane; create always selects the (last) requested
+  worktree's window+pane before attaching, never the session's last-active window.
 - **Free-port allocation** — a lock-guarded atomic-`mkdir` mutex (crash-safe via PID-stale reclaim,
   no `flock`/`shlock` dependency) plus a reservation file with a 90 s TTL. No two worktrees collide
   on a port, even across different projects/sessions. The reservation bridges "chosen → dev server
@@ -418,8 +364,15 @@ the stable-channel patch a re-run **rejoins the persisted channel** (verify with
 - **`rm` is guarded** — refuses a worktree with uncommitted/untracked changes unless `-f`. On `-f`
   it first **backs up untracked + ignored files** (e.g. `.env`, `panes.env`) to
   `~/.local/share/cc-worktrees/backups/<repo>/<name>/` — skipping regenerable junk (`node_modules`,
-  `.next`, `.venv`, …) and the already-archived `crew/` — then archives `crew/*.md` and removes the
-  worktree but **keeps the branch** (prints the `git branch -d` command).
+  `.next`, `.venv`, …) and the already-archived `crew/` — **and saves uncommitted TRACKED
+  modifications as one applyable patch** (`uncommitted-tracked.patch` + `status-at-rm.txt` in the
+  same backup dir; recover with `git apply`) — then archives `crew/*.md` and removes the worktree
+  but **keeps the branch** (prints the `git branch -d` command).
+- **Work-loss warning** — `rm` warns loudly when a worktree's `crew/BOARD.md` claims `DONE` but its
+  branch has **zero commits** vs its base: the claimed work exists only as uncommitted changes, or
+  nowhere (the failure that lost `feat/n-instance-crews`' implementation). Paired with the
+  coordinator's ★ DELIVERABLE-EXISTENCE GATE (branch pushed / PR number on the BOARD / records
+  committed — before "done", before any `rm`).
 - **Fresh base (GATE 0)** — create runs `git fetch origin` and branches each new worktree off the
   current `origin/<default>`, never the local (often-stale) `main`, so worktrees never start behind
   origin. Override with `CCWT_BASE`.
@@ -439,7 +392,7 @@ the stable-channel patch a re-run **rejoins the persisted channel** (verify with
     feat/login/                    # a worktree (branch feat/login, own PORT)
       crew/                        # tracked; the crew's durable records
         BOARD.md  DESIGN.md  implementer.md  …   # *.md travel to git
-        dispatch.sh  crew_wait.sh  crew_status.sh  panes.env  prompts/   # gitignored churn
+        panes.env  prompts/                       # gitignored churn
   <repo>/crew-archive/<branch>/    # rm backstop (gitignored): crew/*.md + design-import/ + design/ref/
 
 ~/.cache/cc-worktrees/             # port lock + reservations + per-repo test locks
@@ -453,5 +406,5 @@ the stable-channel patch a re-run **rejoins the persisted channel** (verify with
 
 - **`WORKFLOW.md`** — the Design → Code → Prove spine cc-worktrees isolates the BUILD phase of.
 - **`VERIFY-WORKFLOW.md`** — GATE-2 (run the suite via `cc-worktrees test -- …`, drive the live app).
-- **`~/.claude/agents/crew-coordinator.md` / `crew-coordinator-v2.md` / `crew-implementer.md`** — the bespoke crew agent defs (v2 = the `-T` pilot lead; see `docs/lessons.md` #121–#123).
+- **`~/.claude/agents/crew-coordinator.md` / `crew-implementer.md`** — the bespoke crew agent defs (v2 = the coordinator lead; see `docs/lessons.md` #121–#123).
 - **`~/.claude/rules/agents.md`** (repo: `rules/agent-delegation.md`) — which agent each crew pane launches as.
