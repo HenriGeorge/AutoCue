@@ -13,14 +13,15 @@ profile (and only the Web-UI profile needs the visual machinery in the next sect
 
 ```mermaid
 flowchart LR
-    S["SHAPE<br/>design-an-interface"] --> G["PRESSURE-TEST<br/>grill-me"]
+    S["SHAPE<br/>design-an-interface"] --> G["PRESSURE-TEST<br/>grill-me (required)"]
     G --> M["MAKE CONCRETE<br/>(by profile — see table)"]
-    M --> B["BUILD<br/>→ WORKFLOW.md"]
-    B --> R["REVIEW<br/>/code-review"]
+    M --> D["DIAGRAM<br/>Mermaid diagram (required)"]
+    D --> B["BUILD<br/>→ WORKFLOW.md"]
+    B --> R["REVIEW<br/>code-reviewer + silent-failure-hunter"]
 ```
 
 - **SHAPE** — `design-an-interface` ("Design It Twice": 3+ radically different designs, compared on simplicity/depth/misuse-resistance) → the chosen interface shape. This is the strongest fit for CLI/library/API work, where the "interface" _is_ the deliverable.
-- **PRESSURE-TEST** — `grill-me` → severity-tiered flaws surfaced. **Fold every finding back into
+- **PRESSURE-TEST** *(required — never skip)* — `grill-me` → severity-tiered flaws surfaced. **Fold every finding back into
   the plan/design doc before moving on** — a flaw noted in the grill-me transcript but never
   incorporated into the actual design didn't happen; the doc, not the conversation, is what SHAPE
   hands to BUILD. Fixed _before_ you commit to a direction.
@@ -33,8 +34,9 @@ flowchart LR
   | **CLI / Library** | the public interface — signatures, flags/args, exit codes, error types | the `design-an-interface` output; a usage/`--help` sketch |
   | **Data / Pipeline** | the data contract — input/output schema, partitioning, idempotency, lineage | schema doc; sample-in → sample-out fixtures |
 
+- **DIAGRAM** *(required)* — the design must include a **Mermaid diagram** of the approach (flow / state machine / architecture / interface) in the design doc/spec. It's picked up at CLOSE when `/workflow-diagrams` refreshes the project's diagram page.
 - **BUILD** — domain skills (web: `frontend-design`) → production code. _(Hand-off: `WORKFLOW.md` BUILD → VERIFY ⛔ now owns it.)_
-- **REVIEW** — `/code-review` (web also: `web-design-guidelines` UI-guidelines audit).
+- **REVIEW** — the panel: **required** `code-reviewer` (= `/code-review`, run one) + `silent-failure-hunter`; **recommended** `code-simplifier` + `comment-analyzer`; `/security-review` (distinct); web also `web-design-guidelines`. **If the panel changes code, re-run VERIFY before merge.**
 
 ---
 
