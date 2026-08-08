@@ -16,6 +16,7 @@ Inline Mermaid is canonical here (the repo's docs convention — no committed im
 | No idle teammate — fill or park before you wait | no-idle-wait / idle-triage / one-live-driver / autonomy-contract |
 | Dev-port ownership across worktrees | #103 |
 | Test-ownership partition at P3 | #99 |
+| N-instance crews — count writers, not agents | #162 / #163 |
 | Shutdown handshake by agent-type | #156 |
 
 ---
@@ -105,14 +106,67 @@ flowchart LR
 Encodes **#99** (partition test ownership by file — `git diff --name-only` confirms zero overlap;
 extends the single-code-owner rule to the test layer).
 
-**N instances of a role (#162/#163) are the same invariant one level up** — multiple writers,
-disjoint FILES becomes multiple implementers, disjoint WORKTREES. Count writers, not agents: N
-read-only auditors can share a worktree (two lenses on one diff is diversity, not duplication);
-every extra implementer gets its own worktree, provisioned by the coordinator with
-`cc-worktrees add` (never by the teammate — the create default spawns a whole crew). The
-coordinator names each instance's result file (`crew/<role>-<slug>.md`) and diff range in every
-assignment, and serializes merges (fresh PR for post-merge follow-ups; `merge-base --is-ancestor`
-on every "pushed" claim).
+---
+
+## N-instance crews — count writers, not agents
+
+**#162/#163: the test-ownership partition, one level up** — multiple writers, disjoint FILES
+becomes multiple implementers, disjoint WORKTREES. The full lifecycle (numbers = order; verified
+end-to-end by two live runs — the claude_template acceptance trial and the fresh-project rollout
+verification, both GO):
+
+```mermaid
+flowchart TD
+    subgraph project["ONE PROJECT — one coordinator · one DB · one test lock · one merge queue"]
+      CO["COORDINATOR<br/>records + merge queue — never edits source"]
+      subgraph wtA["worktree feat/story-a · PORT 3001"]
+        IA["implementer-a<br/>sole writer HERE"]
+      end
+      subgraph wtB["worktree feat/story-b · PORT 3002"]
+        IB["implementer-b<br/>sole writer HERE"]
+      end
+      AU["auditor(s) — read-only<br/>share any worktree"]
+    end
+    CO -->|"① cc-worktrees add feat/story-a"| wtA
+    CO -->|"① cc-worktrees add feat/story-b"| wtB
+    CO -->|"② spawn + select-pane -T implementer-a"| IA
+    CO -->|"② spawn + title implementer-b"| IB
+    IA -->|"③ TDD · lock-held suite<br/>result → crew/implementer-a.md"| DA["diff A<br/>feat/story-a"]
+    IB -->|"③ result → crew/implementer-b.md"| DB["diff B<br/>feat/story-b"]
+    DA -->|"④ NAMED input: branch + range + file"| AU
+    DB -->|"④"| AU
+    AU -->|"findings → crew/auditor-&lt;slug&gt;.md"| CO
+    DA --> MQ
+    DB --> MQ
+    MQ{"⑤ MERGE QUEUE — serial<br/>re-verify base AT merge time<br/>merge-base --is-ancestor per story"}
+    MQ -->|"green + audit clean"| MAIN[("main")]
+    MAIN --> GATE["⑥ DELIVERABLE-EXISTENCE GATE<br/>commits on origin · PR # on BOARD · records committed"]
+    classDef gate fill:#ffe9e9,stroke:#d33,stroke-width:2px;
+    class MQ,GATE gate;
+```
+
+The six numbered legs: **①** the COORDINATOR provisions each extra implementer's worktree with
+`cc-worktrees add` (worktree + free PORT + env carry-in — no session, no claude; a teammate never
+runs cc-worktrees itself, the create default spawns a whole crew); **②** spawn + `tmux
+select-pane -T <role>-<slug>` — the title is how reconcile-on-resume tells twin panes apart;
+**③** each instance writes the coordinator-NAMED result file (`crew/<role>-<slug>.md`); **④** an
+auditor's input is named, never inferred — branch + diff range + result file per assignment (two
+auditors on ONE diff through different lenses is diversity, not duplication); **⑤** merges are
+serial with the base re-verified at merge time (a comparison taken earlier is a photograph, not a
+fact — fresh PR for post-merge follow-ups); **⑥** nothing is "done" until the work provably exists
+outside the worktrees.
+
+**When to scale — and when not to:**
+
+```mermaid
+flowchart LR
+    Q{"need more throughput?"} -->|"more review lenses"| A["add AUDITORS — free<br/>read-only · share worktrees<br/>correctness vs security on ONE diff"]
+    Q -->|"parallel stories"| B{"file-disjoint AND<br/>not DB-heavy?"}
+    B -->|yes| C["add an IMPLEMENTER<br/>= its OWN worktree via cc-worktrees add<br/>coordinator provisions, teammate never"]
+    B -->|no| D["DON'T scale —<br/>one DB · one lock · one PR queue<br/>parallel bulk work = negative throughput"]
+    classDef stop fill:#ffe9e9,stroke:#d33,stroke-width:2px;
+    class D stop;
+```
 
 ---
 

@@ -94,7 +94,7 @@ flowchart TD
 | `-b PORT`       | create | Base port for the free-port search (default `3000`; in-use/reserved ports auto-skipped).       |
 | `-t CAT`        | create | Default category applied to bare slugs.                                                        |
 | `-T`            | create | Explicit alias for crew (the only crew mode) — accepted, never an error, for existing scripts/muscle memory. |
-| `--review-dock` | create | Scaffold the dev-only in-page review dock (see below).                                         |
+| `--review-dock` | create | Scaffold the in-page review dock — dev (zero-config) + opt-in prod (see below).                                         |
 | `--figma`       | create | Scaffold the SVG→Figma bridge (see below). `FIGMA_SCAFFOLD=1` makes this the per-repo default. |
 | `--no-figma`    | create | Skip the Figma scaffold even when `FIGMA_SCAFFOLD=1` makes it the per-repo default.            |
 | `-f`            | rm     | Force-remove even with uncommitted/untracked changes (untracked + ignored files backed up, tracked modifications saved as an applyable patch — see safety). |
@@ -250,10 +250,37 @@ Both copy from a shared template store at `${XDG_DATA_HOME:-~/.local/share}/cc-w
 (seed it once; missing store → the flag is a no-op with a notice). Neither ever overwrites an
 existing file.
 
-- **`--review-dock`** → `app/components/terminal/{ReviewDock.tsx,review-dock.css}` +
-  `app/api/review-note/route.ts`. A dev-only, prod-gated in-page dock (with an element picker) that
-  POSTs change-requests to `crew/REVIEW-NOTES.md` for the coordinator to action. Mount `<ReviewDock/>`
-  in a dev-only layout.
+- **`--review-dock`** → an in-page review dock with an element **picker**, **screenshot-on-Send**
+  (snapdom — browser work, **0 LLM tokens**; `npm i -D @zumer/snapdom`), and **🎙 voice dictation**
+  (Chrome-only). Two modes, gated by the `enabled` prop the root layout computes:
+  - **DEV (zero-config default)** — POSTs to `app/api/review-note/route.ts`, which appends to
+    `crew/REVIEW-NOTES.md` + writes `crew/review-shots/*.webp`. No auth, no DB.
+  - **PROD (opt-in)** — Vercel's FS is read-only, so prod is admin-gated Supabase persistence: a
+    `review_notes` row + a shot in a **private** `review-shots` bucket + a signed-URL viewer at
+    `/admin/review-notes`. Needs the `review-dock-adapter.ts` (5 auth/DB seam fns you implement — of which
+    `isReviewAdmin()` is deliberately **build-safe**: it returns `false` rather than throwing, so an unwired
+    project still `next build`s; the other four throw loud) + the `review_notes.sql` migration applied
+    **before** the first prod POST. `review-notes.ts` imports `server-only`, so **`npm i server-only`** is
+    required for prod mode.
+
+  Scaffolds `{ReviewDock.tsx, review-dock.css, route.ts, shot.ts, review-notes.ts,
+  review-dock-adapter.example.ts, admin-review-notes-page.tsx}` + a timestamped
+  `supabase/migrations/*_review_notes.sql`. `ReviewDock` takes a `hideOnPaths` prop (default `["/admin"]`,
+  segment-matched) to keep the dock off the admin area including its own viewer. Full wiring (incl. the
+  dev-server-is-reachable + size-cap security notes) in the scaffold's `WIRING.md`.
+
+  ```mermaid
+  flowchart LR
+    Dock["ReviewDock<br/>enabled gate · PICK · 🎙 · snapshot"] --> POST["POST /api/review-note"]
+    POST --> Q{"NODE_ENV = production?"}
+    Q -->|dev| FS["append crew/REVIEW-NOTES.md<br/>+ write crew/review-shots/*.webp<br/>zero-config · no auth"]
+    Q -->|prod| GATE{"requireReviewAdmin()<br/>before body parse"}
+    GATE -->|not admin| E["401 / 403"]
+    GATE -->|admin| DB["service-role insert review_notes<br/>+ upload shot → private review-shots bucket"]
+    DB --> VIEW["/admin/review-notes<br/>requireReviewAdminPage → signed-URL viewer"]
+    classDef prod fill:#F3F1FE,stroke:#6C5CE0,color:#1A1A2E;
+    class GATE,DB,VIEW prod;
+  ```
 - **`--figma`** → copies the full Figma toolkit into `scripts/` — the config-driven `figma-export.mjs`
   driver plus `page-to-svg.mjs`, `svg-to-figma.mjs`, `figma-page.mjs`, `probe-channels.mjs`,
   `capture-dialog.mjs`, `tokens-to-figma.mjs` (Pipeline A — CSS→Figma variables),
