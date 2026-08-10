@@ -1,10 +1,15 @@
 # Design Workflow (the _how_ of GATE 1)
 
+Last updated: 2026-08-10 01:49
+
+> Companion to `rules/design-workflow.md` — no auto-sync; edit both by hand.
+
 The Design leg of **Design → Code → Prove** (`WORKFLOW.md`). This is _how_ you satisfy
 GATE 1 — turn intent into a concrete, approved design before any implementation. A
 `CLAUDE.md` instruction still wins, and the gate is never skipped. A design is **approved**
-when shape + tokens + key states are concrete enough to build without guessing — then
-`WORKFLOW.md` BUILD → VERIFY takes over. Run the stages that fit; skip what doesn't.
+when shape + tokens + key states are concrete enough to build without guessing — the sharpest,
+executable form of that bar is **you can write a RED test against the contract** (the COVER step
+below). Then `WORKFLOW.md` BUILD → VERIFY takes over. Run the stages that fit; skip what doesn't.
 
 ## The design pipeline (universal spine)
 
@@ -16,7 +21,8 @@ flowchart LR
     S["SHAPE<br/>design-an-interface"] --> G["PRESSURE-TEST<br/>grill-me (required)"]
     G --> M["MAKE CONCRETE<br/>(by profile — see table)"]
     M --> D["DIAGRAM<br/>Mermaid diagram (required)"]
-    D --> B["BUILD<br/>→ WORKFLOW.md"]
+    D --> C["COVER (test-first)<br/>test-designer → coverage<br/>write the FAILING test → run it alone: RED"]
+    C --> B["BUILD<br/>→ WORKFLOW.md"]
     B --> R["REVIEW<br/>code-reviewer + silent-failure-hunter"]
 ```
 
@@ -35,7 +41,21 @@ flowchart LR
   | **Data / Pipeline** | the data contract — input/output schema, partitioning, idempotency, lineage | schema doc; sample-in → sample-out fixtures |
 
 - **DIAGRAM** *(required)* — the design must include a **Mermaid diagram** of the approach (flow / state machine / architecture / interface) in the design doc/spec. It's picked up at CLOSE when `/workflow-diagrams` refreshes the project's diagram page.
-- **BUILD** — domain skills (web: `frontend-design`) → production code. _(Hand-off: `WORKFLOW.md` BUILD → VERIFY ⛔ now owns it.)_
+- **COVER (test-first)** *(the executable proof the design is buildable)* — turn the concrete contract into a **red test** before any production code. Two sub-parts:
+
+  1. **coverage** — `test-designer` maps the contract's behaviours / state-transitions → a coverage doc (Mermaid for stateful flows, checklist table otherwise). Advisory; no test code yet.
+  2. **failing test** — write the behaviour test(s) that encode that coverage (profile-matched — see the table below), then **run JUST that new test on its own** (`cc-worktrees test -- <only this test>`) **to confirm it fails RED for the RIGHT reason** — an assertion / 404 / not-implemented, _not_ a syntax error or missing import. Run ONLY the new test, not the whole suite — the rest of the suite stays **green**; only this one test is **red**.
+
+  > ⚠ Do **not** run `/validate` here. `/validate` is the **full-suite GREEN gate** at VERIFY (`WORKFLOW.md` P4); a whole-suite run at COVER would just fail on the single test you deliberately made red. The red test is the executable form of the contract; it hands to BUILD so BUILD is genuinely **red→green**.
+
+  | Profile | The failing test is… |
+  | --- | --- |
+  | **Web UI** | an `e2e/*.spec.ts` against the approved flow (`playwright-tester`), red because the feature is unbuilt |
+  | **Service / API** | an integration test hitting the contract endpoints, red (404 / not-implemented) |
+  | **CLI / Library** | a golden / signature test against the public interface, red |
+  | **Data / Pipeline** | a fixture test (sample-in → sample-out), red |
+
+- **BUILD** — domain skills (web: `frontend-design`) → production code that turns the COVER red test green. _(Hand-off: `WORKFLOW.md` BUILD → VERIFY ⛔ now owns it.)_
 - **REVIEW** — the panel: **required** `code-reviewer` (= `/code-review`, run one) + `silent-failure-hunter`; **recommended** `code-simplifier` + `comment-analyzer`; `/security-review` (distinct); web also `web-design-guidelines`. **If the panel changes code, re-run VERIFY before merge.**
 
 ---
@@ -90,7 +110,7 @@ flowchart TD
     C -->|no| F{"FINAL approved<br/>design only?"}
     F -->|yes| M["Figma MCP get_design_context<br/>⚠ spends quota"]
     F -->|no| W
-    classDef paid fill:#ffe9e9,stroke:#d33,stroke-width:2px;
+    classDef paid fill:#ffe9e9,stroke:#d33,stroke-width:2px,color:#333;
     class M paid;
 ```
 

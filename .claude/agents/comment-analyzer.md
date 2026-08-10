@@ -1,7 +1,7 @@
 ---
 name: comment-analyzer
 description: Analyzes code comments for accuracy, completeness, and long-term value. Use after generating documentation, before PRs with comment changes, or when auditing for comment rot. Verifies comments match actual code behavior. Advisory only - identifies issues, does not modify code.
-model: sonnet
+model: claude-haiku-4-5-20251001
 color: blue
 ---
 

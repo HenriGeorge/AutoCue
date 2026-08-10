@@ -1,5 +1,7 @@
 # Canonical Workflow
 
+Last updated: 2026-08-10 01:49
+
 > **THE LAW — Design → Code → Prove.** Shape it before you build it (GATE 1 ⛔), prove it
 > with fresh evidence before you call it done (GATE 2 ⛔). Two hard gates, never skipped.
 > The _how_ of the Design and Prove legs lives in `DESIGN-WORKFLOW.md` / `VERIFY-WORKFLOW.md`.
@@ -52,8 +54,8 @@ flowchart TD
     RS --> P1
     G0 -->|"current"| P1
     P1["1 · SPEC — GATE 1 ⛔<br/>brainstorming auto · grill-me (required)<br/>Mermaid diagram of the design (required)<br/>/bmad-prd (heavy) · design doc → docs/superpowers/specs/"] --> P2
-    P2["2 · PLAN + TEST DESIGN<br/>writing-plans auto → docs/superpowers/plans/<br/><b>test-designer</b> → behaviour coverage (Mermaid + checklist)"] --> P3
-    P3["3 · BUILD + WRITE TESTS<br/>cc-worktrees -c feat/x<br/>TDD auto · write the behaviour/user-flow tests<br/>run the app/tool (autocue)"] --> P4
+    P2["2 · PLAN + COVER (test-first)<br/>writing-plans auto → docs/superpowers/plans/<br/><b>test-designer</b> → coverage (Mermaid + checklist)<br/>write the FAILING test · run it alone → RED"] --> P3
+    P3["3 · BUILD (red→green)<br/>cc-worktrees -c feat/x<br/>TDD auto · make the COVER test green<br/>domain skills (web: frontend-design · skill-authoring: superpowers:writing-skills)<br/>run the app/tool (autocue)"] --> P4
     P4{"4 · VERIFY — GATE 2 ⛔ — regression, EVERY cycle<br/>cc-worktrees test -- pytest (unit + behaviour)<br/>drive the REAL artifact (by profile — see below)<br/>typecheck · lint · /validate · /verify"}
     P4 -->|"red"| DBG["systematic-debugging auto"]
     DBG --> P4
@@ -71,8 +73,8 @@ flowchart TD
 | --- | ------------------- | ----------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | 0   | PRIME ⛔            | —                                                                             | **sync baseline first** (`git fetch` · behind-count vs `main` · rebase if behind) · **verify the plan premise vs live code** (gap list) · `gh issue list` (already tracked? avoid dup work) · `/prime-core` · `/project-status` · context-map |
 | 1   | SPEC ⛔             | `brainstorming`                                                               | **grill-me (required)** · **Mermaid diagram (required)** · `/bmad-prd` · `/bmad-create-architecture` (heavy) · **see `DESIGN-WORKFLOW.md`**                                                                                         |
-| 2   | PLAN + test design  | `writing-plans`                                                               | **test-designer** (behaviour / user-flow coverage) · `/bmad-create-story`                                                                                                          |
-| 3   | BUILD + write tests | `test-driven-development` · `executing-plans` · `subagent-driven-development` | **cc-worktrees** · write the behaviour tests (the project test-writer — `playwright-tester` for web `e2e/*.spec.ts`) · domain skills                                                |
+| 2   | PLAN + COVER (test-first) | `writing-plans`                                                         | **test-designer** (behaviour / user-flow coverage) · **write the failing test** (the project test-writer — `playwright-tester` for web `e2e/*.spec.ts`) · **run JUST that test** (`cc-worktrees test -- <it>`) → confirm **RED** (rest of suite stays green; ⚠ NOT `/validate` — that's the full-suite green gate at P4) · `/bmad-create-story` · **see `DESIGN-WORKFLOW.md` COVER** |
+| 3   | BUILD (red→green)   | `test-driven-development` · `executing-plans` · `subagent-driven-development` | **cc-worktrees** · make the COVER red test green; add tests as code grows · domain skills (web: `frontend-design` · skill-authoring: **`superpowers:writing-skills`**, which also verifies the skill before deploy at P4)                                                                                          |
 | 4   | VERIFY ⛔           | `verification-before-completion` · `systematic-debugging`                     | `cc-worktrees test -- pytest` (unit + behaviour) · **drive the real artifact** (by profile — see below) · typecheck/lint · `/validate` · `/verify` · **see `VERIFY-WORKFLOW.md`** |
 | 5   | REVIEW              | `requesting-code-review` → `receiving-code-review`                            | **required:** code-reviewer (=`/code-review`, run one) + silent-failure-hunter · **recommended:** code-simplifier + comment-analyzer · `/security-review` · **panel edits → re-run VERIFY**                                                                                                         |
 | 6   | DOCUMENT (impact)   | —                                                                             | **docs-impact-agent** → what did this change make STALE? · `/write` · create-readme · architecture-blueprint (heavy: BMAD Paige)                                                    |
@@ -82,8 +84,8 @@ flowchart TD
 ## Behaviour tests (design → write → run as regression)
 
 Behaviour — the real flows your artifact promises — is first-class, not an afterthought. Design
-the flows in PLAN, write them in BUILD, and run them **every VERIFY cycle** so nothing silently
-breaks. Two layers, both run every cycle:
+the flows AND write the first failing test at COVER (PLAN/P2), turn it green in BUILD, and run them
+**every VERIFY cycle** so nothing silently breaks. Two layers, both run every cycle:
 
 ```mermaid
 flowchart LR
@@ -311,6 +313,9 @@ flowchart LR
 > silent-failure-hunter, type-design-analyzer, web-researcher) **and** the crew + flow agents named
 > above (`crew-coordinator` (crew, the only crew mode)/`crew-implementer`, `test-designer`, `playwright-tester`). They also live
 > machine-globally in `~/.claude/agents/` (installed via `sync-agents.sh`), so they resolve whether or
-> not you're inside a scaffolded project. `Explore` is a built-in agent type; `browser-tester` is not a
-> separate agent file — it's the live-driving **role** played by `playwright-tester` + the
-> `webapp-testing` skill.
+> not you're inside a scaffolded project. As of the plugin POC there is also a **third, optional
+> delivery path**: the same `agents/*.md` are packaged as a Claude Code plugin, so a machine/sandbox
+> can `claude plugin install claude-template@claude-template` under a scoped namespace instead of the
+> `setup.sh` copy (additive — see README's "Install the agents plugin"). `Explore` is a built-in agent
+> type; `browser-tester` is not a separate agent file — it's the live-driving **role** played by
+> `playwright-tester` + the `webapp-testing` skill.

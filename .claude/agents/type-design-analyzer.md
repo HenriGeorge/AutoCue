@@ -1,7 +1,7 @@
 ---
 name: type-design-analyzer
 description: Analyzes type design for encapsulation, invariant expression, and enforcement quality. Use when introducing new types, reviewing PRs with type changes, or refactoring existing types. Provides qualitative feedback and ratings (1-10) on four dimensions. Pragmatic focus - suggests improvements that won't overcomplicate.
-model: sonnet
+model: claude-opus-4-8
 color: yellow
 ---
 

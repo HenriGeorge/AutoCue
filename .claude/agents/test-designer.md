@@ -2,7 +2,7 @@
 name: test-designer
 description: Designs test COVERAGE with the human BEFORE any test code is written — over behaviors and state transitions of any unit (a function/CLI path or a UI flow), web or non-web. Diagrams stateful/multi-step behavior as Mermaid; lists no-state-change items in a checklist table. Use when planning what to test for a feature, when the user says "design the tests / test plan / coverage", or before handing off to a test-writer. Advisory + a design doc only — never writes the tests themselves.
 tools: Read, Grep, Glob, Write
-model: sonnet
+model: claude-opus-4-8
 color: magenta
 ---
 

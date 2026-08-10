@@ -1,7 +1,7 @@
 ---
 name: web-researcher
 description: Need information beyond your training data? Modern docs, recent APIs, or current best practices? Use web-researcher to find answers from the web. Searches strategically, fetches relevant content, and synthesizes findings with proper citations. Re-run with refined prompts if initial results need more depth.
-model: sonnet
+model: claude-opus-4-8
 color: magenta
 ---
 

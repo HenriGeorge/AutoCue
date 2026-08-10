@@ -5,7 +5,7 @@ note-reader:
 
 # cc-worktrees
 
-_Prefer to listen? A prose-only, code-block-free read-aloud edition lives in [`CC-WORKTREES-spoken.md`](CC-WORKTREES-spoken.md) (Obsidian Note Reader / TTS). Keep it in sync when you edit this reference._
+Last updated: 2026-08-10 01:49
 
 > **BUILD-phase isolation & parallelism.** One git worktree per feature (a sibling of the repo),
 > each on its own free port and its own tmux pane — optionally a Claude **crew** (one
@@ -36,7 +36,10 @@ cc-worktrees help                     # full usage
 ```
 
 Each worktree lives at **`<repo>-worktrees/<name>`** — a _sibling_ of the main repo, never nested
-(even when you run the command from inside another worktree). The tmux session is `ccwt-<repo>`.
+(even when you run the command from inside another worktree). The tmux session is per-worktree:
+`ccwt-<repo>-<slug>` (slug = the worktree name with `/` → `-`; a short deterministic suffix is
+appended only if two differently-named worktrees sanitize to the same slug and would otherwise
+collide).
 
 **New branches base on the current `origin/<default>` (GATE 0, automatic).** Create first runs
 `git fetch origin` and branches each new worktree off the freshly-fetched default branch — never the
@@ -56,7 +59,7 @@ local (often-stale) `main` — so you never start work behind origin. Override w
 | `cc-worktrees test [--] <cmd>…`                                              | Run `<cmd>` while holding the per-repo test lock (a second `test` blocks until the first releases).                                              |
 | `cc-worktrees figma <doctor\|up [--run-last]\|probe\|confirm> [ch…]`         | talk-to-figma bridge: the **nine guards**, relay + Figma launch, and **live-channel proof** (see [Figma bridge](#figma-bridge-talk-to-figma)).       |
 | `cc-worktrees figma import-plugin [manifest]`                                | UI-scripts the dev-plugin manifest import into the FOCUSED Figma window, verifies it landed by reading the menu back, then runs it by name (default `figma-plugin/manifest.json`). |
-| `cc-worktrees revive <worktree> [role]`                                      | Relaunch an accidentally-closed crew claude **in its original pane**, resuming its original session (`<ROLE>_SESSION` from `crew/panes.env`; pre-session-id crews fall back to the coordinator marker or claude's `--resume` picker). Refuses a pane that is still running something. |
+| `cc-worktrees revive <worktree> [role]`                                      | Relaunch an accidentally-closed crew claude **in its original pane**, resuming its original session (`<ROLE>_SESSION` from `crew/panes.env`; pre-session-id crews fall back to the coordinator marker or claude's `--resume` picker). Refuses a pane that is still running something. **Under crew mode (the only mode), only `role=coordinator` (the default) actually revives; passing any other role always errors** — individual teammates are separate OS processes that die/survive independently of the coordinator and are not individually revivable (see RECONCILE-ON-RESUME in the Crew section). To recover a dead teammate pane, revive the coordinator; its RECONCILE-ON-RESUME contract reconciles against live teammate processes before spawning replacements. |
 | `cc-worktrees init`                                                          | Write `.claude/worktrees.conf` with autodetected `SETUP`/`PROFILE`/`BASE_PORT`.                                                                  |
 | `cc-worktrees help`                                                          | Usage.                                                                                                                                           |
 | `cc-worktrees selfupdate`                                                    | Refresh the installed `~/.local/bin/cc-worktrees` from the source sentinel `setup.sh` wrote. **Refuses** a sentinel pointing into a transient `*-worktrees/` checkout (which would deploy stale, branch-drifted code).                                            |

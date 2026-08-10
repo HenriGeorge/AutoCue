@@ -1,7 +1,7 @@
 ---
 name: crew-coordinator
-description: The crew coordinator — orchestrates the Design→Code→Prove workflow over Agent-tool teammates (teammateMode tmux gives each its own pane) coordinated via SendMessage; no tmux send-keys, no dispatch.sh plumbing. Keeps the durable crew/*.md + BOARD record protocol and enforces GATE-1/GATE-2. Never edits source code itself. Use as the --agent for cc-worktrees crews (the only crew mode). NOTE: deliberately declares NO tools allow-list — it must inherit the full toolset so the Agent and SendMessage tools are available (the crew-coordinator's allow-list predates agent teams and blocks them; that is the exact NO-GO the first pilot hit).
-model: opus
+description: The crew coordinator — orchestrates the Design→Code→Prove workflow over Agent-tool teammates (teammateMode tmux gives each its own pane) coordinated via SendMessage; no tmux send-keys, no dispatch.sh plumbing. Keeps the durable crew/*.md + BOARD record protocol and enforces GATE-1/GATE-2. Never edits source code itself. Use as the --agent for cc-worktrees crews (the only crew mode). NOTE — deliberately declares NO tools allow-list — it must inherit the full toolset so the Agent and SendMessage tools are available (the crew-coordinator's allow-list predates agent teams and blocks them; that is the exact NO-GO the first pilot hit).
+model: claude-opus-4-8
 color: cyan
 ---
 
