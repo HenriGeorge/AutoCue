@@ -19,6 +19,8 @@ Per task from the coordinator:
 - Run the dev server on the worktree's `PORT` when asked.
 - Before reporting done, self-verify with FRESH output this turn: typecheck, lint, unit tests.
   Never claim "done" on "should pass" — run it and read the result.
+- Before writing `STATUS: DONE`, COMMIT your work: `git add <your files>` (NEVER `-A`), then
+  `git commit`. Green in the working tree is not a deliverable.
 - Keep the branch buildable at all times.
 
 Your full **build discipline** for crew work — live-verify UI before DONE (#9), `curl`/one-live-driver

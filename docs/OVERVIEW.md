@@ -1,5 +1,7 @@
 # Overview — how we work, at a glance
 
+Last updated: 2026-08-10 04:27
+
 A single visual atlas of how this project works: the **Design → Code → Prove** workflow it follows,
 and where every other doc fits. Each section links to its deep-dive. **The two laws:** _design before
 code_ (GATE 1), _evidence before "done"_ (GATE 2) — and before either, _sync the baseline_ (GATE 0).
@@ -23,7 +25,7 @@ flowchart TD
     BMAD -.feeds.-> Spine
     CW -.isolates.-> Spine
     Spine --> Out["shipped, verified work"]
-    classDef law fill:#ffe9e9,stroke:#d33,stroke-width:2px;
+    classDef law fill:#ffe9e9,stroke:#d33,stroke-width:2px,color:#333;
     class Spine law;
 ```
 
@@ -49,7 +51,7 @@ flowchart TB
     DR["/dev-reflect<br/>→ lessons.md"]
   end
   ENTRY ==> RUNTIME ==> SHIP
-  HK["hooks<br/>Pre · Post · Session · Stop<br/>guard every tool call"] -.enforce.-> BUILD
+  HK["hooks<br/>Pre · Post · Session · Stop · SubagentStop<br/>guard every tool call"] -.enforce.-> BUILD
   FIG["Figma bridge<br/>code ⇄ design"] -.web GATE 1.-> G1
   DR -.promote → rule / doc / test.-> G0
   classDef gate fill:#ffe9e9,stroke:#d33,stroke-width:2px,color:#3a0f0b;
@@ -68,12 +70,12 @@ are never skipped; trivial changes go inline but GATE 2 still applies.
 ```mermaid
 flowchart LR
     P0["0 · PRIME<br/>GATE 0 ⛔ sync baseline"] --> P1["1 · SPEC<br/>GATE 1 ⛔ design approved"]
-    P1 --> P2["2 · PLAN<br/>+ test design"] --> P3["3 · BUILD<br/>+ write tests"]
+    P1 --> P2["2 · PLAN<br/>+ COVER (test-first)"] --> P3["3 · BUILD<br/>red→green"]
     P3 --> P4{"4 · VERIFY<br/>GATE 2 ⛔ fresh evidence"}
     P4 -->|red| DBG["systematic-debugging"] --> P4
     P4 -->|green| P5["5 · REVIEW"] --> P6["6 · DOCUMENT"] --> P7["7 · FINISH"] --> P8["8 · CLOSE"]
     P8 --> Done([Done])
-    classDef gate fill:#ffe9e9,stroke:#d33,stroke-width:2px;
+    classDef gate fill:#ffe9e9,stroke:#d33,stroke-width:2px,color:#333;
     class P0,P1,P4 gate;
 ```
 
@@ -122,7 +124,8 @@ flowchart LR
     S["SHAPE<br/>design-an-interface"] --> G["PRESSURE-TEST<br/>grill-me (required)"]
     G --> M["MAKE CONCRETE<br/>(by profile)"]
     M --> D["DIAGRAM<br/>Mermaid diagram (required)"]
-    D --> B["BUILD<br/>→ WORKFLOW.md"]
+    D --> Cv["COVER (test-first)<br/>coverage → failing test → run alone: RED"]
+    Cv --> B["BUILD<br/>→ WORKFLOW.md"]
     B --> R["REVIEW<br/>code-reviewer + silent-failure-hunter"]
     M -.web only.-> WUI["art-direct · tokens · polish<br/>(Figma machinery)"]
 ```
@@ -153,11 +156,12 @@ runs whole, every cycle.
 flowchart LR
     ST["STATIC<br/>typecheck · lint · unit"] --> BE["BEHAVIORAL<br/>e2e/behaviour regression"]
     BE --> EX["EXERCISE<br/>drive the REAL artifact (by profile)"]
-    EX --> Q{evidence green?}
+    EX --> SF{"silent-failure check<br/>catch actually THROWS?<br/>(no dead try/catch)"}
+    SF --> Q{evidence green?}
     Q -->|no| DBG["systematic-debugging<br/>root cause → 1 fix → re-run all"]
     DBG --> ST
     Q -->|yes| CL["CLAIM with evidence<br/>→ REVIEW"]
-    classDef gate fill:#ffe9e9,stroke:#d33,stroke-width:2px;
+    classDef gate fill:#ffe9e9,stroke:#d33,stroke-width:2px,color:#333;
     class CL gate;
 ```
 
@@ -223,6 +227,11 @@ Always run suites via `cc-worktrees test -- <cmd>` (holds the lock). Scaling a c
 implementer? The coordinator provisions each extra implementer's worktree with `cc-worktrees add`
 (worktree + PORT only — no session, no claude; teammates never run cc-worktrees themselves).
 → [`CC-WORKTREES.md`](CC-WORKTREES.md)
+
+**Optional — RTK output compression.** An opt-in (OFF by default) CLI proxy that compresses noisy
+command output before it reaches the LLM. Instruction-based (no PreToolUse hook at project scope),
+telemetry forced off, and the H1–H10 guards still fire on its `rtk `-prefixed commands.
+→ [`RTK.md`](RTK.md)
 
 ---
 
@@ -314,6 +323,7 @@ flowchart TD
     CW --> GR["crew-workflow-guardrails.md<br/>crew-ops decision diagrams"]
     O --> FU["FIGMA-UI.md / FIGMA-EXPORT.md<br/>figma mechanics + pipelines (web)"]
     O --> LL["lessons.md<br/>the lessons log"]
+    O --> DG["DIAGRAMS.md<br/>full diagram index by topic"]
 ```
 
 | Doc | Read it when |
@@ -326,4 +336,5 @@ flowchart TD
 | [`FIGMA-EXPORT.md`](FIGMA-EXPORT.md) / [`figma-copy.md`](figma-copy.md) _(web)_ | code → Figma export pipeline |
 | [`FIGMA-UI.md`](FIGMA-UI.md) _(web)_ | Figma-MCP mechanics, quota strategy |
 | [`lessons.md`](lessons.md) | the hard-won lessons log |
+| [`DIAGRAMS.md`](DIAGRAMS.md) | want the full index of every committed Mermaid diagram, by topic |
 | `/workflow-diagrams` | run this command to generate this project's browsable page of every committed Mermaid diagram, by topic |

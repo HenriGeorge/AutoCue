@@ -1,0 +1,27 @@
+{
+  "_comment": "Canonical Tier-1 hook wiring (12 wirings) — single source for `setup.sh` scaffold AND `setup.sh --update-hooks --init-missing` (issue #94). Command placeholders ({{HOOK_*}}) are resolved per-project at apply time based on the detected stack (python via uv, or node). Keep this in lockstep with the scaffold heredoc in setup.sh (guarded by a parity test in tests/test_hook_wiring_merge.sh).",
+  "hooks": {
+    "SessionStart": [
+      { "matcher": "", "hooks": [{ "type": "command", "command": "{{HOOK_SS}}" }] }
+    ],
+    "PreToolUse": [
+      { "matcher": "", "hooks": [{ "type": "command", "command": "{{HOOK_PRE}}" }] },
+      { "matcher": "", "hooks": [{ "type": "command", "command": "{{HOOK_GRILL}}" }] },
+      { "matcher": "", "hooks": [{ "type": "command", "command": "{{HOOK_PR}}" }] },
+      { "matcher": "", "hooks": [{ "type": "command", "command": "{{HOOK_TDD}}" }] }
+    ],
+    "PostToolUse": [
+      { "matcher": "Write|Edit", "hooks": [{ "type": "command", "command": "{{HOOK_POST}}" }] },
+      { "matcher": "Write|Edit", "hooks": [{ "type": "command", "command": "{{HOOK_SKILL}}" }] },
+      { "matcher": "Write|Edit", "hooks": [{ "type": "command", "command": "{{HOOK_GRILL_NUDGE}}" }] }
+    ],
+    "Stop": [
+      { "matcher": "", "hooks": [{ "type": "command", "command": "{{HOOK_STOP}}" }] },
+      { "matcher": "", "hooks": [{ "type": "command", "command": "{{HOOK_STOP2}}" }] },
+      { "matcher": "", "hooks": [{ "type": "command", "command": "{{HOOK_CLOSE}}" }] }
+    ],
+    "SubagentStop": [
+      { "matcher": "", "hooks": [{ "type": "command", "command": "{{HOOK_CONTEXT_NUDGE}}" }] }
+    ]
+  }
+}

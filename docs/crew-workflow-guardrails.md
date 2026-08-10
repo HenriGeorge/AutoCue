@@ -1,5 +1,7 @@
 # Crew workflow guardrails
 
+Last updated: 2026-08-09 21:28
+
 Decision diagrams that turn a `cc-worktrees` crew session's recurring frictions into **branch logic**.
 A retrospective lesson in [`lessons.md`](lessons.md) records *what* went wrong; the diagram below makes
 the failure mode structurally hard to repeat. These are **crew-mechanism** guardrails — they apply when
@@ -92,9 +94,11 @@ port, flag never clobber).
 
 ---
 
-## Test-ownership partition at P3
+## Test-ownership partition (COVER/P2 + P3)
 
-When the implementer (TDD) and the verifier both produce tests, split by file so they never collide:
+The verifier's first failing `e2e/*.spec.ts` is written at COVER (P2) and made green in BUILD (P3);
+the implementer's unit cases grow during BUILD. When both produce tests, split by file so they never
+collide — the partition holds regardless of which phase writes first:
 
 ```mermaid
 flowchart LR
@@ -141,7 +145,7 @@ flowchart TD
     MQ{"⑤ MERGE QUEUE — serial<br/>re-verify base AT merge time<br/>merge-base --is-ancestor per story"}
     MQ -->|"green + audit clean"| MAIN[("main")]
     MAIN --> GATE["⑥ DELIVERABLE-EXISTENCE GATE<br/>commits on origin · PR # on BOARD · records committed"]
-    classDef gate fill:#ffe9e9,stroke:#d33,stroke-width:2px;
+    classDef gate fill:#ffe9e9,stroke:#d33,stroke-width:2px,color:#333;
     class MQ,GATE gate;
 ```
 
@@ -164,7 +168,7 @@ flowchart LR
     Q -->|"parallel stories"| B{"file-disjoint AND<br/>not DB-heavy?"}
     B -->|yes| C["add an IMPLEMENTER<br/>= its OWN worktree via cc-worktrees add<br/>coordinator provisions, teammate never"]
     B -->|no| D["DON'T scale —<br/>one DB · one lock · one PR queue<br/>parallel bulk work = negative throughput"]
-    classDef stop fill:#ffe9e9,stroke:#d33,stroke-width:2px;
+    classDef stop fill:#ffe9e9,stroke:#d33,stroke-width:2px,color:#333;
     class D stop;
 ```
 

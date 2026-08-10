@@ -1,5 +1,9 @@
 # Verify Workflow (the *how* of GATE 2)
 
+Last updated: 2026-08-10 01:49
+
+> Companion to `rules/verify-workflow.md` — no auto-sync; edit both by hand.
+
 The Prove leg of **Design → Code → Prove** (`WORKFLOW.md`). This is *how* you satisfy
 GATE 2 — earn the word "done" with FRESH evidence THIS turn. The discipline: **RUN it →
 READ it → SHOW it.** No "should / probably / seems" — run the check, read the real output,
@@ -23,6 +27,12 @@ flowchart LR
 - **STATIC** *(seconds — fail fast)* — typecheck + lint + unit via `/validate` (or the project's command). Always-on, zero flakiness.
 - **BEHAVIORAL** *(codified regression — run EVERY cycle)* — the behaviour-test suite for your stack (web: `e2e/*.spec.ts` via `playwright-tester`; `frontend-testing` for vitest; service: integration tests; CLI/lib: golden/property tests; data: fixture tests). Hold the per-repo lock: `cc-worktrees test -- <cmd>`.
 - **EXERCISE** *(green ≠ works)* — start the artifact and drive the RUNNING thing: `/verify`. _How_ depends on the profile (table below). Codify anything you check by hand as a test.
+- **LOCAL-STACK OWNERSHIP** *(before you conclude "data loss")* — every cc-worktrees project runs
+  `supabase start` on the same default ports (54321/54322), so a sibling project can silently
+  squat them and your app drives the *wrong, empty* DB — which reads as vanished data. Before
+  believing it: `docker ps` for **who binds 54321/54322**, `docker ps -a` for your own db
+  container's real state (`Created` / `Exited (137)` ≠ running); fix with `supabase stop &&
+  supabase start` (volumes preserved). (#178)
 - **ON FAIL** — `systematic-debugging` (root cause → ONE hypothesis → failing test → single fix), then re-run the WHOLE pipeline. Don't patch symptoms; ≥3 failed fixes → question the architecture.
 
 ### Drive the real artifact — by profile
