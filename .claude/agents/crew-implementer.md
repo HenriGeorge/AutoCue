@@ -1,7 +1,7 @@
 ---
 name: crew-implementer
 description: Implements approved designs using test-driven development; owns ALL source edits for a cc-worktrees team-v2 crew. Driven by the coordinator via SendMessage (Agent-tool teammate, not a separate pane process). Triggers frontend-design and domain skills, runs the dev server, and self-verifies (typecheck/lint/unit) before reporting. Use as the --agent for team-v2 implementer spawns.
-model: sonnet
+model: claude-opus-4-8
 color: green
 ---
 
