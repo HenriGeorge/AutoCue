@@ -39,7 +39,7 @@ never skipped.
 
 ```mermaid
 flowchart TD
-    P0["0 · PRIME — GATE 0 ⛔<br/>git fetch · behind-count vs main · rebase if behind · gh issue list (dup check) · /prime-core · /project-status"] --> G0
+    P0["0 · PRIME — GATE 0 ⛔<br/>read docs/WORKFLOW.md · invoke superpowers:using-superpowers<br/>git fetch · behind-count vs main · rebase if behind · gh issue list (dup check) · /prime-core · /project-status"] --> G0
     G0{"GATE 0+ ⛔ — is the plan/brief premise still TRUE vs live code?<br/>research confirms what already exists (gap list)"}
     G0 -->|"stale — already built / wrong scope"| RS["RE-SCOPE<br/>narrow to the REAL gap · re-enter GATE 1"]
     RS --> P1
@@ -62,7 +62,7 @@ flowchart TD
 
 | # | Phase | Drives it (auto) | Commands / tools |
 |---|-------|------------------|------------------|
-| 0 | PRIME ⛔ | — | **sync baseline first** (`git fetch` · behind-count vs `main` · rebase if behind) · **verify the plan premise vs live code** (gap list) · `gh issue list` (already tracked? avoid dup work) · `/prime-core` · `/project-status` · context-map |
+| 0 | PRIME ⛔ | — | **read `docs/WORKFLOW.md` first · invoke `superpowers:using-superpowers`** · **sync baseline first** (`git fetch` · behind-count vs `main` · rebase if behind) · **verify the plan premise vs live code** (gap list) · `gh issue list` (already tracked? avoid dup work) · `/prime-core` · `/project-status` · context-map |
 | 1 | SPEC ⛔ | `brainstorming` | **grill-me (required)** · a **Mermaid diagram** of the design (required) · `/bmad-prd` (heavy) · **see `design-workflow.md`** |
 | 2 | PLAN + COVER (test-first) | `writing-plans` | **test-designer** (behaviour / user-flow coverage) · **write the failing behaviour test** (web: **playwright-tester** → `e2e/*.spec.ts`) · **run JUST that test** (`cc-worktrees test -- <it>`) → confirm **RED** (rest of suite stays green; ⚠ NOT `/validate` — that's the full-suite green gate at P4) · `/bmad-create-story` — **see `design-workflow.md` COVER** |
 | 3 | BUILD (red→green) | `test-driven-development` · `executing-plans` | **cc-worktrees** · make the COVER red test green; add tests as code grows · domain skills |

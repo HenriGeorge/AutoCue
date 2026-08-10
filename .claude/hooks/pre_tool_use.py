@@ -142,11 +142,16 @@ RESET_HARD_REMOTE_RE = re.compile(r"\bgit\s+reset\s+--hard\s+(\S+)")
 # reflog recovery: `git clean -f[d]` (deletes untracked files), `git branch -D` (force-delete an
 # unmerged branch), `git checkout .` / `git restore .` (discard ALL working-tree changes). Each is a
 # block-with-safe-alternative, same nudge-grade heuristic as the rest of H7. We do NOT block ordinary
-# `git push`. `-C <path>` is tolerated between `git` and the subcommand so it's not a bypass.
-GIT_CLEAN_RE = re.compile(r"\bgit\s+(?:-C\s+\S+\s+)?clean\b")
-GIT_BRANCH_RE = re.compile(r"\bgit\s+(?:-C\s+\S+\s+)?branch\b")
-GIT_CHECKOUT_REST_RE = re.compile(r"\bgit\s+(?:-C\s+\S+\s+)?checkout\b(.*)$")
-GIT_RESTORE_REST_RE = re.compile(r"\bgit\s+(?:-C\s+\S+\s+)?restore\b(.*)$")
+# `git push`. Global options between `git` and the subcommand (`-C <path>`, `-c <cfg>`,
+# `--git-dir[=| ]<path>`) are tolerated so they can't smuggle a destroyer past the guard (issue #123 —
+# closes the `git -c core.pager=cat clean -fd` config-bypass class). Still a raw-string heuristic, not
+# a shell tokenizer: a QUOTED flag/pathspec (`git clean '-f'`, `git checkout "."`) slips past — that
+# gap is pinned in the H7-123-LIMIT tests as an intentional, known limitation.
+_GIT_GLOBAL_OPT = r"(?:-C\s+\S+\s+|-c\s+\S+\s+|--git-dir(?:=\S+|\s+\S+)\s+)*"
+GIT_CLEAN_RE = re.compile(r"\bgit\s+" + _GIT_GLOBAL_OPT + r"clean\b")
+GIT_BRANCH_RE = re.compile(r"\bgit\s+" + _GIT_GLOBAL_OPT + r"branch\b")
+GIT_CHECKOUT_REST_RE = re.compile(r"\bgit\s+" + _GIT_GLOBAL_OPT + r"checkout\b(.*)$")
+GIT_RESTORE_REST_RE = re.compile(r"\bgit\s+" + _GIT_GLOBAL_OPT + r"restore\b(.*)$")
 
 
 def _has_short_flag(segment: str, ch: str) -> bool:
@@ -477,6 +482,23 @@ def main():
         sys.exit(0)
     tool_name = data.get("tool_name", "")
     tool_input = data.get("tool_input", {})
+
+    # Model-5 guard (#178): a subagent dispatch must NOT pin a model via the Agent tool's `model`
+    # param — its enum is alias-only (sonnet/opus/haiku/fable → the current -5 generation) and
+    # rejects exact 4.x IDs, so ANY value leaks Model 5. OMIT it: the agent def's pinned 4.x model
+    # wins. Absent/empty model → allow (the correct form). The dispatch tool is named "Agent" in
+    # this harness (verified via a PreToolUse probe); "Task" is guarded too for forward-compat.
+    if tool_name in ("Agent", "Task"):
+        _m = str(tool_input.get("model", "") or "").strip().lower()
+        if _m in ("sonnet", "opus", "haiku", "fable") or re.search(
+            r"claude-(opus|sonnet|fable)-5|claude-haiku-5", _m
+        ):
+            _block(
+                f"Blocked: subagent dispatch passes model='{tool_input.get('model')}' — a bare "
+                "alias resolves to Model 5 (forbidden) and the Agent `model` param rejects exact "
+                "4.x IDs. OMIT `model` so the agent def's pinned 4.x ID wins; choose the model by "
+                "choosing the agent type (rules/agent-delegation.md)."
+            )
 
     if tool_name == "Bash":
         command = tool_input.get("command", "")
