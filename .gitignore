@@ -35,3 +35,8 @@ node_modules/
 # Serato export runtime artifacts (machine-local, regenerable)
 autocue_serato_state.json
 autocue_serato_backup.jsonl
+.worktrees/
+worktrees/
+.claude/settings.local.json
+.git/sdd/
+.template-*-backup-*/

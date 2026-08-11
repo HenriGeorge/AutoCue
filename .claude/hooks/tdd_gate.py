@@ -229,10 +229,15 @@ def _classify(path: str, test_globs: list, source_globs: list) -> str:
         fnmatch.fnmatch(norm, g) for g in test_globs
     ):
         return "TEST"
-    if any(fnmatch.fnmatch(norm, g) for g in NEUTRAL_GLOBS_DEFAULT):
-        return "NEUTRAL"
+    # An EXPLICIT operator SOURCE override wins over the NEUTRAL defaults, symmetric with the
+    # TEST override above (#152): both `TDD_GATE_TEST_GLOBS` and `TDD_GATE_SOURCE_GLOBS` are
+    # deliberate operator config, not uncertainty, so neither should be silently shadowed by a
+    # broad NEUTRAL default (`*.md`, `*.yaml`, `docs/*`, …). Only the DEFAULT extension-based
+    # SOURCE guess below stays after NEUTRAL, preserving "uncertainty biases toward not blocking".
     if any(fnmatch.fnmatch(norm, g) for g in source_globs):
         return "SOURCE"
+    if any(fnmatch.fnmatch(norm, g) for g in NEUTRAL_GLOBS_DEFAULT):
+        return "NEUTRAL"
     ext = os.path.splitext(norm)[1]
     if ext in SOURCE_EXTS_DEFAULT:
         return "SOURCE"

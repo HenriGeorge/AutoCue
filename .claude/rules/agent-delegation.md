@@ -1,6 +1,6 @@
 # Agent Delegation
 
-Last updated: 2026-08-10 04:32
+Last updated: 2026-08-10 05:30
 
 Delegate to a subagent for **substantial** work; do trivial things inline. The runner
 (`cc-worktrees`) is the guaranteed win — roles are opt-in leverage, not ceremony.
@@ -23,7 +23,11 @@ Delegate to a subagent for **substantial** work; do trivial things inline. The r
   Claude-Code-only frontmatter — don't add them to a skill meant to be uploaded via the
   Agent-Skills spec (claude.ai / Skills API), which hard-fails on unrecognized fields. Re-check
   this periodically with `/skill-audit` (issue #154) — it scans `.claude/skills/**/SKILL.md` and
-  proposes per-skill rows for a human to approve/decline; it never auto-applies.
+  proposes per-skill rows for a human to approve/decline; it never auto-applies. Two complementary
+  review axes, no overlap: `skill-audit` = cost/structure hygiene (a deterministic scan);
+  `/skill-reinvent <skill-name>` = strategy (blind-rederives a skill's approach from scratch and
+  diffs it against the current method — surfaces a stale approach a structural scan can't catch).
+  Both advisory-only, both apply through `writing-skills`.
 - **test-writer** — real tests in the repo's framework: `playwright-tester` / the `frontend-testing`
   + `vitest-best-practices` skills / pytest. Each test must be able to fail.
 - **browser-tester** — run tests against the *running* app on the worktree's port: `playwright-tester`
@@ -48,6 +52,27 @@ machine-enforced:
   context and return the distilled result — not to hand the primary session everything it read.
   `context_nudge` flags an oversized return after the fact; the cheaper fix is prompting for a
   summary up front.
+
+## Model routing (Opus 4.8 default · Haiku 4.5 for light work · NEVER Model 5)
+**Default model = `claude-opus-4-8`** (Opus 4.8) — the session default and every JUDGMENT role:
+coordinator, the implementer's TDD build, `code-reviewer` / `silent-failure-hunter`, brainstorming,
+grill-me, systematic-debugging, design/type work. Never route these down.
+
+**Route only LIGHT read-only / mechanical work to Haiku 4.5** (`claude-haiku-4-5-20251001`):
+`codebase-explorer` / `Explore` (navigation), `docs-impact-agent`, `comment-analyzer`, issue
+triage/labeling (`github-solve-issues` Stage 1), and pre-classified trivial mechanical edits.
+
+⚠ **NEVER Model 5.** Never use a bare floating alias (`opus` / `sonnet` / `haiku` / `fable`) or any
+`-5`-generation model (`claude-opus-5` / `claude-sonnet-5` / `claude-fable-5`) in a `model:` frontmatter
+field or a `--model` flag — a bare alias resolves to the current (5) generation. **Always pin an exact
+4.x ID**: `claude-opus-4-8` for judgment, `claude-haiku-4-5-20251001` for light work. Enforced by
+`tests/test_model_routing.sh`. **This ban also covers the Agent/Task tool's runtime `model:` param
+(the third leak surface, alongside frontmatter and `--model`) — and there OMITTING it is the ONLY
+safe form: that param's enum accepts only the bare aliases and hard-rejects exact 4.x IDs, so
+passing ANY value leaks Model 5. Never pass it; leave `model` unset so the agent def's pinned 4.x ID
+wins, and choose the model by choosing the agent type.** (This runtime surface is prose-enforced
+only — the test greps files, not live dispatches; it OVERRIDES any skill that says "always specify
+the model".)
 
 ## When to delegate (the model judges)
 - **Substantial research** (multi-file / multi-source) → a researcher subagent. A **one-off lookup

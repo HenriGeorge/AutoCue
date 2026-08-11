@@ -16,6 +16,22 @@ Bypass: `WORKFLOW:force-merge` in the command. Fails OPEN (allows) whenever `gh`
 offline/unauthenticated/unparseable — this gate must never wedge a legitimate merge just because
 the network or `gh` auth is unavailable.
 
+`gh pr create` also emits a non-blocking WARN nudge ("dispatch a code-reviewer before merge") on
+every successful (non-blocked) create — auto-review-on-pr Layer 2, docs/superpowers/specs/
+2026-08-10-auto-review-on-pr-design.md. `gh pr merge` additionally BLOCKS unless the PR's LATEST
+code-review verdict is APPROVE: reads `<!-- code-review:VERDICT -->` markers from `comments`
+(VERDICT ∈ {APPROVE, CHANGES, BLOCKERS} — any other/malformed token is treated as non-APPROVE,
+fail-safe) plus any `reviews` entry with `state == "APPROVED"` (honors a genuine human GitHub
+review, not just a marker comment); "latest" = the most-recently-created event across BOTH sources
+by timestamp, so a later `:BLOCKERS` overrides an earlier `:APPROVE` and vice versa. Bypass:
+`WORKFLOW:no-review`, independent of `WORKFLOW:force-merge` (CI/mergeable and review are
+independent axes — a merge failing BOTH needs BOTH bypass tokens; the block reason always lists
+every currently-failing condition, not just the first). The gate proves a review marker/approval
+IS PRESENT, not that it reviewed the CURRENT diff (v1 does not tie the marker to `headRefOid` —
+documented limitation, PG32/G3/G9 pins it) or that a genuinely independent party posted it (the PR
+author can self-post `:APPROVE` — G12, no author-binding in v1). Same fail-open-on-`gh`-failure
+guarantee as the CI/mergeable checks (reuses the same `gh pr view` fetch, no extra round-trip).
+
 Detection is TOKEN-based, not a rigid `\\bgh\\s+pr\\s+(create|merge)\\b` regex — a global `gh` flag
 between the program and the subcommand (`gh --repo org/repo pr merge 123`, `gh -R org/repo pr
 create`) is common (routine in a multi-worktree setup where cwd's tracking is ambiguous) and must
@@ -34,7 +50,14 @@ import sys
 SHELL_SEGMENT_SPLIT_RE = re.compile(r"&&|\|\||;|\n|\|")
 NO_DESIGN_BYPASS = "WORKFLOW:no-design"
 FORCE_MERGE_BYPASS = "WORKFLOW:force-merge"
+NO_REVIEW_BYPASS = "WORKFLOW:no-review"
 SPEC_PATHS = ("docs/superpowers/specs", "docs/superpowers/plans")
+CODE_REVIEW_MARKER_RE = re.compile(r"<!--\s*code-review:(\w+)\s*-->")
+CREATE_NUDGE = (
+    "PR opened — dispatch a code-reviewer (+ silent-failure-hunter) before merge "
+    "(rolling-quality-pipeline). Reminder only, never blocks — the merge itself is gated on an "
+    "APPROVE review marker."
+)
 FEAT_BRANCH_RE = re.compile(r"^feat/")
 CI_FAILING_CONCLUSIONS = {
     "FAILURE", "CANCELLED", "TIMED_OUT", "ERROR", "STARTUP_FAILURE", "ACTION_REQUIRED",
@@ -181,13 +204,20 @@ def _block(reason: str):
     sys.exit(2)
 
 
+def _nudge_create():
+    print(json.dumps({"systemMessage": CREATE_NUDGE}))  # noqa: T201
+
+
 def _check_create(command: str, cwd: str) -> None:
     if NO_DESIGN_BYPASS in command:
+        _nudge_create()
         return
     branch = _current_branch(cwd)
     if not branch or not FEAT_BRANCH_RE.match(branch):
+        _nudge_create()
         return
     if _has_spec_or_plan(cwd, branch):
+        _nudge_create()
         return
     _block(
         f"Blocked: `gh pr create` on '{branch}' with no design artifact ADDED ON THIS BRANCH — "
@@ -226,7 +256,7 @@ def _pr_json(cwd: str, prefix_flags: list, tokens: list, end: int) -> dict | Non
     j = _skip_flags(tokens, end, GH_VALUE_FLAGS)
     if j < len(tokens) and not tokens[j].startswith("-"):
         args.append(tokens[j])
-    args += ["--json", "statusCheckRollup,mergeable,baseRefName"]
+    args += ["--json", "statusCheckRollup,mergeable,baseRefName,comments,reviews"]
     out = _run(cwd, args)
     if out is None:
         return None
@@ -257,24 +287,75 @@ def _mergeable_ok(pr: dict) -> bool:
     return mergeable != "CONFLICTING"
 
 
+def _review_events(pr: dict) -> list:
+    """Every (timestamp, VERDICT) event from comment markers + APPROVED human reviews.
+
+    A marker comment contributes its own verdict token (upper-cased; an unrecognized token is kept
+    as-is and simply never equals "APPROVE" downstream — G8, fail-safe). A `reviews` entry with
+    `state == "APPROVED"` contributes an implicit "APPROVE" event at its `submittedAt` timestamp
+    (spec: honor a genuine human GitHub review, not just a marker comment). Timestamps are
+    ISO-8601 strings from the GitHub API, which sort correctly as plain strings — no date parsing
+    needed. Events with no usable timestamp are skipped (can't be ordered).
+    """
+    events = []
+    for c in pr.get("comments") or []:
+        body = c.get("body") or ""
+        m = CODE_REVIEW_MARKER_RE.search(body)
+        if not m:
+            continue
+        ts = c.get("createdAt") or ""
+        if ts:
+            events.append((ts, m.group(1).upper()))
+    for r in pr.get("reviews") or []:
+        if (r.get("state") or "").upper() != "APPROVED":
+            continue
+        ts = r.get("submittedAt") or ""
+        if ts:
+            events.append((ts, "APPROVE"))
+    return events
+
+
+def _review_ok(pr: dict) -> bool:
+    """True iff the LATEST review event (by timestamp, across comments + reviews) is APPROVE.
+
+    No events at all (no marker, no human approval) → not ok. This is the auto-review-on-pr
+    Layer-2 backstop — it proves a review verdict is present and current-latest is APPROVE, not
+    that the review was thorough or that it covers the current head SHA (v1 limitation, PG32).
+    """
+    events = _review_events(pr)
+    if not events:
+        return False
+    events.sort(key=lambda e: e[0])
+    return events[-1][1] == "APPROVE"
+
+
 def _check_merge(command: str, prefix_flags: list, tokens: list, end: int, cwd: str) -> None:
-    if FORCE_MERGE_BYPASS in command:
-        return
+    force_bypass = FORCE_MERGE_BYPASS in command
+    review_bypass = NO_REVIEW_BYPASS in command
+    if force_bypass and review_bypass:
+        return  # both axes bypassed — no need to even fetch
     pr = _pr_json(cwd, prefix_flags, tokens, end)
     if pr is None:
         return  # gh offline/unauthenticated/unparseable → fail open
-    ci_ok = _ci_ok(pr)
-    mergeable_ok = _mergeable_ok(pr)
-    if ci_ok and mergeable_ok:
+    ci_ok = _ci_ok(pr) or force_bypass
+    mergeable_ok = _mergeable_ok(pr) or force_bypass
+    review_ok = _review_ok(pr) or review_bypass
+    if ci_ok and mergeable_ok and review_ok:
         return
     reasons = []
     if not ci_ok:
         reasons.append("CI checks are not all green")
     if not mergeable_ok:
         reasons.append("the PR is not cleanly mergeable (conflicting with its base)")
+    if not review_ok:
+        reasons.append(
+            "no APPROVE code review found (latest marker/review is not APPROVE — "
+            "auto-review-on-pr Layer 2)"
+        )
     _block(
         "Blocked: `gh pr merge` — " + " and ".join(reasons) + ". Fix the underlying issue, or "
-        f"if this merge is genuinely safe, add '{FORCE_MERGE_BYPASS}' to the command."
+        f"if this merge is genuinely safe, add '{FORCE_MERGE_BYPASS}' (CI/mergeable) and/or "
+        f"'{NO_REVIEW_BYPASS}' (review) to the command as appropriate."
     )
 
 

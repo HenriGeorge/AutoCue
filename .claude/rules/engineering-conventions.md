@@ -1,4 +1,4 @@
-# Engineering conventions (R4/R5/R6)
+# Engineering conventions (R4–R7)
 
 Last updated: 2026-08-10 01:49
 
@@ -66,6 +66,20 @@ Baseline hygiene that applies regardless of stack or profile:
   a read-only DB user for a reporting job, not the admin credential; a repo-scoped GitHub token,
   not an org-wide one. When creating a new credential, ask "what's the narrowest scope that still
   works" before reaching for the broadest one that's convenient.
+
+## R7 — Avoid unnecessary work (Ponytail)
+
+Do what was asked; resist the pull to do more. Before adding, ask "was this requested, and does
+it serve the current goal?" Concrete failure modes to stop yourself on:
+
+- Building features/options nobody asked for; speculative abstraction for a second use case that
+  doesn't exist yet; gold-plating a working solution.
+- Refactoring beyond the change's scope; adding a new dep or file when an existing one suffices
+  (that's R4/R5 — this is the general habit behind them).
+
+Ship the smallest thing that fully satisfies the request. Pairs with `lean-output.md` (Caveman) —
+Ponytail cuts unnecessary *work*, Caveman cuts unnecessary *words*. See also: brainstorming's
+"YAGNI ruthlessly."
 
 ## See also
 

@@ -1,6 +1,6 @@
 # Documentation conventions
 
-Last updated: 2026-08-10 01:45
+Last updated: 2026-08-10 18:20
 
 > **Source of truth & sync.** Repo snapshot of the machine-global `~/.claude/rules/doc-conventions.md`
 > (via `sync-rules.sh`). Listed in `sync-rules.sh`'s `HAND_RECONCILED` — captured once to its global counterpart (2026-08-09); now
@@ -24,7 +24,9 @@ Last updated: YYYY-MM-DD HH:MM
   (`> Last updated: 2026-08-09 14:05`) is equally accepted — both are recognized by the tooling. An
   ADR's bold-list form (`- **Last updated:** 2026-08-09`) is ALSO recognized (never false-flagged as
   missing) but is **hand-updated, not auto-rewritten** by `--upgrade` — the automated forms are the
-  bare and blockquote styles only.
+  bare and blockquote styles only. Markdown **emphasis-wrapped** stamps (`_Last updated: …_`, `*…*`,
+  `**…**`, `__…__`) are likewise recognized, so a backfill never inserts a duplicate stamp above an
+  already-stamped-but-emphasized line (issue #124).
 - **Why the time, not just the date:** two edits landing the same day used to be indistinguishable —
   "is this still current?" needed a same-day tiebreaker. Time-of-day is the cheapest signal for that.
 - Update the stamp whenever you make a substantive edit to the doc — the CLOSE/DOCUMENT phase of
