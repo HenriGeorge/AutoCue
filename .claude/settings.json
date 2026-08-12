@@ -36,7 +36,8 @@
   "enabledPlugins": {
     "superpowers@claude-plugins-official": true,
     "code-review@claude-plugins-official": true,
-    "claude-template-hooks-py@claude-template": true
+    "claude-template-hooks-py@claude-template": true,
+    "claude-template@claude-template": true
   },
   "extraKnownMarketplaces": {
     "claude-template": {
