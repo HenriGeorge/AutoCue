@@ -12,17 +12,6 @@
     ]
   },
   "hooks": {
-    "SessionStart": [
-      {
-        "matcher": "",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "uv run $CLAUDE_PROJECT_DIR/.claude/hooks/session_start.py"
-          }
-        ]
-      }
-    ],
     "PreToolUse": [
       {
         "matcher": "",
@@ -30,22 +19,6 @@
           {
             "type": "command",
             "command": "uv run $CLAUDE_PROJECT_DIR/.claude/hooks/pre_tool_use_branch_check.py"
-          },
-          {
-            "type": "command",
-            "command": "uv run $CLAUDE_PROJECT_DIR/.claude/hooks/pre_tool_use.py"
-          },
-          {
-            "type": "command",
-            "command": "uv run $CLAUDE_PROJECT_DIR/.claude/hooks/grill_gate.py"
-          },
-          {
-            "type": "command",
-            "command": "uv run $CLAUDE_PROJECT_DIR/.claude/hooks/pr_gate.py"
-          },
-          {
-            "type": "command",
-            "command": "uv run $CLAUDE_PROJECT_DIR/.claude/hooks/tdd_gate.py"
           }
         ]
       },
@@ -58,59 +31,19 @@
           }
         ]
       }
-    ],
-    "Stop": [
-      {
-        "matcher": "",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "uv run $CLAUDE_PROJECT_DIR/.claude/hooks/stop_log.py"
-          },
-          {
-            "type": "command",
-            "command": "uv run $CLAUDE_PROJECT_DIR/.claude/hooks/close_issue_gate.py"
-          },
-          {
-            "type": "command",
-            "command": "uv run $CLAUDE_PROJECT_DIR/.claude/hooks/close_gate.py"
-          }
-        ]
-      }
-    ],
-    "PostToolUse": [
-      {
-        "matcher": "Write|Edit",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "uv run $CLAUDE_PROJECT_DIR/.claude/hooks/post_tool_use_lint.py"
-          },
-          {
-            "type": "command",
-            "command": "uv run $CLAUDE_PROJECT_DIR/.claude/hooks/skill_nudge.py"
-          },
-          {
-            "type": "command",
-            "command": "uv run $CLAUDE_PROJECT_DIR/.claude/hooks/grill_nudge.py"
-          }
-        ]
-      }
-    ],
-    "SubagentStop": [
-      {
-        "matcher": "",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "uv run $CLAUDE_PROJECT_DIR/.claude/hooks/context_nudge.py"
-          }
-        ]
-      }
     ]
   },
   "enabledPlugins": {
     "superpowers@claude-plugins-official": true,
-    "code-review@claude-plugins-official": true
+    "code-review@claude-plugins-official": true,
+    "claude-template-hooks-py@claude-template": true
+  },
+  "extraKnownMarketplaces": {
+    "claude-template": {
+      "source": {
+        "source": "directory",
+        "path": "../claude_template"
+      }
+    }
   }
 }
