@@ -1,5 +1,7 @@
 # Library Health Check
 
+Last updated: 2026-06-07 10:20
+
 The **Cue Quality Checker** is AutoCue's library-wide diagnostic surface. It scores
 every track in your Rekordbox library 0–100, flags the issues that drag the score
 down, and (when audio is reachable) recommends which generation tier — phrase,

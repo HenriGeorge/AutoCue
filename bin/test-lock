@@ -1,0 +1,56 @@
+#!/usr/bin/env bash
+# bin/test-lock — per-repo test-suite serialization: `test-lock -- <cmd>` holds an exclusive lock
+# (keyed by `git rev-parse --git-common-dir`, so every worktree of a repo shares ONE lock) for the
+# whole run. macOS ships no flock(1), so the mutex is an atomic
+# mkdir + stale-PID reclaim (a crash-safe atomic-mkdir pattern).
+# Exit: wrapped command's code; 75 (EX_TEMPFAIL) on contention; 64 on usage error.
+set -u
+
+usage() { echo "usage: test-lock [--print-lock-path] -- <cmd> [args...]" >&2; exit 64; }
+
+common_dir="$(git rev-parse --git-common-dir 2>/dev/null)" || { echo "test-lock: not in a git repo" >&2; exit 64; }
+case "$common_dir" in /*) : ;; *) common_dir="$(pwd)/$common_dir" ;; esac
+# normalize PHYSICALLY (pwd -P): macOS mktemp paths reach the same dir via /var AND /private/var,
+# and the key must be identical from the primary and every sibling worktree
+common_dir="$(cd "$common_dir" && pwd -P)"
+key="$(printf '%s' "$common_dir" | cksum | awk '{print $1}')"
+lock_dir="${HOME}/.cache/claude-template/test-lock/${key}.lock"
+
+if [ "${1:-}" = "--print-lock-path" ]; then printf '%s\n' "$lock_dir"; exit 0; fi
+[ "${1:-}" = "--" ] || usage
+shift
+[ $# -ge 1 ] || usage
+
+mkdir -p "$(dirname "$lock_dir")"
+
+write_holder() { printf 'pid=%s start=%s cmd=%s\n' "$$" "$(date '+%F %T')" "$*" > "$lock_dir/holder"; }
+
+acquire() {
+  if mkdir "$lock_dir" 2>/dev/null; then
+    write_holder "$@"
+    return 0
+  fi
+  # stale reclaim: holder pid dead (or holder file empty/unparseable) → take over. The steal is
+  # an atomic rename — with two concurrent reclaimers only ONE mv succeeds, so the loser can't
+  # rm-rf the winner's freshly acquired lock (PR #282 review, Important #2).
+  local hpid
+  hpid="$(sed -n 's/^pid=\([0-9]*\).*/\1/p' "$lock_dir/holder" 2>/dev/null | head -1)"
+  if [ -z "$hpid" ] || ! kill -0 "$hpid" 2>/dev/null; then
+    if mv "$lock_dir" "$lock_dir.stale.$$" 2>/dev/null; then
+      rm -rf "$lock_dir.stale.$$"
+      mkdir "$lock_dir" 2>/dev/null || return 1
+      write_holder "$@"
+      return 0
+    fi
+  fi
+  return 1
+}
+
+if ! acquire "$@"; then
+  echo "test-lock: lock held — $(cat "$lock_dir/holder" 2>/dev/null || echo 'holder unknown')" >&2
+  exit 75
+fi
+trap 'rm -rf "$lock_dir"' EXIT INT TERM
+
+"$@"
+exit $?

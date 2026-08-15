@@ -1,6 +1,6 @@
 # Design Workflow (the _how_ of GATE 1)
 
-Last updated: 2026-08-10 01:49
+Last updated: 2026-08-14 12:55
 
 > Companion to `rules/design-workflow.md` — no auto-sync; edit both by hand.
 
@@ -44,7 +44,7 @@ flowchart LR
 - **COVER (test-first)** *(the executable proof the design is buildable)* — turn the concrete contract into a **red test** before any production code. Two sub-parts:
 
   1. **coverage** — `test-designer` maps the contract's behaviours / state-transitions → a coverage doc (Mermaid for stateful flows, checklist table otherwise). Advisory; no test code yet.
-  2. **failing test** — write the behaviour test(s) that encode that coverage (profile-matched — see the table below), then **run JUST that new test on its own** (`cc-worktrees test -- <only this test>`) **to confirm it fails RED for the RIGHT reason** — an assertion / 404 / not-implemented, _not_ a syntax error or missing import. Run ONLY the new test, not the whole suite — the rest of the suite stays **green**; only this one test is **red**.
+  2. **failing test** — write the behaviour test(s) that encode that coverage (profile-matched — see the table below), then **run JUST that new test on its own** (`bin/test-lock -- <only this test>`) **to confirm it fails RED for the RIGHT reason** — an assertion / 404 / not-implemented, _not_ a syntax error or missing import. Run ONLY the new test, not the whole suite — the rest of the suite stays **green**; only this one test is **red**.
 
   > ⚠ Do **not** run `/validate` here. `/validate` is the **full-suite GREEN gate** at VERIFY (`WORKFLOW.md` P4); a whole-suite run at COVER would just fail on the single test you deliberately made red. The red test is the executable form of the contract; it hands to BUILD so BUILD is genuinely **red→green**.
 
@@ -56,7 +56,7 @@ flowchart LR
   | **Data / Pipeline** | a fixture test (sample-in → sample-out), red |
 
 - **BUILD** — domain skills (web: `frontend-design`) → production code that turns the COVER red test green. _(Hand-off: `WORKFLOW.md` BUILD → VERIFY ⛔ now owns it.)_
-- **REVIEW** — the panel: **required** `code-reviewer` (= `/code-review`, run one) + `silent-failure-hunter`; **recommended** `code-simplifier` + `comment-analyzer`; `/security-review` (distinct); web also `web-design-guidelines`. **If the panel changes code, re-run VERIFY before merge.**
+- **REVIEW** — the panel, dispatched **CONCURRENTLY — all four in ONE message**: **required** `code-reviewer` (= `/code-review`, owns the verdict) + `silent-failure-hunter`; **advisory** `code-simplifier` + `comment-analyzer` (one comment); `/security-review` (distinct); web also `web-design-guidelines`. **If the panel changes code, re-run VERIFY before merge.**
 
 ---
 
@@ -94,7 +94,7 @@ flowchart LR
 | ------------------------------------------------------------------------------------------------------ | --------- | ------------------------- | ------------------------------------------------------------------------------------------ |
 | **Port a Claude Design / Figma-Make export** (`DesignSync get_file` the React export → serve → render) | **0**     | exact (it _is_ code)      | the design already exists as code — the most faithful path                                 |
 | **`window.figma` browser API** (`mcp__claude-in-chrome__javascript_tool`, logged-in tab)               | **0**     | exact (native plugin API) | iterating in Figma — bypasses the 6/month quota **and** the 3-page cap, unlimited          |
-| **Chrome DevTools MCP / Playwright** (own browser, `http://127.0.0.1:PORT`)                            | **0**     | exact render              | screenshotting the live app — immune to the blocked extension (`local-browser-testing.md`) |
+| **Chrome DevTools MCP / Playwright** (own browser, `http://127.0.0.1:PORT`)                            | **0**     | exact render              | screenshotting the live app — immune to the blocked extension (the `claude-template:local-browser-testing` plugin skill) |
 | **`html.to.design`** plugin (incl. localhost extension)                                                | **0**     | ~70-80%                   | bootstrap a running site → editable Figma layers for review                                |
 | **Figma MCP `get_design_context` / `get_variable_defs`**                                               | **quota** | 95%+ semantic             | one-shot codegen / token-sync from the FINAL design (unlimited on a Dev seat)              |
 
@@ -114,13 +114,29 @@ flowchart TD
     class M paid;
 ```
 
-Direction: `get_design_context` reads **Figma → code**; `use_figma` / `figma-generate-design` go **code → Figma**. Don't confuse them. `/design-sync` _pushes_ a repo design system **into** claude.ai/design (separate from reading a project via `DesignSync`).
+Direction: `get_design_context` reads **Figma → code**; `use_figma` / `figma-generate-design` go **code → Figma**. Don't confuse them. The design-sync push flow sends a repo design system **into** claude.ai/design (external claude.ai/design flow — no local slash command; separate from reading a project via `DesignSync`).
 
-> **The _how_ of this leg → `FIGMA-UI.md`.** When VISUAL/TOKENS means driving Figma — the two-bridge
-> split (free arinspunk bridge vs. the metered official MCP), **Code Connect** (the highest-value lever
-> to try first), the parallel-crew constraints, and the reverse **code → Figma mirror** (token sync and
-> the A/B/C scripts) — `FIGMA-UI.md` is the playbook; `figma-ui.md` the per-change checklist.
+> **The _how_ of this leg → `FIGMA-UI.md`.** When VISUAL/TOKENS means driving Figma — the official
+> Figma MCP (quota-metered) plus the quota-free claude-in-chrome `window.figma` path, and
+> **Code Connect** (the highest-value lever to try first) — `FIGMA-UI.md` is the playbook; the
+> `figma-ui` skill the per-change checklist.
+
+## Skill interview convention (before/after-skill feedback lifecycle)
+
+A skill that takes arguments (a choice-y `argument-hint`) shouldn't fire blind — it runs an **interview
+before** and a **questionnaire after**:
+
+- **`## Interview` (BEFORE_SKILL)** — an optional `## Interview` block in the `SKILL.md`, **≥4
+  `AskUserQuestion` prompts, one at a time**, run at skill start to resolve choice-y inputs. The
+  `skill_nudge` PostToolUse hook WARNs when a choice-taking `SKILL.md` lacks it (nudge only). Author via
+  `superpowers:writing-skills`.
+- **`/to-questionnaire` (AFTER_SKILL)** — after the skill finishes, run mattpocock `to-questionnaire`
+  (or `/questionnaire-me`) to capture any decision it surfaced-but-couldn't-resolve as an async Markdown
+  questionnaire. Lifecycle: **BEFORE_SKILL (interview) → SKILL_EXECUTION → AFTER_SKILL (`/to-questionnaire`)**.
+
+Also at COVER: the acceptance test is **binary (1/0) and authored BEFORE the plan** — `writing-plans`
+targets a concrete pass/fail, and the plan doc names the test.
 
 ## See also
 
-`FIGMA-UI.md` (Figma-MCP mechanics of VISUAL/TOKENS → BUILD) · `figma-ui.md` (per-change checklist) · `agent-delegation.md` (delegate the parallel design exploration to subagents) · `local-browser-testing.md` (`127.0.0.1`, never the blocked Claude-in-Chrome extension).
+`FIGMA-UI.md` (Figma-MCP mechanics of VISUAL/TOKENS → BUILD) · the `figma-ui` skill (per-change checklist) · `agent-delegation.md` (delegate the parallel design exploration to subagents) · the `claude-template:local-browser-testing` plugin skill (`127.0.0.1`, never the blocked Claude-in-Chrome extension) · `/questionnaire-me` + mattpocock `to-questionnaire`/`grilling`.

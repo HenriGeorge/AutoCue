@@ -1,5 +1,7 @@
 # Serato export — design (GATE 1)
 
+Last updated: 2026-07-10 14:53
+
 Write AutoCue's generated hot cues into audio files as Serato DJ Pro tags, so the
 same cue prep serves both Rekordbox and Serato. Approved shape (user, 2026-07-10):
 "one new writer module plus a CLI flag, testable against copied files".

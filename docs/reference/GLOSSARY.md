@@ -1,5 +1,7 @@
 # Glossary — Rekordbox / Pioneer entities
 
+Last updated: 2026-06-07 10:20
+
 A reference for the database tables, ANLZ tags, file conventions, and DJ-specific notations that appear across the AutoCue documentation. Use this as a single source of truth when terms feel unfamiliar.
 
 For project-wide invariants and code-location rules, see [`../../CLAUDE.md`](../../CLAUDE.md). For the high-level architecture, see [`../../README.md`](../../README.md).

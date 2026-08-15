@@ -1,3 +1,5 @@
+Last updated: 2026-06-11 13:36
+
 **CueBadge** — a single hot-cue chip. Color comes from the slot (0–7 → A–H palette); `confidence` dims bar (.70) and heuristic (.45) cues exactly like the app.
 
 ```jsx

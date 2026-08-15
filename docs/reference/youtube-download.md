@@ -1,5 +1,7 @@
 # YouTube Download
 
+Last updated: 2026-06-07 14:15
+
 Optional audio acquisition pipeline that lets the AutoCue UI fetch a track from
 YouTube on behalf of the user — typically as the follow-on action to a
 suggestion produced by the [Discover tab](./discogs-and-discovery.md).

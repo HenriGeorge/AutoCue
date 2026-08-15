@@ -1,3 +1,5 @@
+Last updated: 2026-06-11 13:36
+
 **EnergySparkline** — the mini waveform shown on each track card, drawn from a normalized 0–1 energy array (PWAV-derived). Smooth green area+line; <2 points shows a muted "no energy data" hint.
 
 ```jsx

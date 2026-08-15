@@ -1,3 +1,5 @@
+Last updated: 2026-06-11 13:36
+
 **ScoreChip** — the green outline `NN/100` chip used for mixability, health, and transition scores. `null` value → muted no-data chip.
 
 ```jsx

@@ -1,5 +1,7 @@
 # Transition Scoring
 
+Last updated: 2026-06-07 10:20
+
 AutoCue's Transition Scorer answers a single question: *how cleanly can track A be mixed into track B?* It produces a 0–100 overall score, a three-way decomposition (BPM / key / energy), human-readable explanations, and a one-sentence DJ mixing tip.
 
 This document covers the math, the data sources, the REST surface, the UI affordances, and the worked examples needed to predict what the scorer will say about any pair of tracks.

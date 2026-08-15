@@ -1,3 +1,5 @@
+Last updated: 2026-06-11 13:36
+
 **Input** — text/number/search field. 8px radius, green focus ring (`--green` border + soft `--green-ring` glow). Optional `label` renders a small muted label above.
 
 ```jsx

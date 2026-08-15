@@ -1,5 +1,7 @@
 # Discover v2 — Architecture Reference
 
+Last updated: 2026-06-10 17:50
+
 Technical reference for the personalised release-discovery pipeline. End-user
 documentation lives in [FEATURES.md §14](../FEATURES.md#feature-14-new-release-discovery-discover-v2);
 the legacy v1 Discover (still backing the **Discogs Genre Tags** panel) is in

@@ -1,3 +1,5 @@
+Last updated: 2026-06-11 13:36
+
 **Button** — AutoCue's fully-rounded pill button; use for every action. The primary CTA is the ink pill (black on light / white on dark), *not* green — green is reserved for signal/brand.
 
 ```jsx

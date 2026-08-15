@@ -1,5 +1,7 @@
 # REST API Reference
 
+Last updated: 2026-06-07 14:15
+
 AutoCue's local server exposes a JSON+SSE REST API at `http://localhost:7432`. This
 document covers every endpoint, every request and response schema, status codes,
 SSE event formats, middleware, and the behavioural rules baked into the

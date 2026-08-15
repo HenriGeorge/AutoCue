@@ -1,5 +1,7 @@
 # Library Duplicates
 
+Last updated: 2026-06-11 08:20
+
 The **Duplicate Tracks** panel (Library tab, local mode only) finds tracks that
 appear more than once in your Rekordbox library, suggests which copy to keep, and
 deletes the rest — with a backup-before-write contract and a one-click undo.

@@ -1,5 +1,7 @@
 # AutoCue — Figma MCP Integration Rules
 
+Last updated: 2026-06-19 19:49
+
 > Rules for translating Figma designs into AutoCue code (and reading code back into
 > Figma) via the Model Context Protocol. AutoCue is a **no-build, framework-less**
 > vanilla-JS web app — so the usual "generate a React component" Figma codegen flow does

@@ -1,5 +1,7 @@
 # Hot Cue Generation Engine
 
+Last updated: 2026-06-07 10:20
+
 This document describes AutoCue's hot cue generation engine end-to-end: how
 tracks are inspected, which strategy is chosen, how phrase data is parsed out
 of Rekordbox's ANLZ analysis files, how slots are reordered for DJ ergonomics,

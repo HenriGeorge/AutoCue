@@ -1,5 +1,7 @@
 # AutoCue CLI Reference
 
+Last updated: 2026-06-07 10:20
+
 Complete reference for the `autocue` command-line interface. This document covers every
 flag accepted by `autocue` and `autocue serve`, the cue-generation strategy fallback,
 default paths, exit codes, common errors, and worked examples.

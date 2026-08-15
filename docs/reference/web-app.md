@@ -1,5 +1,7 @@
 # Web App UI
 
+Last updated: 2026-06-11 11:09
+
 Technical reference for the AutoCue web app — the entire single-page UI that
 lives at [`docs/index.html`](../index.html).
 

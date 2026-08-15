@@ -1,6 +1,6 @@
 # Overview — how we work, at a glance
 
-Last updated: 2026-08-10 04:27
+Last updated: 2026-08-14 21:30
 
 A single visual atlas of how this project works: the **Design → Code → Prove** workflow it follows,
 and where every other doc fits. Each section links to its deep-dive. **The two laws:** _design before
@@ -11,7 +11,8 @@ code_ (GATE 1), _evidence before "done"_ (GATE 2) — and before either, _sync t
 ## 1. What this is — three layers, one lifecycle
 
 The same **Design → Code → Prove** workflow applies to **any** stack — web, service/API, CLI/library,
-or data. Three layers (Superpowers, optional BMAD, cc-worktrees) compose into one spine.
+or data. Three layers (Superpowers, optional BMAD, native worktrees + the hook layer) compose into
+one spine.
 
 ```mermaid
 flowchart TD
@@ -19,7 +20,7 @@ flowchart TD
     subgraph layers["The three layers"]
       SP["Superpowers<br/>execution engine — skills auto-fire"]
       BMAD["BMAD (optional)<br/>heavy upfront planning for epics"]
-      CW["cc-worktrees<br/>isolation + parallelism in BUILD"]
+      CW["native worktrees + hooks<br/>isolation + parallelism in BUILD"]
     end
     SP --> Spine["The 9-phase spine + the gates"]
     BMAD -.feeds.-> Spine
@@ -43,7 +44,7 @@ flowchart TB
   end
   subgraph RUNTIME["RUNTIME · the 9-phase spine"]
     direction LR
-    G0["GATE 0 ⛔<br/>sync baseline"] --> G1["GATE 1 ⛔<br/>design"] --> BUILD["BUILD<br/>cc-worktrees + crew"] --> G2["GATE 2 ⛔<br/>prove"]
+    G0["GATE 0 ⛔<br/>sync baseline"] --> G1["GATE 1 ⛔<br/>design"] --> BUILD["BUILD<br/>native worktrees + teammates"] --> G2["GATE 2 ⛔<br/>prove"]
   end
   subgraph SHIP["SHIP &amp; LEARN"]
     direction LR
@@ -52,13 +53,21 @@ flowchart TB
   end
   ENTRY ==> RUNTIME ==> SHIP
   HK["hooks<br/>Pre · Post · Session · Stop · SubagentStop<br/>guard every tool call"] -.enforce.-> BUILD
-  FIG["Figma bridge<br/>code ⇄ design"] -.web GATE 1.-> G1
+  FIG["Figma MCP<br/>code ⇄ design"] -.web GATE 1.-> G1
   DR -.promote → rule / doc / test.-> G0
   classDef gate fill:#ffe9e9,stroke:#d33,stroke-width:2px,color:#3a0f0b;
   class G0,G1,G2 gate;
 ```
 
-→ Deep dive: [`WORKFLOW.md`](WORKFLOW.md) · run `/workflow-diagrams` to generate this project's browsable diagram page
+→ Deep dive: [`WORKFLOW.md`](workflow/WORKFLOW.md) · run `/workflow-diagrams` to generate this project's browsable diagram page
+
+**Hooks now ship as a plugin, not copies.** The 18 canonical hooks in the diagram above moved from
+the copy model (`setup.sh` copying files into each project's `.claude/hooks/`) to **plugin
+distribution**: two stack plugins (`claude-template-hooks-py` / `-node`) served from this repo's own
+marketplace, enabled by one committed `enabledPlugins` line. The template dogfoods it — this repo's
+hooks have run from the plugin since the Task-2 canary — and fleet adoption of the other scaffolded
+repos is a staged, human-driven rollout (`setup.sh --adopt-hooks-plugin`, dry-run first). Decision +
+adoption guide: `decisions/feat-plugin-hooks-migration.md` · README "Adopt the hooks plugin".
 
 ---
 
@@ -90,7 +99,7 @@ flowchart LR
     Q2 -->|yes| Heavy["BMAD planning first,<br/>then 9 phases per story"]
 ```
 
-→ [`WORKFLOW.md`](WORKFLOW.md)
+→ [`WORKFLOW.md`](workflow/WORKFLOW.md)
 
 ---
 
@@ -110,7 +119,7 @@ flowchart LR
     OK --> Build["start designing / building"]
 ```
 
-→ [`WORKFLOW.md` § Phase 0](WORKFLOW.md#phase-0--prime-the-baseline-first)
+→ [`WORKFLOW.md` § Phase 0](workflow/WORKFLOW.md#phase-0--prime-the-baseline-first)
 
 ---
 
@@ -143,7 +152,7 @@ flowchart TD
 > **Approve the RENDERED design, not the MECHANISM** (lesson #69): pixels for UI, the contract for
 > an API, the `--help` for a CLI — before wiring real routes/data.
 
-→ [`DESIGN-WORKFLOW.md`](DESIGN-WORKFLOW.md)
+→ [`DESIGN-WORKFLOW.md`](workflow/DESIGN-WORKFLOW.md)
 
 ---
 
@@ -175,13 +184,13 @@ flowchart TD
     EX --> D["Data → run on fixtures<br/>assert schema · row counts · metrics"]
 ```
 
-→ [`VERIFY-WORKFLOW.md`](VERIFY-WORKFLOW.md)
+→ [`VERIFY-WORKFLOW.md`](workflow/VERIFY-WORKFLOW.md)
 
 ---
 
 ## 6. Stack profiles — web is one profile, not the framing
 
-The spine (gates, 9 phases, TDD, cc-worktrees) is identical for all. Only VERIFY and GATE 1 vary.
+The spine (gates, 9 phases, TDD, worktree isolation) is identical for all. Only VERIFY and GATE 1 vary.
 
 | Profile | GATE 1 "concrete" | GATE 2 "drive the artifact" | Figma |
 |---|---|---|---|
@@ -191,42 +200,39 @@ The spine (gates, 9 phases, TDD, cc-worktrees) is identical for all. Only VERIFY
 | **Data / Pipeline** | data contract / schema | run on fixtures, assert output | ❌ |
 
 Set per project in `.claude/worktrees.conf` → `STACK_PROFILE`.
-→ [`WORKFLOW.md` § profile table](WORKFLOW.md#exercise-the-real-artifact-by-profile)
+→ [`WORKFLOW.md` § profile table](workflow/WORKFLOW.md#exercise-the-real-artifact-by-profile)
 
 ---
 
-## 7. cc-worktrees — isolation & parallelism
+## 7. Native worktrees + hooks — isolation & parallelism
 
-Sibling worktrees (`<repo>-worktrees/<name>`), each on its own port + tmux pane, with a per-repo
-test lock. Solo, shell, or a team-v2 AI crew.
+Native worktrees (`EnterWorktree`, or the Agent tool's `isolation: worktree` for parallel writers),
+provisioned by the `worktree_create` hook (fetch · env carry-in · setup · a collision-free PORT in
+`.claude/worktree.env`), with a per-repo test lock (`bin/test-lock`).
 
 ```mermaid
 flowchart TD
-    CMD["cc-worktrees NAME"] --> Q1{"-c ?"}
-    Q1 -->|yes| SOLO["SOLO — worktree + 1 Claude"]
-    Q1 -->|no| Q2{"-x ?"}
-    Q2 -->|yes| SHELL["SHELL — terminal + free PORT"]
-    Q2 -->|no| CREW["CREW — team-v2 AI crew"]
+    E["EnterWorktree / Agent isolation: worktree"] --> WC["worktree_create hook<br/>fetch · env · PORT · setup"]
+    WC --> BUILD["BUILD — one writer per worktree"]
+    BUILD --> TL["bin/test-lock -- cmd<br/>per-repo lock spans all worktrees"]
+    TL --> RM["git worktree remove path<br/>worktree_remove hook backs up + frees PORT"]
 ```
 
-The team-v2 crew (durable records via `crew/*.md`, coordination via SendMessage):
+Teammates are in-process Agent-tool spawns coordinated via SendMessage; the `teammate_idle` hook
+keeps a teammate working while it still owns tasks:
 
 ```mermaid
 flowchart TD
-    CO["coordinator — enforces the gates, never edits code"]
-    CO --> IM["implementer — writes ALL code"]
-    CO --> RE["researcher — read-only"]
+    CO["lead session — enforces the gates"]
+    CO --> IM["implementer — writes code in its own worktree"]
+    CO --> RE["researcher — read-only, no worktree"]
     CO --> AU["auditor — review + security"]
     CO --> TD["test-designer — coverage plan"]
-    CO --> TV["test-verifier — e2e + live app"]
-    IM & RE & AU & TD & TV -. write .-> BUS["crew/*.md + BOARD.md"]
-    BUS -. coordinator reads .-> CO
+    IM & RE & AU & TD -. SendMessage .-> CO
 ```
 
-Always run suites via `cc-worktrees test -- <cmd>` (holds the lock). Scaling a crew past one
-implementer? The coordinator provisions each extra implementer's worktree with `cc-worktrees add`
-(worktree + PORT only — no session, no claude; teammates never run cc-worktrees themselves).
-→ [`CC-WORKTREES.md`](CC-WORKTREES.md)
+Always run suites via `bin/test-lock -- <cmd>` (holds the lock; the `test_lock_enforce` hook
+denies raw suite runs).
 
 **Optional — RTK output compression.** An opt-in (OFF by default) CLI proxy that compresses noisy
 command output before it reaches the LLM. Instruction-based (no PreToolUse hook at project scope),
@@ -235,40 +241,27 @@ telemetry forced off, and the H1–H10 guards still fire on its `rtk `-prefixed 
 
 ---
 
-## 8. Figma toolkit — two directions
+## 8. Figma — two directions, official paths only
 
-The hardened toolkit lives at `scripts/` (a symlink → `cc-worktrees-scaffold/figma/`), or is
-scaffolded into a worktree via `cc-worktrees --figma`.
+The old local bridge/relay toolkit is **retired**; Figma work goes through the **official Figma
+MCP** (code → Figma via `use_figma`, Figma → code via `get_design_context`) and
+**claude-in-chrome** (the `window.figma` browser API, quota-free).
 
 ```mermaid
 flowchart LR
-    subgraph code2fig["A. Code → Figma (this repo's toolkit)"]
-      App["running web app / component"] --> SVG["page-to-svg.mjs<br/>→ sharp vector SVG"]
-      SVG --> Push["svg-to-figma / figma-export.mjs<br/>→ stream to plugin :3055"]
+    subgraph code2fig["A. Code → Figma"]
+      App["running web app / component"] --> MCPUP["official Figma MCP<br/>use_figma / generate design"]
     end
     subgraph fig2code["B. Figma → Code (quota-first ladder)"]
-      Port["port Claude Design export · cost 0"] --> WAPI["window.figma API · cost 0"]
+      Port["port Claude Design export · cost 0"] --> WAPI["window.figma API (claude-in-chrome) · cost 0"]
       WAPI --> Shot["Chrome DevTools screenshot · cost 0"]
       Shot --> MCP["Figma MCP get_design_context<br/>⚠ quota — FINAL design only"]
     end
 ```
 
-The three composable pipelines (A → variables, B → import, C → bind):
-
-```mermaid
-flowchart LR
-    A["A · tokens-to-figma.mjs<br/>CSS --prefix-* → Figma color variables"]
-    B["B · figma-export / svg-to-figma<br/>page → sharp SVG → Figma frame"]
-    C["C · rebind-svg-vars.mjs<br/>bind imported fills → those variables"]
-    A --> C
-    B --> C
-    C --> Result["variable-driven Figma import<br/>(edit a variable → recolors the SVG)"]
-```
-
-> Use **A** to push CSS tokens → Figma Variables; **B** to copy a live page/component into Figma as a vector frame. (Both go code → Figma; the Figma → code direction is the quota ladder above.)
 > GATE 1 still applies: approve the rendered design before wiring data.
 
-→ _(web projects only)_ [`FIGMA-EXPORT.md`](FIGMA-EXPORT.md) · [`figma-copy.md`](figma-copy.md) · [`FIGMA-UI.md`](FIGMA-UI.md)
+→ _(web projects only)_ [`FIGMA-UI.md`](FIGMA-UI.md) _(retired pipelines: [`archived/`](archived/))_
 
 ---
 
@@ -281,13 +274,13 @@ flowchart LR
     R["research (in-repo)"] --> CE["codebase-explorer"]
     RW["research (web)"] --> WR["web-researcher"]
     TP["test design"] --> TDz["test-designer"]
-    BU["build"] --> CI["crew-implementer"]
+    BU["build"] --> CI["implementer teammate<br/>(Agent isolation: worktree)"]
     VE["verify / live"] --> PT["playwright-tester"]
     RV["review"] --> CR["code-reviewer + silent-failure-hunter"]
     DO["docs"] --> DI["docs-impact-agent"]
 ```
 
-→ `~/.claude/rules/agent-delegation.md` (machine-global, auto-loaded each session)
+→ `.claude/rules/agent-delegation.md` (@imported per project by CLAUDE.md's Conventions block)
 
 ---
 
@@ -319,22 +312,20 @@ flowchart TD
     O --> WF["WORKFLOW.md<br/>the 9 phases + profile table"]
     WF --> DW["DESIGN-WORKFLOW.md<br/>GATE 1 (the how)"]
     WF --> VW["VERIFY-WORKFLOW.md<br/>GATE 2 (the how)"]
-    O --> CW["CC-WORKTREES.md<br/>every flag + the crew"]
-    CW --> GR["crew-workflow-guardrails.md<br/>crew-ops decision diagrams"]
-    O --> FU["FIGMA-UI.md / FIGMA-EXPORT.md<br/>figma mechanics + pipelines (web)"]
+    O --> FU["FIGMA-UI.md<br/>figma mechanics (web) — retired pipelines in archived/"]
     O --> LL["lessons.md<br/>the lessons log"]
     O --> DG["DIAGRAMS.md<br/>full diagram index by topic"]
 ```
 
 | Doc | Read it when |
 |---|---|
-| [`WORKFLOW.md`](WORKFLOW.md) | new here, or the canonical 9-phase workflow + stack profiles |
-| [`DESIGN-WORKFLOW.md`](DESIGN-WORKFLOW.md) | satisfying GATE 1 (idea → approved design) |
-| [`VERIFY-WORKFLOW.md`](VERIFY-WORKFLOW.md) | satisfying GATE 2 (proving it works) |
-| [`CC-WORKTREES.md`](CC-WORKTREES.md) | every cc-worktrees flag, config, crew internals |
-| [`crew-workflow-guardrails.md`](crew-workflow-guardrails.md) | crew-ops decision diagrams — idle-pane triage, port ownership, fresh-keyed wait, test partition |
-| [`FIGMA-EXPORT.md`](FIGMA-EXPORT.md) / [`figma-copy.md`](figma-copy.md) _(web)_ | code → Figma export pipeline |
+| [`WORKFLOW.md`](workflow/WORKFLOW.md) | new here, or the canonical 9-phase workflow + stack profiles |
+| [`DESIGN-WORKFLOW.md`](workflow/DESIGN-WORKFLOW.md) | satisfying GATE 1 (idea → approved design) |
+| [`VERIFY-WORKFLOW.md`](workflow/VERIFY-WORKFLOW.md) | satisfying GATE 2 (proving it works) |
+| [`HOOKS.md`](workflow/HOOKS.md) | per-hook reference — decision flows, I/O contracts, bypasses, tests |
+| [`SESSION-LIFECYCLE.md`](workflow/SESSION-LIFECYCLE.md) | A-to-Z of what happens when a session starts in a project folder |
+| [`archived/FIGMA-EXPORT.md`](archived/FIGMA-EXPORT.md) / [`archived/figma-copy.md`](archived/figma-copy.md) _(web)_ | code → Figma export pipeline — **retired** (bridge toolkit) |
 | [`FIGMA-UI.md`](FIGMA-UI.md) _(web)_ | Figma-MCP mechanics, quota strategy |
 | [`lessons.md`](lessons.md) | the hard-won lessons log |
-| [`DIAGRAMS.md`](DIAGRAMS.md) | want the full index of every committed Mermaid diagram, by topic |
+| [`DIAGRAMS.md`](workflow/DIAGRAMS.md) | want the full index of every committed Mermaid diagram, by topic |
 | `/workflow-diagrams` | run this command to generate this project's browsable page of every committed Mermaid diagram, by topic |
