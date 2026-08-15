@@ -1,0 +1,2 @@
+*.md            merge=docstamp
+docs/lessons.md merge=union

@@ -1,6 +1,6 @@
 # RTK — token-optimized command output (opt-in)
 
-Last updated: 2026-08-10 01:49
+Last updated: 2026-08-14 12:55
 
 RTK ("Rust Token Killer") is an optional CLI proxy that compresses the output of common dev commands
 (git, cargo/npm/pnpm, test runners, linters, psql, aws, …) **before it reaches the LLM context** —
@@ -9,7 +9,7 @@ dependencies. This template ships RTK **opt-in and OFF by default**; nothing abo
 project until you enable it.
 
 > Decision record: [`docs/decisions/feat-rtk-template.md`](decisions/feat-rtk-template.md).
-> Rule (auto-loaded): `.claude/rules/rtk.md`.
+> Skill (relevance-fired): the `claude-template:rtk` plugin skill.
 
 ## How it integrates (important: no hook at project scope)
 
@@ -20,8 +20,8 @@ with `--global`. So RTK never sits in this project's tool-call chain; Claude sim
 `rtk git status` instead of `git status`, and RTK's rewrite is purely **additive** (it prepends
 `rtk `; unknown commands pass through unchanged).
 
-Consequence for safety: the template's `PreToolUse` guard chain (H1–H10 in
-`.claude/hooks/pre_tool_use.py`) still inspects the real command Claude runs. Because the `rtk `
+Consequence for safety: the template's `PreToolUse` guard chain (H1–H11, delivered via the
+hooks plugin) still inspects the real command Claude runs. Because the `rtk `
 prefix never hides the dangerous substring, every guard still fires on the prefixed form — a
 force-push to `main`, a destructive `psql` DROP, a non-conventional commit, and `rm -rf` on a
 read-only path are all still blocked with RTK enabled. This is proven and pinned by
@@ -31,10 +31,41 @@ The global `rtk init -g` mode (a real `PreToolUse` hook in `~/.claude/settings.j
 project) is **out of scope for this template** — that's a personal, machine-wide choice, not a
 per-project one.
 
+### Global `rtk init -g` coexistence — still guard-safe
+
+A user may run `rtk init -g` independently, installing a real global `PreToolUse` hook that rewrites
+commands machine-wide. The concern (ADR 0012 grill finding #2, issue #118): does that global hook run
+before/after this project's `pre_tool_use.py`, and can it let a dangerous command slip past H1–H10?
+
+Empirically characterized against Claude Code's documented multi-hook semantics
+([code.claude.com/docs/en/hooks](https://code.claude.com/docs/en/hooks)) — coexistence is **guard-safe
+under all orderings**, for two independent reasons:
+
+- **Each hook sees the ORIGINAL command, not the other's rewrite.** All matching `PreToolUse` hooks
+  run **in parallel**, each receiving the **same original `tool_input`** — there is no chaining that
+  feeds one hook's output into another. RTK's global hook can `updatedInput`-rewrite the command that
+  ultimately *executes*, but it cannot change what the template guard *inspects*: `pre_tool_use.py`
+  always sees the raw `git push --force origin main`, matches, and blocks.
+- **Blocking is a logical OR.** If **any** matching hook denies (exit 2), Claude Code blocks the tool
+  regardless of what the other hooks decided or the (non-deterministic) order they ran in. So the
+  template guard's deny is authoritative even if RTK's hook would have allowed the command.
+
+The one residual risk is unchanged from the project-scope case and already tracked as grill finding #1:
+RTK's rewrite is *additive* today (`git … → rtk git …`), so even in the hypothetical where the guard
+*did* see the rewritten form it still matches. A future RTK that rewrote in an *obfuscating* way
+(subshell/encoding hiding the dangerous substring) could defeat a regex guard — but only for what
+*executes*, and the live `rtk rewrite` assertion in `tests/test_rtk_guard_safety.sh` fails loudly if
+the rewrite shape ever stops being additive. Version-pin with `brew pin rtk` if that matters to you.
+
+This coexistence invariant is regression-pinned by the `coexist(#118)` cases in
+`tests/test_rtk_guard_safety.sh`: the template guard yields the **identical block decision** on the
+original command and on RTK's `rtk `-prefixed form, so neither hook order nor RTK's rewrite can change
+the outcome.
+
 ## Enable / disable
 
 ```bash
-# Prerequisite (assumed on PATH, like cc-worktrees — the template does NOT vendor it):
+# Prerequisite (assumed on PATH — the template does NOT vendor it):
 brew install rtk            # or: cargo install rtk
 
 # At scaffold time: answer [y] to "Enable RTK output compression?", or preset RTK_ENABLE=1.

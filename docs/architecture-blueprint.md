@@ -1,5 +1,7 @@
 # Architecture Blueprint: AutoCue
 
+Last updated: 2026-06-18 05:49
+
 > **Generated overview** — a big-picture, human-onboarding view of the system,
 > synthesized from the codebase and verified against source. The **canonical**
 > AI-context docs remain `CLAUDE.md` and `.claude/project/*` (architecture,

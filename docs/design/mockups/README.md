@@ -1,5 +1,7 @@
 # AutoCue 2.0 — design mockups
 
+Last updated: 2026-06-12 09:29
+
 Static HTML mockups from the redesign exercise (2026-06-12). Open any file in a
 browser. Each has a working light/dark toggle and wired key interactions.
 

@@ -1,5 +1,7 @@
 # Playlist Suggest & Playlist Creation
 
+Last updated: 2026-06-07 10:20
+
 Playlist Suggest answers a simple DJ question: *"give me 20 peak-time tracks from
 my library."* It returns an unordered bag of category matches — not a sequenced
 set — and pairs with a companion endpoint (`POST /api/playlists`) that persists a

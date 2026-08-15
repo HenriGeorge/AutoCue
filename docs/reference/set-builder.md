@@ -1,5 +1,7 @@
 # Set Builder — Reference
 
+Last updated: 2026-06-10 17:37
+
 Build a complete DJ set automatically by walking the track library with a
 beam-search planner. Given a starting BPM, ending BPM, target duration, and an
 energy mode, Set Builder selects an ordered list of tracks, scores each

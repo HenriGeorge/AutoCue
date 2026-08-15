@@ -1,5 +1,7 @@
 # Discogs Integration & New Release Discovery
 
+Last updated: 2026-06-07 10:20
+
 Technical reference for AutoCue's two Discogs-powered features and the shared
 API client that backs them.
 

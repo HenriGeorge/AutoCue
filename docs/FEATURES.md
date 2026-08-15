@@ -1,5 +1,7 @@
 # AutoCue Feature Documentation
 
+Last updated: 2026-07-10 22:20
+
 ## Overview
 
 AutoCue gives Rekordbox 6 and 7 users three ways to automate hot cue placement and analyse their library:

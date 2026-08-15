@@ -1,3 +1,5 @@
+Last updated: 2026-06-11 13:36
+
 **Badge** — small rounded status/label pill for inline metadata and states.
 
 ```jsx

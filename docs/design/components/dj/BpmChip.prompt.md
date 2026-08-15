@@ -1,3 +1,5 @@
+Last updated: 2026-06-11 13:36
+
 **BpmChip / KeyChip** — the two mono data pills on every track row. `BpmChip` is green-washed and shows one decimal; `KeyChip` is neutral surface-2.
 
 ```jsx

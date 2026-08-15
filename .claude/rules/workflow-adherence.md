@@ -10,7 +10,7 @@ This rule exists because the gates in `workflow.md` are easy to *know about* and
 time pressure. They are not advisory.
 
 **A growing subset of these commitments are machine-enforced, not just rule-mandated** — see
-`docs/ENFORCEMENT.md` for the current gate roster (what BLOCKs, what WARNs, and every
+`docs/workflow/ENFORCEMENT.md` for the current gate roster (what BLOCKs, what WARNs, and every
 `WORKFLOW:no-*` bypass token).
 
 ## The seven commitments
@@ -20,7 +20,7 @@ time pressure. They are not advisory.
    weight (see `workflow.md`'s "How much process?"). Skipping a gate because a change "looks simple"
    is itself the failure mode the gate exists to catch.
 2. **GATE 0 reads the workflow docs, not just the code.** Before design or code starts this session,
-   read `docs/WORKFLOW.md` (project) and `~/.claude/rules/workflow.md` (global) — not from memory of
+   read `docs/workflow/WORKFLOW.md` (project) and `~/.claude/rules/workflow.md` (global) — not from memory of
    a prior session. The two can drift (see `workflow.md`'s "Source of truth & sync" note); the live
    files are authoritative, not your recollection of them.
 3. **Creative/feature work always starts with `superpowers:brainstorming`, scaled to the task.**

@@ -1,5 +1,7 @@
 # AutoCue — Design System
 
+Last updated: 2026-06-11 13:36
+
 **AutoCue** automatically places hot cues on every track in a Rekordbox 7 library — and
 layers on deep DJ intelligence: track energy, mixability, classification, similar-track
 discovery, transition scoring, an automatic set builder, library health checks, and

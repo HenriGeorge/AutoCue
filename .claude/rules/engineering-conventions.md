@@ -1,6 +1,6 @@
 # Engineering conventions (R4–R7)
 
-Last updated: 2026-08-10 01:49
+Last updated: 2026-08-14 18:30
 
 > **Source of truth & sync.** Repo snapshot of the machine-global `~/.claude/rules/engineering-conventions.md`
 > (via `sync-rules.sh`). Listed in `sync-rules.sh`'s `HAND_RECONCILED` — captured once to its global counterpart (2026-08-09); now
@@ -44,19 +44,17 @@ scaffolded project inherits.
   it's used for, and doesn't itself pull in a large transitive tree for a small piece of
   functionality.
 - This project (`claude_template`) in particular: `setup.sh`/hooks are deliberately dependency-free
-  (stdlib-only Python, Node core modules only) — see the `# dependencies = []` header on every
-  `hooks/*.py` file — because every scaffolded project inherits whatever the template hooks need.
+  (stdlib-only Python, Node core modules only) — see the `# dependencies = []` header on the
+  runtime hooks (`hooks/*.py`) — because every scaffolded project inherits whatever the template hooks need.
   A new hook dependency isn't a "just this once," it's a cost on every future scaffold.
 
 ## R6 — Security basics
 
 Baseline hygiene that applies regardless of stack or profile:
 
-- **No secrets in code.** Never hardcode an API key, token, password, or credential — use
-  environment variables / a secrets manager / a `.env` file that's gitignored. This repo's H3
-  (secret-scan, staged diff CONTENT) and H10 (secret-file staging, the FILE itself) hooks
-  hard-block the most common accidental-commit shapes of this mistake — but the hooks are a
-  backstop, not a substitute for not writing the secret in the first place.
+- **No secrets in code — enforced by H3 (staged-diff secret scan) + H10 (secret-file staging); see
+  `hooks/README.md`.** Use env vars / a secrets manager / a gitignored `.env`; the hooks are a
+  backstop, not a substitute for not writing the secret.
 - **Validate/sanitize external input.** Anything crossing a trust boundary — a request body, a
   query param, a file upload, an env var sourced from outside your own deploy config — gets
   validated before use, not trusted implicitly. This includes output encoding at the point of use
@@ -80,6 +78,13 @@ it serve the current goal?" Concrete failure modes to stop yourself on:
 Ship the smallest thing that fully satisfies the request. Pairs with `lean-output.md` (Caveman) —
 Ponytail cuts unnecessary *work*, Caveman cuts unnecessary *words*. See also: brainstorming's
 "YAGNI ruthlessly."
+
+Two self-checks that keep this honest:
+- **The overcomplication check:** before calling a change done, ask *"would a senior engineer say
+  this is overcomplicated?"* If yes, rewrite it smaller — if 200 lines could be 50, it's the 50.
+- **Make success verifiable, per step:** for a multi-step task, state a brief numbered plan where
+  each step carries its own check — `1. <step> → verify: <check>`. Strong, checkable criteria let
+  you loop to done independently; a weak "make it work" forces constant re-clarification.
 
 ## See also
 

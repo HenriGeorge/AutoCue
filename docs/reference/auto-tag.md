@@ -1,5 +1,7 @@
 # Auto-Tag — Rekordbox My Tags
 
+Last updated: 2026-06-07 10:20
+
 AutoCue's **Auto-Tag** feature translates the same DJ-oriented analysis used by
 the Set Builder, the Comment Enricher, and the Library Health panel into
 **Rekordbox "My Tags"**, the colored labels Rekordbox supports as a

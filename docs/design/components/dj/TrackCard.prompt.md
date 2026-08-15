@@ -1,3 +1,5 @@
+Last updated: 2026-06-11 13:36
+
 **TrackCard** — the core AutoCue library row. Composes artwork, title/artist, `BpmChip` + `KeyChip` + time, a Rekordbox color dot/left-border, hot-cue `CueBadge`s, an `EnergySparkline`, a mixability `ScoreChip`, and a `CategoryBadge`. Hover lifts the card.
 
 ```jsx

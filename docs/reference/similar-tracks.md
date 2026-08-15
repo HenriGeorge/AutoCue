@@ -1,5 +1,7 @@
 # Similar Track Discovery — Reference
 
+Last updated: 2026-06-07 10:20
+
 This document describes AutoCue's similarity engine: a small, in-process
 nearest-neighbour search over a six-dimensional feature vector derived from
 each track's Camelot key, energy profile, vocal proxy, and BPM. It powers two

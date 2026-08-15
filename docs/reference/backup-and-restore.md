@@ -1,5 +1,7 @@
 # Backup and Restore
 
+Last updated: 2026-06-07 11:48
+
 AutoCue's safety net. Every operation that mutates `master.db` is preceded by a
 timestamped copy of the database to `~/.autocue/backups/`. Restore is a
 one-click operation that swaps the live database back to any prior snapshot and

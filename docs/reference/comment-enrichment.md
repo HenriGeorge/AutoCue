@@ -1,5 +1,7 @@
 # Comment Enrichment
 
+Last updated: 2026-06-07 11:48
+
 AutoCue writes DJ-useful metadata directly into the Rekordbox track comment
 field so that the information appears on the CDJ display while loading the
 track. The format mirrors the convention popularised by

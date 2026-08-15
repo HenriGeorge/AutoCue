@@ -1,5 +1,7 @@
 # Energy Curve & Mixability Score
 
+Last updated: 2026-06-07 10:20
+
 Technical reference for AutoCue's two foundational track-analysis features:
 
 - **Energy curve** — a normalized 0.0–1.0 waveform overview extracted from Rekordbox's [`PWAV`](./GLOSSARY.md#anlz-files-and-tags) analysis tag.

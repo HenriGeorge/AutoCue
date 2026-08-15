@@ -1,5 +1,7 @@
 # QA Fixer (`/autocue-fixer`)
 
+Last updated: 2026-06-07 17:14
+
 Companion to [`/autocue-qa`](./qa_tester.md). The QA agent files issues with
 stable fingerprints; the fixer turns those issues into PRs. Two halves of the
 same loop.

@@ -1,5 +1,7 @@
 # QA Tester (`autocue-qa`)
 
+Last updated: 2026-06-09 13:18
+
 The `autocue-qa` sub-agent is AutoCue's automated end-to-end QA harness. Every
 invocation boots a sandbox server, runs the Playwright smoke layer, drives the
 live UI through Chrome DevTools using the reference docs in

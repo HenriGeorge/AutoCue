@@ -1,3 +1,5 @@
+Last updated: 2026-06-11 13:36
+
 **Chip** — interactive pill for filters, sort buttons, genre tags. Active state is neutral by default (sort buttons reserve green for signal); use `accent="green"` for filter chips that should glow green when on.
 
 ```jsx

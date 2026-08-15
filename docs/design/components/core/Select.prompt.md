@@ -1,3 +1,5 @@
+Last updated: 2026-06-11 13:36
+
 **Select** — native dropdown matching the input style (8px radius, green focus ring), optional stacked label.
 
 ```jsx

@@ -1,5 +1,7 @@
 # AutoCue
 
+Last updated: 2026-07-10 22:20
+
 Automatically place hot cues on every track in your Rekordbox 6 or 7 library — and get
 deep intelligence about your tracks, transitions, and sets.
 

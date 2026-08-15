@@ -1,5 +1,7 @@
 # Track Classification
 
+Last updated: 2026-06-07 10:20
+
 > Deterministic, no-ML categorisation of every track in a Rekordbox library
 > into five DJ-set roles based on BPM, PWAV energy curves, and a vocal proxy.
 

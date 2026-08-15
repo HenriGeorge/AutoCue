@@ -1,5 +1,7 @@
 # AutoCue Feature Reference
 
+Last updated: 2026-06-11 08:20
+
 Deep-dive technical documentation for every AutoCue feature. Each doc is a self-contained reference covering algorithm, public API, REST surface, UI integration, edge cases, performance, and tests.
 
 For a high-level user tour, see [`../FEATURES.md`](../FEATURES.md).
