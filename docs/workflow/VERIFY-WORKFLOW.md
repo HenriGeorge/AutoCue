@@ -1,6 +1,6 @@
 # Verify Workflow (the *how* of GATE 2)
 
-Last updated: 2026-08-16 23:44
+Last updated: 2026-08-17 00:14
 
 > Companion to `rules/verify-workflow.md` — no auto-sync; edit both by hand.
 

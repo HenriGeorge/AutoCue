@@ -1,6 +1,6 @@
 # RTK — token-optimized command output (opt-in)
 
-Last updated: 2026-08-16 23:44
+Last updated: 2026-08-17 00:14
 
 RTK ("Rust Token Killer") is an optional CLI proxy that compresses the output of common dev commands
 (git, cargo/npm/pnpm, test runners, linters, psql, aws, …) **before it reaches the LLM context** —
