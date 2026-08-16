@@ -1,12 +1,12 @@
 # Scheduled Claude / daemons — `bin/cron-run.sh`
 
-Last updated: 2026-08-16 12:00
+Last updated: 2026-08-16 22:43
 
 Run recurring, unattended work — a docs-freshness sweep, a GitHub-issue triage, an event-triggered
 pipeline — by having launchd/cron fire a command inside a **dedicated, self-syncing git worktree**
 pinned to `origin/main`. The scheduled job always runs **merged main** code, never whatever branch an
 interactive session left the primary checkout on (the shared-checkout drift the `session_start` hook
-warns about). Generalizes the dekamer `dekamer-daemon-run.sh` pattern into a template primitive.
+warns about). A scheduled daemon-runner pattern packaged as a template primitive.
 
 ## When to use this vs the cloud `/schedule` routine
 
@@ -29,7 +29,7 @@ fresh checkout, so worktree isolation is free).
 usage: cron-run.sh <cmd> [args...]
   cron-run.sh claude -p "/docs-sweep"        --model claude-opus-4-8
   cron-run.sh claude -p "triage the issues"  --model claude-haiku-4-5-20251001
-  cron-run.sh npm run some-daemon            # non-claude caller (dekamer-style)
+  cron-run.sh npm run some-daemon            # non-claude caller
 ```
 
 Each run, in order:
@@ -50,8 +50,8 @@ Each run, in order:
   which refuses OAuth). The launchd/cron environment must be able to reach the login keychain.
 - **Model pinning** — when the command is `claude -p`, pin an **exact 4.x** `--model`
   (`claude-opus-4-8` for judgment work like a docs sweep, `claude-haiku-4-5-20251001` for light work
-  like triage). A bare alias (`opus`/`haiku`) resolves to Model 5 and trips
-  `tests/test_model_routing_audit.sh`. The wrapper is generic and does not inject a model for you.
+  like triage). A bare alias (`opus`/`haiku`) resolves to Model 5. The wrapper is generic and does
+  not inject a model for you.
 - **Awake** — launchd does not fire while the Mac is asleep. Prefer a slot the machine is reliably
   awake (a midday run surfaces a failure the same day; an overnight one fails invisibly), or schedule
   a wake (`sudo pmset repeat wake …`).
@@ -104,6 +104,4 @@ launchctl unload -w ~/Library/LaunchAgents/local.myproject.docs-sweep.plist   # 
 
 ## See also
 
-`bin/cron-run.sh` (the primitive) · `tests/test_cron_run.sh` (CR-01..CR-04) ·
-`.claude/rules/agent-delegation.md` (NEVER-Model-5) · `docs/workflow/HOOKS.md`
-(`worktree_create` — the in-session lifecycle this script deliberately replaces for launchd).
+`bin/cron-run.sh` (the primitive) · `.claude/rules/agent-delegation.md` (NEVER-Model-5).

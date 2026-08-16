@@ -1,6 +1,6 @@
 # Overview — how we work, at a glance
 
-Last updated: 2026-08-16 12:00
+Last updated: 2026-08-16 22:43
 
 A single visual atlas of how this project works: the **Design → Code → Prove** workflow it follows,
 and where every other doc fits. Each section links to its deep-dive. **The two laws:** _design before
@@ -59,13 +59,8 @@ flowchart TB
 
 → Deep dive: [`WORKFLOW.md`](workflow/WORKFLOW.md) · run `/workflow-diagrams` to generate this project's browsable diagram page
 
-**Hooks now ship as a plugin, not copies.** The 18 canonical hooks in the diagram above moved from
-the copy model (`setup.sh` copying files into each project's `.claude/hooks/`) to **plugin
-distribution**: two stack plugins (`claude-template-hooks-py` / `-node`) served from this repo's own
-marketplace, enabled by one committed `enabledPlugins` line. The template dogfoods it — this repo's
-hooks have run from the plugin since the Task-2 canary — and fleet adoption of the other scaffolded
-repos is a staged, human-driven rollout (`setup.sh --adopt-hooks-plugin`, dry-run first). Decision +
-adoption guide: `decisions/feat-plugin-hooks-migration.md` · README "Adopt the hooks plugin".
+The hooks in the diagram above (plus the agents, skills, and rules) ship as a plugin, enabled by one
+committed `enabledPlugins` line.
 
 ---
 
@@ -147,7 +142,7 @@ flowchart TD
     M --> D["Data → data contract<br/>(schema · idempotency · lineage)"]
 ```
 
-> **Approve the RENDERED design, not the MECHANISM** (lesson #69): pixels for UI, the contract for
+> **Approve the RENDERED design, not the MECHANISM**: pixels for UI, the contract for
 > an API, the `--help` for a CLI — before wiring real routes/data.
 
 → [`DESIGN-WORKFLOW.md`](workflow/DESIGN-WORKFLOW.md)
@@ -247,9 +242,8 @@ never whatever branch an interactive session left the primary checkout on. Enabl
 
 ## 8. Figma — two directions, official paths only
 
-The old local bridge/relay toolkit is **retired**; Figma work goes through the **official Figma
-MCP** (code → Figma via `use_figma`, Figma → code via `get_design_context`) and
-**claude-in-chrome** (the `window.figma` browser API, quota-free).
+Figma work goes through the **official Figma MCP** (code → Figma via `use_figma`, Figma → code via
+`get_design_context`) and **claude-in-chrome** (the `window.figma` browser API, quota-free).
 
 ```mermaid
 flowchart LR
@@ -265,7 +259,7 @@ flowchart LR
 
 > GATE 1 still applies: approve the rendered design before wiring data.
 
-→ _(web projects only)_ [`FIGMA-UI.md`](FIGMA-UI.md) _(retired pipelines: [`archived/`](archived/))_
+→ _(web projects only)_ [`FIGMA-UI.md`](FIGMA-UI.md)
 
 ---
 
@@ -316,9 +310,8 @@ flowchart TD
     O --> WF["WORKFLOW.md<br/>the 9 phases + profile table"]
     WF --> DW["DESIGN-WORKFLOW.md<br/>GATE 1 (the how)"]
     WF --> VW["VERIFY-WORKFLOW.md<br/>GATE 2 (the how)"]
-    O --> FU["FIGMA-UI.md<br/>figma mechanics (web) — retired pipelines in archived/"]
+    O --> FU["FIGMA-UI.md<br/>figma mechanics (web)"]
     O --> LL["lessons.md<br/>the lessons log"]
-    O --> DG["DIAGRAMS.md<br/>full diagram index by topic"]
 ```
 
 | Doc | Read it when |
@@ -326,10 +319,6 @@ flowchart TD
 | [`WORKFLOW.md`](workflow/WORKFLOW.md) | new here, or the canonical 9-phase workflow + stack profiles |
 | [`DESIGN-WORKFLOW.md`](workflow/DESIGN-WORKFLOW.md) | satisfying GATE 1 (idea → approved design) |
 | [`VERIFY-WORKFLOW.md`](workflow/VERIFY-WORKFLOW.md) | satisfying GATE 2 (proving it works) |
-| [`HOOKS.md`](workflow/HOOKS.md) | per-hook reference — decision flows, I/O contracts, bypasses, tests |
-| [`SESSION-LIFECYCLE.md`](workflow/SESSION-LIFECYCLE.md) | A-to-Z of what happens when a session starts in a project folder |
-| [`archived/FIGMA-EXPORT.md`](archived/FIGMA-EXPORT.md) / [`archived/figma-copy.md`](archived/figma-copy.md) _(web)_ | code → Figma export pipeline — **retired** (bridge toolkit) |
 | [`FIGMA-UI.md`](FIGMA-UI.md) _(web)_ | Figma-MCP mechanics, quota strategy |
 | [`lessons.md`](lessons.md) | the hard-won lessons log |
-| [`DIAGRAMS.md`](workflow/DIAGRAMS.md) | want the full index of every committed Mermaid diagram, by topic |
 | `/workflow-diagrams` | run this command to generate this project's browsable page of every committed Mermaid diagram, by topic |

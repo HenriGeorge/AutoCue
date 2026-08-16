@@ -1,6 +1,6 @@
 # Verify Workflow (the *how* of GATE 2)
 
-Last updated: 2026-08-14 13:40
+Last updated: 2026-08-16 01:44
 
 > Companion to `rules/verify-workflow.md` — no auto-sync; edit both by hand.
 
@@ -32,7 +32,7 @@ flowchart LR
   squat them and your app drives the *wrong, empty* DB — which reads as vanished data. Before
   believing it: `docker ps` for **who binds 54321/54322**, `docker ps -a` for your own db
   container's real state (`Created` / `Exited (137)` ≠ running); fix with `supabase stop &&
-  supabase start` (volumes preserved). (#178)
+  supabase start` (volumes preserved).
 - **ON FAIL** — `systematic-debugging` (root cause → ONE hypothesis → failing test → single fix), then re-run the WHOLE pipeline. Don't patch symptoms; ≥3 failed fixes → question the architecture.
 
 ### Drive the real artifact — by profile
@@ -46,7 +46,7 @@ flowchart LR
 
 - **SILENT-FAILURE CHECK** — *best-effort ≠ unobservable.* For each `try/catch` around a client call, confirm the client actually *throws* on the failure mode — many (e.g. `supabase-js rpc()`) **return `{ error }` and do NOT throw**, so the `catch` is dead code and the error is silently dropped. Read the error and log a breadcrumb even when you intentionally continue. (Pairs with `silent-failure-hunter` at REVIEW.)
 - **CLAIM** — only via `verification-before-completion`: the exact command + its real output, THIS turn, **and SHOW that evidence in your report** (a screenshot/response captured but never surfaced is half-wasted). GATE 2 passed → `WORKFLOW.md` REVIEW (`/code-review`, **distinct** from verify) takes over.
-- **ADVERSARIAL RE-VERIFY** *(optional, after CLAIM)* — `/verify-adversarial` (the `claude-template` plugin command) attacks a finished change from the assumption its summary is WRONG: scope check (every touched file ↔ a requirement), cold suite re-run under `bin/test-lock`, false-test sweep (no-assert / mock-only / mocked-SUT / skipped / expectation-copied-from-output), mutation check (break the covered code, confirm the test goes RED, explicit-path restore), checkbox audit. Report-only — it never fixes. Strongest right before REVIEW/merge, or auditing another agent's "done".
+- **ADVERSARIAL RE-VERIFY** *(optional, after CLAIM)* — the `/verify-adversarial` command attacks a finished change from the assumption its summary is WRONG: scope check (every touched file ↔ a requirement), cold suite re-run under `bin/test-lock`, false-test sweep (no-assert / mock-only / mocked-SUT / skipped / expectation-copied-from-output), mutation check (break the covered code, confirm the test goes RED, explicit-path restore), checkbox audit. Report-only — it never fixes. Strongest right before REVIEW/merge, or auditing another agent's "done".
 
 ## What counts as "fresh evidence" (the only thing GATE 2 accepts)
 

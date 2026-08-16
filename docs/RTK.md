@@ -1,6 +1,6 @@
 # RTK — token-optimized command output (opt-in)
 
-Last updated: 2026-08-14 12:55
+Last updated: 2026-08-16 01:44
 
 RTK ("Rust Token Killer") is an optional CLI proxy that compresses the output of common dev commands
 (git, cargo/npm/pnpm, test runners, linters, psql, aws, …) **before it reaches the LLM context** —
@@ -8,7 +8,6 @@ typically 60–90% fewer output bytes on noisy commands. It's a single Rust bina
 dependencies. This template ships RTK **opt-in and OFF by default**; nothing about RTK is active in a
 project until you enable it.
 
-> Decision record: [`docs/decisions/feat-rtk-template.md`](decisions/feat-rtk-template.md).
 > Skill (relevance-fired): the `claude-template:rtk` plugin skill.
 
 ## How it integrates (important: no hook at project scope)
@@ -24,8 +23,7 @@ Consequence for safety: the template's `PreToolUse` guard chain (H1–H11, deliv
 hooks plugin) still inspects the real command Claude runs. Because the `rtk `
 prefix never hides the dangerous substring, every guard still fires on the prefixed form — a
 force-push to `main`, a destructive `psql` DROP, a non-conventional commit, and `rm -rf` on a
-read-only path are all still blocked with RTK enabled. This is proven and pinned by
-`tests/test_rtk_guard_safety.sh` (Python + Node parity).
+read-only path are all still blocked with RTK enabled.
 
 The global `rtk init -g` mode (a real `PreToolUse` hook in `~/.claude/settings.json`, affecting every
 project) is **out of scope for this template** — that's a personal, machine-wide choice, not a
@@ -34,8 +32,8 @@ per-project one.
 ### Global `rtk init -g` coexistence — still guard-safe
 
 A user may run `rtk init -g` independently, installing a real global `PreToolUse` hook that rewrites
-commands machine-wide. The concern (ADR 0012 grill finding #2, issue #118): does that global hook run
-before/after this project's `pre_tool_use.py`, and can it let a dangerous command slip past H1–H10?
+commands machine-wide. The concern: does that global hook run before/after this project's
+`pre_tool_use.py`, and can it let a dangerous command slip past H1–H10?
 
 Empirically characterized against Claude Code's documented multi-hook semantics
 ([code.claude.com/docs/en/hooks](https://code.claude.com/docs/en/hooks)) — coexistence is **guard-safe
@@ -50,17 +48,15 @@ under all orderings**, for two independent reasons:
   regardless of what the other hooks decided or the (non-deterministic) order they ran in. So the
   template guard's deny is authoritative even if RTK's hook would have allowed the command.
 
-The one residual risk is unchanged from the project-scope case and already tracked as grill finding #1:
-RTK's rewrite is *additive* today (`git … → rtk git …`), so even in the hypothetical where the guard
-*did* see the rewritten form it still matches. A future RTK that rewrote in an *obfuscating* way
-(subshell/encoding hiding the dangerous substring) could defeat a regex guard — but only for what
-*executes*, and the live `rtk rewrite` assertion in `tests/test_rtk_guard_safety.sh` fails loudly if
-the rewrite shape ever stops being additive. Version-pin with `brew pin rtk` if that matters to you.
+The one residual risk is unchanged from the project-scope case: RTK's rewrite is *additive* today
+(`git … → rtk git …`), so even in the hypothetical where the guard *did* see the rewritten form it
+still matches. A future RTK that rewrote in an *obfuscating* way (subshell/encoding hiding the
+dangerous substring) could defeat a regex guard — but only for what *executes*. Version-pin with
+`brew pin rtk` if that matters to you.
 
-This coexistence invariant is regression-pinned by the `coexist(#118)` cases in
-`tests/test_rtk_guard_safety.sh`: the template guard yields the **identical block decision** on the
-original command and on RTK's `rtk `-prefixed form, so neither hook order nor RTK's rewrite can change
-the outcome.
+The coexistence invariant holds because the template guard yields the **identical block decision** on
+the original command and on RTK's `rtk `-prefixed form, so neither hook order nor RTK's rewrite can
+change the outcome.
 
 ## Enable / disable
 
