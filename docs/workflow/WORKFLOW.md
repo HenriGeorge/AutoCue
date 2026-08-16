@@ -191,8 +191,7 @@ Use a worktree for 2+ independent features or to keep `main` pristine — one wr
 read-only auditors/researchers need no worktree at all. Always run automated suites via
 `bin/test-lock -- <cmd>` — the `test_lock_enforce` PreToolUse hook denies raw suite runs so the
 lock can't be forgotten. Teammates are in-process Agent-tool spawns coordinated via SendMessage
-(the `teammate_idle` hook keeps one working while it still owns tasks); the old tmux pane cockpit
-is retired.
+(the `teammate_idle` hook keeps one working while it still owns tasks).
 
 ## Conventions & file locations
 

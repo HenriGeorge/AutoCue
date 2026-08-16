@@ -1,6 +1,6 @@
 # Overview — how we work, at a glance
 
-Last updated: 2026-08-16 22:43
+Last updated: 2026-08-16 23:44
 
 A single visual atlas of how this project works: the **Design → Code → Prove** workflow it follows,
 and where every other doc fits. Each section links to its deep-dive. **The two laws:** _design before
