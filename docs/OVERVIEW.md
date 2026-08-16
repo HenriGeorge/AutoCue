@@ -1,6 +1,6 @@
 # Overview — how we work, at a glance
 
-Last updated: 2026-08-14 21:30
+Last updated: 2026-08-16 12:00
 
 A single visual atlas of how this project works: the **Design → Code → Prove** workflow it follows,
 and where every other doc fits. Each section links to its deep-dive. **The two laws:** _design before
@@ -11,19 +11,17 @@ code_ (GATE 1), _evidence before "done"_ (GATE 2) — and before either, _sync t
 ## 1. What this is — three layers, one lifecycle
 
 The same **Design → Code → Prove** workflow applies to **any** stack — web, service/API, CLI/library,
-or data. Three layers (Superpowers, optional BMAD, native worktrees + the hook layer) compose into
+or data. Two layers (Superpowers, native worktrees + the hook layer) compose into
 one spine.
 
 ```mermaid
 flowchart TD
     You["You: 'add a login page' / 'fix this bug'"] --> SP
-    subgraph layers["The three layers"]
+    subgraph layers["The two layers"]
       SP["Superpowers<br/>execution engine — skills auto-fire"]
-      BMAD["BMAD (optional)<br/>heavy upfront planning for epics"]
       CW["native worktrees + hooks<br/>isolation + parallelism in BUILD"]
     end
     SP --> Spine["The 9-phase spine + the gates"]
-    BMAD -.feeds.-> Spine
     CW -.isolates.-> Spine
     Spine --> Out["shipped, verified work"]
     classDef law fill:#ffe9e9,stroke:#d33,stroke-width:2px,color:#333;
@@ -96,7 +94,7 @@ flowchart LR
     Q1 -->|yes| Inline["inline — GATE 2 still applies"]
     Q1 -->|no| Q2{Large / multi-feature?}
     Q2 -->|no| Std["the 9 phases — skills auto-fire"]
-    Q2 -->|yes| Heavy["BMAD planning first,<br/>then 9 phases per story"]
+    Q2 -->|yes| Heavy["decompose with writing-plans,<br/>then 9 phases per plan step"]
 ```
 
 → [`WORKFLOW.md`](workflow/WORKFLOW.md)
@@ -238,6 +236,12 @@ denies raw suite runs).
 command output before it reaches the LLM. Instruction-based (no PreToolUse hook at project scope),
 telemetry forced off, and the H1–H10 guards still fire on its `rtk `-prefixed commands.
 → [`RTK.md`](RTK.md)
+
+**Optional — Scheduled runs via `bin/cron-run.sh`.** An opt-in (OFF by default) wrapper that runs
+recurring, unattended work (`claude -p` prompts or a plain daemon) in a dedicated, self-syncing git
+worktree pinned to `origin/main` via launchd/cron — a scheduled job always runs merged main code,
+never whatever branch an interactive session left the primary checkout on. Enable with
+`CRON_ENABLE=1` in `.claude/worktrees.conf`. → [`CRON.md`](CRON.md)
 
 ---
 

@@ -1,5 +1,9 @@
 # AutoCue — Claude Code Guide
 
+## How we work — canonical workflow
+
+Follow **`docs/WORKFLOW.md`** (Design → Code → Prove; two hard gates: design before code, evidence before "done"). The machine-global rules in `~/.claude/rules/*.md` are the source of truth and auto-load each session; `docs/WORKFLOW.md` is this project's stamped copy. See `docs/CC-WORKTREES.md` for isolated/parallel work.
+
 ## Browser testing
 
 When doing browser testing or UI verification with Chrome DevTools tools:
